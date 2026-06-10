@@ -621,14 +621,16 @@ def _send_feedback_email(name, message):
 
 @app.route('/admin/delete-activity', methods=['POST'])
 def delete_activity():
-    if not session.get('admin'):
+    # Allow any authenticated user to delete their own entries
+    # Only admin can delete anyone's entries
+    if not session.get('user_key'):
         return jsonify({'error': 'Unauthorized'}), 401
-    item_type = request.form.get('type')  # 'proposal', 'ppm', 'subscope'
+    item_type = request.form.get('type')
     item_id   = request.form.get('id')
     user_key  = request.form.get('user_key')
-    # Only allow deleting Thomas's own records
-    if user_key != 'thomas_ellison':
-        return jsonify({'error': 'Can only delete your own test data'}), 403
+    # Must be deleting own record OR be admin
+    if user_key != session.get('user_key') and session.get('role') != 'admin':
+        return jsonify({'error': 'Can only delete your own entries'}), 403
     table_map = {'proposal': 'proposal_log', 'ppm': 'ppm_log', 'subscope': 'subscope_log'}
     table = table_map.get(item_type)
     if not table:
@@ -649,7 +651,7 @@ def delete_activity():
 
 @app.route('/admin/clear-my-data', methods=['POST'])
 def clear_my_data():
-    if not session.get('admin'):
+    if session.get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db()
@@ -667,7 +669,7 @@ def clear_my_data():
 
 @app.route('/admin/clear-my-profile', methods=['POST'])
 def clear_my_profile():
-    if not session.get('admin'):
+    if session.get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db()

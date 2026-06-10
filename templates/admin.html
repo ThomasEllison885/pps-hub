@@ -166,7 +166,7 @@
       <div class="act-card-header">
         <h3>Proposals Generated</h3>
         <div style="display:flex;gap:6px;">
-          <button class="clear-btn" onclick="clearMyData()">Clear My Activity</button>
+          <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
           <button class="clear-btn" onclick="clearMyProfile()" style="background:#f0e8ff;color:#6A1B9A;border-color:#CE93D8;">Clear My Profile</button>
         </div>
       </div>
@@ -177,9 +177,7 @@
           <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
           <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        {% if p.generated_by == 'thomas_ellison' %}
-        <button class="delete-btn" onclick="deleteItem('proposal', {{ p.id }}, 'thomas_ellison')" title="Delete">✕</button>
-        {% endif %}
+        <button class="delete-btn" onclick="deleteItem('proposal', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No proposals logged yet</div>{% endif %}
@@ -196,9 +194,7 @@
           <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
           <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        {% if p.generated_by == 'thomas_ellison' %}
-        <button class="delete-btn" onclick="deleteItem('ppm', {{ p.id }}, 'thomas_ellison')" title="Delete">✕</button>
-        {% endif %}
+        <button class="delete-btn" onclick="deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No PPMs logged yet</div>{% endif %}
