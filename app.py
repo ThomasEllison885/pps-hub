@@ -318,6 +318,7 @@ def login():
                 session['user_key'] = user_key
                 session['display_name'] = user['display']
                 session['role'] = 'admin'
+                session['admin'] = True
                 session['proposal_access'] = list(CONSULTANTS.keys())
                 _update_last_login(user_key)
                 return redirect(url_for('dashboard'))
@@ -656,6 +657,23 @@ def clear_my_data():
             cur = conn.cursor()
             for table in ['proposal_log', 'ppm_log', 'subscope_log']:
                 cur.execute(f"DELETE FROM {table} WHERE generated_by = 'thomas_ellison'")
+            conn.commit()
+            cur.close()
+            conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/clear-my-profile', methods=['POST'])
+def clear_my_profile():
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM profile_results WHERE LOWER(name) = LOWER('Thomas Ellison')")
             conn.commit()
             cur.close()
             conn.close()

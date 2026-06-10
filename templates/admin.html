@@ -165,7 +165,10 @@
     <div class="act-card">
       <div class="act-card-header">
         <h3>Proposals Generated</h3>
-        <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
+        <div style="display:flex;gap:6px;">
+          <button class="clear-btn" onclick="clearMyData()">Clear My Activity</button>
+          <button class="clear-btn" onclick="clearMyProfile()" style="background:#f0e8ff;color:#6A1B9A;border-color:#CE93D8;">Clear My Profile</button>
+        </div>
       </div>
       {% if all_proposals %}
       {% for p in all_proposals[:20] %}
@@ -302,6 +305,13 @@
     const r = await fetch('/admin/clear-my-data', { method: 'POST' });
     const d = await r.json();
     if (d.success) location.reload();
+  }
+
+  async function clearMyProfile() {
+    if (!confirm('Delete your profile results? You will need to retake the assessment.')) return;
+    const r = await fetch('/admin/clear-my-profile', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) { alert('Profile results cleared.'); location.reload(); }
   }
 </script>
 </body>
