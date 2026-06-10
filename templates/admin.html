@@ -4,141 +4,151 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS Hub · Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0a0a0a; color: #fff; min-height: 100vh; }
-  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; border-bottom: 1px solid #1a1a1a; }
-  .nav-brand { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #B8922A; font-weight: 600; }
-  .nav-links a { color: #666; text-decoration: none; font-size: 13px; margin-left: 20px; transition: color 0.2s; }
-  .nav-links a:hover { color: #fff; }
-  .page { max-width: 1100px; margin: 0 auto; padding: 44px 24px 80px; }
-  h1 { font-size: 32px; font-weight: 700; margin-bottom: 6px; }
-  h1 span { color: #B8922A; }
-  .subtitle { color: #555; font-size: 14px; margin-bottom: 40px; }
+  :root {
+    --blue: #0096D6;
+    --dark-blue: #004C8C;
+    --light-bg: #EBF6FC;
+    --gray: #444444;
+    --border: #D8E8F2;
+    --shadow: 0 2px 16px rgba(0,76,140,0.08);
+    --radius: 10px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: var(--gray); min-height: 100vh; }
+
+  .header { background: var(--dark-blue); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 64px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+  .header-left { display: flex; align-items: center; gap: 14px; }
+  .header-brand { color: white; font-size: 18px; font-weight: 600; }
+  .header-title { color: rgba(255,255,255,0.7); font-size: 14px; }
+  .header-btn { background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none; transition: background 0.2s; }
+  .header-btn:hover { background: rgba(255,255,255,0.2); }
+
+  .main { max-width: 1100px; margin: 0 auto; padding: 36px 24px 60px; }
+  .page-title { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--dark-blue); margin-bottom: 4px; }
+  .page-sub { font-size: 14px; color: #888; margin-bottom: 32px; }
 
   /* STATS */
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 44px; }
-  .stat { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 20px; text-align: center; }
-  .stat .num { font-size: 32px; font-weight: 700; color: #B8922A; }
-  .stat .lbl { font-size: 11px; color: #555; letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 36px; }
+  .stat { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; text-align: center; }
+  .stat .num { font-family: 'DM Serif Display', serif; font-size: 36px; color: var(--dark-blue); }
+  .stat .lbl { font-size: 11px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
 
   /* SECTION */
-  .section-label { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #B8922A; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #1a1a1a; }
+  .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
 
   /* TEAM TABLE */
-  table { width: 100%; border-collapse: collapse; margin-bottom: 44px; }
-  th { text-align: left; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #555; padding: 10px 14px; border-bottom: 1px solid #1a1a1a; }
-  td { padding: 13px 14px; border-bottom: 1px solid #0f0f0f; font-size: 14px; vertical-align: middle; }
-  tr:hover td { background: #0d0d0d; }
-  .role-badge { display: inline-block; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 3px 10px; font-size: 11px; color: #888; text-transform: capitalize; }
-  .role-badge.admin { border-color: #B8922A; color: #B8922A; background: #141008; }
-  .role-badge.consultant { border-color: #1a3a1a; color: #4a9a4a; background: #0a120a; }
-  .reset-btn { background: transparent; border: 1px solid #333; color: #666; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
-  .reset-btn:hover { border-color: #B8922A; color: #B8922A; }
-  .last-login { font-size: 12px; color: #444; }
+  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dark-blue); padding: 12px 16px; background: var(--light-bg); border-bottom: 1.5px solid var(--border); }
+  td { padding: 12px 16px; border-bottom: 1px solid #f0f4f8; font-size: 14px; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafcff; }
+  .role-badge { display: inline-block; border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
+  .role-badge.admin { background: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; }
+  .role-badge.consultant { background: #E8F5E9; color: #2E7D32; border: 1px solid #81C784; }
+  .role-badge.pm { background: var(--light-bg); color: var(--dark-blue); border: 1px solid var(--border); }
+  .role-badge.office_manager { background: #F3E5F5; color: #6A1B9A; border: 1px solid #CE93D8; }
+  .reset-btn { background: white; border: 1.5px solid var(--border); color: var(--blue); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
+  .reset-btn:hover { border-color: var(--blue); background: var(--light-bg); }
+  .last-login { font-size: 12px; color: #aaa; }
+  .name-cell { font-weight: 600; color: var(--dark-blue); }
 
-  /* ACTIVITY TABLES */
-  .activity-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .activity-card { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 24px; }
-  .activity-card h3 { font-size: 13px; font-weight: 600; color: #888; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
-  .act-item { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 11px 14px; margin-bottom: 8px; }
-  .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
-  .act-name { font-size: 14px; color: #ddd; font-weight: 500; }
-  .act-date { font-size: 11px; color: #444; }
-  .act-meta { font-size: 12px; color: #555; }
-  .empty { color: #333; font-size: 14px; padding: 20px 0; text-align: center; }
+  /* ACTIVITY */
+  .activity-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .act-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; }
+  .act-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
+  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
+  .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
+  .act-name { font-size: 13px; font-weight: 600; color: var(--dark-blue); }
+  .act-date { font-size: 11px; color: #aaa; }
+  .act-meta { font-size: 12px; color: #888; }
+  .empty { color: #bbb; font-size: 13px; padding: 16px 0; text-align: center; }
 
-  /* PASSWORD RESET MODAL */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 999; align-items: center; justify-content: center; }
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,40,80,0.5); z-index: 999; align-items: center; justify-content: center; }
   .modal-overlay.active { display: flex; }
-  .modal { background: #111; border: 1px solid #2a2a2a; border-radius: 12px; padding: 32px; width: 90%; max-width: 400px; }
-  .modal h3 { font-size: 18px; margin-bottom: 6px; }
-  .modal p { color: #666; font-size: 14px; margin-bottom: 20px; }
-  .modal input { width: 100%; background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px 16px; color: #fff; font-size: 15px; font-family: inherit; outline: none; margin-bottom: 16px; }
-  .modal input:focus { border-color: #B8922A; }
+  .modal { background: white; border-radius: var(--radius); box-shadow: 0 8px 40px rgba(0,0,0,0.2); padding: 32px; width: 90%; max-width: 400px; }
+  .modal h3 { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--dark-blue); margin-bottom: 6px; }
+  .modal p { font-size: 14px; color: #888; margin-bottom: 20px; }
+  .modal input { width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--gray); outline: none; margin-bottom: 16px; transition: border-color 0.2s; }
+  .modal input:focus { border-color: var(--blue); }
   .modal-btns { display: flex; gap: 10px; }
-  .modal-btns button { flex: 1; padding: 12px; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; font-weight: 600; }
-  .btn-confirm { background: #B8922A; color: #fff; border: none; }
-  .btn-confirm:hover { background: #a07820; }
-  .btn-cancel { background: transparent; color: #666; border: 1px solid #333; }
-  .btn-cancel:hover { color: #fff; border-color: #666; }
+  .modal-btns button { flex: 1; padding: 11px; border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; cursor: pointer; font-weight: 600; }
+  .btn-confirm { background: var(--dark-blue); color: white; border: none; transition: background 0.2s; }
+  .btn-confirm:hover { background: var(--blue); }
+  .btn-cancel { background: white; color: #888; border: 1.5px solid var(--border); transition: all 0.2s; }
+  .btn-cancel:hover { border-color: #aaa; color: var(--gray); }
   .modal-msg { font-size: 13px; margin-top: 12px; min-height: 18px; }
-  .modal-msg.success { color: #4a9a4a; }
-  .modal-msg.error { color: #e05555; }
+  .modal-msg.success { color: #2E7D32; }
+  .modal-msg.error { color: #C00; }
 </style>
 </head>
 <body>
 
-<nav>
-  <div class="nav-brand">PPS Hub · Admin</div>
-  <div class="nav-links">
-    <a href="/dashboard">Dashboard</a>
-    <a href="/logout">Sign Out</a>
+<div class="header">
+  <div class="header-left">
+    <div class="header-brand">PPS Hub</div>
+    <div class="header-title">Admin Panel</div>
   </div>
-</nav>
+  <div style="display:flex;gap:10px;">
+    <a href="/dashboard" class="header-btn">Dashboard</a>
+    <a href="/logout" class="header-btn">Sign Out</a>
+  </div>
+</div>
 
-<div class="page">
-  <h1>Admin <span>Panel</span></h1>
-  <p class="subtitle">Pure Property Solutions · Full team overview</p>
+<div class="main">
+  <div class="page-title">Team Overview</div>
+  <p class="page-sub">Pure Property Solutions · All users and activity</p>
 
   <!-- STATS -->
   <div class="stats">
-    <div class="stat">
-      <div class="num">{{ users|length }}</div>
-      <div class="lbl">Team Members</div>
-    </div>
-    <div class="stat">
-      <div class="num">{{ all_proposals|length }}</div>
-      <div class="lbl">Proposals (Recent)</div>
-    </div>
-    <div class="stat">
-      <div class="num">{{ all_ppms|length }}</div>
-      <div class="lbl">PPMs (Recent)</div>
-    </div>
-    <div class="stat">
-      <div class="num">{{ users|selectattr('last_login')|list|length }}</div>
-      <div class="lbl">Active Users</div>
-    </div>
+    <div class="stat"><div class="num">{{ users|length }}</div><div class="lbl">Team Members</div></div>
+    <div class="stat"><div class="num">{{ all_proposals|length }}</div><div class="lbl">Recent Proposals</div></div>
+    <div class="stat"><div class="num">{{ all_ppms|length }}</div><div class="lbl">Recent PPMs</div></div>
+    <div class="stat"><div class="num">{{ users|selectattr('last_login')|list|length }}</div><div class="lbl">Active Users</div></div>
   </div>
 
   <!-- TEAM -->
-  <div class="section-label">Team Members</div>
-  <table>
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Role</th>
-        <th>Proposal Access</th>
-        <th>Last Login</th>
-        <th>Password</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for u in users %}
-      {% set udef = user_definitions.get(u.user_key, {}) %}
-      <tr>
-        <td style="font-weight:500;color:#ddd;">{{ u.display_name }}</td>
-        <td><span class="role-badge {{ u.role }}">{{ u.role.replace('_', ' ') }}</span></td>
-        <td style="color:#666;font-size:13px;">
-          {% set access = udef.get('proposal_access', []) %}
-          {% if access == 'all' %}All Consultants
-          {% elif access|length == 0 %}None
-          {% else %}{{ access|join(', ')|replace('_', ' ')|title }}
-          {% endif %}
-        </td>
-        <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
-        <td>
-          <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="section-head">Team Members</div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Proposal Access</th>
+          <th>Last Login</th>
+          <th>Password</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        {% set udef = user_definitions.get(u.user_key, {}) %}
+        <tr>
+          <td class="name-cell">{{ u.display_name }}</td>
+          <td><span class="role-badge {{ u.role }}">{{ u.role.replace('_',' ') }}</span></td>
+          <td style="font-size:13px;color:#888;">
+            {% set access = udef.get('proposal_access', []) %}
+            {% if access == 'all' %}All Consultants
+            {% elif access|length == 0 %}None
+            {% else %}{{ access|join(', ')|replace('_',' ')|title }}
+            {% endif %}
+          </td>
+          <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
+          <td><button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
   <!-- ACTIVITY -->
-  <div class="section-label">Recent Activity</div>
+  <div class="section-head">Recent Activity</div>
   <div class="activity-row">
-    <div class="activity-card">
+    <div class="act-card">
       <h3>Proposals Generated</h3>
       {% if all_proposals %}
       {% for p in all_proposals[:20] %}
@@ -154,8 +164,7 @@
       <div class="empty">No proposals logged yet</div>
       {% endif %}
     </div>
-
-    <div class="activity-card">
+    <div class="act-card">
       <h3>PPMs Generated</h3>
       {% if all_ppms %}
       {% for p in all_ppms[:20] %}
@@ -174,7 +183,7 @@
   </div>
 </div>
 
-<!-- PASSWORD RESET MODAL -->
+<!-- MODAL -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <h3>Reset Password</h3>
@@ -190,7 +199,6 @@
 
 <script>
   let activeUserKey = null;
-
   function openReset(userKey, displayName) {
     activeUserKey = userKey;
     document.getElementById('modalSubtitle').textContent = `Set a new password for ${displayName}.`;
@@ -199,12 +207,10 @@
     document.getElementById('modalMsg').className = 'modal-msg';
     document.getElementById('modalOverlay').classList.add('active');
   }
-
   function closeReset() {
     document.getElementById('modalOverlay').classList.remove('active');
     activeUserKey = null;
   }
-
   async function confirmReset() {
     const password = document.getElementById('newPasswordInput').value.trim();
     const msg = document.getElementById('modalMsg');
@@ -232,7 +238,6 @@
       msg.className = 'modal-msg error';
     }
   }
-
   document.getElementById('modalOverlay').addEventListener('click', function(e) {
     if (e.target === this) closeReset();
   });
