@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Admin</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0a0a0a; color: #fff; min-height: 100vh; }
+  nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 40px; border-bottom: 1px solid #1a1a1a; }
+  .nav-brand { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #B8922A; font-weight: 600; }
+  .nav-links a { color: #666; text-decoration: none; font-size: 13px; margin-left: 20px; transition: color 0.2s; }
+  .nav-links a:hover { color: #fff; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 44px 24px 80px; }
+  h1 { font-size: 32px; font-weight: 700; margin-bottom: 6px; }
+  h1 span { color: #B8922A; }
+  .subtitle { color: #555; font-size: 14px; margin-bottom: 40px; }
+
+  /* STATS */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 44px; }
+  .stat { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 20px; text-align: center; }
+  .stat .num { font-size: 32px; font-weight: 700; color: #B8922A; }
+  .stat .lbl { font-size: 11px; color: #555; letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+
+  /* SECTION */
+  .section-label { font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: #B8922A; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid #1a1a1a; }
+
+  /* TEAM TABLE */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 44px; }
+  th { text-align: left; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #555; padding: 10px 14px; border-bottom: 1px solid #1a1a1a; }
+  td { padding: 13px 14px; border-bottom: 1px solid #0f0f0f; font-size: 14px; vertical-align: middle; }
+  tr:hover td { background: #0d0d0d; }
+  .role-badge { display: inline-block; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px; padding: 3px 10px; font-size: 11px; color: #888; text-transform: capitalize; }
+  .role-badge.admin { border-color: #B8922A; color: #B8922A; background: #141008; }
+  .role-badge.consultant { border-color: #1a3a1a; color: #4a9a4a; background: #0a120a; }
+  .reset-btn { background: transparent; border: 1px solid #333; color: #666; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+  .reset-btn:hover { border-color: #B8922A; color: #B8922A; }
+  .last-login { font-size: 12px; color: #444; }
+
+  /* ACTIVITY TABLES */
+  .activity-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .activity-card { background: #111; border: 1px solid #1e1e1e; border-radius: 10px; padding: 24px; }
+  .activity-card h3 { font-size: 13px; font-weight: 600; color: #888; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
+  .act-item { background: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 8px; padding: 11px 14px; margin-bottom: 8px; }
+  .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+  .act-name { font-size: 14px; color: #ddd; font-weight: 500; }
+  .act-date { font-size: 11px; color: #444; }
+  .act-meta { font-size: 12px; color: #555; }
+  .empty { color: #333; font-size: 14px; padding: 20px 0; text-align: center; }
+
+  /* PASSWORD RESET MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 999; align-items: center; justify-content: center; }
+  .modal-overlay.active { display: flex; }
+  .modal { background: #111; border: 1px solid #2a2a2a; border-radius: 12px; padding: 32px; width: 90%; max-width: 400px; }
+  .modal h3 { font-size: 18px; margin-bottom: 6px; }
+  .modal p { color: #666; font-size: 14px; margin-bottom: 20px; }
+  .modal input { width: 100%; background: #0a0a0a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px 16px; color: #fff; font-size: 15px; font-family: inherit; outline: none; margin-bottom: 16px; }
+  .modal input:focus { border-color: #B8922A; }
+  .modal-btns { display: flex; gap: 10px; }
+  .modal-btns button { flex: 1; padding: 12px; border-radius: 8px; font-size: 14px; font-family: inherit; cursor: pointer; font-weight: 600; }
+  .btn-confirm { background: #B8922A; color: #fff; border: none; }
+  .btn-confirm:hover { background: #a07820; }
+  .btn-cancel { background: transparent; color: #666; border: 1px solid #333; }
+  .btn-cancel:hover { color: #fff; border-color: #666; }
+  .modal-msg { font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .modal-msg.success { color: #4a9a4a; }
+  .modal-msg.error { color: #e05555; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-brand">PPS Hub · Admin</div>
+  <div class="nav-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="/logout">Sign Out</a>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Admin <span>Panel</span></h1>
+  <p class="subtitle">Pure Property Solutions · Full team overview</p>
+
+  <!-- STATS -->
+  <div class="stats">
+    <div class="stat">
+      <div class="num">{{ users|length }}</div>
+      <div class="lbl">Team Members</div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ all_proposals|length }}</div>
+      <div class="lbl">Proposals (Recent)</div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ all_ppms|length }}</div>
+      <div class="lbl">PPMs (Recent)</div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ users|selectattr('last_login')|list|length }}</div>
+      <div class="lbl">Active Users</div>
+    </div>
+  </div>
+
+  <!-- TEAM -->
+  <div class="section-label">Team Members</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Proposal Access</th>
+        <th>Last Login</th>
+        <th>Password</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      {% set udef = user_definitions.get(u.user_key, {}) %}
+      <tr>
+        <td style="font-weight:500;color:#ddd;">{{ u.display_name }}</td>
+        <td><span class="role-badge {{ u.role }}">{{ u.role.replace('_', ' ') }}</span></td>
+        <td style="color:#666;font-size:13px;">
+          {% set access = udef.get('proposal_access', []) %}
+          {% if access == 'all' %}All Consultants
+          {% elif access|length == 0 %}None
+          {% else %}{{ access|join(', ')|replace('_', ' ')|title }}
+          {% endif %}
+        </td>
+        <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
+        <td>
+          <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- ACTIVITY -->
+  <div class="section-label">Recent Activity</div>
+  <div class="activity-row">
+    <div class="activity-card">
+      <h3>Proposals Generated</h3>
+      {% if all_proposals %}
+      {% for p in all_proposals[:20] %}
+      <div class="act-item">
+        <div class="act-top">
+          <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
+          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+        </div>
+        <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.property_type or '' }}</div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty">No proposals logged yet</div>
+      {% endif %}
+    </div>
+
+    <div class="activity-card">
+      <h3>PPMs Generated</h3>
+      {% if all_ppms %}
+      {% for p in all_ppms[:20] %}
+      <div class="act-item">
+        <div class="act-top">
+          <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
+          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+        </div>
+        <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }}</div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty">No PPMs logged yet</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- PASSWORD RESET MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h3>Reset Password</h3>
+    <p id="modalSubtitle">Set a new password for this team member.</p>
+    <input type="password" id="newPasswordInput" placeholder="New password (min 6 characters)">
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeReset()">Cancel</button>
+      <button class="btn-confirm" onclick="confirmReset()">Reset Password</button>
+    </div>
+    <div class="modal-msg" id="modalMsg"></div>
+  </div>
+</div>
+
+<script>
+  let activeUserKey = null;
+
+  function openReset(userKey, displayName) {
+    activeUserKey = userKey;
+    document.getElementById('modalSubtitle').textContent = `Set a new password for ${displayName}.`;
+    document.getElementById('newPasswordInput').value = '';
+    document.getElementById('modalMsg').textContent = '';
+    document.getElementById('modalMsg').className = 'modal-msg';
+    document.getElementById('modalOverlay').classList.add('active');
+  }
+
+  function closeReset() {
+    document.getElementById('modalOverlay').classList.remove('active');
+    activeUserKey = null;
+  }
+
+  async function confirmReset() {
+    const password = document.getElementById('newPasswordInput').value.trim();
+    const msg = document.getElementById('modalMsg');
+    if (!password || password.length < 6) {
+      msg.textContent = 'Password must be at least 6 characters.';
+      msg.className = 'modal-msg error';
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append('user_key', activeUserKey);
+      formData.append('new_password', password);
+      const resp = await fetch('/admin/reset-password', { method: 'POST', body: formData });
+      const data = await resp.json();
+      if (data.success) {
+        msg.textContent = 'Password updated successfully.';
+        msg.className = 'modal-msg success';
+        setTimeout(closeReset, 1500);
+      } else {
+        msg.textContent = data.error || 'Something went wrong.';
+        msg.className = 'modal-msg error';
+      }
+    } catch(e) {
+      msg.textContent = 'Network error. Please try again.';
+      msg.className = 'modal-msg error';
+    }
+  }
+
+  document.getElementById('modalOverlay').addEventListener('click', function(e) {
+    if (e.target === this) closeReset();
+  });
+</script>
+</body>
+</html>
