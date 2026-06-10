@@ -686,7 +686,7 @@ def clear_my_profile():
 
 @app.route('/admin/member/<user_key>')
 def admin_member(user_key):
-    if not session.get('admin'):
+    if session.get('role') != 'admin':
         return redirect(url_for('login'))
     user_def = USERS.get(user_key)
     if not user_def:
@@ -720,7 +720,7 @@ def admin_member(user_key):
 
 @app.route('/admin/feedback')
 def admin_feedback():
-    if not session.get('admin'):
+    if session.get('role') != 'admin':
         return redirect(url_for('login'))
     items = []
     try:
