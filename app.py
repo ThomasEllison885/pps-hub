@@ -486,10 +486,42 @@ def admin():
             conn.close()
     except Exception as e:
         print(f"Admin error: {e}")
-    return render_template('admin.html',
-                           users=rows,
-                           all_proposals=all_proposals,
-                           all_ppms=all_ppms,
+    all_subscopes = []
+    profile_rows = []
+    profiles_taken = {}
+    profile_count = 0
+    unread_feedback = 0
+    try:
+        conn2 = get_db()
+        if conn2:
+            cur2 = conn2.cursor(cursor_factory=RealDictCursor)
+            try:
+                cur2.execute('SELECT * FROM subscope_log ORDER BY generated_at DESC LIMIT 50')
+                all_subscopes = cur2.fetchall()
+            except: pass
+            try:
+                cur2.execute('SELECT id, name, taken_date, primary_disc, secondary_disc, primary_motiv, character_match, character_show FROM profile_results ORDER BY taken_date DESC')
+                profile_rows = cur2.fetchall()
+                profile_count = len(profile_rows)
+                for r in profile_rows:
+                    key = r['name'].lower().replace(' ', '_')
+                    if key not in profiles_taken:
+                        profiles_taken[key] = r['taken_date']
+            except: pass
+            try:
+                cur2.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
+                unread_feedback = cur2.fetchone()['cnt']
+            except: pass
+            cur2.close()
+            conn2.close()
+    except Exception as e:
+        print(f"Admin extra data error: {e}")
+
+    return render_template('admin.html', users=rows, all_proposals=all_proposals,
+                           all_ppms=all_ppms, all_subscopes=all_subscopes,
+                           profile_rows=profile_rows, profiles_taken=profiles_taken,
+                           profile_count=profile_count, unread_feedback=unread_feedback,
+                           selected_year=2026,
                            user_definitions=USERS)
 
 
