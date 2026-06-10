@@ -155,6 +155,31 @@ def init_db():
         )
     ''')
 
+    # Subscope log table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS subscope_log (
+            id SERIAL PRIMARY KEY,
+            generated_by VARCHAR(100) NOT NULL,
+            property_name VARCHAR(255),
+            pm_name VARCHAR(255),
+            consultant_name VARCHAR(255),
+            language VARCHAR(50),
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+
+    # Feedback table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS feedback (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            read_by_admin BOOLEAN DEFAULT FALSE
+        )
+    ''')
+
     # Seed users with default password if not exists
     default_password = os.environ.get('DEFAULT_PASSWORD', 'PPS2026!')
     for key, user in USERS.items():
@@ -352,13 +377,18 @@ def dashboard():
     recent_ppms = get_recent_ppms(user_key)
     profile = get_profile_result(user_key)
 
+    from datetime import datetime as _dt
+    now_year = _dt.now().year
+    # Check if profile taken this year
+    profile_this_year = profile and profile.get('taken_date') and str(profile['taken_date'])[:4] == str(now_year) if profile else False
     return render_template('dashboard.html',
                            user=user,
                            user_key=user_key,
                            consultants=accessible_consultants,
                            recent_proposals=recent_proposals,
                            recent_ppms=recent_ppms,
-                           profile=profile,
+                           profile=profile if profile_this_year else None,
+                           now_year=now_year,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
                            profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
 
@@ -482,6 +512,179 @@ def reset_password():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/log-subscope', methods=['POST'])
+def log_subscope():
+    data = request.get_json()
+    api_key = request.headers.get('X-API-Key', '')
+    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO subscope_log (generated_by, property_name, pm_name, consultant_name, language)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (data.get('generated_by'), data.get('property_name'),
+                 data.get('pm_name'), data.get('consultant_name'), data.get('language'))
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/feedback', methods=['POST'])
+def submit_feedback():
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    message = request.form.get('message', '').strip()
+    if not message:
+        return jsonify({'error': 'Message is required'}), 400
+    user_key = session['user_key']
+    display_name = session.get('display_name', '')
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                'INSERT INTO feedback (user_key, display_name, message) VALUES (%s, %s, %s)',
+                (user_key, display_name, message)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        # Send email
+        _send_feedback_email(display_name, message)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def _send_feedback_email(name, message):
+    import smtplib
+    from email.mime.text import MIMEText
+    smtp_host = os.environ.get('SMTP_HOST', '')
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+    if not smtp_host:
+        print(f"Feedback from {name}: {message}")
+        return
+    try:
+        msg = MIMEText(f"Feedback from {name}:\n\n{message}")
+        msg['Subject'] = f'PPS Hub Feedback — {name}'
+        msg['From'] = smtp_user
+        msg['To'] = 'thomas@purepropsolutions.com'
+        with smtplib.SMTP_SSL(smtp_host, 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.send_message(msg)
+    except Exception as e:
+        print(f"Email send failed: {e}")
+
+
+@app.route('/admin/delete-activity', methods=['POST'])
+def delete_activity():
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    item_type = request.form.get('type')  # 'proposal', 'ppm', 'subscope'
+    item_id   = request.form.get('id')
+    user_key  = request.form.get('user_key')
+    # Only allow deleting Thomas's own records
+    if user_key != 'thomas_ellison':
+        return jsonify({'error': 'Can only delete your own test data'}), 403
+    table_map = {'proposal': 'proposal_log', 'ppm': 'ppm_log', 'subscope': 'subscope_log'}
+    table = table_map.get(item_type)
+    if not table:
+        return jsonify({'error': 'Invalid type'}), 400
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(f'DELETE FROM {table} WHERE id = %s AND generated_by = %s',
+                        (item_id, 'thomas_ellison'))
+            conn.commit()
+            cur.close()
+            conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/clear-my-data', methods=['POST'])
+def clear_my_data():
+    if not session.get('admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            for table in ['proposal_log', 'ppm_log', 'subscope_log']:
+                cur.execute(f"DELETE FROM {table} WHERE generated_by = 'thomas_ellison'")
+            conn.commit()
+            cur.close()
+            conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/member/<user_key>')
+def admin_member(user_key):
+    if not session.get('admin'):
+        return redirect(url_for('login'))
+    user_def = USERS.get(user_key)
+    if not user_def:
+        return redirect(url_for('admin'))
+    proposals, ppms, subscopes, profile, feedback_items = [], [], [], None, []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+            proposals = cur.fetchall()
+            cur.execute('SELECT * FROM ppm_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+            ppms = cur.fetchall()
+            cur.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+            subscopes = cur.fetchall()
+            cur.execute('SELECT * FROM profile_results WHERE LOWER(name) = LOWER(%s) ORDER BY taken_date DESC', (user_def['display'],))
+            profile = cur.fetchone()
+            cur.execute('SELECT * FROM feedback WHERE user_key = %s ORDER BY submitted_at DESC', (user_key,))
+            feedback_items = cur.fetchall()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Member detail error: {e}")
+    return render_template('admin_member.html',
+                           user=user_def, user_key=user_key,
+                           proposals=proposals, ppms=ppms,
+                           subscopes=subscopes, profile=profile,
+                           feedback_items=feedback_items,
+                           profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
+
+
+@app.route('/admin/feedback')
+def admin_feedback():
+    if not session.get('admin'):
+        return redirect(url_for('login'))
+    items = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM feedback ORDER BY submitted_at DESC')
+            items = cur.fetchall()
+            # Mark all as read
+            cur.execute('UPDATE feedback SET read_by_admin = TRUE')
+            conn.commit()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Feedback error: {e}")
+    return render_template('admin_feedback.html', items=items)
 
 
 @app.route('/logout')

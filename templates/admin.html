@@ -7,93 +7,97 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --blue: #0096D6;
-    --dark-blue: #004C8C;
-    --light-bg: #EBF6FC;
-    --gray: #444444;
-    --border: #D8E8F2;
-    --shadow: 0 2px 16px rgba(0,76,140,0.08);
-    --radius: 10px;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: var(--gray); min-height: 100vh; }
+  :root { --blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px; }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;}
+  .header-logo{height:44px;width:auto;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;transition:background 0.2s;font-family:'DM Sans',sans-serif;}
+  .header-btn:hover{background:rgba(255,255,255,0.22);}
+  .main{max-width:1100px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:32px;}
+  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:36px;}
+  .stat{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;text-align:center;}
+  .stat .num{font-family:'DM Serif Display',serif;font-size:32px;color:var(--dark-blue);}
+  .stat .lbl{font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;}
+  .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-blue);padding:11px 16px;background:var(--light-bg);border-bottom:1.5px solid var(--border);}
+  td{padding:11px 16px;border-bottom:1px solid #f0f4f8;font-size:14px;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:#fafcff;}
+  .role-badge{display:inline-block;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;}
+  .role-badge.admin{background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;}
+  .role-badge.consultant{background:#E8F5E9;color:#2E7D32;border:1px solid #81C784;}
+  .role-badge.pm{background:var(--light-bg);color:var(--dark-blue);border:1px solid var(--border);}
+  .role-badge.office_manager{background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;}
+  .name-link{color:var(--dark-blue);text-decoration:none;font-weight:600;}
+  .name-link:hover{color:var(--blue);text-decoration:underline;}
+  .reset-btn{background:white;border:1.5px solid var(--border);color:var(--blue);border-radius:6px;padding:4px 11px;font-size:12px;font-weight:500;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all 0.2s;}
+  .reset-btn:hover{border-color:var(--blue);background:var(--light-bg);}
+  .last-login{font-size:12px;color:#aaa;}
 
-  .header { background: var(--dark-blue); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 64px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
-  .header-left { display: flex; align-items: center; gap: 14px; }
-  .header-brand { color: white; font-size: 18px; font-weight: 600; }
-  .header-title { color: rgba(255,255,255,0.7); font-size: 14px; }
-  .header-btn { background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none; transition: background 0.2s; }
-  .header-btn:hover { background: rgba(255,255,255,0.2); }
+  /* Activity tables */
+  .activity-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
+  .act-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;}
+  .act-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .act-card-header h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;}
+  .clear-btn{background:#FEE;color:#C00;border:1px solid #fcc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .clear-btn:hover{background:#fcc;}
+  .act-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:7px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+  .act-item-content .act-name{font-size:13px;font-weight:600;color:var(--dark-blue);}
+  .act-item-content .act-meta{font-size:11px;color:#888;margin-top:2px;}
+  .act-date{font-size:11px;color:#aaa;white-space:nowrap;flex-shrink:0;}
+  .delete-btn{background:transparent;border:none;color:#ccc;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;transition:color 0.2s;flex-shrink:0;}
+  .delete-btn:hover{color:#C00;}
+  .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
 
-  .main { max-width: 1100px; margin: 0 auto; padding: 36px 24px 60px; }
-  .page-title { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--dark-blue); margin-bottom: 4px; }
-  .page-sub { font-size: 14px; color: #888; margin-bottom: 32px; }
+  /* Profile dist */
+  .dist-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px;}
+  .dist-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;text-align:center;}
+  .dist-letter{font-size:26px;font-weight:700;margin-bottom:4px;}
+  .d-l{color:#c0392b;}.i-l{color:#e67e22;}.s-l{color:#27ae60;}.c-l{color:#2980b9;}
+  .dist-label{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
+  .dist-count{font-size:24px;font-weight:700;color:var(--dark-blue);}
+  .dist-pct{font-size:11px;color:#aaa;}
 
-  /* STATS */
-  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 36px; }
-  .stat { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; text-align: center; }
-  .stat .num { font-family: 'DM Serif Display', serif; font-size: 36px; color: var(--dark-blue); }
-  .stat .lbl { font-size: 11px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 4px; }
+  /* Feedback unread badge */
+  .unread-badge{background:#C00;color:#fff;border-radius:20px;padding:2px 7px;font-size:10px;font-weight:700;margin-left:6px;}
 
-  /* SECTION */
-  .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
+  /* Modal */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:white;border-radius:var(--radius);box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:32px;width:90%;max-width:400px;}
+  .modal h3{font-family:'DM Serif Display',serif;font-size:22px;color:var(--dark-blue);margin-bottom:6px;}
+  .modal p{font-size:14px;color:#888;margin-bottom:20px;}
+  .modal input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--gray);outline:none;margin-bottom:16px;transition:border-color 0.2s;}
+  .modal input:focus{border-color:var(--blue);}
+  .modal-btns{display:flex;gap:10px;}
+  .modal-btns button{flex:1;padding:11px;border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;cursor:pointer;font-weight:600;}
+  .btn-confirm{background:var(--dark-blue);color:white;border:none;transition:background 0.2s;}
+  .btn-confirm:hover{background:var(--blue);}
+  .btn-cancel{background:white;color:#888;border:1.5px solid var(--border);}
+  .modal-msg{font-size:13px;margin-top:12px;min-height:18px;}
+  .modal-msg.success{color:#2E7D32;}.modal-msg.error{color:#C00;}
 
-  /* TEAM TABLE */
-  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dark-blue); padding: 12px 16px; background: var(--light-bg); border-bottom: 1.5px solid var(--border); }
-  td { padding: 12px 16px; border-bottom: 1px solid #f0f4f8; font-size: 14px; vertical-align: middle; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: #fafcff; }
-  .role-badge { display: inline-block; border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 600; text-transform: capitalize; }
-  .role-badge.admin { background: #FFF3E0; color: #E65100; border: 1px solid #FFB74D; }
-  .role-badge.consultant { background: #E8F5E9; color: #2E7D32; border: 1px solid #81C784; }
-  .role-badge.pm { background: var(--light-bg); color: var(--dark-blue); border: 1px solid var(--border); }
-  .role-badge.office_manager { background: #F3E5F5; color: #6A1B9A; border: 1px solid #CE93D8; }
-  .reset-btn { background: white; border: 1.5px solid var(--border); color: var(--blue); border-radius: 6px; padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
-  .reset-btn:hover { border-color: var(--blue); background: var(--light-bg); }
-  .last-login { font-size: 12px; color: #aaa; }
-  .name-cell { font-weight: 600; color: var(--dark-blue); }
-
-  /* ACTIVITY */
-  .activity-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .act-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; }
-  .act-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
-  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
-  .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
-  .act-name { font-size: 13px; font-weight: 600; color: var(--dark-blue); }
-  .act-date { font-size: 11px; color: #aaa; }
-  .act-meta { font-size: 12px; color: #888; }
-  .empty { color: #bbb; font-size: 13px; padding: 16px 0; text-align: center; }
-
-  /* MODAL */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,40,80,0.5); z-index: 999; align-items: center; justify-content: center; }
-  .modal-overlay.active { display: flex; }
-  .modal { background: white; border-radius: var(--radius); box-shadow: 0 8px 40px rgba(0,0,0,0.2); padding: 32px; width: 90%; max-width: 400px; }
-  .modal h3 { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--dark-blue); margin-bottom: 6px; }
-  .modal p { font-size: 14px; color: #888; margin-bottom: 20px; }
-  .modal input { width: 100%; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; color: var(--gray); outline: none; margin-bottom: 16px; transition: border-color 0.2s; }
-  .modal input:focus { border-color: var(--blue); }
-  .modal-btns { display: flex; gap: 10px; }
-  .modal-btns button { flex: 1; padding: 11px; border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; cursor: pointer; font-weight: 600; }
-  .btn-confirm { background: var(--dark-blue); color: white; border: none; transition: background 0.2s; }
-  .btn-confirm:hover { background: var(--blue); }
-  .btn-cancel { background: white; color: #888; border: 1.5px solid var(--border); transition: all 0.2s; }
-  .btn-cancel:hover { border-color: #aaa; color: var(--gray); }
-  .modal-msg { font-size: 13px; margin-top: 12px; min-height: 18px; }
-  .modal-msg.success { color: #2E7D32; }
-  .modal-msg.error { color: #C00; }
+  .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);margin-top:12px;}
+  .hub-footer img{height:22px;opacity:0.45;}
 </style>
 </head>
 <body>
-
 <div class="header">
   <div class="header-left">
-    <div class="header-brand">PPS Hub</div>
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
     <div class="header-title">Admin Panel</div>
   </div>
   <div style="display:flex;gap:10px;">
+    <a href="/admin/feedback" class="header-btn">Feedback {% if unread_feedback > 0 %}<span class="unread-badge">{{ unread_feedback }}</span>{% endif %}</a>
     <a href="/dashboard" class="header-btn">Dashboard</a>
     <a href="/logout" class="header-btn">Sign Out</a>
   </div>
@@ -103,41 +107,51 @@
   <div class="page-title">Team Overview</div>
   <p class="page-sub">Pure Property Solutions · All users and activity</p>
 
-  <!-- STATS -->
   <div class="stats">
     <div class="stat"><div class="num">{{ users|length }}</div><div class="lbl">Team Members</div></div>
-    <div class="stat"><div class="num">{{ all_proposals|length }}</div><div class="lbl">Recent Proposals</div></div>
-    <div class="stat"><div class="num">{{ all_ppms|length }}</div><div class="lbl">Recent PPMs</div></div>
-    <div class="stat"><div class="num">{{ users|selectattr('last_login')|list|length }}</div><div class="lbl">Active Users</div></div>
+    <div class="stat"><div class="num">{{ all_proposals|length }}</div><div class="lbl">Proposals</div></div>
+    <div class="stat"><div class="num">{{ all_ppms|length }}</div><div class="lbl">PPMs</div></div>
+    <div class="stat"><div class="num">{{ all_subscopes|length }}</div><div class="lbl">Sub Scopes</div></div>
+    <div class="stat"><div class="num">{{ profile_count }}</div><div class="lbl">Profiles Taken</div></div>
   </div>
 
-  <!-- TEAM -->
+  <!-- TEAM TABLE -->
   <div class="section-head">Team Members</div>
   <div class="card">
     <table>
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Role</th>
-          <th>Proposal Access</th>
-          <th>Last Login</th>
-          <th>Password</th>
+          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Login</th><th>Profile</th><th>Password</th>
         </tr>
       </thead>
       <tbody>
         {% for u in users %}
         {% set udef = user_definitions.get(u.user_key, {}) %}
         <tr>
-          <td class="name-cell">{{ u.display_name }}</td>
-          <td><span class="role-badge {{ u.role }}">{{ u.role.replace('_',' ') }}</span></td>
+          <td><a href="/admin/member/{{ u.user_key }}" class="name-link">{{ u.display_name }}</a></td>
+          <td>
+            <span class="role-badge {{ u.role }}">
+              {% if u.role == 'pm' %}PM
+              {% elif u.role == 'office_manager' %}Office Manager
+              {% elif u.role == 'consultant' %}Consultant
+              {% elif u.role == 'admin' %}Admin
+              {% else %}{{ u.role }}{% endif %}
+            </span>
+          </td>
           <td style="font-size:13px;color:#888;">
             {% set access = udef.get('proposal_access', []) %}
             {% if access == 'all' %}All Consultants
             {% elif access|length == 0 %}None
-            {% else %}{{ access|join(', ')|replace('_',' ')|title }}
-            {% endif %}
+            {% else %}{{ access|join(', ')|replace('_',' ')|title }}{% endif %}
           </td>
           <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
+          <td style="font-size:12px;color:#888;">
+            {% if u.user_key in profiles_taken %}
+            <span style="color:#27ae60;font-weight:600;">✓ {{ profiles_taken[u.user_key] }}</span>
+            {% else %}
+            <span style="color:#ddd;">Not taken</span>
+            {% endif %}
+          </td>
           <td><button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button></td>
         </tr>
         {% endfor %}
@@ -149,41 +163,82 @@
   <div class="section-head">Recent Activity</div>
   <div class="activity-row">
     <div class="act-card">
-      <h3>Proposals Generated</h3>
+      <div class="act-card-header">
+        <h3>Proposals Generated</h3>
+        <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
+      </div>
       {% if all_proposals %}
       {% for p in all_proposals[:20] %}
-      <div class="act-item">
-        <div class="act-top">
+      <div class="act-item" id="proposal_{{ p.id }}">
+        <div class="act-item-content">
           <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.property_type or '' }}</div>
+        {% if p.generated_by == 'thomas_ellison' %}
+        <button class="delete-btn" onclick="deleteItem('proposal', {{ p.id }}, 'thomas_ellison')" title="Delete">✕</button>
+        {% endif %}
       </div>
       {% endfor %}
-      {% else %}
-      <div class="empty">No proposals logged yet</div>
-      {% endif %}
+      {% else %}<div class="empty">No proposals logged yet</div>{% endif %}
     </div>
+
     <div class="act-card">
-      <h3>PPMs Generated</h3>
+      <div class="act-card-header">
+        <h3>PPMs Generated</h3>
+      </div>
       {% if all_ppms %}
       {% for p in all_ppms[:20] %}
-      <div class="act-item">
-        <div class="act-top">
+      <div class="act-item" id="ppm_{{ p.id }}">
+        <div class="act-item-content">
           <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
-          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }}</div>
+        {% if p.generated_by == 'thomas_ellison' %}
+        <button class="delete-btn" onclick="deleteItem('ppm', {{ p.id }}, 'thomas_ellison')" title="Delete">✕</button>
+        {% endif %}
       </div>
       {% endfor %}
-      {% else %}
-      <div class="empty">No PPMs logged yet</div>
-      {% endif %}
+      {% else %}<div class="empty">No PPMs logged yet</div>{% endif %}
     </div>
+  </div>
+
+  <!-- PROFILE DISTRIBUTION -->
+  {% if profile_rows %}
+  <div class="section-head">Pure Way Profile Results · {{ selected_year }}</div>
+  {% set d_count = profile_rows | selectattr('primary_disc', 'equalto', 'D') | list | length %}
+  {% set i_count = profile_rows | selectattr('primary_disc', 'equalto', 'I') | list | length %}
+  {% set s_count = profile_rows | selectattr('primary_disc', 'equalto', 'S') | list | length %}
+  {% set c_count = profile_rows | selectattr('primary_disc', 'equalto', 'C') | list | length %}
+  <div class="dist-grid">
+    <div class="dist-card"><div class="dist-letter d-l">D</div><div class="dist-label">Decisive</div><div class="dist-count">{{ d_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((d_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
+    <div class="dist-card"><div class="dist-letter i-l">I</div><div class="dist-label">Interactive</div><div class="dist-count">{{ i_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((i_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
+    <div class="dist-card"><div class="dist-letter s-l">S</div><div class="dist-label">Stabilizing</div><div class="dist-count">{{ s_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((s_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
+    <div class="dist-card"><div class="dist-letter c-l">C</div><div class="dist-label">Cautious</div><div class="dist-count">{{ c_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((c_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
+  </div>
+  <div class="card" style="margin-top:16px;">
+    <table>
+      <thead><tr><th>Name</th><th>Date</th><th>Type</th><th>Character</th><th>Motivator</th></tr></thead>
+      <tbody>
+        {% for r in profile_rows %}
+        <tr>
+          <td style="font-weight:600;color:var(--dark-blue);">{{ r.name }}</td>
+          <td style="font-size:13px;color:#888;">{{ r.taken_date }}</td>
+          <td><span style="font-weight:600;color:var(--dark-blue);">{{ r.primary_disc }}{% if r.secondary_disc %}/{{ r.secondary_disc }}{% endif %}</span></td>
+          <td style="font-size:13px;">{{ r.character_match }}</td>
+          <td style="font-size:13px;color:#888;">{{ r.primary_motiv }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="hub-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
   </div>
 </div>
 
-<!-- MODAL -->
+<!-- PASSWORD RESET MODAL -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <h3>Reset Password</h3>
@@ -199,6 +254,7 @@
 
 <script>
   let activeUserKey = null;
+
   function openReset(userKey, displayName) {
     activeUserKey = userKey;
     document.getElementById('modalSubtitle').textContent = `Set a new password for ${displayName}.`;
@@ -214,33 +270,39 @@
   async function confirmReset() {
     const password = document.getElementById('newPasswordInput').value.trim();
     const msg = document.getElementById('modalMsg');
-    if (!password || password.length < 6) {
-      msg.textContent = 'Password must be at least 6 characters.';
-      msg.className = 'modal-msg error';
-      return;
-    }
+    if (!password || password.length < 6) { msg.textContent = 'Password must be at least 6 characters.'; msg.className = 'modal-msg error'; return; }
     try {
-      const formData = new FormData();
-      formData.append('user_key', activeUserKey);
-      formData.append('new_password', password);
-      const resp = await fetch('/admin/reset-password', { method: 'POST', body: formData });
+      const fd = new FormData();
+      fd.append('user_key', activeUserKey);
+      fd.append('new_password', password);
+      const resp = await fetch('/admin/reset-password', { method: 'POST', body: fd });
       const data = await resp.json();
-      if (data.success) {
-        msg.textContent = 'Password updated successfully.';
-        msg.className = 'modal-msg success';
-        setTimeout(closeReset, 1500);
-      } else {
-        msg.textContent = data.error || 'Something went wrong.';
-        msg.className = 'modal-msg error';
-      }
-    } catch(e) {
-      msg.textContent = 'Network error. Please try again.';
-      msg.className = 'modal-msg error';
+      if (data.success) { msg.textContent = 'Password updated successfully.'; msg.className = 'modal-msg success'; setTimeout(closeReset, 1500); }
+      else { msg.textContent = data.error || 'Something went wrong.'; msg.className = 'modal-msg error'; }
+    } catch(e) { msg.textContent = 'Network error.'; msg.className = 'modal-msg error'; }
+  }
+  document.getElementById('modalOverlay').addEventListener('click', function(e) { if (e.target === this) closeReset(); });
+
+  async function deleteItem(type, id, userKey) {
+    if (!confirm('Delete this item?')) return;
+    const fd = new FormData();
+    fd.append('type', type);
+    fd.append('id', id);
+    fd.append('user_key', userKey);
+    const r = await fetch('/admin/delete-activity', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.success) {
+      const el = document.getElementById(`${type}_${id}`);
+      if (el) el.remove();
     }
   }
-  document.getElementById('modalOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeReset();
-  });
+
+  async function clearMyData() {
+    if (!confirm('Clear all your test proposals and PPMs? This cannot be undone.')) return;
+    const r = await fetch('/admin/clear-my-data', { method: 'POST' });
+    const d = await r.json();
+    if (d.success) location.reload();
+  }
 </script>
 </body>
 </html>

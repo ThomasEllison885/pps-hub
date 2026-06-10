@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · {{ user.display }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;}
+  .header-logo{height:44px;width:auto;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;}
+  .main{max-width:900px;margin:0 auto;padding:36px 24px 60px;}
+  .back-link{color:var(--blue);text-decoration:none;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px;margin-bottom:24px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+  .role-badge{display:inline-block;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:600;margin-left:8px;}
+  .role-badge.admin{background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;}
+  .role-badge.consultant{background:#E8F5E9;color:#2E7D32;border:1px solid #81C784;}
+  .role-badge.pm{background:var(--light-bg);color:var(--dark-blue);border:1px solid var(--border);}
+  .role-badge.office_manager{background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;}
+  .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .profile-card{background:linear-gradient(135deg,#EBF6FC 0%,#fff 100%);border:1.5px solid var(--border);border-radius:var(--radius);padding:22px 24px;margin-bottom:28px;display:flex;align-items:center;gap:18px;}
+  .profile-card .icon{font-size:32px;}
+  .ps-name{font-size:18px;font-weight:600;color:var(--dark-blue);margin-bottom:2px;}
+  .ps-show{font-size:13px;color:#888;}
+  .ps-badge{display:inline-block;margin-top:6px;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--dark-blue);font-weight:600;}
+  .ps-cta{margin-left:auto;color:var(--blue);font-size:13px;font-weight:500;text-decoration:none;}
+  .no-profile{background:#f8f8f8;border:1.5px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;color:#aaa;font-size:14px;margin-bottom:28px;}
+  .act-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;}
+  .act-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;}
+  .act-card h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .act-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:7px;}
+  .act-name{font-size:13px;font-weight:600;color:var(--dark-blue);}
+  .act-meta{font-size:11px;color:#888;margin-top:2px;}
+  .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
+  .feedback-list{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;margin-bottom:28px;}
+  .feedback-list h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .feedback-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px;}
+  .feedback-item .fb-date{font-size:11px;color:#aaa;margin-bottom:4px;}
+  .feedback-item .fb-msg{font-size:14px;color:var(--gray);line-height:1.5;}
+  .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);}
+  .hub-footer img{height:22px;opacity:0.45;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">{{ user.display }}</div>
+  </div>
+  <a href="/admin" class="header-btn">← Back to Admin</a>
+</div>
+
+<div class="main">
+  <div class="page-title">
+    {{ user.display }}
+    <span class="role-badge {{ user.role }}">
+      {% if user.role == 'pm' %}PM
+      {% elif user.role == 'office_manager' %}Office Manager
+      {% elif user.role == 'consultant' %}Consultant
+      {% elif user.role == 'admin' %}Admin
+      {% else %}{{ user.role }}{% endif %}
+    </span>
+  </div>
+  <p class="page-sub">Full activity summary — admin view only</p>
+
+  <!-- PROFILE -->
+  <div class="section-head">Pure Way Profile</div>
+  {% if profile %}
+  <div class="profile-card">
+    <div class="icon">🎬</div>
+    <div>
+      <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Most Recent · {{ profile.taken_date }}</div>
+      <div class="ps-name">{{ profile.character_match }}</div>
+      <div class="ps-show">{{ profile.character_show }}</div>
+      <span class="ps-badge">{{ profile.primary_disc }}{% if profile.secondary_disc %}/{{ profile.secondary_disc }}{% endif %} · {{ profile.primary_motiv }}</span>
+    </div>
+    <a href="{{ profile_url }}/history/{{ profile.id }}" class="ps-cta" target="_blank">View Full Results →</a>
+  </div>
+  {% else %}
+  <div class="no-profile">{{ user.display }} has not taken the Pure Way Profile yet.</div>
+  {% endif %}
+
+  <!-- ACTIVITY -->
+  <div class="section-head">Activity</div>
+  <div class="act-grid">
+    <div class="act-card">
+      <h3>Proposals ({{ proposals|length }})</h3>
+      {% if proposals %}
+      {% for p in proposals %}
+      <div class="act-item">
+        <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
+        <div class="act-meta">{{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty">No proposals generated</div>{% endif %}
+    </div>
+    <div class="act-card">
+      <h3>PPMs ({{ ppms|length }})</h3>
+      {% if ppms %}
+      {% for p in ppms %}
+      <div class="act-item">
+        <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
+        <div class="act-meta">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty">No PPMs generated</div>{% endif %}
+    </div>
+  </div>
+  <div class="act-grid">
+    <div class="act-card">
+      <h3>Sub Scopes ({{ subscopes|length }})</h3>
+      {% if subscopes %}
+      {% for s in subscopes %}
+      <div class="act-item">
+        <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
+        <div class="act-meta">{{ s.language|title }} · {{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '' }}</div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty">No sub scopes generated</div>{% endif %}
+    </div>
+    <div class="act-card">
+      <h3>Feedback ({{ feedback_items|length }})</h3>
+      {% if feedback_items %}
+      {% for f in feedback_items %}
+      <div class="act-item">
+        <div class="act-meta">{{ f.submitted_at.strftime('%b %d, %Y') if f.submitted_at else '' }}</div>
+        <div class="act-name" style="font-weight:400;margin-top:4px;">{{ f.message }}</div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty">No feedback submitted</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="hub-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+</div>
+</body>
+</html>

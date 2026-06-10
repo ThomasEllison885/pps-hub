@@ -8,85 +8,90 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
   :root {
-    --blue: #0096D6;
-    --dark-blue: #004C8C;
-    --light-bg: #EBF6FC;
-    --gray: #444444;
-    --border: #D8E8F2;
-    --shadow: 0 2px 16px rgba(0,76,140,0.08);
+    --blue: #0096D6; --dark-blue: #004C8C; --light-bg: #EBF6FC;
+    --gray: #444444; --border: #D8E8F2; --shadow: 0 2px 16px rgba(0,76,140,0.08);
     --radius: 10px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: var(--gray); min-height: 100vh; }
 
-  /* HEADER */
-  .header { background: var(--dark-blue); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 64px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
-  .header-left { display: flex; align-items: center; gap: 14px; }
-  .header-brand { color: white; font-size: 18px; font-weight: 600; }
-  .header-title { color: white; font-size: 14px; font-weight: 400; opacity: 0.7; }
-  .header-right { display: flex; align-items: center; gap: 16px; }
+  .header { background: var(--dark-blue); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 68px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .header-logo { height: 44px; width: auto; opacity: 0.95; }
+  .header-divider { width: 1px; height: 28px; background: rgba(255,255,255,0.2); }
+  .header-title { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 400; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
   .header-user { color: rgba(255,255,255,0.6); font-size: 13px; }
   .header-user span { color: rgba(255,255,255,0.9); font-weight: 500; }
-  .header-btn { background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none; font-family: 'DM Sans', sans-serif; transition: background 0.2s; cursor: pointer; }
-  .header-btn:hover { background: rgba(255,255,255,0.2); }
+  .header-btn { background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none; transition: background 0.2s; font-family: 'DM Sans', sans-serif; cursor: pointer; }
+  .header-btn:hover { background: rgba(255,255,255,0.22); }
+  .admin-badge { background: #B8922A; color: #fff; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
 
-  /* MAIN */
   .main { max-width: 1000px; margin: 0 auto; padding: 36px 24px 60px; }
-
-  /* GREETING */
   .greeting { margin-bottom: 36px; }
   .greeting-time { font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
   .greeting h1 { font-family: 'DM Serif Display', serif; font-size: 30px; color: var(--dark-blue); margin-bottom: 4px; }
   .greeting p { font-size: 14px; color: #888; }
 
-  /* SECTION */
+  /* Profile prompt banner */
+  .profile-prompt {
+    background: linear-gradient(135deg, #004C8C 0%, #0096D6 100%);
+    border-radius: var(--radius); padding: 18px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 28px; gap: 16px;
+  }
+  .profile-prompt p { color: rgba(255,255,255,0.9); font-size: 14px; }
+  .profile-prompt strong { color: #fff; }
+  .prompt-btn { background: #fff; color: var(--dark-blue); border: none; border-radius: 6px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
+  .prompt-btn:hover { background: #EBF6FC; }
+
   .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
 
-  /* TOOL CARDS */
-  .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px; }
-  .tool-card {
-    background: white; border-radius: var(--radius); box-shadow: var(--shadow);
-    padding: 24px; text-decoration: none; color: var(--gray);
-    transition: all 0.2s; display: flex; flex-direction: column; gap: 10px;
-    border: 1.5px solid transparent;
-  }
+  .tools-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 36px; }
+  .tool-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; text-decoration: none; color: var(--gray); transition: all 0.2s; display: flex; flex-direction: column; gap: 8px; border: 1.5px solid transparent; }
   .tool-card:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,76,140,0.12); }
   .tool-card.disabled { opacity: 0.4; pointer-events: none; }
-  .tool-icon { font-size: 26px; }
-  .tool-name { font-size: 16px; font-weight: 600; color: var(--dark-blue); }
-  .tool-desc { font-size: 13px; color: #888; line-height: 1.55; flex: 1; }
-  .tool-meta { font-size: 12px; color: var(--blue); font-weight: 500; margin-top: 4px; }
-  .tool-badge { display: inline-block; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 11px; color: var(--dark-blue); font-weight: 500; }
+  .tool-icon { font-size: 24px; }
+  .tool-name { font-size: 15px; font-weight: 600; color: var(--dark-blue); }
+  .tool-desc { font-size: 12px; color: #888; line-height: 1.5; flex: 1; }
+  .tool-badge { display: inline-block; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; font-size: 11px; color: var(--dark-blue); font-weight: 500; }
+  .tool-meta { font-size: 12px; color: var(--blue); font-weight: 500; margin-top: 2px; }
 
-  /* PROFILE SNAPSHOT */
-  .profile-snap {
-    background: white; border-radius: var(--radius); box-shadow: var(--shadow);
-    padding: 20px 24px; display: flex; align-items: center; gap: 18px;
-    margin-bottom: 36px; text-decoration: none; color: var(--gray);
-    border: 1.5px solid transparent; transition: all 0.2s;
-  }
+  .profile-snap { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 28px; text-decoration: none; color: var(--gray); border: 1.5px solid transparent; transition: all 0.2s; }
   .profile-snap:hover { border-color: var(--blue); }
-  .profile-snap-icon { font-size: 32px; flex-shrink: 0; }
-  .ps-label { font-size: 11px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
-  .ps-name { font-size: 18px; font-weight: 600; color: var(--dark-blue); margin-bottom: 2px; }
+  .profile-snap-icon { font-size: 28px; flex-shrink: 0; }
+  .ps-label { font-size: 11px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
+  .ps-name { font-size: 17px; font-weight: 600; color: var(--dark-blue); margin-bottom: 2px; }
   .ps-show { font-size: 13px; color: #888; }
-  .ps-badge { display: inline-block; margin-top: 8px; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 12px; font-size: 12px; color: var(--dark-blue); font-weight: 600; }
+  .ps-badge { display: inline-block; margin-top: 6px; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 12px; color: var(--dark-blue); font-weight: 600; }
   .ps-cta { margin-left: auto; color: var(--blue); font-size: 13px; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
 
-  /* ACTIVITY */
-  .activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .activity-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; }
-  .activity-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
-  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
+  .activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
+  .activity-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; }
+  .activity-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
+  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 7px; }
   .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
   .act-name { font-size: 13px; font-weight: 600; color: var(--dark-blue); }
   .act-date { font-size: 11px; color: #aaa; }
   .act-meta { font-size: 12px; color: #888; }
-  .empty-state { color: #bbb; font-size: 13px; padding: 16px 0; text-align: center; }
+  .empty-state { color: #bbb; font-size: 13px; padding: 12px 0; text-align: center; }
+
+  /* Feedback card */
+  .feedback-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 24px; margin-bottom: 28px; }
+  .feedback-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
+  .feedback-card textarea { width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 11px 14px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--gray); resize: vertical; min-height: 80px; outline: none; transition: border-color 0.2s; }
+  .feedback-card textarea:focus { border-color: var(--blue); }
+  .feedback-submit { margin-top: 10px; background: var(--dark-blue); color: white; border: none; border-radius: 8px; padding: 10px 24px; font-size: 14px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: background 0.2s; }
+  .feedback-submit:hover { background: var(--blue); }
+  .feedback-success { display: none; color: #27ae60; font-size: 13px; margin-top: 8px; font-weight: 500; }
+
+  /* Footer */
+  .hub-footer { text-align: center; padding: 24px 0 0; border-top: 1px solid var(--border); margin-top: 12px; }
+  .hub-footer img { height: 24px; opacity: 0.5; }
 
   @media (max-width: 700px) {
     .header { padding: 0 16px; }
-    .tools-grid { grid-template-columns: 1fr; }
+    .tools-grid { grid-template-columns: repeat(2, 1fr); }
     .activity-grid { grid-template-columns: 1fr; }
     .main { padding: 24px 14px 40px; }
   }
@@ -96,8 +101,12 @@
 
 <div class="header">
   <div class="header-left">
-    <div class="header-brand">PPS Hub</div>
-    <div class="header-title">Pure Property Solutions</div>
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">PPS Hub</div>
+    {% if session.get('role') == 'admin' %}
+    <span class="admin-badge">Admin</span>
+    {% endif %}
   </div>
   <div class="header-right">
     <span class="header-user">Signed in as <span>{{ user.display }}</span></span>
@@ -110,28 +119,32 @@
 
 <div class="main">
 
-  <!-- GREETING -->
   <div class="greeting">
     <div class="greeting-time" id="greetingTime"></div>
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
     <p>Here's everything you need — all in one place.</p>
   </div>
 
-  <!-- TOOLS -->
+  {% if not profile %}
+  <div class="profile-prompt">
+    <p><strong>Take your {{ now_year }} Pure Way Profile</strong> — understand how you work, what drives you, and how to work better with your team.</p>
+    <a href="{{ profile_url }}/profile?user={{ user_key }}" class="prompt-btn" target="_blank">Take the Assessment →</a>
+  </div>
+  {% endif %}
+
   <div class="section-head">Your Tools</div>
   <div class="tools-grid">
-
     {% if consultants %}
     <a href="{{ proposal_url }}/proposal?user={{ user_key }}" class="tool-card" target="_blank">
       <div class="tool-icon">📄</div>
       <div class="tool-name">Proposal Generator</div>
-      <div class="tool-desc">Generate professional client proposals with PPS-standard language, formatting, and branding.</div>
+      <div class="tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
       {% if consultants|length == 1 %}
       <span class="tool-badge">{{ consultants.values()|list|first }}</span>
       {% else %}
       <span class="tool-badge">{{ consultants|length }} consultants</span>
       {% endif %}
-      <div class="tool-meta">Open Tool →</div>
+      <div class="tool-meta">Open →</div>
     </a>
     {% else %}
     <div class="tool-card disabled">
@@ -144,22 +157,35 @@
     <a href="{{ proposal_url }}/ppm?user={{ user_key }}" class="tool-card" target="_blank">
       <div class="tool-icon">🔧</div>
       <div class="tool-name">PPM Checklist</div>
-      <div class="tool-desc">Generate preventive maintenance checklists. Upload your property data and export instantly.</div>
-      <div class="tool-meta">Open Tool →</div>
+      <div class="tool-desc">Generate preventive maintenance checklists for any property.</div>
+      <div class="tool-meta">Open →</div>
     </a>
+
+    {% if consultants %}
+    <a href="{{ proposal_url }}/subscope?user={{ user_key }}" class="tool-card" target="_blank">
+      <div class="tool-icon">📋</div>
+      <div class="tool-name">Sub Scope</div>
+      <div class="tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
+    {% else %}
+    <div class="tool-card disabled">
+      <div class="tool-icon">📋</div>
+      <div class="tool-name">Sub Scope</div>
+      <div class="tool-desc">Not available for your role.</div>
+    </div>
+    {% endif %}
 
     <a href="{{ profile_url }}/profile?user={{ user_key }}" class="tool-card" target="_blank">
       <div class="tool-icon">🎯</div>
       <div class="tool-name">Pure Way Profile</div>
-      <div class="tool-desc">Take your behavioral assessment and understand how you work, what drives you, and how to work with your team.</div>
-      <div class="tool-meta">Open Tool →</div>
+      <div class="tool-desc">Behavioral assessment — understand how you work and what drives you.</div>
+      <div class="tool-meta">Open →</div>
     </a>
-
   </div>
 
-  <!-- PROFILE SNAPSHOT -->
-  <div class="section-head">Your Profile</div>
   {% if profile %}
+  <div class="section-head">Your Profile</div>
   <a href="{{ profile_url }}/history/{{ profile.id }}" class="profile-snap" target="_blank">
     <div class="profile-snap-icon">🎬</div>
     <div>
@@ -170,19 +196,8 @@
     </div>
     <div class="ps-cta">View Full Results →</div>
   </a>
-  {% else %}
-  <a href="{{ profile_url }}/profile" class="profile-snap" target="_blank">
-    <div class="profile-snap-icon">🎯</div>
-    <div>
-      <div class="ps-label">Not yet taken</div>
-      <div class="ps-name">Take the Pure Way Profile</div>
-      <div class="ps-show">44 scenario-based questions · approximately 15 minutes</div>
-    </div>
-    <div class="ps-cta">Start Now →</div>
-  </a>
   {% endif %}
 
-  <!-- ACTIVITY -->
   <div class="section-head">Recent Activity</div>
   <div class="activity-grid">
     <div class="activity-card">
@@ -201,7 +216,6 @@
       <div class="empty-state">No proposals generated yet</div>
       {% endif %}
     </div>
-
     <div class="activity-card">
       <h3>Recent PPMs</h3>
       {% if recent_ppms %}
@@ -219,6 +233,18 @@
     </div>
   </div>
 
+  <div class="section-head">Feedback & Suggestions</div>
+  <div class="feedback-card">
+    <h3>Share a Suggestion or Idea</h3>
+    <textarea id="feedbackText" placeholder="What could be better? Have an idea for a new tool or feature? Let Thomas know…"></textarea>
+    <button class="feedback-submit" onclick="submitFeedback()">Send Feedback</button>
+    <div class="feedback-success" id="feedbackSuccess">✓ Feedback sent — thanks!</div>
+  </div>
+
+  <div class="hub-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+
 </div>
 
 <script>
@@ -232,6 +258,27 @@
       `${greet} · ${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
   }
   setGreeting();
+
+  async function submitFeedback() {
+    const msg = document.getElementById('feedbackText').value.trim();
+    if (!msg) return;
+    const btn = document.querySelector('.feedback-submit');
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const fd = new FormData();
+      fd.append('message', msg);
+      const r = await fetch('/feedback', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (d.success) {
+        document.getElementById('feedbackText').value = '';
+        document.getElementById('feedbackSuccess').style.display = 'block';
+        setTimeout(() => document.getElementById('feedbackSuccess').style.display = 'none', 4000);
+      }
+    } catch(e) { console.error(e); }
+    btn.disabled = false;
+    btn.textContent = 'Send Feedback';
+  }
 </script>
 </body>
 </html>
