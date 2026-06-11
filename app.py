@@ -483,6 +483,17 @@ def dashboard():
     accessible_consultants = {k: CONSULTANTS[k] for k in proposal_access if k in CONSULTANTS}
     recent_proposals = get_recent_proposals(user_key)
     recent_ppms = get_recent_ppms(user_key)
+    # Recent Trade Partner Scopes
+    recent_tpscopes = []
+    try:
+        conn_tps = get_db()
+        if conn_tps:
+            cur_tps = conn_tps.cursor(cursor_factory=RealDictCursor)
+            cur_tps.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC LIMIT 5', (user_key,))
+            recent_tpscopes = cur_tps.fetchall()
+            cur_tps.close()
+            conn_tps.close()
+    except: pass
     profile = get_profile_result(user_key)
 
     from datetime import datetime as _dt
@@ -510,6 +521,7 @@ def dashboard():
                            consultants=accessible_consultants,
                            recent_proposals=recent_proposals,
                            recent_ppms=recent_ppms,
+                           recent_tpscopes=recent_tpscopes,
                            all_my_proposals=all_my_proposals,
                            profile=profile if profile_this_year else None,
                            now_year=now_year,

@@ -189,14 +189,14 @@
     {% if consultants %}
     <a href="{{ proposal_url }}/subscope?user={{ user_key }}" class="tool-card" target="_blank">
       <div class="tool-icon">📋</div>
-      <div class="tool-name">Sub Scope</div>
+      <div class="tool-name">Trade Partner Scope</div>
       <div class="tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
       <div class="tool-meta">Open →</div>
     </a>
     {% else %}
     <div class="tool-card disabled">
       <div class="tool-icon">📋</div>
-      <div class="tool-name">Sub Scope</div>
+      <div class="tool-name">Trade Partner Scope</div>
       <div class="tool-desc">Not available for your role.</div>
     </div>
     {% endif %}
@@ -256,6 +256,25 @@
       <div class="empty-state">No PPMs generated yet</div>
       {% endif %}
     </div>
+  </div>
+  <div class="activity-grid" style="margin-top:0;">
+    <div class="activity-card">
+      <h3>Recent Trade Partner Scopes</h3>
+      {% if recent_tpscopes %}
+      {% for s in recent_tpscopes %}
+      <div class="act-item">
+        <div class="act-top">
+          <div class="act-name">{{ s.property_name or 'Unnamed Property' }}</div>
+          <div class="act-date">{{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
+        </div>
+        <div class="act-meta">{{ s.language|title if s.language else '' }} · {{ s.pm_name or '' }}</div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty-state">No Trade Partner Scopes yet</div>
+      {% endif %}
+    </div>
+    <div class="activity-card" style="visibility:hidden;"></div>
   </div>
 
   {% if all_my_proposals %}
