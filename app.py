@@ -640,7 +640,7 @@ def delete_activity():
         if conn:
             cur = conn.cursor()
             cur.execute(f'DELETE FROM {table} WHERE id = %s AND generated_by = %s',
-                        (item_id, 'thomas_ellison'))
+                        (item_id, user_key))
             conn.commit()
             cur.close()
             conn.close()
