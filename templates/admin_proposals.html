@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · All Proposals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;}
+  .header-logo{height:44px;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;}
+  .main{max-width:1100px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+
+  /* Consultant filter */
+  .filter-bar{display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap;}
+  .filter-label{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;}
+  .filter-btn{background:white;border:1.5px solid var(--border);border-radius:20px;padding:6px 16px;font-size:13px;color:var(--gray);cursor:pointer;text-decoration:none;transition:all 0.2s;font-family:'DM Sans',sans-serif;}
+  .filter-btn:hover{border-color:var(--blue);color:var(--blue);}
+  .filter-btn.active{background:var(--dark-blue);border-color:var(--dark-blue);color:white;}
+  .filter-count{font-size:11px;opacity:0.7;margin-left:4px;}
+
+  /* Stats per consultant */
+  .consultant-stats{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;}
+  .cs-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;min-width:140px;}
+  .cs-name{font-size:12px;font-weight:600;color:var(--dark-blue);margin-bottom:6px;}
+  .cs-nums{display:flex;gap:10px;align-items:baseline;}
+  .cs-total{font-size:22px;font-weight:700;color:var(--dark-blue);}
+  .cs-30{font-size:12px;color:#888;}
+
+  /* Table */
+  .card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-blue);padding:11px 16px;background:var(--light-bg);border-bottom:1.5px solid var(--border);}
+  td{padding:11px 16px;border-bottom:1px solid #f0f4f8;font-size:14px;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  tr:hover td{background:#fafcff;cursor:pointer;}
+  .prop-name{font-weight:600;color:var(--dark-blue);}
+  .badge{display:inline-block;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--dark-blue);}
+  .empty{text-align:center;color:#bbb;padding:40px;font-size:14px;}
+
+  /* Modal */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:white;border-radius:var(--radius);box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:520px;max-height:85vh;overflow-y:auto;}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;}
+  .modal-title{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);line-height:1.3;}
+  .modal-close{background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;flex-shrink:0;margin-left:12px;}
+  .detail-grid{display:flex;flex-direction:column;gap:0;margin-bottom:16px;}
+  .detail-row{display:flex;padding:9px 0;border-bottom:1px solid #f0f4f8;}
+  .detail-row:last-child{border-bottom:none;}
+  .detail-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;width:140px;flex-shrink:0;padding-top:1px;}
+  .detail-val{font-size:14px;color:var(--gray);line-height:1.5;}
+  .detail-text{font-size:13px;color:#666;line-height:1.6;background:var(--light-bg);border-radius:6px;padding:10px 12px;margin-top:8px;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">All Proposals</div>
+  </div>
+  <a href="/admin" class="header-btn">← Admin</a>
+</div>
+
+<div class="main">
+  <div class="page-title">Proposal Activity</div>
+  <p class="page-sub">{{ rows|length }} proposal{% if rows|length != 1 %}s{% endif %} {{ 'for ' + consultant_filter.replace('_',' ').title() if consultant_filter else 'across all consultants' }}</p>
+
+  <!-- CONSULTANT FILTER -->
+  <div class="filter-bar">
+    <span class="filter-label">Filter by Consultant:</span>
+    <a href="/admin/proposals" class="filter-btn {% if not consultant_filter %}active{% endif %}">
+      All
+    </a>
+    {% for key, name in consultants.items() %}
+    {% set c = counts.get(key, {}) %}
+    <a href="/admin/proposals?consultant={{ key }}" class="filter-btn {% if consultant_filter == key %}active{% endif %}">
+      {{ name.split()[0] }}
+      <span class="filter-count">({{ c.get('total', 0) }})</span>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- CONSULTANT STATS -->
+  {% if not consultant_filter %}
+  <div class="consultant-stats">
+    {% for key, name in consultants.items() %}
+    {% set c = counts.get(key, {}) %}
+    <div class="cs-card">
+      <div class="cs-name">{{ name.split()[0] }} {{ name.split()[1][0] }}.</div>
+      <div class="cs-nums">
+        <span class="cs-total">{{ c.get('total', 0) }}</span>
+        <span class="cs-30">{{ c.get('last_30', 0) }} this month</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- TABLE -->
+  <div class="card">
+    {% if rows %}
+    <table>
+      <thead>
+        <tr>
+          <th>Property / Client</th>
+          <th>Consultant</th>
+          <th>Generated By</th>
+          <th>Type</th>
+          <th>Scopes</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in rows %}
+        <tr onclick="showDetail({{ loop.index0 }})">
+          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
+            {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
+          </td>
+          <td>{{ p.consultant_name }}</td>
+          <td style="font-size:13px;color:#888;">{{ p.generated_by.replace('_',' ').title() }}</td>
+          <td><span class="badge">{{ p.property_type or '—' }}</span></td>
+          <td style="font-size:12px;color:#888;max-width:180px;">{{ (p.scopes_selected or '—')[:60] }}{% if p.scopes_selected and p.scopes_selected|length > 60 %}…{% endif %}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No proposals found.</div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="modal-overlay" id="detailModal" onclick="if(event.target===this)closeDetail()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="mTitle">—</div>
+      <button class="modal-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div class="detail-grid">
+      <div class="detail-row"><div class="detail-label">Proposal #</div><div class="detail-val" id="mNum">—</div></div>
+      <div class="detail-row"><div class="detail-label">Client</div><div class="detail-val" id="mClient">—</div></div>
+      <div class="detail-row"><div class="detail-label">Address</div><div class="detail-val" id="mAddress">—</div></div>
+      <div class="detail-row"><div class="detail-label">Consultant</div><div class="detail-val" id="mConsultant">—</div></div>
+      <div class="detail-row"><div class="detail-label">Generated By</div><div class="detail-val" id="mBy">—</div></div>
+      <div class="detail-row"><div class="detail-label">Property Type</div><div class="detail-val" id="mType">—</div></div>
+      <div class="detail-row"><div class="detail-label">Template</div><div class="detail-val" id="mTemplate">—</div></div>
+      <div class="detail-row"><div class="detail-label">Scopes</div><div class="detail-val" id="mScopes">—</div></div>
+      <div class="detail-row"><div class="detail-label">Date</div><div class="detail-val" id="mDate">—</div></div>
+    </div>
+    <div id="mIssueWrap" style="display:none;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div class="detail-text" id="mIssue"></div>
+    </div>
+    <div id="mOutcomeWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div class="detail-text" id="mOutcome"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const proposals = [
+  {% for p in rows %}
+  {
+    title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+    num: {{ (p.proposal_number or '—')|tojson }},
+    client: {{ (p.client_name or '')|tojson }},
+    address: {{ (p.property_address or '—')|tojson }},
+    consultant: {{ (p.consultant_name or '')|tojson }},
+    by: {{ (p.generated_by or '')|tojson }},
+    type: {{ (p.property_type or '—')|tojson }},
+    template: {{ (p.template_type or '—')|tojson }},
+    scopes: {{ (p.scopes_selected or '—')|tojson }},
+    date: {{ (p.generated_at.strftime('%B %d, %Y at %I:%M %p') if p.generated_at else '—')|tojson }},
+    issue: {{ (p.existing_issue or '')|tojson }},
+    outcome: {{ (p.intended_outcome or '')|tojson }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+function showDetail(idx) {
+  const p = proposals[idx];
+  document.getElementById('mTitle').textContent = p.title;
+  document.getElementById('mNum').textContent = p.num;
+  document.getElementById('mClient').textContent = p.client || p.title;
+  document.getElementById('mAddress').textContent = p.address;
+  document.getElementById('mConsultant').textContent = p.consultant;
+  document.getElementById('mBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  document.getElementById('mType').textContent = p.type;
+  document.getElementById('mTemplate').textContent = p.template;
+  document.getElementById('mScopes').textContent = p.scopes;
+  document.getElementById('mDate').textContent = p.date;
+  const issueWrap = document.getElementById('mIssueWrap');
+  const outcomeWrap = document.getElementById('mOutcomeWrap');
+  if (p.issue) { document.getElementById('mIssue').textContent = p.issue; issueWrap.style.display='block'; } else { issueWrap.style.display='none'; }
+  if (p.outcome) { document.getElementById('mOutcome').textContent = p.outcome; outcomeWrap.style.display='block'; } else { outcomeWrap.style.display='none'; }
+  document.getElementById('detailModal').classList.add('active');
+}
+function closeDetail() { document.getElementById('detailModal').classList.remove('active'); }
+</script>
+</body>
+</html>

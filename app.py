@@ -230,11 +230,27 @@ def init_db():
             consultant_name VARCHAR(255) NOT NULL,
             client_name VARCHAR(255),
             property_name VARCHAR(255),
+            property_address VARCHAR(255),
             property_type VARCHAR(100),
             template_type VARCHAR(100),
+            proposal_number VARCHAR(100),
+            existing_issue TEXT,
+            intended_outcome TEXT,
+            scopes_selected TEXT,
             generated_at TIMESTAMP DEFAULT NOW()
         )
     ''')
+    # Add new columns if they don't exist (for existing databases)
+    for col in [
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS property_address VARCHAR(255)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS proposal_number VARCHAR(100)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS existing_issue TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS intended_outcome TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scopes_selected TEXT",
+    ]:
+        try:
+            cur.execute(col)
+        except: pass
 
     # PPM activity log
     cur.execute('''
@@ -516,16 +532,22 @@ def log_proposal():
             cur.execute('''
                 INSERT INTO proposal_log
                 (generated_by, consultant_key, consultant_name, client_name,
-                 property_name, property_type, template_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 property_name, property_address, property_type, template_type,
+                 proposal_number, existing_issue, intended_outcome, scopes_selected)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 data.get('generated_by'),
                 data.get('consultant_key'),
                 data.get('consultant_name'),
                 data.get('client_name'),
                 data.get('property_name'),
+                data.get('property_address', ''),
                 data.get('property_type'),
                 data.get('template_type'),
+                data.get('proposal_number', ''),
+                data.get('existing_issue', ''),
+                data.get('intended_outcome', ''),
+                data.get('scopes_selected', ''),
             ))
             conn.commit()
             cur.close()
@@ -845,6 +867,78 @@ def admin_feedback():
     except Exception as e:
         print(f"Feedback error: {e}")
     return render_template('admin_feedback.html', items=items)
+
+
+@app.route('/admin/proposals')
+def admin_proposals():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    from datetime import datetime as _dt, timedelta
+    consultant_filter = request.args.get('consultant', '')
+    period = request.args.get('period', 'all')
+    rows = []
+    counts = {}
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            # Get all proposals filtered by consultant_key (for)
+            if consultant_filter:
+                cur.execute(
+                    'SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC',
+                    (consultant_filter,)
+                )
+            else:
+                cur.execute('SELECT * FROM proposal_log ORDER BY generated_at DESC')
+            rows = cur.fetchall()
+            # Get counts per consultant
+            cur.execute('''
+                SELECT consultant_key, consultant_name,
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE generated_at >= NOW() - INTERVAL '30 days') as last_30
+                FROM proposal_log GROUP BY consultant_key, consultant_name ORDER BY consultant_name
+            ''')
+            counts = {r['consultant_key']: r for r in cur.fetchall()}
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Admin proposals error: {e}")
+    return render_template('admin_proposals.html',
+                           rows=rows, counts=counts,
+                           consultant_filter=consultant_filter,
+                           consultants=CONSULTANTS)
+
+
+@app.route('/admin/stats')
+def admin_stats():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    from datetime import datetime as _dt
+    stats = {}
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            for table, key in [
+                ('proposal_log', 'proposals'),
+                ('ppm_log', 'ppms'),
+                ('subscope_log', 'subscopes'),
+                ('profile_results', 'profiles'),
+            ]:
+                try:
+                    cur.execute(f'''
+                        SELECT COUNT(*) as total,
+                        COUNT(*) FILTER (WHERE generated_at >= NOW() - INTERVAL '30 days') as last_30
+                        FROM {table}
+                    ''')
+                    stats[key] = cur.fetchone()
+                except:
+                    stats[key] = {'total': 0, 'last_30': 0}
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Stats error: {e}")
+    return jsonify(stats)
 
 
 @app.route('/logout')

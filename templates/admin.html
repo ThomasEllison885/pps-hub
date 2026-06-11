@@ -108,11 +108,26 @@
   <p class="page-sub">Pure Property Solutions · All users and activity</p>
 
   <div class="stats">
-    <div class="stat"><div class="num">{{ users|length }}</div><div class="lbl">Team Members</div></div>
-    <div class="stat"><div class="num">{{ all_proposals|length }}</div><div class="lbl">Proposals</div></div>
-    <div class="stat"><div class="num">{{ all_ppms|length }}</div><div class="lbl">PPMs</div></div>
-    <div class="stat"><div class="num">{{ all_subscopes|length }}</div><div class="lbl">Sub Scopes</div></div>
-    <div class="stat"><div class="num">{{ profile_count }}</div><div class="lbl">Profiles Taken</div></div>
+    <div class="stat">
+      <div class="num">{{ users|length }}</div>
+      <div class="lbl">Team Members</div>
+    </div>
+    <a href="/admin/proposals" class="stat stat-link">
+      <div class="num">{{ proposals_30d }} <span class="all-time">/ {{ all_proposals|length }}</span></div>
+      <div class="lbl">Proposals <span class="period-note">30d / all</span></div>
+    </a>
+    <div class="stat">
+      <div class="num">{{ ppms_30d }} <span class="all-time">/ {{ all_ppms|length }}</span></div>
+      <div class="lbl">PPMs <span class="period-note">30d / all</span></div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ subscopes_30d }} <span class="all-time">/ {{ all_subscopes|length }}</span></div>
+      <div class="lbl">Trade Partner Scopes <span class="period-note">30d / all</span></div>
+    </div>
+    <div class="stat">
+      <div class="num">{{ profile_count }}</div>
+      <div class="lbl">Profiles Taken</div>
+    </div>
   </div>
 
   <!-- TEAM TABLE -->

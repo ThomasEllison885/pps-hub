@@ -273,8 +273,10 @@
       </thead>
       <tbody>
         {% for p in all_my_proposals %}
-        <tr>
-          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}</td>
+        <tr onclick="showProposal({{ loop.index0 }})" style="cursor:pointer;">
+          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
+            {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
+          </td>
           <td>{{ p.consultant_name }}</td>
           <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ p.template_type or '—' }}</td>
@@ -299,6 +301,92 @@
   </div>
 
 </div>
+
+<!-- Proposal data for modal -->
+<script>
+const myProposals = [
+  {% for p in all_my_proposals %}
+  {
+    title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+    num: {{ (p.proposal_number or '—')|tojson }},
+    client: {{ (p.client_name or '')|tojson }},
+    address: {{ (p.property_address or '—')|tojson }},
+    consultant: {{ (p.consultant_name or '')|tojson }},
+    type: {{ (p.property_type or '—')|tojson }},
+    template: {{ (p.template_type or '—')|tojson }},
+    scopes: {{ (p.scopes_selected or '—')|tojson }},
+    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    issue: {{ (p.existing_issue or '')|tojson }},
+    outcome: {{ (p.intended_outcome or '')|tojson }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+function showProposal(idx) {
+  const p = myProposals[idx];
+  document.getElementById('pdTitle').textContent = p.title;
+  document.getElementById('pdNum').textContent = p.num;
+  document.getElementById('pdAddress').textContent = p.address;
+  document.getElementById('pdConsultant').textContent = p.consultant;
+  document.getElementById('pdType').textContent = p.type;
+  document.getElementById('pdTemplate').textContent = p.template;
+  document.getElementById('pdScopes').textContent = p.scopes;
+  document.getElementById('pdDate').textContent = p.date;
+  const iw = document.getElementById('pdIssueWrap');
+  const ow = document.getElementById('pdOutcomeWrap');
+  if (p.issue) { document.getElementById('pdIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
+  if (p.outcome) { document.getElementById('pdOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+  document.getElementById('pdModal').classList.add('active');
+}
+function closePd() { document.getElementById('pdModal').classList.remove('active'); }
+</script>
+
+<!-- Proposal Detail Modal -->
+<div class="modal-overlay" id="pdModal" onclick="if(event.target===this)closePd()" style="display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:500px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+      <div id="pdTitle" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;line-height:1.3;"></div>
+      <button onclick="closePd()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;flex-shrink:0;">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;">
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Proposal #</div><div id="pdNum" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Address</div><div id="pdAddress" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Consultant</div><div id="pdConsultant" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Property Type</div><div id="pdType" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Template</div><div id="pdTemplate" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Scopes</div><div id="pdScopes" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
+      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="pdDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+    <div id="pdIssueWrap" style="display:none;margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div id="pdIssue" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="pdOutcomeWrap" style="display:none;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div id="pdOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Fix modal display toggle
+  document.getElementById('pdModal').style.display = 'none';
+  function showProposal(idx) {
+    document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+    const p = myProposals[idx];
+    document.getElementById('pdTitle').textContent = p.title;
+    document.getElementById('pdNum').textContent = p.num;
+    document.getElementById('pdAddress').textContent = p.address;
+    document.getElementById('pdConsultant').textContent = p.consultant;
+    document.getElementById('pdType').textContent = p.type;
+    document.getElementById('pdTemplate').textContent = p.template;
+    document.getElementById('pdScopes').textContent = p.scopes;
+    document.getElementById('pdDate').textContent = p.date;
+    const iw = document.getElementById('pdIssueWrap');
+    const ow = document.getElementById('pdOutcomeWrap');
+    if (p.issue) { document.getElementById('pdIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
+    if (p.outcome) { document.getElementById('pdOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+  }
+  function closePd() { document.getElementById('pdModal').style.display='none'; }
 
 <script>
   function setGreeting() {
