@@ -95,6 +95,97 @@ USERS = {
     },
 }
 
+# ── BIRTHDAYS & HIRE DATES ──────────────────────────────────────────────────
+TEAM_DATES = {
+    'thomas_ellison': {'birthday': (10, 8),  'hire': (5, 21, 2017)},
+    'tony_cumella':   {'birthday': (8, 21),  'hire': (6, 17, 2019)},
+    'phil_miller':    {'birthday': (3, 2),   'hire': (2, 24, 2020)},
+    'trey_hollmeyer': {'birthday': (10, 3),  'hire': (5, 14, 2018)},
+    'stephanie_whetstone': {'birthday': (5, 5), 'hire': (5, 7, 2017)},
+    'derek_kidney':   {'birthday': (4, 15),  'hire': (4, 26, 2021)},
+    'jordan_allen':   {'birthday': (6, 26),  'hire': (9, 13, 2021)},
+    'adam_cupito':    {'birthday': (6, 18),  'hire': (2, 28, 2022)},
+    'ben_ramsey':     {'birthday': (8, 6),   'hire': (7, 10, 2023)},
+    'andy_potts':     {'birthday': (12, 31), 'hire': (2, 24, 2025)},
+    'james_boling':   {'birthday': (3, 31),  'hire': (5, 5,  2025)},
+    'rachel_farler':  {'birthday': (5, 15),  'hire': (1, 5,  2026)},
+    'nick_triplett':  {'birthday': (12, 23), 'hire': (5, 4,  2026)},
+}
+
+MONTH_NAMES = ['January','February','March','April','May','June',
+               'July','August','September','October','November','December']
+
+def get_date_events(user_key, is_admin=False):
+    """Returns upcoming birthday/anniversary events within 3 days for this user,
+    plus team events if admin."""
+    from datetime import date, timedelta
+    today = date.today()
+    events = []
+
+    def days_until(month, day):
+        this_year = date(today.year, month, day)
+        if this_year < today:
+            this_year = date(today.year + 1, month, day)
+        return (this_year - today).days
+
+    def event_label(days):
+        if days == 0: return 'today'
+        if days == 1: return 'tomorrow'
+        return f'in {days} days'
+
+    if is_admin:
+        # Admin sees everyone's upcoming events
+        for key, dates in TEAM_DATES.items():
+            user = USERS.get(key, {})
+            first_name = user.get('display', '').split()[0]
+            bday_days = days_until(*dates['birthday'])
+            hire_month, hire_day, hire_year = dates['hire']
+            hire_days = days_until(hire_month, hire_day)
+            years = today.year - hire_year
+            if bday_days <= 3:
+                events.append({
+                    'type': 'birthday',
+                    'name': first_name,
+                    'full_name': user.get('display', ''),
+                    'days': bday_days,
+                    'label': event_label(bday_days),
+                    'date_str': f"{MONTH_NAMES[dates['birthday'][0]-1]} {dates['birthday'][1]}",
+                    'message': f"🎂 Heads up — {first_name}'s birthday is {event_label(bday_days)}, {MONTH_NAMES[dates['birthday'][0]-1]} {dates['birthday'][1]}. A good excuse to say something.",
+                })
+            if hire_days <= 3 and years >= 1:
+                events.append({
+                    'type': 'anniversary',
+                    'name': first_name,
+                    'full_name': user.get('display', ''),
+                    'days': hire_days,
+                    'label': event_label(hire_days),
+                    'date_str': f"{MONTH_NAMES[hire_month-1]} {hire_day}",
+                    'message': f"🏆 {first_name} is hitting {years} year{'s' if years > 1 else ''} with PPS {event_label(hire_days)}. Worth acknowledging.",
+                })
+    else:
+        # User sees their own events
+        dates = TEAM_DATES.get(user_key)
+        if dates:
+            user = USERS.get(user_key, {})
+            first_name = user.get('display', '').split()[0]
+            bday_days = days_until(*dates['birthday'])
+            hire_month, hire_day, hire_year = dates['hire']
+            hire_days = days_until(hire_month, hire_day)
+            years = today.year - hire_year
+            if bday_days <= 3:
+                events.append({
+                    'type': 'birthday',
+                    'message': f"🎂 Your birthday is {event_label(bday_days)} — {MONTH_NAMES[dates['birthday'][0]-1]} {dates['birthday'][1]}. Hope it's a good one.",
+                })
+            if hire_days <= 3 and years >= 1:
+                events.append({
+                    'type': 'anniversary',
+                    'message': f"🏆 {years} year{'s' if years > 1 else ''} at PPS {event_label(hire_days)}. That's worth something.",
+                })
+
+    events.sort(key=lambda x: x['days'])
+    return events
+
 CONSULTANTS = {
     'tony_cumella': 'Tony Cumella',
     'adam_cupito': 'Adam Cupito',
@@ -380,16 +471,33 @@ def dashboard():
 
     from datetime import datetime as _dt
     now_year = _dt.now().year
+    is_admin = (user.get('role') == 'admin')
     # Check if profile taken this year
     profile_this_year = profile and profile.get('taken_date') and str(profile['taken_date'])[:4] == str(now_year) if profile else False
+    # Get date events
+    date_events = get_date_events(user_key, is_admin=is_admin)
+    # Get full proposal history for consultants
+    all_my_proposals = []
+    if user.get('role') in ('consultant', 'admin'):
+        try:
+            conn2 = get_db()
+            if conn2:
+                cur2 = conn2.cursor(cursor_factory=RealDictCursor)
+                cur2.execute('SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+                all_my_proposals = cur2.fetchall()
+                cur2.close()
+                conn2.close()
+        except: pass
     return render_template('dashboard.html',
                            user=user,
                            user_key=user_key,
                            consultants=accessible_consultants,
                            recent_proposals=recent_proposals,
                            recent_ppms=recent_ppms,
+                           all_my_proposals=all_my_proposals,
                            profile=profile if profile_this_year else None,
                            now_year=now_year,
+                           date_events=date_events,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
                            profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
 

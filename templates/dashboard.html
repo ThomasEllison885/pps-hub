@@ -89,6 +89,23 @@
   .hub-footer { text-align: center; padding: 24px 0 0; border-top: 1px solid var(--border); margin-top: 12px; }
   .hub-footer img { height: 24px; opacity: 0.5; }
 
+  /* Event banners */
+  .event-banner {
+    border-radius: var(--radius); padding: 14px 20px; margin-bottom: 14px;
+    font-size: 14px; font-weight: 500;
+  }
+  .event-banner.birthday { background: #FFF8E1; border: 1.5px solid #FFD54F; color: #E65100; }
+  .event-banner.anniversary { background: #E8F5E9; border: 1.5px solid #81C784; color: #1B5E20; }
+
+  /* Proposal history */
+  .proposal-history-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden; }
+  .history-table { width: 100%; border-collapse: collapse; }
+  .history-table th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dark-blue); padding: 10px 16px; background: var(--light-bg); border-bottom: 1.5px solid var(--border); }
+  .history-table td { padding: 10px 16px; border-bottom: 1px solid #f0f4f8; font-size: 13px; vertical-align: middle; }
+  .history-table tr:last-child td { border-bottom: none; }
+  .history-table tr:hover td { background: #fafcff; }
+  .prop-name { font-weight: 600; color: var(--dark-blue); }
+
   @media (max-width: 700px) {
     .header { padding: 0 16px; }
     .tools-grid { grid-template-columns: repeat(2, 1fr); }
@@ -124,6 +141,14 @@
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
     <p>Here's everything you need — all in one place.</p>
   </div>
+
+  {% if date_events %}
+  {% for event in date_events %}
+  <div class="event-banner {{ event.type }}">
+    <span>{{ event.message }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
 
   {% if not profile %}
   <div class="profile-prompt">
@@ -232,6 +257,34 @@
       {% endif %}
     </div>
   </div>
+
+  {% if all_my_proposals %}
+  <div class="section-head">My Proposal History ({{ all_my_proposals|length }})</div>
+  <div class="proposal-history-card">
+    <table class="history-table">
+      <thead>
+        <tr>
+          <th>Client / Property</th>
+          <th>Consultant</th>
+          <th>Type</th>
+          <th>Template</th>
+          <th>Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in all_my_proposals %}
+        <tr>
+          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}</td>
+          <td>{{ p.consultant_name }}</td>
+          <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
+          <td style="font-size:12px;color:#888;">{{ p.template_type or '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
 
   <div class="section-head">Feedback & Suggestions</div>
   <div class="feedback-card">
