@@ -275,6 +275,19 @@ def init_db():
         )
     ''')
 
+    # SSO auth tokens table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS auth_tokens (
+            token VARCHAR(64) PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            role VARCHAR(50),
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            used BOOLEAN DEFAULT FALSE
+        )
+    ''')
+
     # Feedback table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS feedback (
@@ -951,6 +964,61 @@ def admin_stats():
     except Exception as e:
         print(f"Stats error: {e}")
     return jsonify(stats)
+
+
+@app.route('/generate-token', methods=['POST'])
+def generate_token():
+    """Called by hub when user clicks a tool — returns a short-lived SSO token."""
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    api_key = request.headers.get('X-API-Key', '')
+    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    user_key = session['user_key']
+    display_name = session.get('display_name', '')
+    role = session.get('role', 'user')
+    token = generate_sso_token(user_key, display_name, role)
+    if not token:
+        return jsonify({'error': 'Token generation failed'}), 500
+    return jsonify({'token': token})
+
+
+@app.route('/validate-token', methods=['POST'])
+def validate_token():
+    """Called by proposal/profile tool to validate an SSO token."""
+    api_key = request.headers.get('X-API-Key', '')
+    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    token = request.json.get('token', '')
+    if not token:
+        return jsonify({'valid': False}), 400
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                '''SELECT * FROM auth_tokens
+                   WHERE token = %s AND used = FALSE AND expires_at > NOW()''',
+                (token,)
+            )
+            row = cur.fetchone()
+            if row:
+                # Mark as used
+                cur.execute('UPDATE auth_tokens SET used = TRUE WHERE token = %s', (token,))
+                conn.commit()
+                cur.close()
+                conn.close()
+                return jsonify({
+                    'valid': True,
+                    'user_key': row['user_key'],
+                    'display_name': row['display_name'],
+                    'role': row['role'],
+                })
+            cur.close()
+            conn.close()
+            return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
+    except Exception as e:
+        return jsonify({'valid': False, 'reason': str(e)}), 500
 
 
 @app.route('/logout')

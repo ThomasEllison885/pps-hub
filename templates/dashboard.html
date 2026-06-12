@@ -153,14 +153,14 @@
   {% if not profile %}
   <div class="profile-prompt">
     <p><strong>Take your {{ now_year }} Pure Way Profile</strong> — understand how you work, what drives you, and how to work better with your team.</p>
-    <a href="{{ profile_url }}/profile?user={{ user_key }}" class="prompt-btn" target="_blank">Take the Assessment →</a>
+    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="prompt-btn">Take the Assessment →</a>
   </div>
   {% endif %}
 
   <div class="section-head">Your Tools</div>
   <div class="tools-grid">
     {% if consultants %}
-    <a href="{{ proposal_url }}/proposal?user={{ user_key }}" class="tool-card" target="_blank">
+    <a href="#" onclick="openTool('{{ proposal_url }}/proposal', '{{ user_key }}')" class="tool-card">
       <div class="tool-icon">📄</div>
       <div class="tool-name">Proposal Generator</div>
       <div class="tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
@@ -179,7 +179,7 @@
     </div>
     {% endif %}
 
-    <a href="{{ proposal_url }}/ppm?user={{ user_key }}" class="tool-card" target="_blank">
+    <a href="#" onclick="openTool('{{ proposal_url }}/ppm', '{{ user_key }}')" class="tool-card">
       <div class="tool-icon">🔧</div>
       <div class="tool-name">PPM Checklist</div>
       <div class="tool-desc">Generate preventive maintenance checklists for any property.</div>
@@ -187,7 +187,7 @@
     </a>
 
     {% if consultants %}
-    <a href="{{ proposal_url }}/subscope?user={{ user_key }}" class="tool-card" target="_blank">
+    <a href="#" onclick="openTool('{{ proposal_url }}/subscope', '{{ user_key }}')" class="tool-card">
       <div class="tool-icon">📋</div>
       <div class="tool-name">Trade Partner Scope</div>
       <div class="tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
@@ -201,7 +201,7 @@
     </div>
     {% endif %}
 
-    <a href="{{ profile_url }}/profile?user={{ user_key }}" class="tool-card" target="_blank">
+    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="tool-card">
       <div class="tool-icon">🎯</div>
       <div class="tool-name">Pure Way Profile</div>
       <div class="tool-desc">Behavioral assessment — understand how you work and what drives you.</div>
@@ -418,6 +418,24 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
       `${greet} · ${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
   }
   setGreeting();
+
+  async function openTool(baseUrl, userKey) {
+    try {
+      const resp = await fetch('/generate-token', {
+        method: 'POST',
+        headers: { 'X-API-Key': 'pps-internal-2026' }
+      });
+      const data = await resp.json();
+      if (data.token) {
+        window.open(`${baseUrl}?token=${data.token}`, '_blank');
+      } else {
+        // Fallback to user param if token fails
+        window.open(`${baseUrl}?user=${userKey}`, '_blank');
+      }
+    } catch(e) {
+      window.open(`${baseUrl}?user=${userKey}`, '_blank');
+    }
+  }
 
   async function submitFeedback() {
     const msg = document.getElementById('feedbackText').value.trim();
