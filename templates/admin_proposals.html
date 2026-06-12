@@ -64,8 +64,7 @@
 </head>
 <body>
 <div class="header">
-  <div class="header-left">
-    <img src="/static/logo.png" alt="PPS" class="header-logo">
+  <div class="header-left" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;"><img src="/static/logo.png" alt="PPS" class="header-logo" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;">
     <div class="header-divider"></div>
     <div class="header-title">All Proposals</div>
   </div>
@@ -211,5 +210,9 @@ function showDetail(idx) {
 }
 function closeDetail() { document.getElementById('detailModal').classList.remove('active'); }
 </script>
+  <div class="hub-footer">
+    <img src="/static/logo.png" alt="PPS" style="height:22px;opacity:0.3;"> &nbsp;
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" style="height:22px;opacity:0.45;">
+  </div>
 </body>
 </html>
