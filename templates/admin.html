@@ -187,12 +187,12 @@
       </div>
       {% if all_proposals %}
       {% for p in all_proposals[:20] %}
-      <div class="act-item" id="proposal_{{ p.id }}">
+      <div class="act-item" id="proposal_{{ p.id }}" style="cursor:pointer;" onclick="showProposalMeta({{ loop.index0 }})">
         <div class="act-item-content">
           <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
           <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        <button class="delete-btn" onclick="deleteItem('proposal', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
+        <button class="delete-btn" onclick="event.stopPropagation();deleteItem('proposal', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No proposals logged yet</div>{% endif %}
@@ -204,16 +204,36 @@
       </div>
       {% if all_ppms %}
       {% for p in all_ppms[:20] %}
-      <div class="act-item" id="ppm_{{ p.id }}">
+      <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="showPPMMeta({{ loop.index0 }})">
         <div class="act-item-content">
           <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
-          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
-        <button class="delete-btn" onclick="deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
+        <button class="delete-btn" onclick="event.stopPropagation();deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No PPMs logged yet</div>{% endif %}
     </div>
+  </div>
+
+  <!-- TRADE PARTNER SCOPES -->
+  <div class="activity-row" style="margin-top:0;">
+    <div class="act-card">
+      <div class="act-card-header">
+        <h3>Recent Trade Partner Scopes</h3>
+      </div>
+      {% if all_subscopes %}
+      {% for s in all_subscopes[:20] %}
+      <div class="act-item" style="cursor:pointer;" onclick="showTPSMeta({{ loop.index0 }})">
+        <div class="act-item-content">
+          <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
+          <div class="act-meta">{{ s.generated_by.replace('_',' ').title() }} · {{ s.pm_name or '' }} · {{ s.language|title if s.language else '' }} · {{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}<div class="empty">No Trade Partner Scopes logged yet</div>{% endif %}
+    </div>
+    <div class="act-card" style="visibility:hidden;"></div>
   </div>
 
   <!-- PROFILE DISTRIBUTION -->
@@ -266,6 +286,34 @@
   </div>
 </div>
 
+<!-- Admin Metadata Modal -->
+<div id="adminMetaModal" onclick="if(event.target===this)closeAdminMeta()" style="display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:500px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+      <div id="amTitle" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;line-height:1.3;flex:1;"></div>
+      <button onclick="closeAdminMeta()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;">
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Proposal #</div><div id="amNum" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Address</div><div id="amAddress" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Consultant</div><div id="amConsultant" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Generated By</div><div id="amBy" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Type</div><div id="amType" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Template / PM</div><div id="amTemplate" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Scopes</div><div id="amScopes" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
+      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="amDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+    <div id="amIssueWrap" style="display:none;margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div id="amIssue" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="amOutcomeWrap" style="display:none;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div id="amOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+  </div>
+</div>
+
 <script>
   let activeUserKey = null;
 
@@ -310,6 +358,102 @@
       if (el) el.remove();
     }
   }
+
+  // Proposal metadata
+  const adminProposals = [
+    {% for p in all_proposals[:20] %}
+    {
+      title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+      num: {{ (p.proposal_number or '—')|tojson }},
+      client: {{ (p.client_name or '')|tojson }},
+      address: {{ (p.property_address or '—')|tojson }},
+      consultant: {{ (p.consultant_name or '')|tojson }},
+      by: {{ (p.generated_by or '')|tojson }},
+      type: {{ (p.property_type or '—')|tojson }},
+      template: {{ (p.template_type or '—')|tojson }},
+      scopes: {{ (p.scopes_selected or '—')|tojson }},
+      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+      issue: {{ (p.existing_issue or '')|tojson }},
+      outcome: {{ (p.intended_outcome or '')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  const adminPPMs = [
+    {% for p in all_ppms[:20] %}
+    {
+      property: {{ (p.property_name or 'Unnamed')|tojson }},
+      pm: {{ (p.pm_name or '—')|tojson }},
+      by: {{ (p.generated_by or '')|tojson }},
+      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  const adminTPS = [
+    {% for s in all_subscopes[:20] %}
+    {
+      property: {{ (s.property_name or 'Unnamed')|tojson }},
+      pm: {{ (s.pm_name or '—')|tojson }},
+      by: {{ (s.generated_by or '')|tojson }},
+      language: {{ (s.language or '—')|tojson }},
+      consultant: {{ (s.consultant_name or '—')|tojson }},
+      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  function showProposalMeta(idx) {
+    const p = adminProposals[idx];
+    document.getElementById('amTitle').textContent = p.title;
+    document.getElementById('amNum').textContent = p.num;
+    document.getElementById('amAddress').textContent = p.address;
+    document.getElementById('amConsultant').textContent = p.consultant;
+    document.getElementById('amBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    document.getElementById('amType').textContent = p.type;
+    document.getElementById('amTemplate').textContent = p.template;
+    document.getElementById('amScopes').textContent = p.scopes;
+    document.getElementById('amDate').textContent = p.date;
+    const iw = document.getElementById('amIssueWrap');
+    const ow = document.getElementById('amOutcomeWrap');
+    if (p.issue) { document.getElementById('amIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
+    if (p.outcome) { document.getElementById('amOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+    document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+  }
+
+  function showPPMMeta(idx) {
+    const p = adminPPMs[idx];
+    document.getElementById('amTitle').textContent = p.property;
+    document.getElementById('amNum').textContent = '—';
+    document.getElementById('amAddress').textContent = '—';
+    document.getElementById('amConsultant').textContent = '—';
+    document.getElementById('amBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    document.getElementById('amType').textContent = 'PPM';
+    document.getElementById('amTemplate').textContent = p.pm;
+    document.getElementById('amScopes').textContent = '—';
+    document.getElementById('amDate').textContent = p.date;
+    document.getElementById('amIssueWrap').style.display = 'none';
+    document.getElementById('amOutcomeWrap').style.display = 'none';
+    document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+  }
+
+  function showTPSMeta(idx) {
+    const s = adminTPS[idx];
+    document.getElementById('amTitle').textContent = s.property;
+    document.getElementById('amNum').textContent = '—';
+    document.getElementById('amAddress').textContent = '—';
+    document.getElementById('amConsultant').textContent = s.consultant;
+    document.getElementById('amBy').textContent = s.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    document.getElementById('amType').textContent = 'Trade Partner Scope';
+    document.getElementById('amTemplate').textContent = s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '—';
+    document.getElementById('amScopes').textContent = '—';
+    document.getElementById('amDate').textContent = s.date;
+    document.getElementById('amIssueWrap').style.display = 'none';
+    document.getElementById('amOutcomeWrap').style.display = 'none';
+    document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+  }
+
+  function closeAdminMeta() { document.getElementById('adminMetaModal').style.display='none'; }
 
   async function clearMyData() {
     if (!confirm('Clear all your test proposals and PPMs? This cannot be undone.')) return;

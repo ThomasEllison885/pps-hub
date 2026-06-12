@@ -138,9 +138,9 @@
       <h3>PPMs ({{ ppms|length }})</h3>
       {% if ppms %}
       {% for p in ppms %}
-      <div class="act-item">
+      <div class="act-item" onclick="showMeta('ppm', {{ loop.index0 }})" style="cursor:pointer;">
         <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
-        <div class="act-meta">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
+        <div class="act-meta">{{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No PPMs generated</div>{% endif %}
@@ -148,15 +148,15 @@
   </div>
   <div class="act-grid">
     <div class="act-card">
-      <h3>Sub Scopes ({{ subscopes|length }})</h3>
+      <h3>Trade Partner Scopes ({{ subscopes|length }})</h3>
       {% if subscopes %}
       {% for s in subscopes %}
-      <div class="act-item">
+      <div class="act-item" onclick="showMeta('tps', {{ loop.index0 }})" style="cursor:pointer;">
         <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
-        <div class="act-meta">{{ s.language|title }} · {{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '' }}</div>
+        <div class="act-meta">{{ s.language|title if s.language else '' }} · {{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '' }}</div>
       </div>
       {% endfor %}
-      {% else %}<div class="empty">No sub scopes generated</div>{% endif %}
+      {% else %}<div class="empty">No Trade Partner Scopes generated</div>{% endif %}
     </div>
     <div class="act-card">
       <h3>Feedback ({{ feedback_items|length }})</h3>
@@ -205,5 +205,81 @@
 .detail-label{font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;}
 .detail-val{font-size:14px;color:#444;}
 </style>
+<script>
+const memberProposals = [
+  {% for p in proposals %}
+  {type:'proposal', title:{{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+   num:{{ (p.proposal_number or '—')|tojson }}, address:{{ (p.property_address or '—')|tojson }},
+   consultant:{{ (p.consultant_name or '')|tojson }}, by:{{ (p.generated_by or '')|tojson }},
+   ptype:{{ (p.property_type or '—')|tojson }}, template:{{ (p.template_type or '—')|tojson }},
+   scopes:{{ (p.scopes_selected or '—')|tojson }},
+   date:{{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+   issue:{{ (p.existing_issue or '')|tojson }}, outcome:{{ (p.intended_outcome or '')|tojson }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+const memberPPMs = [
+  {% for p in ppms %}
+  {type:'ppm', title:{{ (p.property_name or 'Unnamed')|tojson }},
+   pm:{{ (p.pm_name or '—')|tojson }}, by:{{ (p.generated_by or '')|tojson }},
+   date:{{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+const memberTPS = [
+  {% for s in subscopes %}
+  {type:'tps', title:{{ (s.property_name or 'Unnamed')|tojson }},
+   pm:{{ (s.pm_name or '—')|tojson }}, by:{{ (s.generated_by or '')|tojson }},
+   language:{{ (s.language or '—')|tojson }}, consultant:{{ (s.consultant_name or '—')|tojson }},
+   date:{{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }}
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+function showMeta(type, idx) {
+  let d = type==='proposal' ? memberProposals[idx] : type==='ppm' ? memberPPMs[idx] : memberTPS[idx];
+  document.getElementById('mmTitle').textContent = d.title;
+  document.getElementById('mmType').textContent = type==='proposal' ? (d.ptype||'—') : type==='ppm' ? 'PPM' : 'Trade Partner Scope';
+  document.getElementById('mmConsultant').textContent = type==='proposal' ? d.consultant : (d.consultant||'—');
+  document.getElementById('mmBy').textContent = (d.by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+  document.getElementById('mmExtra').textContent = type==='proposal' ? (d.template||'—') : (d.pm||'—');
+  document.getElementById('mmExtraLabel').textContent = type==='proposal' ? 'Template' : 'PM';
+  document.getElementById('mmScopes').textContent = type==='proposal' ? (d.scopes||'—') : type==='tps' ? (d.language||'—') : '—';
+  document.getElementById('mmScopesLabel').textContent = type==='proposal' ? 'Scopes' : type==='tps' ? 'Language' : 'Notes';
+  document.getElementById('mmDate').textContent = d.date;
+  const iw = document.getElementById('mmIssueWrap');
+  const ow = document.getElementById('mmOutcomeWrap');
+  if (type==='proposal' && d.issue) { document.getElementById('mmIssue').textContent = d.issue; iw.style.display='block'; } else { iw.style.display='none'; }
+  if (type==='proposal' && d.outcome) { document.getElementById('mmOutcome').textContent = d.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+  document.getElementById('memberMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+}
+function closeMeta() { document.getElementById('memberMetaModal').style.display='none'; }
+</script>
+
+<div id="memberMetaModal" onclick="if(event.target===this)closeMeta()" style="display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+      <div id="mmTitle" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;line-height:1.3;flex:1;"></div>
+      <button onclick="closeMeta()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Type</div><div id="mmType" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Consultant</div><div id="mmConsultant" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Generated By</div><div id="mmBy" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div id="mmExtraLabel" style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Template</div><div id="mmExtra" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div id="mmScopesLabel" style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Scopes</div><div id="mmScopes" style="font-size:13px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Date</div><div id="mmDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+    <div id="mmIssueWrap" style="display:none;margin-top:12px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div id="mmIssue" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="mmOutcomeWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div id="mmOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
