@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Proposal Comparison</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;}
+  .header-logo{height:44px;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;font-family:'DM Sans',sans-serif;}
+  .main{max-width:900px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+  .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .upload-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;margin-bottom:28px;}
+  .upload-card h3{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);margin-bottom:6px;}
+  .upload-card p{font-size:14px;color:#888;margin-bottom:20px;line-height:1.6;}
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;}
+  .field input[type=text]{width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;color:var(--gray);outline:none;}
+  .field input[type=text]:focus{border-color:var(--blue);}
+  .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;}
+  .upload-box{border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;}
+  .upload-box:hover{border-color:var(--blue);background:var(--light-bg);}
+  .upload-box.has-file{border-color:var(--blue);background:var(--light-bg);}
+  .upload-box .icon{font-size:24px;margin-bottom:8px;}
+  .upload-box .label{font-size:13px;font-weight:600;color:var(--dark-blue);margin-bottom:4px;}
+  .upload-box .hint{font-size:12px;color:#aaa;}
+  .upload-box input[type=file]{display:none;}
+  .btn-analyze{background:var(--dark-blue);color:white;border:none;border-radius:8px;padding:12px 28px;font-size:15px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:background 0.2s;width:100%;}
+  .btn-analyze:hover{background:var(--blue);}
+  .btn-analyze:disabled{opacity:0.5;cursor:not-allowed;}
+  .loading{display:none;text-align:center;padding:40px;color:#888;font-size:14px;}
+  .loading .spinner{font-size:32px;animation:spin 1.5s linear infinite;display:block;margin-bottom:12px;}
+  @keyframes spin{100%{transform:rotate(360deg)}}
+  .results-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:28px;margin-bottom:20px;display:none;}
+  .results-card h3{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);margin-bottom:16px;}
+  .diff-section{margin-bottom:20px;}
+  .diff-section h4{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;}
+  .diff-content{font-size:14px;color:var(--gray);line-height:1.7;background:var(--light-bg);border-radius:8px;padding:14px 16px;white-space:pre-wrap;}
+  .notes-field textarea{width:100%;border:1.5px solid var(--border);border-radius:8px;padding:11px 14px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--gray);resize:vertical;min-height:100px;outline:none;transition:border-color 0.2s;}
+  .notes-field textarea:focus{border-color:var(--blue);}
+  .btn-submit{background:#27ae60;color:white;border:none;border-radius:8px;padding:11px 24px;font-size:14px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:background 0.2s;}
+  .btn-submit:hover{background:#229954;}
+  .success-msg{display:none;color:#27ae60;font-size:14px;font-weight:500;margin-top:10px;}
+
+  /* History */
+  .history-item{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 24px;margin-bottom:14px;cursor:pointer;border:1.5px solid transparent;transition:all 0.2s;}
+  .history-item:hover{border-color:var(--blue);}
+  .hi-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+  .hi-name{font-size:15px;font-weight:600;color:var(--dark-blue);}
+  .hi-date{font-size:12px;color:#aaa;}
+  .hi-by{font-size:13px;color:#888;}
+  .hi-preview{font-size:13px;color:#666;line-height:1.5;margin-top:6px;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">Proposal Comparison</div>
+  </div>
+  <a href="/dashboard" class="header-btn">← Dashboard</a>
+</div>
+
+<div class="main">
+  <div class="page-title">Proposal Comparison Tool</div>
+  <p class="page-sub">Upload your original generated proposal and your edited version. Claude will analyze the differences and suggest voice guide improvements.</p>
+
+  <!-- UPLOAD FORM -->
+  <div class="upload-card">
+    <h3>Compare Two Versions</h3>
+    <p>Upload the Word doc Claude generated and your edited version. We'll analyze what changed and why it matters.</p>
+
+    <div class="field">
+      <label>Property / Client Name</label>
+      <input type="text" id="propName" placeholder="e.g. Vantage Point West — Roofing">
+    </div>
+
+    <div class="upload-grid">
+      <div class="upload-box" id="box1" onclick="document.getElementById('file1').click()">
+        <div class="icon">📄</div>
+        <div class="label">Original (Generated)</div>
+        <div class="hint" id="hint1">Click to upload Word doc</div>
+        <input type="file" id="file1" accept=".docx,.txt,.pdf" onchange="fileSelected(1)">
+      </div>
+      <div class="upload-box" id="box2" onclick="document.getElementById('file2').click()">
+        <div class="icon">✏️</div>
+        <div class="label">Your Edited Version</div>
+        <div class="hint" id="hint2">Click to upload Word doc</div>
+        <input type="file" id="file2" accept=".docx,.txt,.pdf" onchange="fileSelected(2)">
+      </div>
+    </div>
+
+    <button class="btn-analyze" id="analyzeBtn" onclick="analyze()" disabled>Analyze Differences</button>
+  </div>
+
+  <div class="loading" id="loading">
+    <span class="spinner">⚙️</span>
+    Claude is reading both proposals and identifying what changed…
+  </div>
+
+  <!-- RESULTS -->
+  <div class="results-card" id="resultsCard">
+    <h3>Analysis Results</h3>
+
+    <div class="diff-section">
+      <h4>What Changed</h4>
+      <div class="diff-content" id="diffContent"></div>
+    </div>
+
+    <div class="diff-section">
+      <h4>Voice Guide Recommendations</h4>
+      <div class="diff-content" id="voiceRecs"></div>
+    </div>
+
+    <div class="diff-section notes-field">
+      <h4>Your Notes <span style="font-weight:400;color:#aaa;text-transform:none;font-size:11px;">— add context or edit the recommendations above</span></h4>
+      <textarea id="userNotes" placeholder="Add any context about why you made these changes. For example: 'The client asked for a softer tone' or 'This property manager prefers bullet points over paragraphs.'"></textarea>
+    </div>
+
+    <button class="btn-submit" onclick="submitDiff()">Submit to Thomas for Review</button>
+    <div class="success-msg" id="successMsg">✓ Submitted — Thomas will review and update the voice guide.</div>
+  </div>
+
+  <!-- HISTORY -->
+  {% if rows %}
+  <div class="section-head" style="margin-top:36px;">Previous Submissions</div>
+  {% for row in rows %}
+  <div class="history-item" onclick="toggleHistory('hist_{{ row.id }}')">
+    <div class="hi-header">
+      <div class="hi-name">{{ row.property_name or 'Unnamed Property' }}</div>
+      <div class="hi-date">{{ row.submitted_at.strftime('%b %d, %Y') if row.submitted_at else '' }}</div>
+    </div>
+    {% if is_admin %}
+    <div class="hi-by">Submitted by {{ row.display_name }}</div>
+    {% endif %}
+    <div id="hist_{{ row.id }}" style="display:none;margin-top:12px;">
+      {% if row.diff_analysis %}
+      <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;">Analysis</div>
+      <div class="hi-preview">{{ row.diff_analysis }}</div>
+      {% endif %}
+      {% if row.voice_recommendations %}
+      <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;">Voice Recommendations</div>
+      <div class="hi-preview">{{ row.voice_recommendations }}</div>
+      {% endif %}
+      {% if row.user_notes %}
+      <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;">Notes</div>
+      <div class="hi-preview">{{ row.user_notes }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+
+<script>
+let analysisData = {};
+
+function fileSelected(num) {
+  const file = document.getElementById('file' + num).files[0];
+  if (file) {
+    document.getElementById('hint' + num).textContent = file.name;
+    document.getElementById('box' + num).classList.add('has-file');
+  }
+  checkReady();
+}
+
+function checkReady() {
+  const f1 = document.getElementById('file1').files[0];
+  const f2 = document.getElementById('file2').files[0];
+  document.getElementById('analyzeBtn').disabled = !(f1 && f2);
+}
+
+async function analyze() {
+  const f1 = document.getElementById('file1').files[0];
+  const f2 = document.getElementById('file2').files[0];
+  const propName = document.getElementById('propName').value.trim();
+  if (!f1 || !f2) return;
+
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('resultsCard').style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('original', f1);
+  fd.append('edited', f2);
+  fd.append('property_name', propName);
+
+  try {
+    const resp = await fetch('/analyze-diff', { method: 'POST', body: fd });
+    const data = await resp.json();
+    if (data.success) {
+      analysisData = data;
+      document.getElementById('diffContent').textContent = data.diff_analysis;
+      document.getElementById('voiceRecs').textContent = data.voice_recommendations;
+      document.getElementById('resultsCard').style.display = 'block';
+    } else {
+      alert('Error: ' + (data.error || 'Something went wrong'));
+    }
+  } catch(e) {
+    alert('Error analyzing proposals: ' + e.message);
+  }
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('analyzeBtn').disabled = false;
+}
+
+async function submitDiff() {
+  const fd = new FormData();
+  fd.append('property_name', document.getElementById('propName').value.trim());
+  fd.append('diff_analysis', analysisData.diff_analysis || '');
+  fd.append('voice_recommendations', analysisData.voice_recommendations || '');
+  fd.append('user_notes', document.getElementById('userNotes').value.trim());
+
+  const resp = await fetch('/submit-diff', { method: 'POST', body: fd });
+  const data = await resp.json();
+  if (data.success) {
+    document.getElementById('successMsg').style.display = 'block';
+    setTimeout(() => document.getElementById('successMsg').style.display = 'none', 5000);
+  }
+}
+
+function toggleHistory(id) {
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+</script>
+</body>
+</html>

@@ -307,6 +307,52 @@
   </div>
   {% endif %}
 
+  {% if all_my_ppms %}
+  <div class="section-head">My PPM History ({{ all_my_ppms|length }})</div>
+  <div class="proposal-history-card">
+    <table class="history-table">
+      <thead><tr><th>Property</th><th>PM</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for p in all_my_ppms %}
+        <tr onclick="showPPM({{ loop.index0 }})" style="cursor:pointer;">
+          <td class="prop-name">{{ p.property_name or 'Unnamed Property' }}</td>
+          <td style="font-size:13px;color:#888;">{{ p.pm_name or '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if all_my_tpscopes %}
+  <div class="section-head">My Trade Partner Scopes ({{ all_my_tpscopes|length }})</div>
+  <div class="proposal-history-card">
+    <table class="history-table">
+      <thead><tr><th>Property</th><th>PM</th><th>Language</th><th>Date</th></tr></thead>
+      <tbody>
+        {% for s in all_my_tpscopes %}
+        <tr>
+          <td class="prop-name">{{ s.property_name or 'Unnamed' }}</td>
+          <td style="font-size:13px;color:#888;">{{ s.pm_name or '—' }}</td>
+          <td style="font-size:12px;color:#888;">{{ s.language|title if s.language else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  {% if consultants %}
+  <div class="section-head">Proposal Comparison Tool</div>
+  <div class="feedback-card" style="margin-bottom:28px;">
+    <h3>Submit a Before & After</h3>
+    <p style="font-size:14px;color:#888;margin-bottom:14px;line-height:1.6;">Upload your generated proposal and your edited version. Claude will analyze the differences and suggest improvements to our voice guide.</p>
+    <a href="/my-diffs" style="display:inline-block;background:var(--dark-blue);color:white;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;text-decoration:none;">Open Comparison Tool →</a>
+  </div>
+  {% endif %}
+
   <div class="section-head">Feedback & Suggestions</div>
   <div class="feedback-card">
     <h3>Share a Suggestion or Idea</h3>
@@ -420,6 +466,27 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
   }
   setGreeting();
 
+  const myPPMs = [
+    {% for p in all_my_ppms %}
+    {
+      property: {{ (p.property_name or 'Unnamed')|tojson }},
+      pm: {{ (p.pm_name or '—')|tojson }},
+      by: {{ (p.generated_by or '')|tojson }},
+      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  function showPPM(idx) {
+    const p = myPPMs[idx];
+    document.getElementById('ppmProp').textContent = p.property;
+    document.getElementById('ppmPM').textContent = p.pm;
+    document.getElementById('ppmBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    document.getElementById('ppmDate').textContent = p.date;
+    document.getElementById('ppmModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+  }
+  function closePPM() { document.getElementById('ppmModal').style.display='none'; }
+
   async function openTool(baseUrl, userKey) {
     try {
       const resp = await fetch('/generate-token', {
@@ -465,5 +532,20 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
     btn.textContent = 'Send Feedback';
   }
 </script>
+<!-- PPM Detail Modal -->
+<div id="ppmModal" onclick="if(event.target===this)closePPM()" style="display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:420px;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+      <div id="ppmProp" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;"></div>
+      <button onclick="closePPM()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0;">
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Project Manager</div><div id="ppmPM" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Generated By</div><div id="ppmBy" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="ppmDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

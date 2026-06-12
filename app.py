@@ -296,10 +296,33 @@ def init_db():
             user_key VARCHAR(100) NOT NULL,
             display_name VARCHAR(255) NOT NULL,
             message TEXT NOT NULL,
+            feedback_type VARCHAR(50) DEFAULT 'general',
             submitted_at TIMESTAMP DEFAULT NOW(),
             read_by_admin BOOLEAN DEFAULT FALSE
         )
     ''')
+
+    # Proposal diffs table
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS proposal_diffs (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            property_name VARCHAR(255),
+            diff_analysis TEXT,
+            user_notes TEXT,
+            voice_recommendations TEXT,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            reviewed_by_admin BOOLEAN DEFAULT FALSE
+        )
+    ''')
+
+    # Migrate ppm_log to add pm columns if needed
+    try:
+        cur.execute("ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_key VARCHAR(100)")
+        cur.execute("ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_name VARCHAR(255)")
+        cur.execute("ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'")
+    except: pass
 
     # Seed users with default password if not exists
     default_password = os.environ.get('DEFAULT_PASSWORD', 'PPS2026!')
@@ -522,15 +545,33 @@ def dashboard():
     recent_ppms = get_recent_ppms(user_key)
     # Recent Trade Partner Scopes
     recent_tpscopes = []
+    all_my_ppms = []
+    all_my_tpscopes = []
     try:
         conn_tps = get_db()
         if conn_tps:
             cur_tps = conn_tps.cursor(cursor_factory=RealDictCursor)
+            # Recent TPS
             cur_tps.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC LIMIT 5', (user_key,))
             recent_tpscopes = cur_tps.fetchall()
+            # Full PPM history — PMs see all PPMs where they are listed as PM
+            user_def = USERS.get(user_key, {})
+            if user_def.get('role') in ('pm', 'admin'):
+                cur_tps.execute(
+                    '''SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s
+                       ORDER BY generated_at DESC''',
+                    (user_key, user_key)
+                )
+            else:
+                cur_tps.execute('SELECT * FROM ppm_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+            all_my_ppms = cur_tps.fetchall()
+            # Full TPS history
+            cur_tps.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
+            all_my_tpscopes = cur_tps.fetchall()
             cur_tps.close()
             conn_tps.close()
-    except: pass
+    except Exception as e:
+        print(f"Recent activity error: {e}")
     profile = get_profile_result(user_key)
 
     from datetime import datetime as _dt
@@ -560,6 +601,8 @@ def dashboard():
                            recent_ppms=recent_ppms,
                            recent_tpscopes=recent_tpscopes,
                            all_my_proposals=all_my_proposals,
+                           all_my_ppms=all_my_ppms,
+                           all_my_tpscopes=all_my_tpscopes,
                            profile=profile if profile_this_year else None,
                            now_year=now_year,
                            date_events=date_events,
@@ -619,8 +662,10 @@ def log_ppm():
         if conn:
             cur = conn.cursor()
             cur.execute(
-                'INSERT INTO ppm_log (generated_by, property_name) VALUES (%s, %s)',
-                (data.get('generated_by'), data.get('property_name'))
+                '''INSERT INTO ppm_log (generated_by, property_name, pm_key, pm_name)
+                   VALUES (%s, %s, %s, %s)''',
+                (data.get('generated_by'), data.get('property_name'),
+                 data.get('pm_key', ''), data.get('pm_name', ''))
             )
             conn.commit()
             cur.close()
@@ -1070,6 +1115,80 @@ def validate_token():
             return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
     except Exception as e:
         return jsonify({'valid': False, 'reason': str(e)}), 500
+
+
+@app.route('/submit-diff', methods=['POST'])
+def submit_diff():
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    property_name = request.form.get('property_name', '').strip()
+    diff_analysis = request.form.get('diff_analysis', '').strip()
+    user_notes = request.form.get('user_notes', '').strip()
+    voice_recommendations = request.form.get('voice_recommendations', '').strip()
+    user_key = session['user_key']
+    display_name = session.get('display_name', '')
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO proposal_diffs
+                   (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
+                   VALUES (%s, %s, %s, %s, %s, %s)''',
+                (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/diffs')
+def admin_diffs():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    rows = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM proposal_diffs ORDER BY submitted_at DESC')
+            rows = cur.fetchall()
+            cur.execute('UPDATE proposal_diffs SET reviewed_by_admin = TRUE')
+            conn.commit()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Admin diffs error: {e}")
+    return render_template('admin_diffs.html', rows=rows)
+
+
+@app.route('/my-diffs')
+def my_diffs():
+    if not session.get('user_key'):
+        return redirect(url_for('login'))
+    rows = []
+    user_key = session['user_key']
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            if session.get('role') == 'admin':
+                cur.execute('SELECT * FROM proposal_diffs ORDER BY submitted_at DESC')
+            else:
+                cur.execute(
+                    'SELECT * FROM proposal_diffs WHERE user_key = %s ORDER BY submitted_at DESC',
+                    (user_key,)
+                )
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"My diffs error: {e}")
+    return render_template('proposal_diff.html', rows=rows,
+                           is_admin=session.get('role') == 'admin')
 
 
 @app.route('/test-token')

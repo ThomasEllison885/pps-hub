@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Proposal Diffs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;}
+  .header-logo{height:44px;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;}
+  .main{max-width:900px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+  .diff-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;margin-bottom:16px;}
+  .dc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
+  .dc-name{font-size:17px;font-weight:600;color:var(--dark-blue);}
+  .dc-meta{font-size:12px;color:#aaa;}
+  .dc-by{font-size:13px;color:#888;margin-top:2px;}
+  .section-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:6px;margin-top:14px;}
+  .diff-text{font-size:13px;color:var(--gray);line-height:1.7;background:var(--light-bg);border-radius:6px;padding:12px 14px;white-space:pre-wrap;}
+  .notes-text{font-size:13px;color:#666;font-style:italic;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:12px 14px;border:1px solid #FFE082;}
+  .empty{text-align:center;color:#bbb;padding:48px;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">Proposal Diffs</div>
+  </div>
+  <a href="/admin" class="header-btn">← Admin</a>
+</div>
+<div class="main">
+  <div class="page-title">Proposal Comparison Submissions</div>
+  <p class="page-sub">{{ rows|length }} submission{% if rows|length != 1 %}s{% endif %} from your team</p>
+  {% if rows %}
+  {% for row in rows %}
+  <div class="diff-card">
+    <div class="dc-header">
+      <div>
+        <div class="dc-name">{{ row.property_name or 'Unnamed Property' }}</div>
+        <div class="dc-by">{{ row.display_name }}</div>
+      </div>
+      <div class="dc-meta">{{ row.submitted_at.strftime('%B %d, %Y at %I:%M %p') if row.submitted_at else '' }}</div>
+    </div>
+    {% if row.diff_analysis %}
+    <div class="section-label">What Changed</div>
+    <div class="diff-text">{{ row.diff_analysis }}</div>
+    {% endif %}
+    {% if row.voice_recommendations %}
+    <div class="section-label">Voice Guide Recommendations</div>
+    <div class="diff-text">{{ row.voice_recommendations }}</div>
+    {% endif %}
+    {% if row.user_notes %}
+    <div class="section-label">Consultant Notes</div>
+    <div class="notes-text">{{ row.user_notes }}</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="empty">No proposal comparisons submitted yet.</div>
+  {% endif %}
+</div>
+</body>
+</html>
