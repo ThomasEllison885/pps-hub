@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Team View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;cursor:pointer;}
+  .header-logo{height:44px;width:auto;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;font-family:'DM Sans',sans-serif;}
+  .header-btn:hover{background:rgba(255,255,255,0.22);}
+  .main{max-width:1000px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+  .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+
+  /* Member cards */
+  .members-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:36px;}
+  .member-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;cursor:pointer;border:1.5px solid transparent;transition:all 0.2s;}
+  .member-card:hover,.member-card.active{border-color:var(--blue);transform:translateY(-2px);}
+  .mc-name{font-size:15px;font-weight:600;color:var(--dark-blue);margin-bottom:2px;}
+  .mc-title{font-size:12px;color:#888;margin-bottom:10px;}
+  .mc-stats{display:flex;gap:12px;}
+  .mc-stat{text-align:center;}
+  .mc-stat .num{font-size:20px;font-weight:700;color:var(--dark-blue);}
+  .mc-stat .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;}
+  .mc-profile{display:inline-block;margin-top:8px;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--dark-blue);}
+
+  /* Detail panel */
+  .detail-panel{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;display:none;}
+  .detail-panel.active{display:block;}
+  .dp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:1.5px solid var(--border);}
+  .dp-name{font-family:'DM Serif Display',serif;font-size:22px;color:var(--dark-blue);}
+  .dp-title{font-size:13px;color:#888;margin-top:2px;}
+  .dp-close{background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;}
+  .act-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:7px;cursor:pointer;transition:border-color 0.2s;}
+  .act-item:hover{border-color:var(--blue);}
+  .act-name{font-size:13px;font-weight:600;color:var(--dark-blue);}
+  .act-meta{font-size:11px;color:#888;margin-top:2px;}
+  .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
+  .sub-head{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+
+  /* Modal */
+  .meta-modal{display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;}
+  .meta-modal.active{display:flex;}
+  .meta-box{background:white;border-radius:var(--radius);box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto;}
+  .meta-title{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);margin-bottom:16px;}
+  .meta-row{display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;}
+  .meta-row:last-child{border-bottom:none;}
+  .meta-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;}
+  .meta-val{font-size:14px;color:var(--gray);}
+  .meta-text{font-size:13px;color:#666;line-height:1.6;background:var(--light-bg);border-radius:6px;padding:10px 12px;margin-top:8px;}
+
+  .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);margin-top:24px;}
+  .hub-footer img{height:22px;opacity:0.45;}
+
+  @media(max-width:700px){.members-grid{grid-template-columns:1fr 1fr;}.main{padding:24px 14px 40px;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left" onclick="window.location.href='/dashboard'">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">Team View</div>
+  </div>
+  <a href="/dashboard" class="header-btn">← Dashboard</a>
+</div>
+
+<div class="main">
+  <div class="page-title">Team View</div>
+  <p class="page-sub">
+    {% if scope == 'consultants' %}Sales team activity — proposals generated for each consultant.
+    {% elif scope == 'pms' %}Operations team activity — PPMs and Trade Partner Scopes.
+    {% endif %}
+  </p>
+
+  <div class="section-head">
+    {% if scope == 'consultants' %}Consultants ({{ members|length }})
+    {% else %}Project Managers ({{ members|length }}){% endif %}
+  </div>
+
+  <div class="members-grid">
+    {% for m in members %}
+    {% set mdata = member_data.get(m.key, {}) %}
+    <div class="member-card" id="card_{{ m.key }}" onclick="showMember('{{ m.key }}')">
+      <div class="mc-name">{{ m.display }}</div>
+      <div class="mc-title">{{ m.title }}</div>
+      <div class="mc-stats">
+        {% if scope == 'consultants' %}
+        <div class="mc-stat">
+          <div class="num">{{ mdata.get('proposals', [])|length }}</div>
+          <div class="lbl">Proposals</div>
+        </div>
+        {% else %}
+        <div class="mc-stat">
+          <div class="num">{{ mdata.get('ppms', [])|length }}</div>
+          <div class="lbl">PPMs</div>
+        </div>
+        <div class="mc-stat">
+          <div class="num">{{ mdata.get('tpscopes', [])|length }}</div>
+          <div class="lbl">TPS</div>
+        </div>
+        {% endif %}
+      </div>
+      {% if mdata.get('profile') %}
+      <div class="mc-profile">{{ mdata.profile.character_match }} · {{ mdata.profile.primary_disc }}{% if mdata.profile.secondary_disc %}/{{ mdata.profile.secondary_disc }}{% endif %}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- DETAIL PANEL -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="dp-header">
+      <div>
+        <div class="dp-name" id="dpName"></div>
+        <div class="dp-title" id="dpTitle"></div>
+      </div>
+      <button class="dp-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div id="dpContent"></div>
+  </div>
+
+  <div class="hub-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+</div>
+
+<!-- META MODAL -->
+<div class="meta-modal" id="metaModal" onclick="if(event.target===this)closeMeta()">
+  <div class="meta-box">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+      <div class="meta-title" id="metaTitle"></div>
+      <button onclick="closeMeta()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div id="metaRows"></div>
+    <div id="metaIssueWrap" style="display:none;margin-top:12px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div id="metaIssue" class="meta-text"></div>
+    </div>
+    <div id="metaOutcomeWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div id="metaOutcome" class="meta-text"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const memberData = {{ member_data | tojson }};
+const members = {{ members | tojson }};
+const scope = {{ scope | tojson }};
+
+let activeMember = null;
+
+function showMember(key) {
+  // Highlight card
+  document.querySelectorAll('.member-card').forEach(c => c.classList.remove('active'));
+  document.getElementById('card_' + key).classList.add('active');
+
+  const m = members.find(x => x.key === key);
+  const data = memberData[key] || {};
+  activeMember = key;
+
+  document.getElementById('dpName').textContent = m.display;
+  document.getElementById('dpTitle').textContent = m.title;
+
+  let html = '';
+
+  if (scope === 'consultants') {
+    const proposals = data.proposals || [];
+    html += `<div class="sub-head">Proposals (${proposals.length})</div>`;
+    if (proposals.length) {
+      proposals.forEach((p, i) => {
+        html += `<div class="act-item" onclick="showProposalMeta(${i}, '${key}')">
+          <div class="act-name">${p.property_name || p.client_name || 'Unnamed'}</div>
+          <div class="act-meta">${(p.generated_by||'').replace(/_/g,' ')} · ${p.property_type||''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
+        </div>`;
+      });
+    } else {
+      html += '<div class="empty">No proposals generated yet</div>';
+    }
+  } else {
+    const ppms = data.ppms || [];
+    html += `<div class="sub-head">PPMs (${ppms.length})</div>`;
+    if (ppms.length) {
+      ppms.forEach((p, i) => {
+        html += `<div class="act-item" onclick="showPPMMeta(${i}, '${key}')">
+          <div class="act-name">${p.property_name || 'Unnamed'}</div>
+          <div class="act-meta">${(p.generated_by||'').replace(/_/g,' ')} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
+        </div>`;
+      });
+    } else {
+      html += '<div class="empty">No PPMs yet</div>';
+    }
+
+    const tps = data.tpscopes || [];
+    html += `<div class="sub-head">Trade Partner Scopes (${tps.length})</div>`;
+    if (tps.length) {
+      tps.forEach((s, i) => {
+        html += `<div class="act-item" onclick="showTPSMeta(${i}, '${key}')">
+          <div class="act-name">${s.property_name || 'Unnamed'}</div>
+          <div class="act-meta">${s.language||''} · ${s.generated_at ? s.generated_at.substring(0,10) : '—'}</div>
+        </div>`;
+      });
+    } else {
+      html += '<div class="empty">No Trade Partner Scopes yet</div>';
+    }
+  }
+
+  document.getElementById('dpContent').innerHTML = html;
+  document.getElementById('detailPanel').classList.add('active');
+  document.getElementById('detailPanel').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function closeDetail() {
+  document.getElementById('detailPanel').classList.remove('active');
+  document.querySelectorAll('.member-card').forEach(c => c.classList.remove('active'));
+  activeMember = null;
+}
+
+function showMeta(rows, issue, outcome) {
+  document.getElementById('metaRows').innerHTML = rows;
+  const iw = document.getElementById('metaIssueWrap');
+  const ow = document.getElementById('metaOutcomeWrap');
+  if (issue) { document.getElementById('metaIssue').textContent = issue; iw.style.display='block'; } else { iw.style.display='none'; }
+  if (outcome) { document.getElementById('metaOutcome').textContent = outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+  document.getElementById('metaModal').classList.add('active');
+}
+
+function closeMeta() { document.getElementById('metaModal').classList.remove('active'); }
+
+function metaRow(label, val) {
+  return `<div class="meta-row"><div class="meta-label">${label}</div><div class="meta-val">${val||'—'}</div></div>`;
+}
+
+function showProposalMeta(idx, key) {
+  const p = memberData[key].proposals[idx];
+  document.getElementById('metaTitle').textContent = p.property_name || p.client_name || 'Unnamed';
+  const rows = metaRow('Proposal #', p.proposal_number) +
+    metaRow('Address', p.property_address) +
+    metaRow('Consultant', p.consultant_name) +
+    metaRow('Generated By', (p.generated_by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) +
+    metaRow('Property Type', p.property_type) +
+    metaRow('Template', p.template_type) +
+    metaRow('Scopes', p.scopes_selected) +
+    metaRow('Date', p.generated_at ? p.generated_at.substring(0,10) : '—');
+  showMeta(rows, p.existing_issue, p.intended_outcome);
+}
+
+function showPPMMeta(idx, key) {
+  const p = memberData[key].ppms[idx];
+  document.getElementById('metaTitle').textContent = p.property_name || 'Unnamed';
+  const rows = metaRow('PM', p.pm_name) +
+    metaRow('Generated By', (p.generated_by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) +
+    metaRow('Date', p.generated_at ? p.generated_at.substring(0,10) : '—');
+  showMeta(rows, '', '');
+}
+
+function showTPSMeta(idx, key) {
+  const s = memberData[key].tpscopes[idx];
+  document.getElementById('metaTitle').textContent = s.property_name || 'Unnamed';
+  const rows = metaRow('PM', s.pm_name) +
+    metaRow('Consultant', s.consultant_name) +
+    metaRow('Language', s.language) +
+    metaRow('Generated By', (s.generated_by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) +
+    metaRow('Date', s.generated_at ? s.generated_at.substring(0,10) : '—');
+  showMeta(rows, '', '');
+}
+</script>
+</body>
+</html>

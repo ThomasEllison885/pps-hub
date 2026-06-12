@@ -20,78 +20,117 @@ USERS = {
         'role': 'admin',
         'proposal_access': 'all',
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'President',
     },
     'tony_cumella': {
         'display': 'Tony Cumella',
         'role': 'consultant',
         'proposal_access': ['tony_cumella'],
         'ppm_access': True,
+        'team_view': True,
+        'team_view_scope': 'consultants',
+        'title': 'VP of Sales',
     },
     'adam_cupito': {
         'display': 'Adam Cupito',
         'role': 'consultant',
         'proposal_access': ['adam_cupito'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Property Solutions Consultant',
     },
     'rachel_farler': {
         'display': 'Rachel Farler',
         'role': 'consultant',
         'proposal_access': ['rachel_farler'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Property Solutions Consultant',
     },
     'andy_potts': {
         'display': 'Andy Potts',
         'role': 'consultant',
         'proposal_access': ['andy_potts'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Property Solutions Consultant',
     },
     'phil_miller': {
         'display': 'Phil Miller',
         'role': 'pm',
         'proposal_access': 'all',
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'derek_kidney': {
         'display': 'Derek Kidney',
         'role': 'pm',
         'proposal_access': ['rachel_farler'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'nick_triplett': {
         'display': 'Nick Triplett',
         'role': 'pm',
         'proposal_access': ['tony_cumella'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'trey_hollmeyer': {
         'display': 'Trey Hollmeyer',
         'role': 'pm',
         'proposal_access': 'all',
         'ppm_access': True,
+        'team_view': True,
+        'team_view_scope': 'pms',
+        'title': 'Production Manager',
     },
     'james_boling': {
         'display': 'James Boling',
         'role': 'pm',
         'proposal_access': ['andy_potts', 'adam_cupito'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'jordan_allen': {
         'display': 'Jordan Allen',
         'role': 'pm',
         'proposal_access': 'all',
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'ben_ramsey': {
         'display': 'Ben Ramsey',
         'role': 'pm',
         'proposal_access': ['andy_potts'],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Project Manager',
     },
     'stephanie_whetstone': {
         'display': 'Stephanie Whetstone',
         'role': 'office_manager',
         'proposal_access': [],
         'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Office Manager',
     },
 }
 
@@ -593,9 +632,13 @@ def dashboard():
                 cur2.close()
                 conn2.close()
         except: pass
+    team_view = user.get('team_view', False)
+    team_view_scope = user.get('team_view_scope')
     return render_template('dashboard.html',
                            user=user,
                            user_key=user_key,
+                           team_view=team_view,
+                           team_view_scope=team_view_scope,
                            consultants=accessible_consultants,
                            recent_proposals=recent_proposals,
                            recent_ppms=recent_ppms,
@@ -1189,6 +1232,64 @@ def my_diffs():
         print(f"My diffs error: {e}")
     return render_template('proposal_diff.html', rows=rows,
                            is_admin=session.get('role') == 'admin')
+
+
+@app.route('/team-view')
+def team_view():
+    if not session.get('user_key'):
+        return redirect(url_for('login'))
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    if not user.get('team_view') and session.get('role') != 'admin':
+        return redirect(url_for('dashboard'))
+
+    scope = user.get('team_view_scope')
+    members = []
+    member_data = {}
+
+    # Build member list based on scope
+    if scope == 'consultants':
+        member_keys = ['tony_cumella','adam_cupito','rachel_farler','andy_potts','thomas_ellison']
+    elif scope == 'pms':
+        member_keys = ['phil_miller','derek_kidney','nick_triplett','trey_hollmeyer',
+                       'james_boling','jordan_allen','ben_ramsey']
+    else:
+        member_keys = list(USERS.keys())
+
+    for key in member_keys:
+        u = USERS.get(key, {})
+        if u:
+            members.append({'key': key, 'display': u['display'], 'title': u.get('title',''), 'role': u['role']})
+
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            for key in member_keys:
+                udata = {}
+                if scope == 'consultants':
+                    cur.execute('SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC', (key,))
+                    udata['proposals'] = cur.fetchall()
+                elif scope == 'pms':
+                    cur.execute('SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s ORDER BY generated_at DESC', (key, key))
+                    udata['ppms'] = cur.fetchall()
+                    cur.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (key,))
+                    udata['tpscopes'] = cur.fetchall()
+                # Profile
+                display_name = USERS.get(key, {}).get('display', '')
+                cur.execute('SELECT * FROM profile_results WHERE LOWER(name) = LOWER(%s) ORDER BY taken_date DESC LIMIT 1', (display_name,))
+                prof = cur.fetchone()
+                udata['profile'] = prof
+                member_data[key] = udata
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Team view error: {e}")
+
+    return render_template('team_view.html',
+                           user=user, user_key=user_key,
+                           scope=scope, members=members,
+                           member_data=member_data)
 
 
 @app.route('/test-token')
