@@ -287,6 +287,20 @@ def init_db():
             used BOOLEAN DEFAULT FALSE
         )
     ''')
+    # Ensure table exists even if init ran before this migration
+    try:
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                token VARCHAR(64) PRIMARY KEY,
+                user_key VARCHAR(100) NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                role VARCHAR(50),
+                created_at TIMESTAMP DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE
+            )
+        ''')
+    except: pass
 
     # Feedback table
     cur.execute('''
@@ -1016,6 +1030,24 @@ def validate_token():
             return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
     except Exception as e:
         return jsonify({'valid': False, 'reason': str(e)}), 500
+
+
+@app.route('/test-token')
+def test_token():
+    """Debug endpoint - shows session state and token generation."""
+    if not session.get('user_key'):
+        return jsonify({'session': 'none', 'user_key': None})
+    token = generate_sso_token(
+        session['user_key'],
+        session.get('display_name', ''),
+        session.get('role', 'user')
+    )
+    return jsonify({
+        'session': 'active',
+        'user_key': session['user_key'],
+        'token_generated': token is not None,
+        'token_preview': token[:8] + '...' if token else None
+    })
 
 
 @app.route('/logout')
