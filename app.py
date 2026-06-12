@@ -322,6 +322,29 @@ try:
 except Exception as e:
     print(f"DB init error: {e}")
 
+# Safe migration — create auth_tokens if it doesn't exist yet
+try:
+    _conn = get_db()
+    if _conn:
+        _cur = _conn.cursor()
+        _cur.execute('''
+            CREATE TABLE IF NOT EXISTS auth_tokens (
+                token VARCHAR(64) PRIMARY KEY,
+                user_key VARCHAR(100) NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                role VARCHAR(50),
+                created_at TIMESTAMP DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL,
+                used BOOLEAN DEFAULT FALSE
+            )
+        ''')
+        _conn.commit()
+        _cur.close()
+        _conn.close()
+        print("auth_tokens table ready")
+except Exception as _e:
+    print(f"auth_tokens migration error: {_e}")
+
 
 # ── HELPERS ─────────────────────────────────────────────────────────────────────
 
