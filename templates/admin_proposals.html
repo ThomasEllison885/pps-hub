@@ -167,6 +167,10 @@
       <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div class="detail-text" id="mOutcome"></div>
     </div>
+    <div id="mNotesWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Special Instructions</div>
+      <div class="detail-text" id="mNotes" style="background:#FFF9E6;border:1px solid #FFE082;"></div>
+    </div>
   </div>
 </div>
 
@@ -186,6 +190,7 @@ const proposals = [
     date: {{ (p.generated_at.strftime('%B %d, %Y at %I:%M %p') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
+    notes: {{ (p.scope_notes or '')|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];
@@ -206,6 +211,7 @@ function showDetail(idx) {
   const outcomeWrap = document.getElementById('mOutcomeWrap');
   if (p.issue) { document.getElementById('mIssue').textContent = p.issue; issueWrap.style.display='block'; } else { issueWrap.style.display='none'; }
   if (p.outcome) { document.getElementById('mOutcome').textContent = p.outcome; outcomeWrap.style.display='block'; } else { outcomeWrap.style.display='none'; }
+  const nw = document.getElementById('mNotesWrap'); if (p.notes) { document.getElementById('mNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
   document.getElementById('detailModal').classList.add('active');
 }
 function closeDetail() { document.getElementById('detailModal').classList.remove('active'); }

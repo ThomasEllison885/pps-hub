@@ -120,10 +120,10 @@
       <div class="num">{{ ppms_30d }} <span class="all-time">/ {{ all_ppms|length }}</span></div>
       <div class="lbl">PPMs <span class="period-note">30d / all</span></div>
     </div>
-    <div class="stat">
+    <a href="/admin/tpscopes" class="stat stat-link">
       <div class="num">{{ subscopes_30d }} <span class="all-time">/ {{ all_subscopes|length }}</span></div>
       <div class="lbl">Trade Partner Scopes <span class="period-note">30d / all</span></div>
-    </div>
+    </a>
     <div class="stat">
       <div class="num">{{ profile_count }}</div>
       <div class="lbl">Profiles Taken</div>
@@ -136,7 +136,7 @@
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Login</th><th>Profile</th><th>Password</th>
+          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Login</th><th>Profile</th><th>Team View</th><th>Password</th>
         </tr>
       </thead>
       <tbody>
@@ -165,6 +165,18 @@
             <span style="color:#27ae60;font-weight:600;">✓ {{ profiles_taken[u.user_key] }}</span>
             {% else %}
             <span style="color:#ddd;">Not taken</span>
+            {% endif %}
+          </td>
+          <td>
+            {% set udef = user_definitions.get(u.user_key, {}) %}
+            {% if udef.get('team_view_scope') %}
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" {% if udef.get('team_view') %}checked{% endif %}
+                onchange="toggleTeamView('{{ u.user_key }}', this.checked, '{{ udef.get('team_view_scope','') }}')">
+              {{ udef.get('team_view_scope','') }}
+            </label>
+            {% else %}
+            <span style="color:#ddd;font-size:12px;">—</span>
             {% endif %}
           </td>
           <td><button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button></td>
@@ -301,7 +313,7 @@
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Type</div><div id="amType" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Template / PM</div><div id="amTemplate" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Scopes</div><div id="amScopes" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
-      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="amDate" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="amDate" style="font-size:14px;color:#444;"></div></div>
     </div>
     <div id="amIssueWrap" style="display:none;margin-bottom:10px;">
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
@@ -310,6 +322,10 @@
     <div id="amOutcomeWrap" style="display:none;">
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div id="amOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="amNotesWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Special Instructions</div>
+      <div id="amNotes" style="font-size:13px;color:#666;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:10px 12px;border:1px solid #FFE082;"></div>
     </div>
   </div>
 </div>
@@ -375,6 +391,7 @@
       date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
       issue: {{ (p.existing_issue or '')|tojson }},
       outcome: {{ (p.intended_outcome or '')|tojson }},
+      notes: {{ (p.scope_notes or '')|tojson }},
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
@@ -418,6 +435,8 @@
     const ow = document.getElementById('amOutcomeWrap');
     if (p.issue) { document.getElementById('amIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
     if (p.outcome) { document.getElementById('amOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+    const nw = document.getElementById('amNotesWrap');
+    if (p.notes) { document.getElementById('amNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
     document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
 
@@ -454,6 +473,16 @@
   }
 
   function closeAdminMeta() { document.getElementById('adminMetaModal').style.display='none'; }
+
+  async function toggleTeamView(userKey, enabled, scope) {
+    const fd = new FormData();
+    fd.append('user_key', userKey);
+    fd.append('enabled', enabled.toString());
+    fd.append('scope', scope);
+    const r = await fetch('/admin/reset-team-view', {method:'POST', body:fd});
+    const d = await r.json();
+    if (!d.success) alert('Failed to update: ' + (d.error||'unknown error'));
+  }
 
   async function clearMyData() {
     if (!confirm('Clear all your test proposals and PPMs? This cannot be undone.')) return;

@@ -128,7 +128,8 @@
       document.getElementById('detailType').textContent = p.property_type;
       document.getElementById('detailTemplate').textContent = p.template_type;
       document.getElementById('detailDate').textContent = p.date;
-      document.getElementById('detailModal').classList.add('active');
+      const nw = document.getElementById('detailNotesWrap'); if (p.notes) { document.getElementById('detailNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
+  document.getElementById('detailModal').classList.add('active');
     }
     function closeDetail() {
       document.getElementById('detailModal').classList.remove('active');
@@ -214,7 +215,7 @@ const memberProposals = [
    ptype:{{ (p.property_type or '—')|tojson }}, template:{{ (p.template_type or '—')|tojson }},
    scopes:{{ (p.scopes_selected or '—')|tojson }},
    date:{{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
-   issue:{{ (p.existing_issue or '')|tojson }}, outcome:{{ (p.intended_outcome or '')|tojson }}
+   issue:{{ (p.existing_issue or '')|tojson }}, outcome:{{ (p.intended_outcome or '')|tojson }}, notes:{{ (p.scope_notes or '')|tojson }}
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];

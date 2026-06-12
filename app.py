@@ -276,6 +276,7 @@ def init_db():
             existing_issue TEXT,
             intended_outcome TEXT,
             scopes_selected TEXT,
+            scope_notes TEXT,
             generated_at TIMESTAMP DEFAULT NOW()
         )
     ''')
@@ -286,6 +287,7 @@ def init_db():
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS existing_issue TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS intended_outcome TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scopes_selected TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scope_notes TEXT",
     ]:
         try:
             cur.execute(col)
@@ -526,6 +528,8 @@ def login():
                 session['role'] = 'admin'
                 session['admin'] = True
                 session['proposal_access'] = list(CONSULTANTS.keys())
+                session['team_view'] = user.get('team_view', False)
+                session['team_view_scope'] = user.get('team_view_scope')
                 _update_last_login(user_key)
                 return redirect(url_for('dashboard'))
 
@@ -668,8 +672,8 @@ def log_proposal():
                 INSERT INTO proposal_log
                 (generated_by, consultant_key, consultant_name, client_name,
                  property_name, property_address, property_type, template_type,
-                 proposal_number, existing_issue, intended_outcome, scopes_selected)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 proposal_number, existing_issue, intended_outcome, scopes_selected, scope_notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 data.get('generated_by'),
                 data.get('consultant_key'),
@@ -683,6 +687,7 @@ def log_proposal():
                 data.get('existing_issue', ''),
                 data.get('intended_outcome', ''),
                 data.get('scopes_selected', ''),
+                data.get('scope_notes', ''),
             ))
             conn.commit()
             cur.close()
@@ -1290,6 +1295,40 @@ def team_view():
                            user=user, user_key=user_key,
                            scope=scope, members=members,
                            member_data=member_data)
+
+
+@app.route('/admin/tpscopes')
+def admin_tpscopes():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    rows = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM subscope_log ORDER BY generated_at DESC')
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Admin TPS error: {e}")
+    return render_template('admin_tpscopes.html', rows=rows)
+
+
+@app.route('/admin/reset-team-view', methods=['POST'])
+def reset_team_view():
+    """Toggle team_view for a user — admin only."""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 401
+    user_key = request.form.get('user_key')
+    enabled = request.form.get('enabled') == 'true'
+    scope = request.form.get('scope', '')
+    if user_key in USERS:
+        USERS[user_key]['team_view'] = enabled
+        if scope:
+            USERS[user_key]['team_view_scope'] = scope
+        return jsonify({'success': True, 'team_view': USERS[user_key]['team_view']})
+    return jsonify({'error': 'User not found'}), 404
 
 
 @app.route('/test-token')
