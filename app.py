@@ -990,6 +990,30 @@ def admin_stats():
     return jsonify(stats)
 
 
+def generate_sso_token(user_key, display_name, role):
+    """Generate a short-lived SSO token and store in DB."""
+    import secrets
+    from datetime import datetime, timedelta
+    token = secrets.token_urlsafe(32)
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute("DELETE FROM auth_tokens WHERE expires_at < NOW()")
+            cur.execute(
+                '''INSERT INTO auth_tokens (token, user_key, display_name, role, expires_at)
+                   VALUES (%s, %s, %s, %s, NOW() + INTERVAL '5 minutes')''',
+                (token, user_key, display_name, role)
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            return token
+    except Exception as e:
+        print(f"generate_sso_token error: {e}")
+    return None
+
+
 @app.route('/generate-token', methods=['POST'])
 def generate_token():
     """Called by hub dashboard JS — session authenticated, returns SSO token."""
