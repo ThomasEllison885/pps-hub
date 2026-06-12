@@ -287,20 +287,7 @@ def init_db():
             used BOOLEAN DEFAULT FALSE
         )
     ''')
-    # Ensure table exists even if init ran before this migration
-    try:
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS auth_tokens (
-                token VARCHAR(64) PRIMARY KEY,
-                user_key VARCHAR(100) NOT NULL,
-                display_name VARCHAR(255) NOT NULL,
-                role VARCHAR(50),
-                created_at TIMESTAMP DEFAULT NOW(),
-                expires_at TIMESTAMP NOT NULL,
-                used BOOLEAN DEFAULT FALSE
-            )
-        ''')
-    except: pass
+
 
     # Feedback table
     cur.execute('''
