@@ -993,15 +993,21 @@ def admin_stats():
 @app.route('/generate-token', methods=['POST'])
 def generate_token():
     """Called by hub dashboard JS — session authenticated, returns SSO token."""
-    if not session.get('user_key'):
-        return jsonify({'error': 'Not authenticated'}), 401
-    user_key = session['user_key']
-    display_name = session.get('display_name', '')
-    role = session.get('role', 'user')
-    token = generate_sso_token(user_key, display_name, role)
-    if not token:
-        return jsonify({'error': 'Token generation failed'}), 500
-    return jsonify({'token': token})
+    try:
+        if not session.get('user_key'):
+            return jsonify({'error': 'Not authenticated', 'session_keys': list(session.keys())}), 401
+        user_key = session['user_key']
+        display_name = session.get('display_name', '')
+        role = session.get('role', 'user')
+        token = generate_sso_token(user_key, display_name, role)
+        if not token:
+            return jsonify({'error': 'Token generation failed - check DB connection'}), 500
+        return jsonify({'token': token})
+    except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
+        print(f"generate-token error: {tb}")
+        return jsonify({'error': str(e), 'traceback': tb}), 500
 
 
 @app.route('/validate-token', methods=['POST'])
