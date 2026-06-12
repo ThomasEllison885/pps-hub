@@ -968,12 +968,9 @@ def admin_stats():
 
 @app.route('/generate-token', methods=['POST'])
 def generate_token():
-    """Called by hub when user clicks a tool — returns a short-lived SSO token."""
+    """Called by hub dashboard JS — session authenticated, returns SSO token."""
     if not session.get('user_key'):
         return jsonify({'error': 'Not authenticated'}), 401
-    api_key = request.headers.get('X-API-Key', '')
-    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
-        return jsonify({'error': 'Unauthorized'}), 401
     user_key = session['user_key']
     display_name = session.get('display_name', '')
     role = session.get('role', 'user')

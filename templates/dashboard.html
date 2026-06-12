@@ -424,18 +424,24 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
     try {
       const resp = await fetch('/generate-token', {
         method: 'POST',
-        headers: { 'X-API-Key': 'pps-internal-2026' }
+        credentials: 'same-origin',
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-API-Key': 'pps-internal-2026' 
+        }
       });
-      const data = await resp.json();
-      if (data.token) {
-        window.open(`${baseUrl}?token=${data.token}`, '_blank');
-      } else {
-        // Fallback to user param if token fails
-        window.open(`${baseUrl}?user=${userKey}`, '_blank');
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.token) {
+          window.open(`${baseUrl}?token=${data.token}`, '_blank');
+          return;
+        }
       }
     } catch(e) {
-      window.open(`${baseUrl}?user=${userKey}`, '_blank');
+      console.log('Token fetch error:', e);
     }
+    // Fallback
+    window.open(`${baseUrl}?user=${userKey}`, '_blank');
   }
 
   async function submitFeedback() {
