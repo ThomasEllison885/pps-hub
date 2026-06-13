@@ -152,6 +152,10 @@
               {% elif u.role == 'admin' %}Admin
               {% else %}{{ u.role }}{% endif %}
             </span>
+            {% set udef = user_definitions.get(u.user_key, {}) %}
+            {% if udef.get('title') %}
+            <div style="font-size:11px;color:#aaa;margin-top:3px;">{{ udef.title }}</div>
+            {% endif %}
           </td>
           <td style="font-size:13px;color:#888;">
             {% set access = udef.get('proposal_access', []) %}
