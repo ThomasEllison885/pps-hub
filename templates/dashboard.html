@@ -46,10 +46,30 @@
 
   .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
 
-  .tools-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 36px; }
-  .tool-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; text-decoration: none; color: var(--gray); transition: all 0.2s; display: flex; flex-direction: column; gap: 8px; border: 1.5px solid transparent; }
-  .tool-card:hover { border-color: var(--blue); transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,76,140,0.12); }
-  .tool-card.disabled { opacity: 0.4; pointer-events: none; }
+  .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px; }
+  .tool-card, .pps-tool-card {
+    background: white; border-radius: 12px; padding: 20px 18px;
+    text-decoration: none; color: var(--gray);
+    display: flex; flex-direction: column; gap: 10px;
+    border: 1.5px solid var(--border); box-shadow: 0 2px 12px rgba(0,40,80,0.07);
+    transition: all 0.2s; position: relative; overflow: hidden;
+  }
+  .tool-card::before, .pps-tool-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: linear-gradient(90deg, var(--dark-blue), var(--blue));
+    opacity: 0; transition: opacity 0.2s;
+  }
+  .tool-card:hover, .pps-tool-card:hover {
+    border-color: rgba(0,150,214,0.35); transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(0,76,140,0.13);
+  }
+  .tool-card:hover::before, .pps-tool-card:hover::before { opacity: 1; }
+  .tool-card.disabled { opacity: 0.35; pointer-events: none; }
+  .pps-tool-icon { font-size: 22px; margin-bottom: 2px; }
+  .pps-tool-name { font-size: 15px; font-weight: 600; color: var(--dark-blue); }
+  .pps-tool-desc { font-size: 12px; color: #888; line-height: 1.5; flex: 1; }
+  .tool-meta { font-size: 12px; font-weight: 600; color: var(--blue); margin-top: 4px; }
+  .tool-badge { font-size: 11px; background: var(--light-bg); color: var(--dark-blue); border-radius: 20px; padding: 2px 8px; width: fit-content; }
   .tool-icon { font-size: 24px; }
   .tool-name { font-size: 15px; font-weight: 600; color: var(--dark-blue); }
   .tool-desc { font-size: 12px; color: #888; line-height: 1.5; flex: 1; }
@@ -107,7 +127,7 @@
 
   @media (max-width: 700px) {
     .header { padding: 0 16px; }
-    .tools-grid { grid-template-columns: repeat(2, 1fr); }
+    .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .activity-grid { grid-template-columns: 1fr; }
     .main { padding: 24px 14px 40px; }
   }
@@ -163,7 +183,7 @@
   <div class="tools-grid">
     {% if consultants %}
     <a href="#" onclick="openTool('{{ proposal_url }}/proposal', '{{ user_key }}')" class="pps-tool-card">
-      <div class="pps-tool-icon">📄</div>
+      <div class="pps-tool-icon">✍️</div>
       <div class="pps-tool-name">Proposal Generator</div>
       <div class="pps-tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
       {% if consultants|length == 1 %}
@@ -175,14 +195,14 @@
     </a>
     {% else %}
     <div class="tool-card disabled">
-      <div class="pps-tool-icon">📄</div>
+      <div class="pps-tool-icon">✍️</div>
       <div class="pps-tool-name">Proposal Generator</div>
       <div class="pps-tool-desc">Not available for your role.</div>
     </div>
     {% endif %}
 
     <a href="#" onclick="openTool('{{ proposal_url }}/ppm', '{{ user_key }}')" class="pps-tool-card">
-      <div class="pps-tool-icon">🔧</div>
+      <div class="pps-tool-icon">📋</div>
       <div class="pps-tool-name">PPM Checklist</div>
       <div class="pps-tool-desc">Generate preventive maintenance checklists for any property.</div>
       <div class="tool-meta">Open →</div>
@@ -190,25 +210,24 @@
 
     {% if consultants %}
     <a href="#" onclick="openTool('{{ proposal_url }}/subscope', '{{ user_key }}')" class="pps-tool-card">
-      <div class="pps-tool-icon">📋</div>
+      <div class="pps-tool-icon">📝</div>
       <div class="pps-tool-name">Trade Partner Scope</div>
       <div class="pps-tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
       <div class="tool-meta">Open →</div>
     </a>
     {% else %}
     <div class="tool-card disabled">
-      <div class="pps-tool-icon">📋</div>
+      <div class="pps-tool-icon">📝</div>
       <div class="pps-tool-name">Trade Partner Scope</div>
       <div class="pps-tool-desc">Not available for your role.</div>
     </div>
     {% endif %}
 
     <a href="/site-visit" class="pps-tool-card">
-      <div class="pps-tool-icon">📋</div>
-      <div class="tool-info">
-        <div class="pps-tool-name">Site Visit Report</div>
-        <div class="pps-tool-desc">Document site visits, scope compliance, and project progress</div>
-      </div>
+      <div class="pps-tool-icon">🏗️</div>
+      <div class="pps-tool-name">Site Visit Report</div>
+      <div class="pps-tool-desc">Document site visits, inspect scope compliance, and track project progress.</div>
+      <div class="tool-meta">Open →</div>
     </a>
 
     <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="pps-tool-card">
