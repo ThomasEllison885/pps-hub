@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>PPS · Site Visit Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue:#0096D6; --dark-blue:#004C8C; --light-bg:#EBF6FC;
+    --gray:#444; --border:#D8E8F2; --shadow:0 2px 16px rgba(0,76,140,0.08);
+    --radius:10px; --green:#27AE60; --amber:#E67E22; --red:#E74C3C;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:var(--gray); min-height:100vh; }
+
+  /* HEADER */
+  .header { background:var(--dark-blue); padding:0 16px; display:flex; align-items:center; justify-content:space-between; height:60px; position:sticky; top:0; z-index:100; box-shadow:0 2px 12px rgba(0,0,0,0.15); }
+  .header-left { display:flex; align-items:center; gap:12px; cursor:pointer; }
+  .header-logo { height:36px; }
+  .header-divider { width:1px; height:22px; background:rgba(255,255,255,0.2); }
+  .header-title { color:rgba(255,255,255,0.85); font-size:13px; font-weight:500; }
+  .header-btn { background:rgba(255,255,255,0.12); color:white; border:1px solid rgba(255,255,255,0.2); padding:6px 12px; border-radius:6px; font-size:12px; text-decoration:none; }
+
+  /* MAIN */
+  .main { max-width:640px; margin:0 auto; padding:16px 12px 80px; }
+
+  /* SECTION CARDS */
+  .section-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden; }
+  .section-head { background:var(--dark-blue); color:white; padding:12px 16px; font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; display:flex; align-items:center; gap:8px; }
+  .section-num { background:rgba(255,255,255,0.2); border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; flex-shrink:0; }
+  .section-body { padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+
+  /* FIELDS */
+  .field label { display:block; font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:5px; }
+  .field input, .field textarea, .field select {
+    width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px;
+    font-size:15px; font-family:'DM Sans',sans-serif; color:var(--gray); outline:none;
+    transition:border-color 0.15s; background:white; -webkit-appearance:none;
+  }
+  .field input:focus, .field textarea:focus { border-color:var(--blue); }
+  .field textarea { resize:none; min-height:80px; }
+  .field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+  /* YES/NO TOGGLES */
+  .toggle-group { display:flex; gap:8px; }
+  .toggle-btn {
+    flex:1; padding:10px; border:1.5px solid var(--border); border-radius:8px;
+    background:white; font-size:14px; font-weight:500; cursor:pointer; text-align:center;
+    transition:all 0.15s; font-family:'DM Sans',sans-serif; color:#888;
+  }
+  .toggle-btn.yes.active { background:#E8F8EF; border-color:var(--green); color:var(--green); }
+  .toggle-btn.no.active  { background:#FEF0EE; border-color:var(--red); color:var(--red); }
+  .toggle-btn.active     { font-weight:600; }
+
+  /* SLIDE-IN SECTIONS */
+  .slide-in { display:none; flex-direction:column; gap:10px; padding-top:4px; }
+  .slide-in.visible { display:flex; }
+
+  /* CHECKLIST ITEMS */
+  .check-item { border:1.5px solid var(--border); border-radius:8px; overflow:hidden; }
+  .check-item-header { padding:11px 14px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; background:white; }
+  .check-item-label { font-size:14px; color:var(--gray); flex:1; line-height:1.3; }
+  .check-status { display:flex; gap:6px; flex-shrink:0; margin-left:10px; }
+  .status-btn {
+    padding:5px 10px; border:1.5px solid var(--border); border-radius:6px;
+    font-size:12px; font-weight:600; cursor:pointer; background:white; color:#aaa;
+    font-family:'DM Sans',sans-serif; transition:all 0.12s;
+  }
+  .status-btn.yes.active  { background:#E8F8EF; border-color:var(--green); color:var(--green); }
+  .status-btn.no.active   { background:#FEF0EE; border-color:var(--red); color:var(--red); }
+  .status-btn.na.active   { background:#EEF; border-color:#99A; color:#667; }
+  .check-notes { display:none; padding:8px 14px 12px; background:#FAFCFF; border-top:1px solid var(--border); }
+  .check-notes.visible { display:block; }
+  .check-notes input { width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:14px; font-family:'DM Sans',sans-serif; outline:none; }
+  .check-notes input:focus { border-color:var(--blue); }
+  .notes-toggle { font-size:12px; color:var(--blue); cursor:pointer; margin-top:4px; display:inline-block; }
+
+  /* STATUS ROWS */
+  .status-row-item { background:white; border:1.5px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .status-row-label { font-size:12px; font-weight:600; color:var(--dark-blue); margin-bottom:7px; text-transform:uppercase; letter-spacing:0.05em; }
+  .status-opts { display:flex; gap:6px; flex-wrap:wrap; }
+  .status-opt {
+    padding:7px 12px; border:1.5px solid var(--border); border-radius:20px;
+    font-size:13px; cursor:pointer; background:white; color:#888; font-family:'DM Sans',sans-serif;
+    transition:all 0.12s;
+  }
+  .status-opt.track.active  { background:#E8F8EF; border-color:var(--green); color:var(--green); font-weight:600; }
+  .status-opt.warn.active   { background:#FEF9E7; border-color:var(--amber); color:var(--amber); font-weight:600; }
+  .status-opt.issue.active  { background:#FEF0EE; border-color:var(--red); color:var(--red); font-weight:600; }
+
+  /* SUBMIT BAR */
+  .submit-bar { position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid var(--border); padding:12px 16px; display:flex; gap:8px; z-index:200; box-shadow:0 -2px 12px rgba(0,0,0,0.08); }
+  .btn-save { flex:1; padding:12px; background:white; border:1.5px solid var(--dark-blue); border-radius:8px; color:var(--dark-blue); font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-download { flex:1; padding:12px; background:var(--blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-both { flex:2; padding:12px; background:var(--dark-blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-save:active, .btn-download:active, .btn-both:active { opacity:0.8; }
+
+  /* TOAST */
+  .toast { position:fixed; top:70px; left:50%; transform:translateX(-50%); background:#222; color:white; padding:10px 20px; border-radius:8px; font-size:13px; z-index:999; display:none; white-space:nowrap; }
+  .toast.visible { display:block; }
+  .toast.success { background:var(--green); }
+  .toast.error { background:var(--red); }
+
+  /* FOOTER */
+  .hub-footer { text-align:center; padding:20px 0 8px; }
+  .hub-footer img { height:18px; opacity:0.45; }
+
+  @media(min-width:500px) {
+    .main { padding:20px 20px 80px; }
+    .section-body { padding:16px 20px; gap:12px; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left" onclick="window.location.href='/dashboard'">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">Site Visit Report</div>
+  </div>
+  <a href="/dashboard" class="header-btn">← Hub</a>
+</div>
+
+<div class="main">
+
+  <!-- 1. PROJECT INFO -->
+  <div class="section-card">
+    <div class="section-head"><div class="section-num">1</div> Project Information</div>
+    <div class="section-body">
+      <div class="field">
+        <label>Property Name</label>
+        <input type="text" id="propertyName" placeholder="e.g. Vantage Point West">
+      </div>
+      <div class="field">
+        <label>Property Address</label>
+        <input type="text" id="propertyAddress" placeholder="Street, City, State ZIP">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Date of Visit</label>
+          <input type="date" id="visitDate">
+        </div>
+        <div class="field">
+          <label>Time on Site</label>
+          <input type="text" id="visitTime" placeholder="e.g. 10:00 AM – 11:30 AM">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>Visited By</label>
+          <input type="text" id="visitedBy" value="{{ display_name }}">
+        </div>
+        <div class="field">
+          <label>PO / Proposal #</label>
+          <input type="text" id="poNumber" placeholder="e.g. TC7400">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. TRADE PARTNER -->
+  <div class="section-card">
+    <div class="section-head"><div class="section-num">2</div> Trade Partner & Crew</div>
+    <div class="section-body">
+      <div class="field">
+        <label>Trade Partner on site?</label>
+        <div class="toggle-group">
+          <button class="toggle-btn yes" onclick="toggle(this,'tpPresent','yes')">✓ Yes</button>
+          <button class="toggle-btn no"  onclick="toggle(this,'tpPresent','no')">✗ No</button>
+        </div>
+        <input type="hidden" id="tpPresent" value="">
+      </div>
+      <div class="slide-in" id="tpDetails">
+        <div class="field">
+          <label>Company / Trade</label>
+          <input type="text" id="tpCompany" placeholder="Company name">
+        </div>
+        <div class="field">
+          <label>Crew Lead & Contact</label>
+          <input type="text" id="crewLead" placeholder="Name and phone number">
+        </div>
+        <div class="field">
+          <label>Number of Workers</label>
+          <input type="number" id="crewCount" placeholder="How many on site">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. SCOPE INSPECTION -->
+  <div class="section-card">
+    <div class="section-head"><div class="section-num">3</div> Scope & Quality Inspection</div>
+    <div class="section-body" id="checklistBody">
+      <!-- Populated by JS -->
+    </div>
+  </div>
+
+  <!-- 4. ONSITE CONTACTS -->
+  <div class="section-card">
+    <div class="section-head"><div class="section-num">4</div> Onsite Contacts</div>
+    <div class="section-body">
+      <div class="field">
+        <label>Met with onsite staff, supervisor, or manager?</label>
+        <div class="toggle-group">
+          <button class="toggle-btn yes" onclick="toggle(this,'metStaff','yes')">✓ Yes</button>
+          <button class="toggle-btn no"  onclick="toggle(this,'metStaff','no')">✗ No</button>
+        </div>
+        <input type="hidden" id="metStaff" value="">
+      </div>
+      <div class="slide-in" id="staffDetails">
+        <div class="field">
+          <label>Contact Name & Title</label>
+          <input type="text" id="staffContact" placeholder="e.g. Jane Smith, Property Manager">
+        </div>
+        <div class="field">
+          <label>Topics Discussed</label>
+          <textarea id="topicsDiscussed" rows="2" placeholder="Brief summary of conversation"></textarea>
+        </div>
+      </div>
+      <div class="field">
+        <label>Resident complaints received or reported?</label>
+        <div class="toggle-group">
+          <button class="toggle-btn yes" onclick="toggle(this,'complaintsReceived','yes')">✓ Yes</button>
+          <button class="toggle-btn no"  onclick="toggle(this,'complaintsReceived','no')">✗ No</button>
+        </div>
+        <input type="hidden" id="complaintsReceived" value="">
+      </div>
+      <div class="slide-in" id="complaintDetails">
+        <div class="field">
+          <label>Complaint Details</label>
+          <textarea id="complaintDetailsText" rows="2" placeholder="Describe the complaint and action taken or planned"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. PROJECT PROGRESS -->
+  <div class="section-card">
+    <div class="section-head"><div class="section-num">5</div> Project Progress</div>
+    <div class="section-body">
+      <div class="status-row-item">
+        <div class="status-row-label">Overall Project Status</div>
+        <div class="status-opts">
+          <button class="status-opt track" onclick="selectStatus(this,'overallStatus','on_track')">On Track</button>
+          <button class="status-opt warn"  onclick="selectStatus(this,'overallStatus','minor_concern')">Minor Concern</button>
+          <button class="status-opt issue" onclick="selectStatus(this,'overallStatus','issue')">Issue</button>
+        </div>
+        <input type="hidden" id="overallStatus" value="">
+      </div>
+      <div class="status-row-item">
+        <div class="status-row-label">Work Quality</div>
+        <div class="status-opts">
+          <button class="status-opt track" onclick="selectStatus(this,'qualityStatus','excellent')">Excellent</button>
+          <button class="status-opt track" onclick="selectStatus(this,'qualityStatus','acceptable')">Acceptable</button>
+          <button class="status-opt issue" onclick="selectStatus(this,'qualityStatus','needs_attention')">Needs Attention</button>
+        </div>
+        <input type="hidden" id="qualityStatus" value="">
+      </div>
+      <div class="status-row-item">
+        <div class="status-row-label">Schedule / Timeline</div>
+        <div class="status-opts">
+          <button class="status-opt track" onclick="selectStatus(this,'scheduleStatus','on_schedule')">On Schedule</button>
+          <button class="status-opt warn"  onclick="selectStatus(this,'scheduleStatus','behind')">Behind</button>
+          <button class="status-opt issue" onclick="selectStatus(this,'scheduleStatus','at_risk')">At Risk</button>
+        </div>
+        <input type="hidden" id="scheduleStatus" value="">
+      </div>
+      <div class="field">
+        <label>Observations & Recommendations</label>
+        <textarea id="observations" rows="4" placeholder="Key observations, concerns, and recommendations from this visit..."></textarea>
+      </div>
+      <div class="field">
+        <label>Photo Documentation</label>
+        <div class="toggle-group">
+          <button class="toggle-btn yes" onclick="toggle(this,'photosTaken','yes')">✓ Taken</button>
+          <button class="toggle-btn no"  onclick="toggle(this,'photosTaken','no')">✗ Not taken</button>
+        </div>
+        <input type="hidden" id="photosTaken" value="">
+      </div>
+      <div class="field">
+        <label>Next Visit Date (optional)</label>
+        <input type="date" id="nextVisitDate">
+      </div>
+    </div>
+  </div>
+
+  <div class="hub-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+</div>
+
+<!-- SUBMIT BAR -->
+<div class="submit-bar">
+  <button class="btn-save"     onclick="submit('save')">Save to Hub</button>
+  <button class="btn-download" onclick="submit('download')">Download</button>
+  <button class="btn-both"     onclick="submit('both')">Save & Download</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── CHECKLIST ──────────────────────────────────────────────────────────
+const CHECKLIST_ITEMS = [
+  'Scope being followed as approved',
+  'Materials match proposal specifications',
+  'Work quality meets PPS standards',
+  'Safety protocols in place (PPE, fall protection)',
+  'Site cleanliness maintained',
+  'Property protected (landscaping, vehicles, windows)',
+  'Damage to property unrelated to scope observed',
+];
+
+const checklistState = {};
+
+function buildChecklist() {
+  const body = document.getElementById('checklistBody');
+  CHECKLIST_ITEMS.forEach((label, i) => {
+    checklistState[i] = { label, status: '', notes: '' };
+    const div = document.createElement('div');
+    div.className = 'check-item';
+    div.innerHTML = `
+      <div class="check-item-header">
+        <div class="check-item-label">${label}</div>
+        <div class="check-status">
+          <button class="status-btn yes" onclick="setCheck(${i},'yes',this)">Yes</button>
+          <button class="status-btn no"  onclick="setCheck(${i},'no',this)">No</button>
+          <button class="status-btn na"  onclick="setCheck(${i},'na',this)">N/A</button>
+        </div>
+      </div>
+      <div class="check-notes" id="notes_${i}">
+        <input type="text" placeholder="Add note (optional)" oninput="checklistState[${i}].notes=this.value" id="noteinput_${i}">
+      </div>
+      <span class="notes-toggle" onclick="toggleNotes(${i})">+ Add note</span>
+    `;
+    body.appendChild(div);
+  });
+}
+
+function setCheck(idx, val, btn) {
+  checklistState[idx].status = val;
+  const btns = btn.closest('.check-status').querySelectorAll('.status-btn');
+  btns.forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Auto-open notes for No
+  if (val === 'no') {
+    document.getElementById(`notes_${idx}`).classList.add('visible');
+    document.getElementById(`noteinput_${idx}`).focus();
+  }
+}
+
+function toggleNotes(idx) {
+  document.getElementById(`notes_${idx}`).classList.toggle('visible');
+}
+
+buildChecklist();
+
+// ── TOGGLES ────────────────────────────────────────────────────────────
+function toggle(btn, fieldId, val) {
+  document.getElementById(fieldId).value = val;
+  const group = btn.parentElement;
+  group.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Show/hide slide-in sections
+  const slideMap = {
+    'tpPresent': 'tpDetails',
+    'metStaff': 'staffDetails',
+    'complaintsReceived': 'complaintDetails',
+  };
+  if (slideMap[fieldId]) {
+    const el = document.getElementById(slideMap[fieldId]);
+    el.classList.toggle('visible', val === 'yes');
+  }
+}
+
+// ── STATUS OPTS ────────────────────────────────────────────────────────
+function selectStatus(btn, fieldId, val) {
+  document.getElementById(fieldId).value = val;
+  const group = btn.closest('.status-opts');
+  group.querySelectorAll('.status-opt').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+// ── DEFAULT DATE ───────────────────────────────────────────────────────
+document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
+
+// ── SUBMIT ─────────────────────────────────────────────────────────────
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast visible ' + type;
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+async function submit(action) {
+  const data = {
+    action,
+    property_name:      document.getElementById('propertyName').value.trim(),
+    property_address:   document.getElementById('propertyAddress').value.trim(),
+    visit_date:         document.getElementById('visitDate').value,
+    visit_time:         document.getElementById('visitTime').value.trim(),
+    visited_by:         document.getElementById('visitedBy').value.trim(),
+    po_number:          document.getElementById('poNumber').value.trim(),
+    trade_partner_present:  document.getElementById('tpPresent').value,
+    trade_partner_company:  document.getElementById('tpCompany').value.trim(),
+    crew_lead:          document.getElementById('crewLead').value.trim(),
+    crew_count:         document.getElementById('crewCount').value.trim(),
+    met_with_staff:     document.getElementById('metStaff').value,
+    staff_contact:      document.getElementById('staffContact').value.trim(),
+    topics_discussed:   document.getElementById('topicsDiscussed').value.trim(),
+    complaints_received: document.getElementById('complaintsReceived').value,
+    complaint_details:  document.getElementById('complaintDetailsText').value.trim(),
+    checklist:          Object.values(checklistState),
+    overall_status:     document.getElementById('overallStatus').value,
+    quality_status:     document.getElementById('qualityStatus').value,
+    schedule_status:    document.getElementById('scheduleStatus').value,
+    observations:       document.getElementById('observations').value.trim(),
+    photos_taken:       document.getElementById('photosTaken').value === 'yes',
+    next_visit_date:    document.getElementById('nextVisitDate').value,
+  };
+
+  if (!data.property_name) { showToast('Please enter a property name', 'error'); return; }
+
+  if (action === 'download') {
+    // POST form submit for file download
+    const form = document.createElement('form');
+    form.method = 'POST'; form.action = '/site-visit/generate';
+    const input = document.createElement('input');
+    input.type = 'hidden'; input.name = 'json_data'; input.value = JSON.stringify(data);
+    form.appendChild(input); document.body.appendChild(form);
+    // Use fetch instead for proper JSON
+    try {
+      const resp = await fetch('/site-visit/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'same-origin',
+      });
+      if (!resp.ok) { showToast('Download failed', 'error'); return; }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const prop = (data.property_name || 'Site_Visit').replace(/\s+/g,'_');
+      const date = (data.visit_date || '').replace(/-/g,'');
+      a.download = `PPS_Site_Visit_${prop}_${date}.docx`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    return;
+  }
+
+  if (action === 'save') {
+    try {
+      const resp = await fetch('/site-visit/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        credentials: 'same-origin',
+      });
+      const result = await resp.json();
+      if (result.success) showToast('Saved to Hub ✓', 'success');
+      else showToast('Save failed: ' + result.error, 'error');
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    return;
+  }
+
+  if (action === 'both') {
+    // Save first, then download
+    try {
+      const saveData = {...data, action:'save'};
+      const saveResp = await fetch('/site-visit/generate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(saveData), credentials:'same-origin'
+      });
+
+      const dlData = {...data, action:'download'};
+      const dlResp = await fetch('/site-visit/generate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(dlData), credentials:'same-origin'
+      });
+      if (!dlResp.ok) { showToast('Download failed', 'error'); return; }
+      const blob = await dlResp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const prop = (data.property_name||'Site_Visit').replace(/\s+/g,'_');
+      const date = (data.visit_date||'').replace(/-/g,'');
+      a.download = `PPS_Site_Visit_${prop}_${date}.docx`;
+      a.click(); URL.revokeObjectURL(url);
+      showToast('Saved & downloading ✓', 'success');
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+  }
+}
+</script>
+</body>
+</html>

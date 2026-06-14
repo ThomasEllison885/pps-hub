@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Site Visits</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;--green:#27AE60;--amber:#E67E22;--red:#E74C3C;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;position:sticky;top:0;z-index:100;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
+  .header-left{display:flex;align-items:center;gap:16px;cursor:pointer;}
+  .header-logo{height:44px;opacity:0.95;}
+  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
+  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
+  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;}
+  .main{max-width:1000px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:24px;}
+  .card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+  table{width:100%;border-collapse:collapse;}
+  th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-blue);padding:11px 16px;background:var(--light-bg);border-bottom:1.5px solid var(--border);}
+  td{padding:11px 16px;border-bottom:1px solid #f0f4f8;font-size:14px;}
+  tr:last-child td{border-bottom:none;}
+  tr.clickable:hover td{background:#fafcff;cursor:pointer;}
+  .prop-name{font-weight:600;color:var(--dark-blue);}
+  .badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge.track{background:#E8F8EF;color:var(--green);}
+  .badge.warn{background:#FEF9E7;color:var(--amber);}
+  .badge.issue{background:#FEF0EE;color:var(--red);}
+  .badge.na{background:#EEF;color:#667;}
+  .empty{text-align:center;color:#bbb;padding:48px;font-size:14px;}
+
+  /* Modal */
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:white;border-radius:var(--radius);box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:540px;max-height:90vh;overflow-y:auto;}
+  .modal-title{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);margin-bottom:16px;}
+  .meta-row{display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;}
+  .meta-row:last-of-type{border-bottom:none;}
+  .meta-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;}
+  .meta-val{font-size:14px;color:var(--gray);}
+  .cl-section{margin-top:14px;}
+  .cl-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;}
+  .cl-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #f5f7fa;font-size:13px;}
+  .cl-item:last-child{border-bottom:none;}
+  .cl-status{flex-shrink:0;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;}
+  .btn-download-modal{display:block;width:100%;margin-top:16px;padding:11px;background:var(--dark-blue);color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;text-decoration:none;text-align:center;}
+  .btn-download-modal:hover{background:var(--blue);}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-left" onclick="window.location.href='/dashboard'">
+    <img src="/static/logo.png" alt="PPS" class="header-logo">
+    <div class="header-divider"></div>
+    <div class="header-title">Site Visit Reports</div>
+  </div>
+  <a href="/admin" class="header-btn">← Admin</a>
+</div>
+<div class="main">
+  <div class="page-title">Site Visit Reports</div>
+  <p class="page-sub">{{ rows|length }} report{% if rows|length != 1 %}s{% endif %} on file</p>
+  <div class="card">
+    {% if rows %}
+    <table>
+      <thead>
+        <tr><th>Property</th><th>Visited By</th><th>Date</th><th>Status</th><th>Submitted</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="clickable" onclick="showDetail({{ loop.index0 }})">
+          <td class="prop-name">{{ r.property_name or 'Unnamed' }}</td>
+          <td style="font-size:13px;color:#888;">{{ r.display_name }}</td>
+          <td style="font-size:13px;color:#888;">{{ r.visit_date or '—' }}</td>
+          <td>
+            {% if r.overall_status == 'on_track' %}<span class="badge track">On Track</span>
+            {% elif r.overall_status == 'minor_concern' %}<span class="badge warn">Minor Concern</span>
+            {% elif r.overall_status == 'issue' %}<span class="badge issue">Issue</span>
+            {% else %}<span style="color:#ccc;font-size:13px;">—</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:#aaa;">{{ r.generated_at.strftime('%b %d, %Y') if r.generated_at else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No site visit reports yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;">
+      <div class="modal-title" id="mTitle"></div>
+      <button onclick="closeModal()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div id="mContent"></div>
+    <a id="mDownload" class="btn-download-modal" href="#" target="_blank">⬇ Download Word Report</a>
+  </div>
+</div>
+
+<script>
+const rows = [
+  {% for r in rows %}
+  {
+    id: {{ r.id }},
+    property: {{ (r.property_name or 'Unnamed')|tojson }},
+    address: {{ (r.property_address or '')|tojson }},
+    by: {{ (r.display_name or '')|tojson }},
+    date: {{ (r.visit_date or '—')|tojson }},
+    time: {{ (r.visit_time or '—')|tojson }},
+    po: {{ (r.po_number or '—')|tojson }},
+    tp: {{ (r.trade_partner_present or '')|tojson }},
+    company: {{ (r.trade_partner_company or '')|tojson }},
+    crew: {{ (r.crew_lead or '')|tojson }},
+    workers: {{ (r.crew_count or '')|tojson }},
+    met: {{ (r.met_with_staff or '')|tojson }},
+    contact: {{ (r.staff_contact or '')|tojson }},
+    topics: {{ (r.topics_discussed or '')|tojson }},
+    complaints: {{ (r.complaints_received or '')|tojson }},
+    complaint_details: {{ (r.complaint_details or '')|tojson }},
+    checklist: {{ (r.checklist | tojson) if r.checklist else '[]' }},
+    overall: {{ (r.overall_status or '')|tojson }},
+    quality: {{ (r.quality_status or '')|tojson }},
+    schedule: {{ (r.schedule_status or '')|tojson }},
+    observations: {{ (r.observations or '')|tojson }},
+    photos: {{ 'true' if r.photos_taken else 'false' }},
+    next_visit: {{ (r.next_visit_date or '')|tojson }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+function statusBadge(val) {
+  const map = {
+    on_track:'<span class="badge track">On Track</span>',
+    minor_concern:'<span class="badge warn">Minor Concern</span>',
+    issue:'<span class="badge issue">Issue</span>',
+    excellent:'<span class="badge track">Excellent</span>',
+    acceptable:'<span class="badge na">Acceptable</span>',
+    needs_attention:'<span class="badge issue">Needs Attention</span>',
+    on_schedule:'<span class="badge track">On Schedule</span>',
+    behind:'<span class="badge warn">Behind</span>',
+    at_risk:'<span class="badge issue">At Risk</span>',
+  };
+  return map[val] || '<span style="color:#ccc">—</span>';
+}
+
+function metaRow(label, val) {
+  if (!val) return '';
+  return `<div class="meta-row"><div class="meta-label">${label}</div><div class="meta-val">${val}</div></div>`;
+}
+
+function showDetail(i) {
+  const r = rows[i];
+  document.getElementById('mTitle').textContent = r.property;
+  document.getElementById('mDownload').href = `/site-visit/download/${r.id}`;
+
+  let html = '';
+  html += metaRow('Address', r.address);
+  html += metaRow('Date', r.date);
+  html += metaRow('Time', r.time);
+  html += metaRow('Visited By', r.by);
+  html += metaRow('PO / Proposal #', r.po);
+  if (r.company) html += metaRow('Trade Partner', r.company);
+  if (r.crew) html += metaRow('Crew Lead', r.crew);
+  if (r.contact) html += metaRow('Onsite Contact', r.contact);
+  if (r.topics) html += metaRow('Topics', r.topics);
+  if (r.complaints === 'yes' && r.complaint_details) html += metaRow('Complaint', r.complaint_details);
+  html += `<div class="meta-row"><div class="meta-label">Status</div><div class="meta-val">${statusBadge(r.overall)} ${statusBadge(r.quality)} ${statusBadge(r.schedule)}</div></div>`;
+  if (r.observations) html += `<div style="margin-top:10px;"><div class="meta-label" style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Observations</div><div style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;">${r.observations}</div></div>`;
+
+  // Checklist
+  if (r.checklist && r.checklist.length) {
+    html += `<div class="cl-section"><div class="cl-label">Inspection Checklist</div>`;
+    const checklist = typeof r.checklist === 'string' ? JSON.parse(r.checklist) : r.checklist;
+    checklist.forEach(item => {
+      if (!item.label) return;
+      const sc = item.status === 'yes' ? 'track' : item.status === 'no' ? 'issue' : 'na';
+      const sl = item.status === 'yes' ? 'Yes' : item.status === 'no' ? 'No' : item.status === 'na' ? 'N/A' : '—';
+      html += `<div class="cl-item"><span class="cl-status badge ${sc}">${sl}</span><span>${item.label}${item.notes ? ' — <em>'+item.notes+'</em>' : ''}</span></div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('mContent').innerHTML = html;
+  document.getElementById('modal').classList.add('active');
+}
+function closeModal() { document.getElementById('modal').classList.remove('active'); }
+</script>
+</body>
+</html>

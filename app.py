@@ -365,6 +365,37 @@ def init_db():
         cur.execute("ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'")
     except: pass
 
+    # Site visit log
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS site_visit_log (
+            id SERIAL PRIMARY KEY,
+            generated_by VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            property_name VARCHAR(255),
+            property_address VARCHAR(255),
+            visit_date VARCHAR(100),
+            visit_time VARCHAR(100),
+            po_number VARCHAR(100),
+            trade_partner_present VARCHAR(10),
+            trade_partner_company VARCHAR(255),
+            crew_lead VARCHAR(255),
+            crew_count VARCHAR(50),
+            met_with_staff VARCHAR(10),
+            staff_contact VARCHAR(255),
+            topics_discussed TEXT,
+            complaints_received VARCHAR(10),
+            complaint_details TEXT,
+            checklist JSONB,
+            overall_status VARCHAR(50),
+            quality_status VARCHAR(50),
+            schedule_status VARCHAR(50),
+            observations TEXT,
+            photos_taken BOOLEAN DEFAULT FALSE,
+            next_visit_date VARCHAR(100),
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+
     # Seed users with default password if not exists
     default_password = os.environ.get('DEFAULT_PASSWORD', 'PPS2026!')
     for key, user in USERS.items():
@@ -1329,6 +1360,141 @@ def reset_team_view():
             USERS[user_key]['team_view_scope'] = scope
         return jsonify({'success': True, 'team_view': USERS[user_key]['team_view']})
     return jsonify({'error': 'User not found'}), 404
+
+
+@app.route('/site-visit')
+def site_visit():
+    if not session.get('user_key'):
+        return redirect(url_for('login'))
+    return render_template('site_visit.html',
+                           user_key=session['user_key'],
+                           display_name=session.get('display_name', ''))
+
+
+@app.route('/site-visit/generate', methods=['POST'])
+def site_visit_generate():
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    import json as _json
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'No data received'}), 400
+
+    user_key     = session['user_key']
+    display_name = session.get('display_name', '')
+    data['visited_by'] = data.get('visited_by') or display_name
+
+    action = data.get('action', 'both')  # 'download', 'save', 'both'
+
+    # Save to DB if requested
+    saved_id = None
+    if action in ('save', 'both'):
+        try:
+            conn = get_db()
+            if conn:
+                cur = conn.cursor()
+                cur.execute('''
+                    INSERT INTO site_visit_log (
+                        generated_by, display_name, property_name, property_address,
+                        visit_date, visit_time, po_number,
+                        trade_partner_present, trade_partner_company, crew_lead, crew_count,
+                        met_with_staff, staff_contact, topics_discussed,
+                        complaints_received, complaint_details,
+                        checklist, overall_status, quality_status, schedule_status,
+                        observations, photos_taken, next_visit_date
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    RETURNING id
+                ''', (
+                    user_key, display_name,
+                    data.get('property_name'), data.get('property_address'),
+                    data.get('visit_date'), data.get('visit_time'), data.get('po_number'),
+                    data.get('trade_partner_present'), data.get('trade_partner_company'),
+                    data.get('crew_lead'), data.get('crew_count'),
+                    data.get('met_with_staff'), data.get('staff_contact'),
+                    data.get('topics_discussed'), data.get('complaints_received'),
+                    data.get('complaint_details'),
+                    _json.dumps(data.get('checklist', [])),
+                    data.get('overall_status'), data.get('quality_status'),
+                    data.get('schedule_status'), data.get('observations'),
+                    bool(data.get('photos_taken')), data.get('next_visit_date'),
+                ))
+                saved_id = cur.fetchone()[0]
+                conn.commit()
+                cur.close()
+                conn.close()
+        except Exception as e:
+            print(f"Site visit save error: {e}")
+
+    if action == 'save':
+        return jsonify({'success': True, 'saved_id': saved_id})
+
+    # Generate Word doc
+    try:
+        import sys, os
+        sys.path.insert(0, os.path.dirname(__file__))
+        from site_visit_builder import build_site_visit
+        buf = build_site_visit(data)
+        from flask import send_file
+        prop = data.get('property_name', 'Site_Visit').replace(' ', '_')
+        date = data.get('visit_date', '').replace('/', '-').replace(' ', '_')
+        filename = f"PPS_Site_Visit_{prop}_{date}.docx"
+        buf.seek(0)
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/site-visit/download/<int:visit_id>')
+def site_visit_download(visit_id):
+    if not session.get('user_key'):
+        return redirect(url_for('login'))
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM site_visit_log WHERE id = %s', (visit_id,))
+            row = cur.fetchone()
+            cur.close(); conn.close()
+        if not row:
+            return "Not found", 404
+        import json as _json, sys, os
+        data = dict(row)
+        if isinstance(data.get('checklist'), str):
+            data['checklist'] = _json.loads(data['checklist'])
+        sys.path.insert(0, os.path.dirname(__file__))
+        from site_visit_builder import build_site_visit
+        buf = build_site_visit(data)
+        from flask import send_file
+        prop = (data.get('property_name') or 'Site_Visit').replace(' ','_')
+        filename = f"PPS_Site_Visit_{prop}.docx"
+        return send_file(buf, as_attachment=True, download_name=filename,
+                        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    except Exception as e:
+        return str(e), 500
+
+
+@app.route('/admin/site-visits')
+def admin_site_visits():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    rows = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM site_visit_log ORDER BY generated_at DESC')
+            rows = cur.fetchall()
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"Admin site visits error: {e}")
+    return render_template('admin_site_visits.html', rows=rows)
 
 
 @app.route('/test-token')
