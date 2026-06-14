@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS Hub · Proposal Comparison</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
   :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
   *{box-sizing:border-box;margin:0;padding:0;}
@@ -63,12 +62,19 @@
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="header-left" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;"><img src="/static/logo.png" alt="PPS" class="header-logo" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;">
-    <div class="header-divider"></div>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Proposal Comparison</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
     <div class="header-title">Proposal Comparison</div>
   </div>
-  <a href="/dashboard" class="header-btn">← Dashboard</a>
+  <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
 </div>
 
 <div class="main">
@@ -133,7 +139,7 @@
 
   <!-- HISTORY -->
   {% if rows %}
-  <div class="section-head" style="margin-top:36px;">Previous Submissions</div>
+  <div class="pps-section-head" style="margin-top:36px;">Previous Submissions</div>
   {% for row in rows %}
   <div class="history-item" onclick="toggleHistory('hist_{{ row.id }}')">
     <div class="hi-header">
@@ -234,7 +240,7 @@ function toggleHistory(id) {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 </script>
-  <div class="hub-footer">
+  <div class="pps-footer">
     <img src="/static/logo.png" alt="PPS" style="height:22px;opacity:0.3;"> &nbsp;
     <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" style="height:22px;opacity:0.45;">
   </div>

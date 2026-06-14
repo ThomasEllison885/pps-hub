@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS Hub · Dashboard</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
   :root {
     --blue: #0096D6; --dark-blue: #004C8C; --light-bg: #EBF6FC;
@@ -160,13 +159,13 @@
   </div>
   {% endif %}
 
-  <div class="section-head">Your Tools</div>
+  <div class="pps-section-head">Your Tools</div>
   <div class="tools-grid">
     {% if consultants %}
-    <a href="#" onclick="openTool('{{ proposal_url }}/proposal', '{{ user_key }}')" class="tool-card">
-      <div class="tool-icon">📄</div>
-      <div class="tool-name">Proposal Generator</div>
-      <div class="tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
+    <a href="#" onclick="openTool('{{ proposal_url }}/proposal', '{{ user_key }}')" class="pps-tool-card">
+      <div class="pps-tool-icon">📄</div>
+      <div class="pps-tool-name">Proposal Generator</div>
+      <div class="pps-tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
       {% if consultants|length == 1 %}
       <span class="tool-badge">{{ consultants.values()|list|first }}</span>
       {% else %}
@@ -176,52 +175,52 @@
     </a>
     {% else %}
     <div class="tool-card disabled">
-      <div class="tool-icon">📄</div>
-      <div class="tool-name">Proposal Generator</div>
-      <div class="tool-desc">Not available for your role.</div>
+      <div class="pps-tool-icon">📄</div>
+      <div class="pps-tool-name">Proposal Generator</div>
+      <div class="pps-tool-desc">Not available for your role.</div>
     </div>
     {% endif %}
 
-    <a href="#" onclick="openTool('{{ proposal_url }}/ppm', '{{ user_key }}')" class="tool-card">
-      <div class="tool-icon">🔧</div>
-      <div class="tool-name">PPM Checklist</div>
-      <div class="tool-desc">Generate preventive maintenance checklists for any property.</div>
+    <a href="#" onclick="openTool('{{ proposal_url }}/ppm', '{{ user_key }}')" class="pps-tool-card">
+      <div class="pps-tool-icon">🔧</div>
+      <div class="pps-tool-name">PPM Checklist</div>
+      <div class="pps-tool-desc">Generate preventive maintenance checklists for any property.</div>
       <div class="tool-meta">Open →</div>
     </a>
 
     {% if consultants %}
-    <a href="#" onclick="openTool('{{ proposal_url }}/subscope', '{{ user_key }}')" class="tool-card">
-      <div class="tool-icon">📋</div>
-      <div class="tool-name">Trade Partner Scope</div>
-      <div class="tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
+    <a href="#" onclick="openTool('{{ proposal_url }}/subscope', '{{ user_key }}')" class="pps-tool-card">
+      <div class="pps-tool-icon">📋</div>
+      <div class="pps-tool-name">Trade Partner Scope</div>
+      <div class="pps-tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
       <div class="tool-meta">Open →</div>
     </a>
     {% else %}
     <div class="tool-card disabled">
-      <div class="tool-icon">📋</div>
-      <div class="tool-name">Trade Partner Scope</div>
-      <div class="tool-desc">Not available for your role.</div>
+      <div class="pps-tool-icon">📋</div>
+      <div class="pps-tool-name">Trade Partner Scope</div>
+      <div class="pps-tool-desc">Not available for your role.</div>
     </div>
     {% endif %}
 
-    <a href="/site-visit" class="tool-card">
-      <div class="tool-icon">📋</div>
+    <a href="/site-visit" class="pps-tool-card">
+      <div class="pps-tool-icon">📋</div>
       <div class="tool-info">
-        <div class="tool-name">Site Visit Report</div>
-        <div class="tool-desc">Document site visits, scope compliance, and project progress</div>
+        <div class="pps-tool-name">Site Visit Report</div>
+        <div class="pps-tool-desc">Document site visits, scope compliance, and project progress</div>
       </div>
     </a>
 
-    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="tool-card">
-      <div class="tool-icon">🎯</div>
-      <div class="tool-name">Pure Way Profile</div>
-      <div class="tool-desc">Behavioral assessment — understand how you work and what drives you.</div>
+    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="pps-tool-card">
+      <div class="pps-tool-icon">🎯</div>
+      <div class="pps-tool-name">Pure Way Profile</div>
+      <div class="pps-tool-desc">Behavioral assessment — understand how you work and what drives you.</div>
       <div class="tool-meta">Open →</div>
     </a>
   </div>
 
   {% if profile %}
-  <div class="section-head">Your Profile</div>
+  <div class="pps-section-head">Your Profile</div>
   <a href="{{ profile_url }}/history/{{ profile.id }}" class="profile-snap" target="_blank">
     <div class="profile-snap-icon">🎬</div>
     <div>
@@ -234,7 +233,7 @@
   </a>
   {% endif %}
 
-  <div class="section-head">Recent Activity</div>
+  <div class="pps-section-head">Recent Activity</div>
   <div class="activity-grid">
     <div class="activity-card">
       <h3>Recent Proposals</h3>
@@ -289,9 +288,9 @@
   </div>
 
   {% if all_my_proposals %}
-  <div class="section-head">My Proposal History ({{ all_my_proposals|length }})</div>
-  <div class="proposal-history-card">
-    <table class="history-table">
+  <div class="pps-section-head">My Proposal History ({{ all_my_proposals|length }})</div>
+  <div class="pps-table-card">
+    <table class="pps-table">
       <thead>
         <tr>
           <th>Client / Property</th>
@@ -319,9 +318,9 @@
   {% endif %}
 
   {% if all_my_ppms %}
-  <div class="section-head">My PPM History ({{ all_my_ppms|length }})</div>
-  <div class="proposal-history-card">
-    <table class="history-table">
+  <div class="pps-section-head">My PPM History ({{ all_my_ppms|length }})</div>
+  <div class="pps-table-card">
+    <table class="pps-table">
       <thead><tr><th>Property</th><th>PM</th><th>Date</th></tr></thead>
       <tbody>
         {% for p in all_my_ppms %}
@@ -337,9 +336,9 @@
   {% endif %}
 
   {% if all_my_tpscopes %}
-  <div class="section-head">My Trade Partner Scopes ({{ all_my_tpscopes|length }})</div>
-  <div class="proposal-history-card">
-    <table class="history-table">
+  <div class="pps-section-head">My Trade Partner Scopes ({{ all_my_tpscopes|length }})</div>
+  <div class="pps-table-card">
+    <table class="pps-table">
       <thead><tr><th>Property</th><th>PM</th><th>Language</th><th>Date</th></tr></thead>
       <tbody>
         {% for s in all_my_tpscopes %}
@@ -356,7 +355,7 @@
   {% endif %}
 
   {% if consultants %}
-  <div class="section-head">Proposal Comparison Tool</div>
+  <div class="pps-section-head">Proposal Comparison Tool</div>
   <div class="feedback-card" style="margin-bottom:28px;">
     <h3>Submit a Before & After</h3>
     <p style="font-size:14px;color:#888;margin-bottom:14px;line-height:1.6;">Upload your generated proposal and your edited version. Claude will analyze the differences and suggest improvements to our voice guide.</p>
@@ -364,7 +363,7 @@
   </div>
   {% endif %}
 
-  <div class="section-head">Feedback & Suggestions</div>
+  <div class="pps-section-head">Feedback & Suggestions</div>
   <div class="feedback-card">
     <h3>Share a Suggestion or Idea</h3>
     <textarea id="feedbackText" placeholder="What could be better? Have an idea for a new tool or feature? Let Thomas know…"></textarea>
@@ -372,7 +371,7 @@
     <div class="feedback-success" id="feedbackSuccess">✓ Feedback sent — thanks!</div>
   </div>
 
-  <div class="hub-footer">
+  <div class="pps-footer">
     <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
   </div>
 

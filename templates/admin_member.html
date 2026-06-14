@@ -2,10 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS Hub · {{ user.display }}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
 <style>
   :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -50,12 +49,19 @@
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="header-left" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;"><img src="/static/logo.png" alt="PPS" class="header-logo" onclick="window.location.href='https://hub.purepropsolutions.com/dashboard'" style="cursor:pointer;">
-    <div class="header-divider"></div>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Team Member</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+  </div>
+</header>
     <div class="header-title">{{ user.display }}</div>
   </div>
-  <a href="/admin" class="header-btn">← Back to Admin</a>
+  <a href="/admin" class="pps-btn-header">← Back to Admin</a>
 </div>
 
 <div class="main">
@@ -72,7 +78,7 @@
   <p class="page-sub">Full activity summary — admin view only</p>
 
   <!-- PROFILE -->
-  <div class="section-head">Pure Way Profile</div>
+  <div class="pps-section-head">Pure Way Profile</div>
   {% if profile %}
   <div class="profile-card">
     <div class="icon">🎬</div>
@@ -89,7 +95,7 @@
   {% endif %}
 
   <!-- ACTIVITY -->
-  <div class="section-head">Activity</div>
+  <div class="pps-section-head">Activity</div>
   <div class="act-grid">
     <div class="act-card">
       <h3>Proposals ({{ proposals|length }})</h3>
@@ -172,7 +178,7 @@
     </div>
   </div>
 
-  <div class="hub-footer">
+  <div class="pps-footer">
     <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
   </div>
 </div>
