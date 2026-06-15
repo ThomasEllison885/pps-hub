@@ -148,22 +148,7 @@
     <a href="/logout" class="pps-btn-header">Sign Out</a>
   </div>
 </header>
-    <div class="header-title">PPS Hub</div>
-    {% if session.get('role') == 'admin' %}
-    <span class="admin-badge">Admin</span>
-    {% endif %}
-  </div>
-  <div class="header-right">
-    <span class="header-user">Signed in as <span>{{ user.display }}</span></span>
-    {% if session.get('role') == 'admin' %}
-    <a href="/admin" class="header-btn">Admin Panel</a>
-    {% endif %}
-    {% if team_view %}
-    <a href="/team-view" class="header-btn">Team View</a>
-    {% endif %}
-    <a href="/logout" class="header-btn">Sign Out</a>
-  </div>
-</div>
+
 
 <div class="main">
 
