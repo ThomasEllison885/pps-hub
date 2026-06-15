@@ -171,6 +171,20 @@ body {
   flex-shrink: 0;
 }
 
+.pps-login-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 24px 8px;
+}
+.pps-login-strip .pps-login-logo { height: 52px; width: auto; }
+.pps-login-strip .pps-login-motto {
+  width: min(100%, 420px);
+  height: auto;
+  opacity: 0.95;
+}
+
 .pps-login-brand {
   display: flex;
   flex-direction: column;
@@ -179,7 +193,11 @@ body {
   margin-bottom: 28px;
 }
 .pps-login-brand .pps-login-logo { height: 56px; width: auto; }
-.pps-login-brand .pps-login-motto { height: 30px; width: auto; max-width: 100%; opacity: 0.9; }
+.pps-login-brand .pps-login-motto {
+  width: min(100%, 420px);
+  height: auto;
+  opacity: 0.95;
+}
 
 .pps-hero-brand {
   display: flex;

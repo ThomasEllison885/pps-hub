@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="stylesheet" href="/static/pps-global.css">
+<link rel="stylesheet" href="/static/pps-global.css?v=3">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS Hub · Sign In</title>
 <style>
-  .wrap { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 64px); padding: 40px 20px; }
+  .wrap { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 64px); padding: 24px 20px 40px; }
 
-  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 48px 40px; width: 100%; max-width: 420px; text-align: center; }
+  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 40px 40px 44px; width: 100%; max-width: 420px; text-align: center; }
   .card h1 { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark-blue); margin-bottom: 6px; }
   .card .sub { font-size: 14px; color: #888; margin-bottom: 32px; }
 
@@ -32,17 +32,19 @@
 <body>
 <header class="pps-header" style="cursor:pointer;" onclick="window.location.href='/dashboard'">
   <div class="pps-header-left">
-    <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-header-logo">
+    <img src="/static/logo.png?v=3" alt="Pure Property Solutions" class="pps-header-logo">
     <div class="pps-header-divider"></div>
     <span class="pps-header-title">PPS Hub</span>
   </div>
 </header>
+
+<div class="pps-login-strip">
+  <img src="/static/logo.png?v=3" alt="Pure Property Solutions" class="pps-login-logo">
+  <img src="/static/PPS_statement1_MED.jpg?v=3" alt="The Pure Way: Trust. Quality. Results.™" class="pps-login-motto">
+</div>
+
 <div class="wrap">
   <div class="card">
-    <div class="pps-login-brand">
-      <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-login-logo">
-      <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" class="pps-login-motto">
-    </div>
     <h1>Welcome Back</h1>
     <p class="sub">Sign in to access your PPS tools</p>
     <form method="POST" action="/login">
@@ -63,11 +65,6 @@
       <button type="submit" class="btn">Sign In →</button>
     </form>
   </div>
-</div>
-<div class="pps-footer" style="border-top:none;margin-top:0;">
-  <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
-  <span class="pps-footer-divider"></span>
-  <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" class="pps-footer-motto">
 </div>
 </body>
 </html>
