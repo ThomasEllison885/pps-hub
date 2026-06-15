@@ -1533,16 +1533,28 @@ def admin_site_visits():
 @app.route('/email-doc', methods=['POST'])
 def email_doc():
     """Email a generated document via Resend API."""
-    if not session.get('user_key'):
+    api_key = request.headers.get('X-API-Key', '')
+    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+    if not session.get('user_key') and not internal_ok:
         return jsonify({'error': 'Not authenticated'}), 401
 
     import base64, urllib.request as _ur, json as _json
 
-    to_email  = request.form.get('to_email', '').strip()
-    doc_type  = request.form.get('doc_type', 'document')
-    filename  = request.form.get('filename', 'PPS_Document.docx')
-    prop_name = request.form.get('property_name', '')
-    doc_b64   = request.form.get('doc_base64', '')
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        to_email  = (data.get('to_email') or '').strip()
+        doc_type  = data.get('doc_type', 'document')
+        filename  = data.get('filename', 'PPS_Document.docx')
+        prop_name = data.get('property_name', '')
+        doc_b64   = data.get('doc_base64', '')
+        sender    = data.get('sender_name', 'PPS Proposal Tool')
+    else:
+        to_email  = request.form.get('to_email', '').strip()
+        doc_type  = request.form.get('doc_type', 'document')
+        filename  = request.form.get('filename', 'PPS_Document.docx')
+        prop_name = request.form.get('property_name', '')
+        doc_b64   = request.form.get('doc_base64', '')
+        sender    = session.get('display_name', 'PPS Hub')
 
     if not to_email:
         to_email = session.get('user_email', '')
@@ -1565,7 +1577,6 @@ def email_doc():
     }
     label   = type_labels.get(doc_type, 'Document')
     subject = f'PPS {label} — {prop_name}' if prop_name else f'PPS {label}'
-    sender  = session.get('display_name', 'PPS Hub')
 
     html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
