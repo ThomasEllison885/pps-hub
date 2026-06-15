@@ -828,6 +828,7 @@ def admin():
     profiles_taken = {}
     profile_count = 0
     unread_feedback = 0
+    client_count = 0
     try:
         conn2 = get_db()
         if conn2:
@@ -849,6 +850,11 @@ def admin():
                 cur2.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
                 unread_feedback = cur2.fetchone()['cnt']
             except: pass
+            client_count = 0
+            try:
+                cur2.execute('SELECT COUNT(*) as cnt FROM clients')
+                client_count = cur2.fetchone()['cnt']
+            except: pass
             cur2.close()
             conn2.close()
     except Exception as e:
@@ -858,6 +864,7 @@ def admin():
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            profile_rows=profile_rows, profiles_taken=profiles_taken,
                            profile_count=profile_count, unread_feedback=unread_feedback,
+                           client_count=client_count,
                            selected_year=2026,
                            user_definitions=USERS)
 
@@ -1812,8 +1819,8 @@ def clients_seed():
 
 @app.route('/clients')
 def clients_page():
-    """Client database management page — admin only."""
-    if session.get('role') != 'admin':
+    """Client database management page — Thomas only."""
+    if session.get('user_key') != 'thomas_ellison':
         return redirect(url_for('dashboard'))
     rows = []
     try:
@@ -1825,8 +1832,7 @@ def clients_page():
             cur.close(); conn.close()
     except Exception as e:
         print(f"Clients page error: {e}")
-    can_edit = session.get('role') in ('admin', 'consultant')
-    return render_template('clients.html', rows=rows, can_edit=can_edit)
+    return render_template('clients.html', rows=rows, can_edit=True)
 
 
 @app.route('/admin/seed-clients')

@@ -96,20 +96,14 @@
     <span class="pps-header-title">Admin Panel</span>
   </a>
   <div class="pps-header-right">
-    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
-  </div>
-</header>
-    <div class="header-title">Admin Panel</div>
-  </div>
-  <div style="display:flex;gap:10px;">
-    <a href="/clients" class="pps-btn-header">Clients</a>
+    <a href="/clients" class="pps-btn-header">Client Database</a>
     <a href="/admin/site-visits" class="pps-btn-header">Site Visits</a>
     <a href="/admin/diffs" class="pps-btn-header">Proposal Diffs</a>
     <a href="/admin/feedback" class="pps-btn-header">Feedback {% if unread_feedback > 0 %}<span class="unread-badge">{{ unread_feedback }}</span>{% endif %}</a>
-    <a href="/dashboard" class="pps-btn-header">Dashboard</a>
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
     <a href="/logout" class="pps-btn-header">Sign Out</a>
   </div>
-</div>
+</header>
 
 <div class="main">
   <div class="page-title">Team Overview</div>
@@ -136,6 +130,10 @@
       <div class="num">{{ profile_count }}</div>
       <div class="lbl">Profiles Taken</div>
     </div>
+    <a href="/clients" class="stat stat-link">
+      <div class="num">{{ client_count }}</div>
+      <div class="lbl">Client Database</div>
+    </a>
   </div>
 
   <!-- TEAM TABLE -->
