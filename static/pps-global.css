@@ -153,20 +153,24 @@ body {
 /* ── BRAND & FOOTER ──────────────────────────────────────────────── */
 .pps-footer {
   text-align: center;
-  padding: 28px 0 20px;
-  margin-top: 16px;
+  padding: 36px 20px 32px;
+  margin-top: 24px;
   border-top: 1px solid var(--border-light);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 20px;
   flex-wrap: wrap;
 }
-.pps-footer-logo { height: 26px; width: auto; opacity: 0.55; }
-.pps-footer-motto { height: 22px; width: auto; opacity: 0.68; max-width: min(100%, 420px); }
+.pps-footer-logo { height: 44px; width: auto; opacity: 0.9; }
+.pps-footer-motto {
+  width: min(100%, 520px);
+  height: auto;
+  opacity: 0.95;
+}
 .pps-footer-divider {
   width: 1px;
-  height: 22px;
+  height: 36px;
   background: var(--border);
   flex-shrink: 0;
 }
@@ -668,6 +672,10 @@ body {
 /* ── RESPONSIVE ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --header-h: 52px; }
+  .pps-footer { flex-direction: column; gap: 14px; padding: 32px 16px 28px; }
+  .pps-footer-divider { display: none; }
+  .pps-footer-logo { height: 40px; }
+  .pps-footer-motto { width: min(100%, 100%); }
   .pps-header { padding: 0 12px; gap: 0; }
   .pps-header-logo { height: 28px; }
   .pps-header-divider { height: 18px; }
