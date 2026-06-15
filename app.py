@@ -378,6 +378,26 @@ def init_db():
         cur.execute("ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'")
     except: pass
 
+    # Client / contact database
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS clients (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255),
+            company VARCHAR(255),
+            property_name VARCHAR(255),
+            address TEXT,
+            notes TEXT,
+            added_by VARCHAR(100),
+            updated_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(LOWER(name))")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_company ON clients(LOWER(company))")
+    except: pass
+
     # Site visit log
     cur.execute('''
         CREATE TABLE IF NOT EXISTS site_visit_log (
@@ -1592,6 +1612,136 @@ def email_doc():
     except Exception as e:
         print(f"Resend error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ── CLIENT DATABASE ─────────────────────────────────────────────────────────
+
+@app.route('/api/clients/search')
+def clients_search():
+    """Search clients by name or company — returns top 10 matches."""
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('''
+                SELECT id, name, email, company, property_name, address
+                FROM clients
+                WHERE LOWER(name) LIKE %s OR LOWER(company) LIKE %s
+                ORDER BY
+                    CASE WHEN LOWER(name) LIKE %s THEN 0 ELSE 1 END,
+                    name
+                LIMIT 10
+            ''', (f'%{q.lower()}%', f'%{q.lower()}%', f'{q.lower()}%'))
+            rows = cur.fetchall()
+            cur.close(); conn.close()
+            return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify([])
+
+
+@app.route('/api/clients/save', methods=['POST'])
+def clients_save():
+    """Create or update a client record."""
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    user_role = session.get('role', '')
+    if user_role not in ('admin', 'consultant'):
+        return jsonify({'error': 'Permission denied'}), 403
+
+    data = request.get_json()
+    client_id = data.get('id')
+    name    = (data.get('name') or '').strip()
+    email   = (data.get('email') or '').strip()
+    company = (data.get('company') or '').strip()
+    prop    = (data.get('property_name') or '').strip()
+    address = (data.get('address') or '').strip()
+    notes   = (data.get('notes') or '').strip()
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            if client_id:
+                cur.execute('''
+                    UPDATE clients SET name=%s, email=%s, company=%s,
+                    property_name=%s, address=%s, notes=%s, updated_at=NOW()
+                    WHERE id=%s RETURNING id
+                ''', (name, email, company, prop, address, notes, client_id))
+            else:
+                cur.execute('''
+                    INSERT INTO clients (name, email, company, property_name, address, notes, added_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+                ''', (name, email, company, prop, address, notes, session['user_key']))
+            row = cur.fetchone()
+            conn.commit(); cur.close(); conn.close()
+            return jsonify({'success': True, 'id': row['id']})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/clients/seed', methods=['POST'])
+def clients_seed():
+    """Seed clients from JSON — admin only, run once."""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    data = request.get_json()
+    clients_data = data.get('clients', [])
+    inserted = 0
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            for c in clients_data:
+                name = (c.get('name') or '').strip()
+                if not name: continue
+                # Skip if name already exists
+                cur.execute('SELECT id FROM clients WHERE LOWER(name) = LOWER(%s)', (name,))
+                if cur.fetchone(): continue
+                cur.execute('''
+                    INSERT INTO clients (name, email, company, property_name, address, added_by)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                ''', (name, c.get('email',''), c.get('company',''),
+                      c.get('property_name',''), c.get('address',''), 'seed'))
+                inserted += 1
+            conn.commit(); cur.close(); conn.close()
+        return jsonify({'success': True, 'inserted': inserted})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/clients')
+def clients_page():
+    """Client database management page."""
+    if not session.get('user_key'):
+        return redirect(url_for('login'))
+    rows = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM clients ORDER BY name')
+            rows = cur.fetchall()
+            cur.close(); conn.close()
+    except Exception as e:
+        print(f"Clients page error: {e}")
+    can_edit = session.get('role') in ('admin', 'consultant')
+    return render_template('clients.html', rows=rows, can_edit=can_edit)
+
+
+@app.route('/admin/seed-clients')
+def seed_clients_page():
+    if session.get('role') != 'admin':
+        return redirect(url_for('login'))
+    return render_template('seed_clients.html')
 
 
 @app.route('/test-token')

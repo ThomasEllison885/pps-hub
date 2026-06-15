@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Client Database</title>
+<style>
+  .search-bar { display:flex; gap:10px; margin-bottom:20px; }
+  .search-bar input { flex:1; padding:10px 14px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:var(--font-body); outline:none; }
+  .search-bar input:focus { border-color:var(--blue); }
+  .client-row td { padding:10px 16px; border-bottom:1px solid var(--border-light); font-size:13.5px; }
+  .client-row:hover td { background:#F6FAFE; cursor:pointer; }
+  .badge-company { background:var(--light-bg); color:var(--dark-blue); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,30,60,0.5); z-index:900; align-items:center; justify-content:center; }
+  .modal-overlay.active { display:flex; }
+  .modal { background:white; border-radius:14px; padding:28px; width:90%; max-width:500px; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
+  .modal-title { font-family:var(--font-serif); font-size:21px; color:var(--dark-blue); margin-bottom:18px; }
+  .form-grid { display:grid; gap:12px; }
+  .form-field label { display:block; font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+  .form-field input { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:var(--font-body); outline:none; }
+  .form-field input:focus { border-color:var(--blue); }
+  .modal-actions { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Client Database</span>
+  </a>
+  <div class="pps-header-right">
+    {% if can_edit %}<button class="pps-btn-header primary" onclick="openAdd()">+ Add Client</button>{% endif %}
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="pps-main">
+  <div class="pps-page-title">Client Database</div>
+  <p class="pps-page-sub">{{ rows|length }} contacts · Click any row to view or edit</p>
+
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Search by name or company…" oninput="filterTable(this.value)">
+  </div>
+
+  <div class="pps-table-card">
+    <table class="pps-table" id="clientTable">
+      <thead>
+        <tr><th>Name</th><th>Company</th><th>Email</th><th>Property</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr class="client-row" onclick="openEdit({{ r|tojson }})">
+          <td style="font-weight:600;color:var(--dark-blue);">{{ r.name }}</td>
+          <td><span class="badge-company">{{ r.company or '—' }}</span></td>
+          <td style="color:#666;">{{ r.email or '—' }}</td>
+          <td style="color:#888;font-size:12px;">{{ r.property_name or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pps-footer">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+</div>
+
+<!-- Client Modal -->
+<div class="modal-overlay" id="clientModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+      <div class="modal-title" id="modalTitle">Add Client</div>
+      <button onclick="closeModal()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;">✕</button>
+    </div>
+    <input type="hidden" id="editClientId">
+    <div class="form-grid">
+      <div class="form-field"><label>Name *</label><input type="text" id="editName" placeholder="Full name"></div>
+      <div class="form-field"><label>Company</label><input type="text" id="editCompany" placeholder="Property management company"></div>
+      <div class="form-field"><label>Email</label><input type="email" id="editEmail" placeholder="email@company.com"></div>
+      <div class="form-field"><label>Property Name</label><input type="text" id="editProperty" placeholder="e.g. Vantage Point West"></div>
+      <div class="form-field"><label>Property Address</label><input type="text" id="editAddress" placeholder="Street, City, State ZIP"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="pps-btn pps-btn-outline" onclick="closeModal()">Cancel</button>
+      <button class="pps-btn pps-btn-primary" onclick="saveClient()">Save Client</button>
+    </div>
+    <div id="saveStatus" style="margin-top:10px;font-size:13px;text-align:right;"></div>
+  </div>
+</div>
+
+<script>
+function filterTable(q) {
+  const rows = document.querySelectorAll('#clientTable tbody tr');
+  const ql = q.toLowerCase();
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    r.style.display = text.includes(ql) ? '' : 'none';
+  });
+}
+
+function openAdd() {
+  document.getElementById('modalTitle').textContent = 'Add Client';
+  document.getElementById('editClientId').value = '';
+  ['editName','editCompany','editEmail','editProperty','editAddress'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('saveStatus').textContent = '';
+  document.getElementById('clientModal').classList.add('active');
+  document.getElementById('editName').focus();
+}
+
+function openEdit(client) {
+  document.getElementById('modalTitle').textContent = 'Edit Client';
+  document.getElementById('editClientId').value = client.id || '';
+  document.getElementById('editName').value = client.name || '';
+  document.getElementById('editCompany').value = client.company || '';
+  document.getElementById('editEmail').value = client.email || '';
+  document.getElementById('editProperty').value = client.property_name || '';
+  document.getElementById('editAddress').value = client.address || '';
+  document.getElementById('saveStatus').textContent = '';
+  document.getElementById('clientModal').classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('clientModal').classList.remove('active');
+}
+
+async function saveClient() {
+  const name = document.getElementById('editName').value.trim();
+  if (!name) { document.getElementById('saveStatus').textContent = 'Name is required.'; return; }
+  
+  const data = {
+    id: document.getElementById('editClientId').value || null,
+    name, 
+    company: document.getElementById('editCompany').value.trim(),
+    email:   document.getElementById('editEmail').value.trim(),
+    property_name: document.getElementById('editProperty').value.trim(),
+    address: document.getElementById('editAddress').value.trim(),
+  };
+
+  try {
+    const resp = await fetch('/api/clients/save', {
+      method:'POST', 
+      headers:{'Content-Type':'application/json'},
+      credentials:'same-origin',
+      body: JSON.stringify(data)
+    });
+    const result = await resp.json();
+    if (result.success) {
+      document.getElementById('saveStatus').style.color = 'var(--green)';
+      document.getElementById('saveStatus').textContent = '✓ Saved';
+      setTimeout(() => location.reload(), 800);
+    } else {
+      document.getElementById('saveStatus').style.color = 'var(--red)';
+      document.getElementById('saveStatus').textContent = result.error || 'Save failed';
+    }
+  } catch(e) {
+    document.getElementById('saveStatus').textContent = 'Error: ' + e.message;
+  }
+}
+</script>
+</body>
+</html>
