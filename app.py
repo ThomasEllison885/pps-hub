@@ -1681,12 +1681,14 @@ def clients_search():
             cur.execute('''
                 SELECT id, name, email, company, property_name, address
                 FROM clients
-                WHERE LOWER(name) LIKE %s OR LOWER(company) LIKE %s
+                WHERE LOWER(name) LIKE %s
+                   OR LOWER(company) LIKE %s
+                   OR LOWER(property_name) LIKE %s
                 ORDER BY
                     CASE WHEN LOWER(name) LIKE %s THEN 0 ELSE 1 END,
                     name
                 LIMIT 10
-            ''', (f'%{q.lower()}%', f'%{q.lower()}%', f'{q.lower()}%'))
+            ''', (f'%{q.lower()}%', f'%{q.lower()}%', f'%{q.lower()}%', f'{q.lower()}%'))
             rows = cur.fetchall()
             cur.close(); conn.close()
             resp = jsonify([dict(r) for r in rows])
@@ -1711,16 +1713,34 @@ def clients_search_options():
     return resp
 
 
-@app.route('/api/clients/save', methods=['POST'])
+@app.route('/api/clients/save', methods=['POST', 'OPTIONS'])
 def clients_save():
     """Create or update a client record."""
-    if not session.get('user_key'):
-        return jsonify({'error': 'Not authenticated'}), 401
-    user_role = session.get('role', '')
-    if user_role not in ('admin', 'consultant'):
-        return jsonify({'error': 'Permission denied'}), 403
+    if request.method == 'OPTIONS':
+        resp = jsonify({})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
+        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        return resp
 
-    data = request.get_json()
+    data = request.get_json() or {}
+    api_key = request.headers.get('X-API-Key', '')
+    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+
+    user_key = session.get('user_key')
+    if internal_ok and data.get('user_key'):
+        user_key = data.get('user_key')
+
+    if not user_key:
+        resp = jsonify({'error': 'Not authenticated'})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 401
+
+    user_role = USERS.get(user_key, {}).get('role', session.get('role', ''))
+    if user_role not in ('admin', 'consultant'):
+        resp = jsonify({'error': 'Permission denied'})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 403
     client_id = data.get('id')
     name    = (data.get('name') or '').strip()
     email   = (data.get('email') or '').strip()
@@ -1730,7 +1750,9 @@ def clients_save():
     notes   = (data.get('notes') or '').strip()
 
     if not name:
-        return jsonify({'error': 'Name is required'}), 400
+        resp = jsonify({'error': 'Name is required'})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 400
 
     try:
         conn = get_db()
@@ -1746,12 +1768,16 @@ def clients_save():
                 cur.execute('''
                     INSERT INTO clients (name, email, company, property_name, address, notes, added_by)
                     VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
-                ''', (name, email, company, prop, address, notes, session['user_key']))
+                ''', (name, email, company, prop, address, notes, user_key))
             row = cur.fetchone()
             conn.commit(); cur.close(); conn.close()
-            return jsonify({'success': True, 'id': row['id']})
+            resp = jsonify({'success': True, 'id': row['id']})
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            return resp
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        resp = jsonify({'error': str(e)})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 500
 
 
 @app.route('/api/clients/seed', methods=['POST'])
