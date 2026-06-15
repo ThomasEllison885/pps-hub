@@ -1720,9 +1720,9 @@ def clients_seed():
 
 @app.route('/clients')
 def clients_page():
-    """Client database management page."""
-    if not session.get('user_key'):
-        return redirect(url_for('login'))
+    """Client database management page — admin only."""
+    if session.get('role') != 'admin':
+        return redirect(url_for('dashboard'))
     rows = []
     try:
         conn = get_db()

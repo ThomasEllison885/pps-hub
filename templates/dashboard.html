@@ -224,12 +224,14 @@
       <div class="tool-meta">Open →</div>
     </a>
 
+    {% if session.get('role') == 'admin' %}
     <a href="/clients" class="pps-tool-card">
       <div class="pps-tool-icon">👥</div>
       <div class="pps-tool-name">Client Database</div>
       <div class="pps-tool-desc">Search, add, and manage property contacts and companies.</div>
       <div class="tool-meta">Open →</div>
     </a>
+    {% endif %}
 
     <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="pps-tool-card">
       <div class="pps-tool-icon">🎯</div>
