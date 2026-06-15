@@ -1,7 +1,9 @@
 import os
 import json
+import base64
+from io import BytesIO
 from datetime import datetime
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -11,6 +13,8 @@ app.secret_key = os.environ.get('SECRET_KEY', 'pps-hub-secret-2026')
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', 'Luther1985')
+INTERNAL_API_KEY = os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
 
@@ -301,10 +305,30 @@ def init_db():
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS intended_outcome TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scopes_selected TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scope_notes TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS document_id INTEGER",
     ]:
         try:
             cur.execute(col)
         except: pass
+
+    # Document vault — persistent file storage
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS documents (
+            id SERIAL PRIMARY KEY,
+            doc_type VARCHAR(50) NOT NULL,
+            log_id INTEGER,
+            user_key VARCHAR(100) NOT NULL,
+            filename VARCHAR(255) NOT NULL,
+            mime_type VARCHAR(100) NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            file_data BYTEA NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_log ON documents(doc_type, log_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_key)")
+    except: pass
 
     # PPM activity log
     cur.execute('''
@@ -759,6 +783,156 @@ def log_proposal():
         return jsonify({'success': True})
     except Exception as e:
         print(f"Log proposal error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def _internal_api_ok():
+    api_key = request.headers.get('X-API-Key', '')
+    return api_key == INTERNAL_API_KEY
+
+
+def _get_proposal_log_for_document(cur, document_id):
+    cur.execute('''
+        SELECT pl.*, d.filename, d.mime_type, d.size_bytes, d.user_key AS doc_user_key
+        FROM documents d
+        JOIN proposal_log pl ON pl.id = d.log_id
+        WHERE d.id = %s AND d.doc_type = 'proposal'
+    ''', (document_id,))
+    return cur.fetchone()
+
+
+def _user_can_download_proposal(user_key, role, row):
+    if not row:
+        return False
+    if role == 'admin':
+        return True
+    if row.get('generated_by') == user_key:
+        return True
+    # Consultants with shared proposal access may download team proposals they generated
+    return row.get('doc_user_key') == user_key
+
+
+@app.route('/api/vault/proposals', methods=['POST'])
+def vault_store_proposal():
+    """Store a generated proposal file and metadata atomically."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    data = request.get_json() or {}
+    user_key = (data.get('user_key') or '').strip()
+    if not user_key:
+        return jsonify({'error': 'user_key required'}), 400
+
+    filename = (data.get('filename') or 'PPS_Proposal.docx').strip()
+    file_b64 = data.get('file_base64') or ''
+    if not file_b64:
+        return jsonify({'error': 'file_base64 required'}), 400
+
+    try:
+        file_bytes = base64.b64decode(file_b64)
+    except Exception:
+        return jsonify({'error': 'Invalid file_base64 payload'}), 400
+
+    if len(file_bytes) > MAX_DOCUMENT_BYTES:
+        return jsonify({'error': f'File exceeds {MAX_DOCUMENT_BYTES // (1024*1024)} MB limit'}), 413
+    if len(file_bytes) < 100:
+        return jsonify({'error': 'File too small or empty'}), 400
+
+    mime_type = data.get('mime_type') or 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO proposal_log
+            (generated_by, consultant_key, consultant_name, client_name,
+             property_name, property_address, property_type, template_type,
+             proposal_number, existing_issue, intended_outcome, scopes_selected, scope_notes)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            data.get('generated_by') or user_key,
+            data.get('consultant_key'),
+            data.get('consultant_name'),
+            data.get('client_name'),
+            data.get('property_name'),
+            data.get('property_address', ''),
+            data.get('property_type'),
+            data.get('template_type'),
+            data.get('proposal_number', ''),
+            data.get('existing_issue', ''),
+            data.get('intended_outcome', ''),
+            data.get('scopes_selected', ''),
+            data.get('scope_notes', ''),
+        ))
+        log_id = cur.fetchone()[0]
+
+        cur.execute('''
+            INSERT INTO documents
+            (doc_type, log_id, user_key, filename, mime_type, size_bytes, file_data)
+            VALUES ('proposal', %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (log_id, user_key, filename, mime_type, len(file_bytes), psycopg2.Binary(file_bytes)))
+        document_id = cur.fetchone()[0]
+
+        cur.execute('UPDATE proposal_log SET document_id = %s WHERE id = %s', (document_id, log_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True, 'log_id': log_id, 'document_id': document_id})
+    except Exception as e:
+        print(f"Vault store error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/documents/<int:document_id>/download')
+def document_download(document_id):
+    """Download a vaulted document — hub session or internal API proxy."""
+    user_key = session.get('user_key')
+    role = session.get('role', '')
+    internal = _internal_api_ok()
+    if internal:
+        user_key = request.args.get('user_key', user_key)
+        role = USERS.get(user_key, {}).get('role', role)
+
+    if not user_key:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        row = _get_proposal_log_for_document(cur, document_id)
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+        if not _user_can_download_proposal(user_key, role, row):
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Permission denied'}), 403
+
+        cur.execute(
+            'SELECT filename, mime_type, file_data FROM documents WHERE id = %s',
+            (document_id,)
+        )
+        doc = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not doc or not doc.get('file_data'):
+            return jsonify({'error': 'File data missing'}), 404
+
+        return send_file(
+            BytesIO(bytes(doc['file_data'])),
+            as_attachment=True,
+            download_name=doc['filename'],
+            mimetype=doc['mime_type'],
+        )
+    except Exception as e:
+        print(f"Document download error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

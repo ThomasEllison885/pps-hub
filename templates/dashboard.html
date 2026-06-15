@@ -408,26 +408,10 @@ const myProposals = [
     date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
+    documentId: {{ (p.document_id or none)|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];
-function showProposal(idx) {
-  const p = myProposals[idx];
-  document.getElementById('pdTitle').textContent = p.title;
-  document.getElementById('pdNum').textContent = p.num;
-  document.getElementById('pdAddress').textContent = p.address;
-  document.getElementById('pdConsultant').textContent = p.consultant;
-  document.getElementById('pdType').textContent = p.type;
-  document.getElementById('pdTemplate').textContent = p.template;
-  document.getElementById('pdScopes').textContent = p.scopes;
-  document.getElementById('pdDate').textContent = p.date;
-  const iw = document.getElementById('pdIssueWrap');
-  const ow = document.getElementById('pdOutcomeWrap');
-  if (p.issue) { document.getElementById('pdIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
-  if (p.outcome) { document.getElementById('pdOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
-  document.getElementById('pdModal').classList.add('active');
-}
-function closePd() { document.getElementById('pdModal').classList.remove('active'); }
 </script>
 
 <!-- Proposal Detail Modal -->
@@ -454,11 +438,13 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div id="pdOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
     </div>
+    <div id="pdDownloadWrap" style="display:none;margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;">
+      <a id="pdDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+    </div>
   </div>
 </div>
 
 <script>
-  // Fix modal display toggle
   document.getElementById('pdModal').style.display = 'none';
   function showProposal(idx) {
     document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
@@ -475,6 +461,13 @@ function closePd() { document.getElementById('pdModal').classList.remove('active
     const ow = document.getElementById('pdOutcomeWrap');
     if (p.issue) { document.getElementById('pdIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
     if (p.outcome) { document.getElementById('pdOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+    const dlWrap = document.getElementById('pdDownloadWrap');
+    if (p.documentId) {
+      document.getElementById('pdDownload').href = '/api/documents/' + p.documentId + '/download';
+      dlWrap.style.display = 'block';
+    } else {
+      dlWrap.style.display = 'none';
+    }
   }
   function closePd() { document.getElementById('pdModal').style.display='none'; }
 </script>
