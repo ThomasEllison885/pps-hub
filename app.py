@@ -1619,8 +1619,14 @@ def email_doc():
 @app.route('/api/clients/search')
 def clients_search():
     """Search clients by name or company — returns top 10 matches."""
-    if not session.get('user_key'):
-        return jsonify({'error': 'Not authenticated'}), 401
+    # Allow cross-origin from proposal tool (server-to-server or CORS)
+    api_key = request.headers.get('X-API-Key', '')
+    session_ok = session.get('user_key')
+    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+    if not session_ok and not internal_ok:
+        resp = jsonify({'error': 'Not authenticated'})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 401
     q = request.args.get('q', '').strip()
     if len(q) < 2:
         return jsonify([])
@@ -1639,10 +1645,26 @@ def clients_search():
             ''', (f'%{q.lower()}%', f'%{q.lower()}%', f'{q.lower()}%'))
             rows = cur.fetchall()
             cur.close(); conn.close()
-            return jsonify([dict(r) for r in rows])
+            resp = jsonify([dict(r) for r in rows])
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
+            return resp
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    return jsonify([])
+        resp = jsonify({'error': str(e)})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp, 500
+    resp = jsonify([])
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
+@app.route('/api/clients/search', methods=['OPTIONS'])
+def clients_search_options():
+    resp = jsonify({})
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    return resp
 
 
 @app.route('/api/clients/save', methods=['POST'])
