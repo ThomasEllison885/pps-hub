@@ -1538,7 +1538,7 @@ def email_doc():
     if not session.get('user_key') and not internal_ok:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    import base64, urllib.request as _ur, json as _json
+    import base64, urllib.request as _ur, urllib.error as _ur_err, json as _json
 
     if request.is_json:
         data = request.get_json(silent=True) or {}
@@ -1613,13 +1613,23 @@ def email_doc():
             headers={
                 'Authorization': f'Bearer {resend_key}',
                 'Content-Type':  'application/json',
+                'User-Agent':    'PPS-Hub/1.0',
             },
             method='POST'
         )
-        resp = _ur.urlopen(req, timeout=15)
+        resp = _ur.urlopen(req, timeout=30)
         result = _json.loads(resp.read().decode('utf-8'))
         print(f"Email sent via Resend: {result}")
         return jsonify({'success': True, 'sent_to': to_email})
+    except _ur_err.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        try:
+            err_json = _json.loads(body)
+            msg = err_json.get('message', body)
+        except Exception:
+            msg = body.strip() or str(e)
+        print(f"Resend HTTP error {e.code}: {msg}")
+        return jsonify({'error': msg}), 500
     except Exception as e:
         print(f"Resend error: {e}")
         return jsonify({'error': str(e)}), 500
