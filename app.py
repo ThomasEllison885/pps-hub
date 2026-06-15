@@ -23,6 +23,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'President',
+        'email': 'thomas@purepropsolutions.com',
     },
     'tony_cumella': {
         'display': 'Tony Cumella',
@@ -32,6 +33,7 @@ USERS = {
         'team_view': True,
         'team_view_scope': 'consultants',
         'title': 'VP of Sales',
+        'email': 'Tony@purepropsolutions.com',
     },
     'adam_cupito': {
         'display': 'Adam Cupito',
@@ -41,6 +43,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Property Solutions Consultant',
+        'email': 'Adam@purepropsolutions.com',
     },
     'rachel_farler': {
         'display': 'Rachel Farler',
@@ -50,6 +53,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Property Solutions Consultant',
+        'email': 'Rachel@purepropsolutions.com',
     },
     'andy_potts': {
         'display': 'Andy Potts',
@@ -59,6 +63,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Property Solutions Consultant',
+        'email': 'Andy@purepropsolutions.com',
     },
     'phil_miller': {
         'display': 'Phil Miller',
@@ -68,6 +73,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'phil@purepropsolutions.com',
     },
     'derek_kidney': {
         'display': 'Derek Kidney',
@@ -77,6 +83,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'Derek@purepropsolutions.com',
     },
     'nick_triplett': {
         'display': 'Nick Triplett',
@@ -86,6 +93,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'nick@purepropsolutions.com',
     },
     'trey_hollmeyer': {
         'display': 'Trey Hollmeyer',
@@ -95,6 +103,7 @@ USERS = {
         'team_view': True,
         'team_view_scope': 'pms',
         'title': 'Production Manager',
+        'email': 'trey@purepropsolutions.com',
     },
     'james_boling': {
         'display': 'James Boling',
@@ -104,6 +113,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'James@purepropsolutions.com',
     },
     'jordan_allen': {
         'display': 'Jordan Allen',
@@ -113,6 +123,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'jordan@purepropsolutions.com',
     },
     'ben_ramsey': {
         'display': 'Ben Ramsey',
@@ -122,6 +133,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
+        'email': 'Ben@purepropsolutions.com',
     },
     'stephanie_whetstone': {
         'display': 'Stephanie Whetstone',
@@ -131,6 +143,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Office Manager',
+        'email': 'Stephanie@purepropsolutions.com',
     },
 }
 
@@ -1495,6 +1508,86 @@ def admin_site_visits():
     except Exception as e:
         print(f"Admin site visits error: {e}")
     return render_template('admin_site_visits.html', rows=rows)
+
+
+@app.route('/email-doc', methods=['POST'])
+def email_doc():
+    """Email a generated document to the user or a custom address."""
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    import smtplib, base64
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email.mime.text import MIMEText
+    from email import encoders
+
+    to_email = request.form.get('to_email', '').strip()
+    doc_url   = request.form.get('doc_url', '').strip()
+    doc_type  = request.form.get('doc_type', 'document')
+    filename  = request.form.get('filename', 'PPS_Document.docx')
+    prop_name = request.form.get('property_name', '')
+
+    if not to_email:
+        to_email = session.get('user_email', '')
+    if not to_email:
+        return jsonify({'error': 'No email address available'}), 400
+
+    # The doc content is passed as base64
+    doc_b64 = request.form.get('doc_base64', '')
+    if not doc_b64:
+        return jsonify({'error': 'No document content'}), 400
+
+    try:
+        doc_bytes = base64.b64decode(doc_b64)
+    except Exception:
+        return jsonify({'error': 'Invalid document encoding'}), 400
+
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+    smtp_host = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+    smtp_port = int(os.environ.get('SMTP_PORT', '587'))
+
+    if not smtp_user or not smtp_pass:
+        return jsonify({'error': 'Email not configured on server'}), 500
+
+    type_labels = {
+        'proposal': 'Proposal',
+        'ppm': 'PPM Checklist',
+        'tps': 'Trade Partner Scope',
+        'site_visit': 'Site Visit Report',
+    }
+    label = type_labels.get(doc_type, 'Document')
+    subject = f'PPS {label} — {prop_name}' if prop_name else f'PPS {label}'
+    body = (
+        f'Please find your PPS {label} attached.\n\n'
+        f'{("Property: " + prop_name + chr(10)) if prop_name else ""}'
+        f'Generated by: {session.get("display_name", "")}\n\n'
+        f'Pure Property Solutions\nTrust. Quality. Results.™'
+    )
+
+    try:
+        msg = MIMEMultipart()
+        msg['From']    = smtp_user
+        msg['To']      = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        part = MIMEBase('application', 'vnd.openxmlformats-officedocument.wordprocessingml.document')
+        part.set_payload(doc_bytes)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        msg.attach(part)
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+
+        return jsonify({'success': True, 'sent_to': to_email})
+    except Exception as e:
+        print(f"Email error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/test-token')

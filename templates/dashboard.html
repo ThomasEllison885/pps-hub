@@ -14,16 +14,16 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: var(--gray); min-height: 100vh; }
 
-  .header { background: var(--dark-blue); padding: 0 40px; display: flex; align-items: center; justify-content: space-between; height: 68px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
-  .header-left { display: flex; align-items: center; gap: 16px; }
-  .header-logo { height: 44px; width: auto; opacity: 0.95; }
-  .header-divider { width: 1px; height: 28px; background: rgba(255,255,255,0.2); }
-  .header-title { color: rgba(255,255,255,0.8); font-size: 14px; font-weight: 400; }
-  .header-right { display: flex; align-items: center; gap: 12px; }
-  .header-user { color: rgba(255,255,255,0.6); font-size: 13px; }
-  .header-user span { color: rgba(255,255,255,0.9); font-weight: 500; }
-  .header-btn { background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; font-size: 13px; text-decoration: none; transition: background 0.2s; font-family: 'DM Sans', sans-serif; cursor: pointer; }
-  .header-btn:hover { background: rgba(255,255,255,0.22); }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   .admin-badge { background: #B8922A; color: #fff; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
 
   .main { max-width: 1000px; margin: 0 auto; padding: 36px 24px 60px; }
@@ -126,7 +126,7 @@
   .prop-name { font-weight: 600; color: var(--dark-blue); }
 
   @media (max-width: 700px) {
-    .header { padding: 0 16px; }
+    
     .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .activity-grid { grid-template-columns: 1fr; }
     .main { padding: 24px 14px 40px; }
@@ -135,10 +135,19 @@
 </head>
 <body>
 
-<div class="header">
-  <div class="header-left">
-    <img src="/static/logo.png" alt="PPS" class="header-logo">
-    <div class="header-divider"></div>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">PPS Hub</span>
+  </a>
+  <div class="pps-header-right">
+    <span class="pps-header-user">{{ user.display }}</span>
+    {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
+    {% if session.get('role') == 'admin' %}<a href="/admin" class="pps-btn-header primary">Admin</a>{% endif %}
+    <a href="/logout" class="pps-btn-header">Sign Out</a>
+  </div>
+</header>
     <div class="header-title">PPS Hub</div>
     {% if session.get('role') == 'admin' %}
     <span class="admin-badge">Admin</span>

@@ -15,12 +15,12 @@
   body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:var(--gray); min-height:100vh; }
 
   /* HEADER */
-  .header { background:var(--dark-blue); padding:0 16px; display:flex; align-items:center; justify-content:space-between; height:60px; position:sticky; top:0; z-index:100; box-shadow:0 2px 12px rgba(0,0,0,0.15); }
-  .header-left { display:flex; align-items:center; gap:12px; cursor:pointer; }
-  .header-logo { height:36px; }
-  .header-divider { width:1px; height:22px; background:rgba(255,255,255,0.2); }
-  .header-title { color:rgba(255,255,255,0.85); font-size:13px; font-weight:500; }
-  .header-btn { background:rgba(255,255,255,0.12); color:white; border:1px solid rgba(255,255,255,0.2); padding:6px 12px; border-radius:6px; font-size:12px; text-decoration:none; }
+  
+  
+  
+  
+  
+  
 
   /* MAIN */
   .main { max-width:640px; margin:0 auto; padding:16px 12px 80px; }
@@ -292,9 +292,10 @@
 
 <!-- SUBMIT BAR -->
 <div class="submit-bar">
-  <button class="btn-save"     onclick="submit('save')">Save to Hub</button>
-  <button class="btn-download" onclick="submit('download')">Download</button>
-  <button class="btn-both"     onclick="submit('both')">Save & Download</button>
+  <button class="btn-save"     onclick="submitSV('save')">Save</button>
+  <button class="btn-download" onclick="submitSV('download')">Download</button>
+  <button class="btn-both"     onclick="submitSV('email')">✉ Email</button>
+  <button class="btn-both"     onclick="submitSV('both')" style="background:#003d73;">Save & Download</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -391,7 +392,16 @@ function showToast(msg, type='') {
   setTimeout(() => t.className = 'toast', 3000);
 }
 
-async function submit(action) {
+function blobToBase64(blob) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = rej;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function submitSV(action) {
   const data = {
     action,
     property_name:      document.getElementById('propertyName').value.trim(),
@@ -459,6 +469,33 @@ async function submit(action) {
       const result = await resp.json();
       if (result.success) showToast('Saved to Hub ✓', 'success');
       else showToast('Save failed: ' + result.error, 'error');
+    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    return;
+  }
+
+  if (action === 'email') {
+    const emailAddr = prompt('Send to:', '');
+    if (!emailAddr) return;
+    showToast('Generating & sending…');
+    try {
+      const dlData = {...data, action:'download'};
+      const dlResp = await fetch('/site-visit/generate', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(dlData), credentials:'same-origin'
+      });
+      if (!dlResp.ok) { showToast('Failed to generate', 'error'); return; }
+      const blob = await dlResp.blob();
+      const b64 = await blobToBase64(blob);
+      const fd = new FormData();
+      fd.append('to_email', emailAddr);
+      fd.append('doc_type', 'site_visit');
+      fd.append('doc_base64', b64.split(',')[1]);
+      fd.append('property_name', data.property_name || '');
+      fd.append('filename', `PPS_Site_Visit_${(data.property_name||'').replace(/\s+/g,'_')}.docx`);
+      const emailResp = await fetch('/email-doc', {method:'POST', body:fd, credentials:'same-origin'});
+      const result = await emailResp.json();
+      if (result.success) showToast(`Sent to ${result.sent_to} ✓`, 'success');
+      else showToast('Email failed: ' + result.error, 'error');
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
     return;
   }
