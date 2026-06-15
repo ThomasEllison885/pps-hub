@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════
    PPS GLOBAL STYLESHEET
-   Pure Property Solutions — Trust. Quality. Results.™
+   Pure Property Solutions — The Pure Way: Trust. Quality. Results.™
    Version 2.0 — Premium Hub Theme
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -150,7 +150,7 @@ body {
 }
 .pps-btn-header.primary:hover { background: var(--blue-mid); }
 
-/* ── FOOTER ──────────────────────────────────────────────────────── */
+/* ── BRAND & FOOTER ──────────────────────────────────────────────── */
 .pps-footer {
   text-align: center;
   padding: 28px 0 20px;
@@ -160,8 +160,36 @@ body {
   align-items: center;
   justify-content: center;
   gap: 14px;
+  flex-wrap: wrap;
 }
-.pps-footer img { height: 20px; opacity: 0.42; }
+.pps-footer-logo { height: 26px; width: auto; opacity: 0.55; }
+.pps-footer-motto { height: 22px; width: auto; opacity: 0.68; max-width: min(100%, 420px); }
+.pps-footer-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.pps-login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.pps-login-brand .pps-login-logo { height: 56px; width: auto; }
+.pps-login-brand .pps-login-motto { height: 30px; width: auto; max-width: 100%; opacity: 0.9; }
+
+.pps-hero-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+}
+.pps-hero-brand .pps-hero-logo { height: 48px; width: auto; }
+.pps-hero-brand .pps-hero-motto { height: 32px; width: auto; max-width: min(100%, 480px); opacity: 0.88; }
 
 /* ── PAGE LAYOUT ─────────────────────────────────────────────────── */
 .pps-main {
