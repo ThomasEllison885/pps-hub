@@ -312,6 +312,7 @@
           <th>Type</th>
           <th>Template</th>
           <th>Date</th>
+          <th>File</th>
         </tr>
       </thead>
       <tbody>
@@ -324,6 +325,13 @@
           <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ p.template_type or '—' }}</td>
           <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+          <td style="font-size:12px;" onclick="event.stopPropagation();">
+            {% if p.document_id %}
+            <a href="/api/documents/{{ p.document_id }}/download" class="pps-btn pps-btn-sm" style="text-decoration:none;">⬇ Download</a>
+            {% else %}
+            <span style="color:#bbb;">—</span>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -398,6 +406,7 @@
 const recentProposals = [
   {% for p in recent_proposals %}
   {
+    logId: {{ p.id }},
     title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
     num: {{ (p.proposal_number or '—')|tojson }},
     address: {{ (p.property_address or '—')|tojson }},
@@ -417,6 +426,7 @@ const recentProposals = [
 const myProposals = [
   {% for p in all_my_proposals %}
   {
+    logId: {{ p.id }},
     title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
     num: {{ (p.proposal_number or '—')|tojson }},
     address: {{ (p.property_address or '—')|tojson }},
@@ -462,15 +472,23 @@ const myProposals = [
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Additional Scope Notes</div>
       <div id="pdNotes" style="font-size:13px;color:#666;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:10px 12px;border:1px solid #FFE082;"></div>
     </div>
-    <div id="pdDownloadWrap" style="display:none;margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;">
-      <a id="pdDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+    <div id="pdActionsWrap" style="margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;display:flex;flex-direction:column;gap:10px;">
+      <div id="pdDownloadWrap" style="display:none;">
+        <a id="pdDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+      </div>
+      <div id="pdNoFileWrap" style="display:none;font-size:13px;color:#888;line-height:1.5;background:#f8fafc;border:1px solid #e8f0f6;border-radius:8px;padding:10px 12px;">
+        No Word file is stored for this proposal. It may have been generated before file saving was enabled, or the vault save failed. Use <strong>Regenerate</strong> below to create a new version from the saved details.
+      </div>
+      <button type="button" id="pdRegenerate" class="pps-btn pps-btn-sm" style="align-self:flex-start;" onclick="regenerateProposal()">↻ Regenerate in Proposal Generator</button>
     </div>
   </div>
 </div>
 
 <script>
   document.getElementById('pdModal').style.display = 'none';
+  let activeProposalLogId = null;
   function openProposalModal(p) {
+    activeProposalLogId = p.logId || null;
     document.getElementById('pdTitle').textContent = p.title;
     document.getElementById('pdNum').textContent = p.num;
     document.getElementById('pdAddress').textContent = p.address;
@@ -486,17 +504,25 @@ const myProposals = [
     const nw = document.getElementById('pdNotesWrap');
     if (p.notes) { document.getElementById('pdNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
     const dlWrap = document.getElementById('pdDownloadWrap');
+    const noFileWrap = document.getElementById('pdNoFileWrap');
     if (p.documentId) {
       document.getElementById('pdDownload').href = '/api/documents/' + p.documentId + '/download';
       dlWrap.style.display = 'block';
+      noFileWrap.style.display = 'none';
     } else {
       dlWrap.style.display = 'none';
+      noFileWrap.style.display = 'block';
     }
+    document.getElementById('pdRegenerate').style.display = activeProposalLogId ? 'inline-block' : 'none';
     document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
   function showProposal(idx) { openProposalModal(myProposals[idx]); }
   function showRecentProposal(idx) { openProposalModal(recentProposals[idx]); }
   function closePd() { document.getElementById('pdModal').style.display='none'; }
+  async function regenerateProposal() {
+    if (!activeProposalLogId) return;
+    await openTool('{{ proposal_url }}/proposal', activeProposalLogId);
+  }
 </script>
 
 <script>
@@ -624,7 +650,7 @@ const myProposals = [
   function showRecentTPS(idx) { openTPSModal(recentTPS[idx]); }
   function closeTPS() { document.getElementById('tpsModal').style.display='none'; }
 
-  async function openTool(baseUrl) {
+  async function openTool(baseUrl, loadProposalId) {
     try {
       const resp = await fetch('/generate-code', {
         method: 'POST',
@@ -635,7 +661,9 @@ const myProposals = [
         const data = await resp.json();
         const code = data.code || data.token;
         if (code) {
-          window.open(`${baseUrl}?code=${encodeURIComponent(code)}`, '_blank');
+          let url = `${baseUrl}?code=${encodeURIComponent(code)}`;
+          if (loadProposalId) url += `&load=${loadProposalId}`;
+          window.open(url, '_blank');
           return;
         }
       }

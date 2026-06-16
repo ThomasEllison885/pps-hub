@@ -999,6 +999,64 @@ def _user_can_download_proposal(user_key, role, row):
     return row.get('doc_user_key') == user_key
 
 
+def _user_can_access_proposal_log(user_key, role, row):
+    if not row:
+        return False
+    if role == 'admin':
+        return True
+    return row.get('generated_by') == user_key
+
+
+@app.route('/api/proposals/<int:log_id>/prefill')
+def proposal_prefill(log_id):
+    """Return saved proposal metadata for regenerating in the proposal tool."""
+    user_key = session.get('user_key')
+    role = session.get('role', '')
+    if _internal_api_ok():
+        user_key = user_key or request.args.get('user_key', '').strip()
+        if user_key:
+            role = USERS.get(user_key, {}).get('role', role)
+    if not user_key:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM proposal_log WHERE id = %s', (log_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'Proposal not found'}), 404
+        if not _user_can_access_proposal_log(user_key, role, row):
+            return jsonify({'error': 'Permission denied'}), 403
+
+        scopes = []
+        if row.get('scopes_selected'):
+            scopes = [s.strip() for s in row['scopes_selected'].split(',') if s.strip()]
+
+        return jsonify({
+            'success': True,
+            'consultant_key': row.get('consultant_key') or '',
+            'client_name': row.get('client_name') or row.get('property_name') or '',
+            'address': row.get('property_address') or '',
+            'property_type': row.get('property_type') or '',
+            'template_type': row.get('template_type') or 'short',
+            'proposal_number': row.get('proposal_number') or '',
+            'existing_issue': row.get('existing_issue') or '',
+            'intended_outcome': row.get('intended_outcome') or '',
+            'scopes': scopes,
+            'scope_notes': row.get('scope_notes') or '',
+            'has_file': bool(row.get('document_id')),
+            'document_id': row.get('document_id'),
+        })
+    except Exception as e:
+        print(f"Proposal prefill error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/vault/proposals', methods=['POST'])
 def vault_store_proposal():
     """Store a generated proposal file and metadata atomically."""
