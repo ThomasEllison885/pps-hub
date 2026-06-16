@@ -133,6 +133,7 @@
   .health-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px;}
   .health-item{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;background:var(--light-bg);border-radius:6px;border:1px solid var(--border);}
   .health-item.ok .health-dot{background:#27ae60;}
+  .health-item.warn .health-dot{background:#E6A817;}
   .health-item.bad .health-dot{background:#C00000;}
   .health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
   @media(max-width:900px){.breakdown-grid,.vault-summary,.health-grid{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
@@ -177,6 +178,9 @@
 
   <div id="healthAlert" class="alert-banner error" style="display:none;">
     <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
+  </div>
+  <div id="healthWarn" class="alert-banner warn" style="display:none;">
+    <strong>Temporary service throttle.</strong> A health check hit a rate limit — the Profile tool should still work. Refresh in a minute if needed.
   </div>
 
   <div class="stats">
@@ -525,6 +529,7 @@
   async function loadSystemHealth() {
     const grid = document.getElementById('healthGrid');
     const alert = document.getElementById('healthAlert');
+    const warn = document.getElementById('healthWarn');
     if (!grid) return;
     try {
       const resp = await fetch('/admin/system-health', { credentials: 'same-origin' });
@@ -535,14 +540,17 @@
         return;
       }
       grid.innerHTML = checks.map(c => {
-        const cls = c.ok ? 'ok' : 'bad';
+        const cls = c.ok ? 'ok' : (c.transient ? 'warn' : 'bad');
         const name = (c.name || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
         let extra = '';
         if (!c.ok && c.error) extra = ': ' + c.error;
         else if (c.detail) extra = ': ' + c.detail;
         return `<div class="health-item ${cls}"><span class="health-dot"></span><span>${name}${extra}</span></div>`;
       }).join('');
-      if (alert && data.ok === false) alert.style.display = 'block';
+      const hasTransient = checks.some(c => c.transient && !c.ok);
+      const hasConfigIssue = checks.some(c => !c.ok && !c.transient);
+      if (warn && hasTransient && !hasConfigIssue) warn.style.display = 'block';
+      if (alert && hasConfigIssue) alert.style.display = 'block';
     } catch (e) {
       grid.innerHTML = '<div class="health-item bad" style="grid-column:1/-1;"><span class="health-dot"></span><span>Could not load system health</span></div>';
     }

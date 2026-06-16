@@ -734,11 +734,35 @@ def _internal_api_ok():
 
 # ── ROUTES ──────────────────────────────────────────────────────────────────────
 
-def _http_get_json(url, headers=None, timeout=8):
+def _http_get_json(url, headers=None, timeout=8, retries=3):
+    import time
+    import urllib.error
     import urllib.request
-    req = urllib.request.Request(url, headers=headers or {}, method='GET')
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode('utf-8'))
+
+    hdrs = {'User-Agent': 'PPS-Hub-HealthCheck/1.0'}
+    if headers:
+        hdrs.update(headers)
+
+    last_err = None
+    for attempt in range(retries):
+        try:
+            req = urllib.request.Request(url, headers=hdrs, method='GET')
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code in (429, 502, 503, 504) and attempt < retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                time.sleep(1.0)
+                continue
+            raise
+    if last_err:
+        raise last_err
 
 
 def _run_system_health_checks():
@@ -746,12 +770,13 @@ def _run_system_health_checks():
     import urllib.error
     checks = []
 
-    def add(name, ok, detail='', error=''):
+    def add(name, ok, detail='', error='', transient=False):
         checks.append({
             'name': name,
             'ok': bool(ok),
             'detail': detail,
             'error': error,
+            'transient': bool(transient),
         })
 
     add('secret_key', os.environ.get('SECRET_KEY', '').strip() != '')
@@ -796,10 +821,20 @@ def _run_system_health_checks():
             sso_ok = data.get('sso_configured')
             if sso_ok is not None:
                 add(f'{label}_sso', bool(sso_ok))
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                add(
+                    label, False,
+                    detail=base_url,
+                    error='Rate limited — service is up but temporarily throttled; retry shortly',
+                    transient=True,
+                )
+            else:
+                add(label, False, error=str(e))
         except Exception as e:
             add(label, False, error=str(e))
 
-    ok = all(c['ok'] for c in checks)
+    ok = all(c['ok'] or c.get('transient') for c in checks)
     return {'ok': ok, 'checks': checks}
 
 
