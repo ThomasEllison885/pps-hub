@@ -88,7 +88,8 @@
   .activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
   .activity-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; }
   .activity-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
-  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 7px; }
+  .act-item { background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; margin-bottom: 7px; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .act-item:hover { border-color: rgba(0,150,214,0.4); background: #fff; }
   .act-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px; }
   .act-name { font-size: 13px; font-weight: 600; color: var(--dark-blue); }
   .act-date { font-size: 11px; color: #aaa; }
@@ -252,7 +253,7 @@
       <h3>Recent Proposals</h3>
       {% if recent_proposals %}
       {% for p in recent_proposals %}
-      <div class="act-item">
+      <div class="act-item" onclick="showRecentProposal({{ loop.index0 }})">
         <div class="act-top">
           <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
           <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
@@ -268,7 +269,7 @@
       <h3>Recent PPMs</h3>
       {% if recent_ppms %}
       {% for p in recent_ppms %}
-      <div class="act-item">
+      <div class="act-item" onclick="showRecentPPM({{ loop.index0 }})">
         <div class="act-top">
           <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
           <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
@@ -285,7 +286,7 @@
       <h3>Recent Trade Partner Scopes</h3>
       {% if recent_tpscopes %}
       {% for s in recent_tpscopes %}
-      <div class="act-item">
+      <div class="act-item" onclick="showRecentTPS({{ loop.index0 }})">
         <div class="act-top">
           <div class="act-name">{{ s.property_name or 'Unnamed Property' }}</div>
           <div class="act-date">{{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
@@ -355,7 +356,7 @@
       <thead><tr><th>Property</th><th>PM</th><th>Language</th><th>Date</th></tr></thead>
       <tbody>
         {% for s in all_my_tpscopes %}
-        <tr>
+        <tr onclick="showTPS({{ loop.index0 }})" style="cursor:pointer;">
           <td class="prop-name">{{ s.property_name or 'Unnamed' }}</td>
           <td style="font-size:13px;color:#888;">{{ s.pm_name or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ s.language|title if s.language else '—' }}</td>
@@ -392,14 +393,31 @@
 
 </div>
 
-<!-- Proposal data for modal -->
+<!-- Proposal / activity data for modals -->
 <script>
+const recentProposals = [
+  {% for p in recent_proposals %}
+  {
+    title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+    num: {{ (p.proposal_number or '—')|tojson }},
+    address: {{ (p.property_address or '—')|tojson }},
+    consultant: {{ (p.consultant_name or '')|tojson }},
+    type: {{ (p.property_type or '—')|tojson }},
+    template: {{ (p.template_type or '—')|tojson }},
+    scopes: {{ (p.scopes_selected or '—')|tojson }},
+    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    issue: {{ (p.existing_issue or '')|tojson }},
+    outcome: {{ (p.intended_outcome or '')|tojson }},
+    documentId: {{ (p.document_id or none)|tojson }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
 const myProposals = [
   {% for p in all_my_proposals %}
   {
     title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
     num: {{ (p.proposal_number or '—')|tojson }},
-    client: {{ (p.client_name or '')|tojson }},
     address: {{ (p.property_address or '—')|tojson }},
     consultant: {{ (p.consultant_name or '')|tojson }},
     type: {{ (p.property_type or '—')|tojson }},
@@ -446,9 +464,7 @@ const myProposals = [
 
 <script>
   document.getElementById('pdModal').style.display = 'none';
-  function showProposal(idx) {
-    document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
-    const p = myProposals[idx];
+  function openProposalModal(p) {
     document.getElementById('pdTitle').textContent = p.title;
     document.getElementById('pdNum').textContent = p.num;
     document.getElementById('pdAddress').textContent = p.address;
@@ -468,7 +484,10 @@ const myProposals = [
     } else {
       dlWrap.style.display = 'none';
     }
+    document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
+  function showProposal(idx) { openProposalModal(myProposals[idx]); }
+  function showRecentProposal(idx) { openProposalModal(recentProposals[idx]); }
   function closePd() { document.getElementById('pdModal').style.display='none'; }
 </script>
 
@@ -483,6 +502,25 @@ const myProposals = [
       `${greet} · ${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
   }
   setGreeting();
+
+  const recentPPMs = [
+    {% for p in recent_ppms %}
+    {
+      property: {{ (p.property_name or 'Unnamed')|tojson }},
+      pm: {{ (p.pm_name or '—')|tojson }},
+      by: {{ (p.generated_by or '')|tojson }},
+      address: {{ (p.property_address or '—')|tojson }},
+      client: {{ (p.client_name or '—')|tojson }},
+      num: {{ (p.proposal_number or '—')|tojson }},
+      value: {{ (p.total_value or '—')|tojson }},
+      projType: {{ (p.proj_type or '—')|tojson }},
+      scale: {{ (p.scale or '—')|tojson }},
+      clientType: {{ (p.client_type or '—')|tojson }},
+      occupied: {{ (p.occupied or '—')|tojson }},
+      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
 
   const myPPMs = [
     {% for p in all_my_ppms %}
@@ -503,8 +541,41 @@ const myProposals = [
     {% endfor %}
   ];
 
-  function showPPM(idx) {
-    const p = myPPMs[idx];
+  const recentTPS = [
+    {% for s in recent_tpscopes %}
+    {
+      property: {{ (s.property_name or 'Unnamed')|tojson }},
+      pm: {{ (s.pm_name or '—')|tojson }},
+      by: {{ (s.generated_by or '')|tojson }},
+      address: {{ (s.property_address or '—')|tojson }},
+      po: {{ (s.po_number or '—')|tojson }},
+      language: {{ (s.language or '—')|tojson }},
+      consultant: {{ (s.consultant_name or '—')|tojson }},
+      material: {{ (s.material_provider or '—')|tojson }},
+      sourceFile: {{ (s.proposal_filename or '—')|tojson }},
+      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  const myTPS = [
+    {% for s in all_my_tpscopes %}
+    {
+      property: {{ (s.property_name or 'Unnamed')|tojson }},
+      pm: {{ (s.pm_name or '—')|tojson }},
+      by: {{ (s.generated_by or '')|tojson }},
+      address: {{ (s.property_address or '—')|tojson }},
+      po: {{ (s.po_number or '—')|tojson }},
+      language: {{ (s.language or '—')|tojson }},
+      consultant: {{ (s.consultant_name or '—')|tojson }},
+      material: {{ (s.material_provider or '—')|tojson }},
+      sourceFile: {{ (s.proposal_filename or '—')|tojson }},
+      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
+    }{% if not loop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  function openPPMModal(p) {
     document.getElementById('ppmProp').textContent = p.property;
     document.getElementById('ppmPM').textContent = p.pm;
     document.getElementById('ppmBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -516,7 +587,34 @@ const myProposals = [
     document.getElementById('ppmDate').textContent = p.date;
     document.getElementById('ppmModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
+  function showPPM(idx) { openPPMModal(myPPMs[idx]); }
+  function showRecentPPM(idx) { openPPMModal(recentPPMs[idx]); }
   function closePPM() { document.getElementById('ppmModal').style.display='none'; }
+
+  function openTPSModal(s) {
+    document.getElementById('tpsProp').textContent = s.property;
+    document.getElementById('tpsPO').textContent = s.po;
+    document.getElementById('tpsAddress').textContent = s.address;
+    document.getElementById('tpsConsultant').textContent = s.consultant;
+    document.getElementById('tpsBy').textContent = s.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    document.getElementById('tpsPM').textContent = s.pm;
+    document.getElementById('tpsDetails').textContent = [
+      s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '',
+      s.material === 'tp' ? 'TP materials' : s.material === 'pps' ? 'PPS materials' : ''
+    ].filter(Boolean).join(' · ') || '—';
+    document.getElementById('tpsDate').textContent = s.date;
+    const srcWrap = document.getElementById('tpsSourceWrap');
+    if (s.sourceFile && s.sourceFile !== '—') {
+      document.getElementById('tpsSource').textContent = s.sourceFile;
+      srcWrap.style.display = 'block';
+    } else {
+      srcWrap.style.display = 'none';
+    }
+    document.getElementById('tpsModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+  }
+  function showTPS(idx) { openTPSModal(myTPS[idx]); }
+  function showRecentTPS(idx) { openTPSModal(recentTPS[idx]); }
+  function closeTPS() { document.getElementById('tpsModal').style.display='none'; }
 
   async function openTool(baseUrl) {
     try {
@@ -578,6 +676,29 @@ const myProposals = [
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Details</div><div id="ppmDetails" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Generated By</div><div id="ppmBy" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="ppmDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Trade Partner Scope Detail Modal -->
+<div id="tpsModal" onclick="if(event.target===this)closeTPS()" style="display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:white;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:480px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;">
+      <div id="tpsProp" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;"></div>
+      <button onclick="closeTPS()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0;">
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">PO #</div><div id="tpsPO" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Address</div><div id="tpsAddress" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Consultant</div><div id="tpsConsultant" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Project Manager</div><div id="tpsPM" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Details</div><div id="tpsDetails" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
+      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Generated By</div><div id="tpsBy" style="font-size:14px;color:#444;"></div></div>
+      <div style="display:flex;padding:8px 0;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="tpsDate" style="font-size:14px;color:#444;"></div></div>
+    </div>
+    <div id="tpsSourceWrap" style="display:none;margin-top:14px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Source Proposal</div>
+      <div id="tpsSource" style="font-size:13px;color:#666;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:10px 12px;border:1px solid #FFE082;"></div>
     </div>
   </div>
 </div>
