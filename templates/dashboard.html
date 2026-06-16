@@ -518,28 +518,27 @@ const myProposals = [
   }
   function closePPM() { document.getElementById('ppmModal').style.display='none'; }
 
-  async function openTool(baseUrl, userKey) {
+  async function openTool(baseUrl) {
     try {
-      const resp = await fetch('/generate-token', {
+      const resp = await fetch('/generate-code', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-API-Key': 'pps-internal-2026' 
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       if (resp.ok) {
         const data = await resp.json();
-        if (data.token) {
-          window.open(`${baseUrl}?token=${data.token}`, '_blank');
+        const code = data.code || data.token;
+        if (code) {
+          window.open(`${baseUrl}?code=${encodeURIComponent(code)}`, '_blank');
           return;
         }
       }
-    } catch(e) {
-      console.log('Token fetch error:', e);
+      const err = await resp.json().catch(() => ({}));
+      alert(err.error || 'Could not open tool. Please try again or contact Thomas.');
+    } catch (e) {
+      console.log('SSO code fetch error:', e);
+      alert('Could not open tool. Check your connection and try again.');
     }
-    // Fallback
-    window.open(`${baseUrl}?user=${userKey}`, '_blank');
   }
 
   async function submitFeedback() {

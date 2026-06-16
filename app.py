@@ -2,20 +2,43 @@ import os
 import json
 import base64
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 from pps_game_data import PPS_GAME_META, PPS_GAME_QUESTIONS
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from auth_helpers import (
+    HUB_PUBLIC_URL, PROPOSAL_URL, PROFILE_URL, LOGIN_LOCKOUT_MINUTES,
+    safe_next_url, client_ip, record_login_attempt, is_login_locked,
+    generate_sso_code, exchange_sso_code,
+    create_password_reset_token, peek_password_reset_token,
+    consume_password_reset_token, reset_url_for_token,
+)
+
+
+def _require_env(name):
+    val = os.environ.get(name, '').strip()
+    if not val:
+        raise RuntimeError(f'{name} environment variable is required')
+    return val
+
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'pps-hub-secret-2026')
+app.secret_key = _require_env('SECRET_KEY')
+INTERNAL_API_KEY = _require_env('INTERNAL_API_KEY')
+MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', '').strip()
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
-MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', 'Luther1985')
-INTERNAL_API_KEY = os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB
+
+_IS_DEBUG = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
+app.config.update(
+    SESSION_COOKIE_SECURE=not _IS_DEBUG,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+)
 
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
 
@@ -472,16 +495,54 @@ def init_db():
         )
     ''')
 
-    # Seed users with default password if not exists
-    default_password = os.environ.get('DEFAULT_PASSWORD', 'PPS2026!')
-    for key, user in USERS.items():
-        cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (key,))
-        if not cur.fetchone():
-            hashed = generate_password_hash(default_password)
-            cur.execute(
-                'INSERT INTO hub_users (user_key, display_name, password_hash, role) VALUES (%s, %s, %s, %s)',
-                (key, user['display'], hashed, user['role'])
-            )
+    # Auth support tables
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS auth_codes (
+            code VARCHAR(64) PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            role VARCHAR(50),
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            used BOOLEAN DEFAULT FALSE
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            success BOOLEAN NOT NULL,
+            ip_address VARCHAR(45),
+            attempted_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            token VARCHAR(64) PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL,
+            used BOOLEAN DEFAULT FALSE
+        )
+    ''')
+    try:
+        cur.execute('ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE')
+    except Exception:
+        pass
+
+    # Seed users with default password if configured
+    default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
+    if default_password:
+        for key, user in USERS.items():
+            cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (key,))
+            if not cur.fetchone():
+                hashed = generate_password_hash(default_password)
+                cur.execute(
+                    '''INSERT INTO hub_users
+                       (user_key, display_name, password_hash, role, must_change_password)
+                       VALUES (%s, %s, %s, %s, TRUE)''',
+                    (key, user['display'], hashed, user['role'])
+                )
 
     # Backfill last_login from tool activity where logs are more recent
     try:
@@ -553,7 +614,9 @@ def require_login(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('user_key'):
-            return redirect(url_for('login'))
+            return redirect(url_for('login', next=request.url))
+        if session.get('must_change_password') and request.endpoint not in ('change_password', 'logout'):
+            return redirect(url_for('change_password'))
         return f(*args, **kwargs)
     return decorated
 
@@ -644,56 +707,94 @@ def index():
     return redirect(url_for('login'))
 
 
+def _post_login_redirect():
+    nxt = safe_next_url(session.pop('login_next', None) or request.args.get('next', ''))
+    if nxt:
+        return redirect(nxt)
+    return redirect(url_for('dashboard'))
+
+
+def _establish_session(user_key, user_def, db_user=None):
+    session.permanent = True
+    session['user_key'] = user_key
+    session['display_name'] = user_def.get('display', '')
+    session['role'] = user_def.get('role', 'consultant')
+    session['proposal_access'] = get_user_proposal_access(user_key)
+    session['team_view'] = user_def.get('team_view', False)
+    session['team_view_scope'] = user_def.get('team_view_scope')
+    if db_user and db_user.get('must_change_password'):
+        session['must_change_password'] = True
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if session.get('user_key'):
+        return _post_login_redirect()
+
     error = None
+    next_url = safe_next_url(request.args.get('next', ''))
+    if next_url:
+        session['login_next'] = next_url
+
     if request.method == 'POST':
+        next_from_form = safe_next_url(request.form.get('next', ''))
+        if next_from_form:
+            session['login_next'] = next_from_form
         user_key = request.form.get('user_key', '').strip()
         password = request.form.get('password', '').strip()
+        ip = client_ip(request)
 
-        # Master password override (Thomas admin access)
-        if password == MASTER_PASSWORD:
-            user = USERS.get(user_key)
-            if user:
-                session['user_key'] = user_key
-                session['display_name'] = user['display']
-                session['role'] = 'admin'
-                session['admin'] = True
-                session['proposal_access'] = list(CONSULTANTS.keys())
-                session['team_view'] = user.get('team_view', False)
-                session['team_view_scope'] = user.get('team_view_scope')
-                _update_last_login(user_key)
-                return redirect(url_for('dashboard'))
+        if is_login_locked(get_db, user_key):
+            error = f'Too many failed attempts. Try again in {LOGIN_LOCKOUT_MINUTES} minutes or use Forgot Password.'
+        else:
+            logged_in = False
+            db_user = None
 
-        # Normal login
-        try:
-            conn = get_db()
-            if conn:
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-                cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
-                db_user = cur.fetchone()
-                cur.close()
-                conn.close()
-
-                if db_user and check_password_hash(db_user['password_hash'], password):
-                    user = USERS.get(user_key, {})
-                    session['user_key'] = user_key
-                    session['display_name'] = user['display']
-                    session['role'] = user['role']
-                    session['proposal_access'] = get_user_proposal_access(user_key)
+            # Optional break-glass master password (env only, disabled when unset)
+            if MASTER_PASSWORD and password == MASTER_PASSWORD:
+                user = USERS.get(user_key)
+                if user:
+                    session['role'] = 'admin'
+                    session['admin'] = True
+                    session['proposal_access'] = list(CONSULTANTS.keys())
+                    _establish_session(user_key, user)
+                    record_login_attempt(get_db, user_key, True, ip)
                     _update_last_login(user_key)
-                    return redirect(url_for('dashboard'))
-                else:
+                    return _post_login_redirect()
+
+            try:
+                conn = get_db()
+                if conn:
+                    cur = conn.cursor(cursor_factory=RealDictCursor)
+                    cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
+                    db_user = cur.fetchone()
+                    cur.close()
+                    conn.close()
+
+                    if db_user and check_password_hash(db_user['password_hash'], password):
+                        user = USERS.get(user_key, {})
+                        _establish_session(user_key, user, db_user)
+                        record_login_attempt(get_db, user_key, True, ip)
+                        _update_last_login(user_key)
+                        logged_in = True
+                        if session.get('must_change_password'):
+                            return redirect(url_for('change_password'))
+                        return _post_login_redirect()
+
+                if not logged_in:
+                    record_login_attempt(get_db, user_key, False, ip)
                     error = 'Incorrect password. Please try again.'
-            else:
+            except Exception as e:
+                print(f"Login error: {e}")
+                error = 'Something went wrong. Please try again.'
+
+            if not logged_in and not error and not DATABASE_URL:
                 error = 'Database unavailable. Please try again shortly.'
-        except Exception as e:
-            print(f"Login error: {e}")
-            error = 'Something went wrong. Please try again.'
 
     return render_template('login.html',
                            users=sorted(USERS.items(), key=lambda x: x[1]['display']),
-                           error=error)
+                           error=error,
+                           next_url=next_url or '')
 
 
 def _touch_last_active(user_key, force=False):
@@ -813,7 +914,7 @@ def log_proposal():
     """Called by proposal tool after successful generation."""
     data = request.get_json()
     api_key = request.headers.get('X-API-Key', '')
-    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+    if api_key != INTERNAL_API_KEY:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db()
@@ -1006,7 +1107,7 @@ def log_ppm():
     """Called by PPM tool after generation."""
     data = request.get_json()
     api_key = request.headers.get('X-API-Key', '')
-    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+    if api_key != INTERNAL_API_KEY:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db()
@@ -1397,7 +1498,10 @@ def reset_password():
         if conn:
             cur = conn.cursor()
             hashed = generate_password_hash(new_password)
-            cur.execute('UPDATE hub_users SET password_hash = %s WHERE user_key = %s', (hashed, user_key))
+            cur.execute(
+                'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
+                (hashed, user_key),
+            )
             conn.commit()
             cur.close()
             conn.close()
@@ -1410,7 +1514,7 @@ def reset_password():
 def log_subscope():
     data = request.get_json()
     api_key = request.headers.get('X-API-Key', '')
-    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+    if api_key != INTERNAL_API_KEY:
         return jsonify({'error': 'Unauthorized'}), 401
     try:
         conn = get_db()
@@ -1698,87 +1802,60 @@ def admin_stats():
     return jsonify(stats)
 
 
-def generate_sso_token(user_key, display_name, role):
-    """Generate a short-lived SSO token and store in DB."""
-    import secrets
-    from datetime import datetime, timedelta
-    token = secrets.token_urlsafe(32)
-    try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor()
-            cur.execute("DELETE FROM auth_tokens WHERE expires_at < NOW()")
-            cur.execute(
-                '''INSERT INTO auth_tokens (token, user_key, display_name, role, expires_at)
-                   VALUES (%s, %s, %s, %s, NOW() + INTERVAL '5 minutes')''',
-                (token, user_key, display_name, role)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-            return token
-    except Exception as e:
-        print(f"generate_sso_token error: {e}")
-    return None
+@app.route('/generate-code', methods=['POST'])
+@require_login
+def generate_code():
+    """Called by hub dashboard JS — returns a one-time SSO code for satellite tools."""
+    user_key = session['user_key']
+    code = generate_sso_code(get_db, user_key, session.get('display_name', ''), session.get('role', 'user'))
+    if not code:
+        return jsonify({'error': 'Could not create sign-in code. Check database connection.'}), 500
+    return jsonify({'code': code})
 
 
 @app.route('/generate-token', methods=['POST'])
+@require_login
 def generate_token():
-    """Called by hub dashboard JS — session authenticated, returns SSO token."""
-    try:
-        if not session.get('user_key'):
-            return jsonify({'error': 'Not authenticated', 'session_keys': list(session.keys())}), 401
-        user_key = session['user_key']
-        display_name = session.get('display_name', '')
-        role = session.get('role', 'user')
-        token = generate_sso_token(user_key, display_name, role)
-        if not token:
-            return jsonify({'error': 'Token generation failed - check DB connection'}), 500
-        return jsonify({'token': token})
-    except Exception as e:
-        import traceback
-        tb = traceback.format_exc()
-        print(f"generate-token error: {tb}")
-        return jsonify({'error': str(e), 'traceback': tb}), 500
+    """Legacy alias — returns a code (not a long-lived token)."""
+    user_key = session['user_key']
+    code = generate_sso_code(get_db, user_key, session.get('display_name', ''), session.get('role', 'user'))
+    if not code:
+        return jsonify({'error': 'Could not create sign-in code.'}), 500
+    return jsonify({'code': code, 'token': code})
+
+
+@app.route('/exchange-code', methods=['POST'])
+def exchange_code_route():
+    """Server-to-server: satellite tools exchange a one-time code for user info."""
+    api_key = request.headers.get('X-API-Key', '')
+    if api_key != INTERNAL_API_KEY:
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or {}
+    code = (data.get('code') or '').strip()
+    if not code:
+        return jsonify({'valid': False, 'reason': 'code required'}), 400
+    row = exchange_sso_code(get_db, code)
+    if not row:
+        return jsonify({'valid': False, 'reason': 'Code invalid or expired'})
+    _touch_last_active(row['user_key'], force=True)
+    return jsonify({'valid': True, **row})
 
 
 @app.route('/validate-token', methods=['POST'])
 def validate_token():
-    """Called by proposal/profile tool to validate an SSO token."""
+    """Legacy token validation — deprecated; use /exchange-code."""
     api_key = request.headers.get('X-API-Key', '')
-    if api_key != os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026'):
+    if api_key != INTERNAL_API_KEY:
         return jsonify({'error': 'Unauthorized'}), 401
-    token = request.json.get('token', '')
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
     if not token:
         return jsonify({'valid': False}), 400
-    try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute(
-                '''SELECT * FROM auth_tokens
-                   WHERE token = %s AND used = FALSE AND expires_at > NOW()''',
-                (token,)
-            )
-            row = cur.fetchone()
-            if row:
-                # Mark as used
-                cur.execute('UPDATE auth_tokens SET used = TRUE WHERE token = %s', (token,))
-                conn.commit()
-                cur.close()
-                conn.close()
-                _touch_last_active(row['user_key'], force=True)
-                return jsonify({
-                    'valid': True,
-                    'user_key': row['user_key'],
-                    'display_name': row['display_name'],
-                    'role': row['role'],
-                })
-            cur.close()
-            conn.close()
-            return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
-    except Exception as e:
-        return jsonify({'valid': False, 'reason': str(e)}), 500
+    row = exchange_sso_code(get_db, token)
+    if row:
+        _touch_last_active(row['user_key'], force=True)
+        return jsonify({'valid': True, **row})
+    return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
 
 
 @app.route('/submit-diff', methods=['POST'])
@@ -2086,7 +2163,7 @@ def admin_site_visits():
 def email_doc():
     """Email a generated document via Resend API."""
     api_key = request.headers.get('X-API-Key', '')
-    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+    internal_ok = api_key == INTERNAL_API_KEY
     if not session.get('user_key') and not internal_ok:
         return jsonify({'error': 'Not authenticated'}), 401
 
@@ -2218,7 +2295,7 @@ def clients_search():
     # Allow cross-origin from proposal tool (server-to-server or CORS)
     api_key = request.headers.get('X-API-Key', '')
     session_ok = session.get('user_key')
-    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+    internal_ok = api_key == INTERNAL_API_KEY
     if not session_ok and not internal_ok:
         resp = jsonify({'error': 'Not authenticated'})
         resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -2277,7 +2354,7 @@ def clients_save():
 
     data = request.get_json() or {}
     api_key = request.headers.get('X-API-Key', '')
-    internal_ok = api_key == os.environ.get('INTERNAL_API_KEY', 'pps-internal-2026')
+    internal_ok = api_key == INTERNAL_API_KEY
 
     user_key = session.get('user_key')
     if internal_ok and data.get('user_key'):
@@ -2388,26 +2465,189 @@ def seed_clients_page():
 
 
 @app.route('/test-token')
+@require_login
 def test_token():
-    """Debug endpoint - shows session state and token generation."""
-    if not session.get('user_key'):
-        return jsonify({'session': 'none', 'user_key': None})
-    token = generate_sso_token(
+    """Debug endpoint - shows session state and SSO code generation."""
+    code = generate_sso_code(
+        get_db,
         session['user_key'],
         session.get('display_name', ''),
-        session.get('role', 'user')
+        session.get('role', 'user'),
     )
     return jsonify({
         'session': 'active',
         'user_key': session['user_key'],
-        'token_generated': token is not None,
-        'token_preview': token[:8] + '...' if token else None
+        'code_generated': code is not None,
+        'code_preview': code[:8] + '...' if code else None,
     })
+
+
+def _send_resend_email(to_email, subject, html_body, text_body):
+    import urllib.request as _ur
+    import urllib.error as _ur_err
+    resend_key = os.environ.get('RESEND_API_KEY', '')
+    from_email = os.environ.get('RESEND_FROM', 'noreply@purepropsolutions.com')
+    if not resend_key:
+        return False, 'Email service not configured'
+    payload = json.dumps({
+        'from': f'Pure Property Solutions <{from_email}>',
+        'to': [to_email],
+        'subject': subject,
+        'html': html_body,
+        'text': text_body,
+    }).encode('utf-8')
+    try:
+        req = _ur.Request(
+            'https://api.resend.com/emails',
+            data=payload,
+            headers={
+                'Authorization': f'Bearer {resend_key}',
+                'Content-Type': 'application/json',
+                'User-Agent': 'PPS-Hub/1.0',
+            },
+            method='POST',
+        )
+        resp = _ur.urlopen(req, timeout=30)
+        result = json.loads(resp.read().decode('utf-8'))
+        if result.get('id'):
+            return True, result['id']
+        return False, 'No message ID returned'
+    except _ur_err.HTTPError as e:
+        body = e.read().decode('utf-8', errors='replace')
+        return False, body
+    except Exception as e:
+        return False, str(e)
+
+
+@app.route('/forgot-password', methods=['GET', 'POST'])
+def forgot_password():
+    message = None
+    error = None
+    if request.method == 'POST':
+        user_key = request.form.get('user_key', '').strip()
+        user_def = USERS.get(user_key)
+        if not user_def:
+            error = 'Select your name from the list.'
+        else:
+            token = create_password_reset_token(get_db, user_key)
+            to_email = user_def.get('email', '')
+            if not token or not to_email:
+                error = 'Could not start reset. Contact Thomas or Stephanie.'
+            else:
+                link = reset_url_for_token(token)
+                ok, detail = _send_resend_email(
+                    to_email,
+                    'Reset your PPS Hub password',
+                    f'<p>Hi {user_def["display"].split()[0]},</p>'
+                    f'<p><a href="{link}">Click here to reset your PPS Hub password</a>. '
+                    f'This link expires in 1 hour.</p>'
+                    f'<p>If you did not request this, ignore this email.</p>',
+                    f'Reset your PPS password: {link}\n\nThis link expires in 1 hour.',
+                )
+                if ok:
+                    message = f'If {to_email} is on file, a reset link was sent.'
+                else:
+                    print(f'Password reset email failed: {detail}')
+                    error = 'Could not send email. Contact Thomas or Stephanie.'
+    return render_template(
+        'forgot_password.html',
+        users=sorted(USERS.items(), key=lambda x: x[1]['display']),
+        message=message,
+        error=error,
+    )
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    error = None
+    if request.method == 'GET':
+        if not peek_password_reset_token(get_db, token):
+            error = 'This reset link is invalid or has expired.'
+            return render_template('reset_password.html', error=error, token=None)
+        return render_template('reset_password.html', error=None, token=token)
+
+    token = request.form.get('token', '').strip()
+    new_password = request.form.get('new_password', '').strip()
+    confirm = request.form.get('confirm_password', '').strip()
+    user_key = consume_password_reset_token(get_db, token)
+    if not user_key:
+        error = 'This reset link is invalid or has expired.'
+    elif len(new_password) < 8:
+        error = 'Password must be at least 8 characters.'
+    elif new_password != confirm:
+        error = 'Passwords do not match.'
+    else:
+        try:
+            conn = get_db()
+            if conn:
+                cur = conn.cursor()
+                hashed = generate_password_hash(new_password)
+                cur.execute(
+                    'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
+                    (hashed, user_key),
+                )
+                conn.commit()
+                cur.close()
+                conn.close()
+                return redirect(url_for('login'))
+        except Exception as e:
+            print(f'reset password error: {e}')
+            error = 'Something went wrong. Try again or contact Thomas.'
+    return render_template('reset_password.html', error=error, token=token)
+
+
+@app.route('/change-password', methods=['GET', 'POST'])
+@require_login
+def change_password():
+    error = None
+    if request.method == 'POST':
+        current = request.form.get('current_password', '').strip()
+        new_password = request.form.get('new_password', '').strip()
+        confirm = request.form.get('confirm_password', '').strip()
+        user_key = session['user_key']
+        if len(new_password) < 8:
+            error = 'New password must be at least 8 characters.'
+        elif new_password != confirm:
+            error = 'Passwords do not match.'
+        else:
+            try:
+                conn = get_db()
+                if conn:
+                    cur = conn.cursor(cursor_factory=RealDictCursor)
+                    cur.execute('SELECT password_hash FROM hub_users WHERE user_key = %s', (user_key,))
+                    row = cur.fetchone()
+                    if not row or not check_password_hash(row['password_hash'], current):
+                        error = 'Current password is incorrect.'
+                    else:
+                        hashed = generate_password_hash(new_password)
+                        cur.execute(
+                            'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
+                            (hashed, user_key),
+                        )
+                        conn.commit()
+                        session.pop('must_change_password', None)
+                        cur.close()
+                        conn.close()
+                        return redirect(url_for('dashboard'))
+                    cur.close()
+                    conn.close()
+            except Exception as e:
+                print(f'change password error: {e}')
+                error = 'Something went wrong. Please try again.'
+    return render_template('change_password.html', error=error)
 
 
 @app.route('/logout')
 def logout():
+    import urllib.parse
     session.clear()
+    final = f'{HUB_PUBLIC_URL}/login'
+    chain = f'{PROFILE_URL}/logout?next={urllib.parse.quote(final, safe="")}'
+    if PROPOSAL_URL:
+        nxt = urllib.parse.quote(chain, safe='')
+        return redirect(f'{PROPOSAL_URL}/logout?next={nxt}')
+    if PROFILE_URL:
+        return redirect(chain)
     return redirect(url_for('login'))
 
 

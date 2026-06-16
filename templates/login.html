@@ -48,6 +48,7 @@
     <h1>Welcome Back</h1>
     <p class="sub">Sign in to access your PPS tools</p>
     <form method="POST" action="/login">
+      {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <div class="field">
         <label>Your Name</label>
@@ -64,6 +65,7 @@
       </div>
       <button type="submit" class="btn">Sign In →</button>
     </form>
+    <p style="margin-top:20px;font-size:13px;"><a href="/forgot-password" style="color:var(--blue);text-decoration:none;">Forgot password?</a></p>
   </div>
 </div>
 </body>
