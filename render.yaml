@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: pps-hub
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --timeout 120
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com
+      - key: PROPOSAL_URL
+        sync: false
+      - key: PROFILE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: MASTER_PASSWORD
+        sync: false

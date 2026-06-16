@@ -17,16 +17,22 @@ from auth_helpers import (
 )
 
 
-def _require_env(name):
-    val = os.environ.get(name, '').strip()
-    if not val:
-        raise RuntimeError(f'{name} environment variable is required')
-    return val
-
-
 app = Flask(__name__)
-app.secret_key = _require_env('SECRET_KEY')
-INTERNAL_API_KEY = _require_env('INTERNAL_API_KEY')
+_secret = os.environ.get('SECRET_KEY', '').strip()
+if not _secret:
+    print(
+        'WARNING: SECRET_KEY is not set — hub will run but you should add SECRET_KEY '
+        'in Render Environment (generate a random 32+ char string).'
+    )
+    _secret = 'pps-hub-unset-secret-key'
+app.secret_key = _secret
+
+INTERNAL_API_KEY = os.environ.get('INTERNAL_API_KEY', '').strip()
+if not INTERNAL_API_KEY:
+    print(
+        'WARNING: INTERNAL_API_KEY is not set — proposal/profile SSO and internal APIs '
+        'will not work until you add the same key on hub, proposal, and profile services.'
+    )
 MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', '').strip()
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
@@ -700,6 +706,20 @@ def get_profile_result(user_key):
 
 # ── ROUTES ──────────────────────────────────────────────────────────────────────
 
+@app.route('/health')
+def health():
+    return jsonify({
+        'ok': True,
+        'hub_public_url': HUB_PUBLIC_URL,
+        'proposal_url': PROPOSAL_URL,
+        'profile_url': PROFILE_URL,
+        'secret_configured': os.environ.get('SECRET_KEY', '').strip() != '',
+        'internal_api_configured': bool(INTERNAL_API_KEY),
+        'database_configured': bool(DATABASE_URL),
+        'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
+    })
+
+
 @app.route('/')
 def index():
     if session.get('user_key'):
@@ -952,6 +972,8 @@ def log_proposal():
 
 
 def _internal_api_ok():
+    if not INTERNAL_API_KEY:
+        return False
     api_key = request.headers.get('X-API-Key', '')
     return api_key == INTERNAL_API_KEY
 
