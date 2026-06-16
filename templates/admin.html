@@ -89,6 +89,46 @@
 
   .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);margin-top:12px;}
   .hub-footer img{height:22px;opacity:0.45;}
+
+  /* Universal search */
+  .search-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:28px;}
+  .search-row{display:flex;gap:10px;align-items:center;}
+  .search-input{flex:1;padding:12px 16px;border:1.5px solid var(--border);border-radius:8px;font-size:15px;font-family:'DM Sans',sans-serif;outline:none;}
+  .search-input:focus{border-color:var(--blue);}
+  .search-hint{font-size:12px;color:#aaa;margin-top:8px;}
+  .search-results{margin-top:14px;max-height:360px;overflow-y:auto;}
+  .search-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:7px;background:var(--light-bg);}
+  .search-item:hover{border-color:var(--blue);}
+  .type-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:20px;flex-shrink:0;margin-top:2px;}
+  .type-proposal{background:#E3F2FD;color:#1565C0;}
+  .type-ppm{background:#E8F5E9;color:#2E7D32;}
+  .type-tps{background:#FFF3E0;color:#E65100;}
+  .type-site_visit{background:#F3E5F5;color:#6A1B9A;}
+  .type-client{background:#ECEFF1;color:#455A64;}
+  .search-item-title{font-size:14px;font-weight:600;color:var(--dark-blue);}
+  .search-item-meta{font-size:12px;color:#888;margin-top:2px;}
+  .search-item-actions{margin-left:auto;display:flex;gap:6px;flex-shrink:0;align-items:center;}
+  .search-empty{font-size:13px;color:#bbb;padding:16px 0;text-align:center;}
+
+  /* Breakdown */
+  .breakdown-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:28px;}
+  .breakdown-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;}
+  .breakdown-card h4{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;}
+  .bar-label{width:110px;flex-shrink:0;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{flex:1;height:8px;background:#eef4f9;border-radius:4px;overflow:hidden;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--dark-blue),var(--blue));border-radius:4px;}
+  .bar-count{width:28px;text-align:right;font-weight:600;color:var(--dark-blue);font-size:12px;}
+
+  /* Vault */
+  .vault-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+  .vault-stat{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;}
+  .vault-stat .vnum{font-size:22px;font-weight:700;color:var(--dark-blue);}
+  .vault-stat .vlbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
+  .vault-del{background:#FEE;color:#C00;border:1px solid #fcc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .vault-del:hover{background:#fcc;}
+  @media(max-width:900px){.breakdown-grid,.vault-summary{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:600px){.breakdown-grid,.vault-summary,.stats{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -100,6 +140,7 @@
   </a>
   <div class="pps-header-right">
     <a href="/clients" class="pps-btn-header">Client Database</a>
+    <a href="#vault" class="pps-btn-header">Vault</a>
     <a href="/admin/site-visits" class="pps-btn-header">Site Visits</a>
     <a href="/admin/diffs" class="pps-btn-header">Proposal Diffs</a>
     <a href="/admin/feedback" class="pps-btn-header">Feedback {% if unread_feedback > 0 %}<span class="unread-badge">{{ unread_feedback }}</span>{% endif %}</a>
@@ -137,6 +178,98 @@
       <div class="num">{{ client_count }}</div>
       <div class="lbl">Client Database</div>
     </a>
+  </div>
+
+  <!-- UNIVERSAL SEARCH -->
+  <div class="search-card">
+    <div class="pps-section-head" style="margin-bottom:12px;">Search Everything</div>
+    <div class="search-row">
+      <input type="search" id="adminSearch" class="search-input" placeholder="Property, client, address, PO, consultant, proposal #…" autocomplete="off">
+    </div>
+    <div class="search-hint">Searches proposals, PPMs, trade partner scopes, site visits, and client database</div>
+    <div class="search-results" id="searchResults" style="display:none;"></div>
+  </div>
+
+  <!-- TRADE & TEMPLATE BREAKDOWN -->
+  <div class="pps-section-head">Trade & Template Breakdown</div>
+  <div class="breakdown-grid">
+    {% macro render_bars(items) %}
+      {% if items %}
+        {% set max_cnt = items[0].cnt %}
+        {% for row in items %}
+        <div class="bar-row">
+          <div class="bar-label" title="{{ row.label }}">{{ row.label }}</div>
+          <div class="bar-track"><div class="bar-fill" style="width:{{ ((row.cnt / max_cnt) * 100)|round|int }}%;"></div></div>
+          <div class="bar-count">{{ row.cnt }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">No data yet</div>
+      {% endif %}
+    {% endmacro %}
+    <div class="breakdown-card">
+      <h4>Proposal Property Types</h4>
+      {{ render_bars(breakdown.get('property_types', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>Proposal Templates</h4>
+      {{ render_bars(breakdown.get('templates', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>PPM Project Types</h4>
+      {{ render_bars(breakdown.get('ppm_types', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>TPS Languages</h4>
+      {{ render_bars(breakdown.get('tps_languages', [])) }}
+    </div>
+  </div>
+
+  <!-- DOCUMENT VAULT -->
+  <div class="pps-section-head" id="vault">Document Vault</div>
+  <div class="card" style="padding:18px 20px;">
+    {% set vault_mb = (vault.total_bytes / (1024*1024))|round(2) if vault.total_bytes else 0 %}
+    {% set vault_pct = ((vault.proposals_with_file / vault.proposals_total * 100)|round|int) if vault.proposals_total else 0 %}
+    <div class="vault-summary">
+      <div class="vault-stat"><div class="vnum">{{ vault.file_count }}</div><div class="vlbl">Stored Files</div></div>
+      <div class="vault-stat"><div class="vnum">{{ vault_mb }} MB</div><div class="vlbl">Total Size</div></div>
+      <div class="vault-stat"><div class="vnum">{{ vault.proposals_with_file }}</div><div class="vlbl">Vaulted Proposals</div></div>
+      <div class="vault-stat"><div class="vnum">{{ vault_pct }}%</div><div class="vlbl">Coverage</div></div>
+    </div>
+    {% if vault.files %}
+    <table>
+      <thead>
+        <tr>
+          <th>Property / File</th>
+          <th>Consultant</th>
+          <th>Stored By</th>
+          <th>Size</th>
+          <th>Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="vaultTableBody">
+        {% for f in vault.files %}
+        <tr id="vault_row_{{ f.id }}">
+          <td>
+            <div style="font-weight:600;color:var(--dark-blue);">{{ f.property_name or f.filename }}</div>
+            <div style="font-size:11px;color:#aaa;">{{ f.filename }}</div>
+          </td>
+          <td style="font-size:13px;color:#888;">{{ f.consultant_name or '—' }}</td>
+          <td style="font-size:12px;color:#888;">{{ f.user_key.replace('_',' ').title() if f.user_key else '—' }}</td>
+          <td style="font-size:12px;color:#888;">{{ ((f.size_bytes or 0) / 1024)|round(1) }} KB</td>
+          <td style="font-size:12px;color:#aaa;">{{ f.created_at.strftime('%b %d, %Y') if f.created_at else '—' }}</td>
+          <td style="white-space:nowrap;">
+            <a href="/api/documents/{{ f.id }}/download" class="download-btn" style="margin-right:6px;">⬇</a>
+            <button class="vault-del" data-id="{{ f.id }}" data-name="{{ (f.property_name or f.filename)|e }}" onclick="deleteVaultFile(Number(this.dataset.id), this.dataset.name)">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No files in the vault yet. New proposals are stored automatically on generation.</div>
+    {% endif %}
   </div>
 
   <!-- TEAM TABLE -->
@@ -550,6 +683,73 @@
     const r = await fetch('/admin/clear-my-profile', { method: 'POST' });
     const d = await r.json();
     if (d.success) { alert('Profile results cleared.'); location.reload(); }
+  }
+
+  const TYPE_LABELS = {proposal:'Proposal', ppm:'PPM', tps:'TPS', site_visit:'Site Visit', client:'Client'};
+  let searchTimer = null;
+
+  function renderSearchResults(results, query) {
+    const box = document.getElementById('searchResults');
+    if (!query || query.length < 2) {
+      box.style.display = 'none';
+      box.innerHTML = '';
+      return;
+    }
+    box.style.display = 'block';
+    if (!results.length) {
+      box.innerHTML = '<div class="search-empty">No results for “' + query.replace(/</g,'') + '”</div>';
+      return;
+    }
+    box.innerHTML = results.map(r => {
+      const label = TYPE_LABELS[r.type] || r.type;
+      const dl = r.document_id ? '<a href="/api/documents/' + r.document_id + '/download" class="download-btn" onclick="event.stopPropagation();">⬇</a>' : '';
+      const link = r.link ? '<a href="' + r.link + '" class="download-btn" style="background:white;">Open →</a>' : '';
+      return `<div class="search-item">
+        <span class="type-badge type-${r.type}">${label}</span>
+        <div style="flex:1;min-width:0;">
+          <div class="search-item-title">${(r.title||'Unnamed').replace(/</g,'')}</div>
+          <div class="search-item-meta">${(r.meta||'').replace(/</g,'')} · ${r.date||''}</div>
+        </div>
+        <div class="search-item-actions">${dl}${link}</div>
+      </div>`;
+    }).join('');
+  }
+
+  async function runAdminSearch(q) {
+    try {
+      const r = await fetch('/admin/search?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      renderSearchResults(d.results || [], q);
+    } catch (e) {
+      document.getElementById('searchResults').innerHTML = '<div class="search-empty">Search failed. Try again.</div>';
+    }
+  }
+
+  document.getElementById('adminSearch').addEventListener('input', function() {
+    const q = this.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 2) { renderSearchResults([], q); return; }
+    searchTimer = setTimeout(() => runAdminSearch(q), 280);
+  });
+
+  async function deleteVaultFile(id, name) {
+    if (!confirm('Delete vaulted file for “' + name + '”?\n\nThe proposal history row stays — only the stored file is removed.')) return;
+    try {
+      const r = await fetch('/admin/vault/delete', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({document_id: id}),
+      });
+      const d = await r.json();
+      if (d.success) {
+        const row = document.getElementById('vault_row_' + id);
+        if (row) row.remove();
+      } else {
+        alert(d.error || 'Delete failed');
+      }
+    } catch (e) {
+      alert('Delete failed');
+    }
   }
 </script>
 </body>

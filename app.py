@@ -1058,12 +1058,227 @@ def session_info():
     })
 
 
+def _fetch_admin_breakdown(cur):
+    """Trade/template activity breakdown for admin dashboard."""
+    breakdown = {}
+    queries = {
+        'property_types': '''
+            SELECT COALESCE(NULLIF(TRIM(property_type), ''), 'Unknown') AS label, COUNT(*) AS cnt
+            FROM proposal_log GROUP BY 1 ORDER BY cnt DESC LIMIT 14
+        ''',
+        'templates': '''
+            SELECT COALESCE(NULLIF(TRIM(template_type), ''), 'Unknown') AS label, COUNT(*) AS cnt
+            FROM proposal_log GROUP BY 1 ORDER BY cnt DESC LIMIT 14
+        ''',
+        'ppm_types': '''
+            SELECT COALESCE(NULLIF(TRIM(proj_type), ''), 'Unknown') AS label, COUNT(*) AS cnt
+            FROM ppm_log GROUP BY 1 ORDER BY cnt DESC LIMIT 14
+        ''',
+        'tps_languages': '''
+            SELECT COALESCE(NULLIF(TRIM(language), ''), 'Unknown') AS label, COUNT(*) AS cnt
+            FROM subscope_log GROUP BY 1 ORDER BY cnt DESC LIMIT 14
+        ''',
+    }
+    for key, sql in queries.items():
+        try:
+            cur.execute(sql)
+            breakdown[key] = cur.fetchall()
+        except Exception:
+            breakdown[key] = []
+    return breakdown
+
+
+def _fetch_vault_summary(cur):
+    """Vault storage stats and file list (no binary payload)."""
+    vault = {
+        'files': [],
+        'file_count': 0,
+        'total_bytes': 0,
+        'proposals_with_file': 0,
+        'proposals_total': 0,
+    }
+    try:
+        cur.execute('SELECT COUNT(*) AS c, COALESCE(SUM(size_bytes), 0) AS b FROM documents')
+        row = cur.fetchone()
+        vault['file_count'] = row['c'] or 0
+        vault['total_bytes'] = row['b'] or 0
+        cur.execute('SELECT COUNT(*) AS c FROM proposal_log')
+        vault['proposals_total'] = cur.fetchone()['c'] or 0
+        cur.execute('SELECT COUNT(*) AS c FROM proposal_log WHERE document_id IS NOT NULL')
+        vault['proposals_with_file'] = cur.fetchone()['c'] or 0
+        cur.execute('''
+            SELECT d.id, d.doc_type, d.filename, d.size_bytes, d.created_at, d.user_key,
+                   pl.property_name, pl.consultant_name, pl.generated_by
+            FROM documents d
+            LEFT JOIN proposal_log pl ON pl.id = d.log_id AND d.doc_type = 'proposal'
+            ORDER BY d.created_at DESC
+            LIMIT 100
+        ''')
+        vault['files'] = cur.fetchall()
+    except Exception as e:
+        print(f"Vault summary error: {e}")
+    return vault
+
+
+def _serialize_dt(val):
+    if not val:
+        return ''
+    return val.strftime('%Y-%m-%d') if hasattr(val, 'strftime') else str(val)
+
+
+def _admin_search(cur, query, limit=50):
+    """Search proposals, PPMs, TPS, site visits, and clients."""
+    q = (query or '').strip()
+    if len(q) < 2:
+        return []
+    pattern = f'%{q}%'
+    per_type = max(6, limit // 5)
+    results = []
+
+    def _add(result_type, row, title, meta, date_val, link='', document_id=None):
+        results.append({
+            'type': result_type,
+            'id': row.get('id'),
+            'title': title or 'Unnamed',
+            'meta': meta,
+            'date': _serialize_dt(date_val),
+            'link': link,
+            'document_id': document_id,
+        })
+
+    try:
+        cur.execute('''
+            SELECT id, property_name, client_name, property_address, consultant_name,
+                   proposal_number, generated_by, generated_at, document_id
+            FROM proposal_log
+            WHERE property_name ILIKE %s OR client_name ILIKE %s OR property_address ILIKE %s
+               OR proposal_number ILIKE %s OR consultant_name ILIKE %s OR scopes_selected ILIKE %s
+               OR COALESCE(generated_by, '') ILIKE %s
+            ORDER BY generated_at DESC LIMIT %s
+        ''', (pattern,) * 7 + (per_type,))
+        for r in cur.fetchall():
+            _add(
+                'proposal',
+                r,
+                r.get('property_name') or r.get('client_name'),
+                ' · '.join(filter(None, [
+                    r.get('consultant_name'),
+                    r.get('proposal_number'),
+                    (r.get('generated_by') or '').replace('_', ' ').title(),
+                ])),
+                r.get('generated_at'),
+                '/admin/proposals',
+                r.get('document_id'),
+            )
+    except Exception as e:
+        print(f"Search proposals error: {e}")
+
+    try:
+        cur.execute('''
+            SELECT id, property_name, property_address, client_name, proposal_number,
+                   pm_name, proj_type, generated_by, generated_at
+            FROM ppm_log
+            WHERE property_name ILIKE %s OR property_address ILIKE %s OR client_name ILIKE %s
+               OR proposal_number ILIKE %s OR pm_name ILIKE %s OR proj_type ILIKE %s
+               OR COALESCE(generated_by, '') ILIKE %s
+            ORDER BY generated_at DESC LIMIT %s
+        ''', (pattern,) * 7 + (per_type,))
+        for r in cur.fetchall():
+            _add(
+                'ppm',
+                r,
+                r.get('property_name'),
+                ' · '.join(filter(None, [r.get('pm_name'), r.get('proj_type'), (r.get('generated_by') or '').replace('_', ' ').title()])),
+                r.get('generated_at'),
+            )
+    except Exception as e:
+        print(f"Search PPM error: {e}")
+
+    try:
+        cur.execute('''
+            SELECT id, property_name, property_address, consultant_name, pm_name,
+                   po_number, language, generated_by, generated_at
+            FROM subscope_log
+            WHERE property_name ILIKE %s OR property_address ILIKE %s OR consultant_name ILIKE %s
+               OR pm_name ILIKE %s OR po_number ILIKE %s OR language ILIKE %s
+               OR COALESCE(generated_by, '') ILIKE %s
+            ORDER BY generated_at DESC LIMIT %s
+        ''', (pattern,) * 7 + (per_type,))
+        for r in cur.fetchall():
+            _add(
+                'tps',
+                r,
+                r.get('property_name'),
+                ' · '.join(filter(None, [
+                    r.get('consultant_name'),
+                    r.get('language', '').title() if r.get('language') else '',
+                    f"PO {r['po_number']}" if r.get('po_number') else '',
+                ])),
+                r.get('generated_at'),
+                '/admin/tpscopes',
+            )
+    except Exception as e:
+        print(f"Search TPS error: {e}")
+
+    try:
+        cur.execute('''
+            SELECT id, property_name, property_address, display_name, po_number, generated_by, generated_at
+            FROM site_visit_log
+            WHERE property_name ILIKE %s OR property_address ILIKE %s OR display_name ILIKE %s
+               OR po_number ILIKE %s OR COALESCE(generated_by, '') ILIKE %s
+               OR COALESCE(observations, '') ILIKE %s
+            ORDER BY generated_at DESC LIMIT %s
+        ''', (pattern,) * 6 + (per_type,))
+        for r in cur.fetchall():
+            _add(
+                'site_visit',
+                r,
+                r.get('property_name'),
+                ' · '.join(filter(None, [r.get('display_name'), r.get('po_number')])),
+                r.get('generated_at'),
+                '/admin/site-visits',
+            )
+    except Exception as e:
+        print(f"Search site visit error: {e}")
+
+    try:
+        cur.execute('''
+            SELECT id, name, company, property_name, address, email, added_by, updated_at
+            FROM clients
+            WHERE name ILIKE %s OR company ILIKE %s OR property_name ILIKE %s
+               OR address ILIKE %s OR email ILIKE %s OR COALESCE(added_by, '') ILIKE %s
+            ORDER BY updated_at DESC LIMIT %s
+        ''', (pattern,) * 6 + (per_type,))
+        for r in cur.fetchall():
+            _add(
+                'client',
+                r,
+                r.get('name') or r.get('property_name'),
+                ' · '.join(filter(None, [r.get('company'), r.get('email'), (r.get('added_by') or '').replace('_', ' ').title()])),
+                r.get('updated_at'),
+                '/clients',
+            )
+    except Exception as e:
+        print(f"Search clients error: {e}")
+
+    return results[:limit]
+
+
 @app.route('/admin')
 @require_admin
 def admin():
     rows = []
     all_proposals = []
     all_ppms = []
+    all_subscopes = []
+    profile_rows = []
+    profiles_taken = {}
+    profile_count = 0
+    unread_feedback = 0
+    client_count = 0
+    proposals_30d = ppms_30d = subscopes_30d = 0
+    breakdown = {}
+    vault = {'files': [], 'file_count': 0, 'total_bytes': 0, 'proposals_with_file': 0, 'proposals_total': 0}
     try:
         conn = get_db()
         if conn:
@@ -1074,54 +1289,99 @@ def admin():
             all_proposals = cur.fetchall()
             cur.execute('SELECT * FROM ppm_log ORDER BY generated_at DESC LIMIT 50')
             all_ppms = cur.fetchall()
-            cur.close()
-            conn.close()
-    except Exception as e:
-        print(f"Admin error: {e}")
-    all_subscopes = []
-    profile_rows = []
-    profiles_taken = {}
-    profile_count = 0
-    unread_feedback = 0
-    client_count = 0
-    try:
-        conn2 = get_db()
-        if conn2:
-            cur2 = conn2.cursor(cursor_factory=RealDictCursor)
+            cur.execute('SELECT * FROM subscope_log ORDER BY generated_at DESC LIMIT 50')
+            all_subscopes = cur.fetchall()
+            cur.execute("SELECT COUNT(*) AS c FROM proposal_log WHERE generated_at >= NOW() - INTERVAL '30 days'")
+            proposals_30d = cur.fetchone()['c'] or 0
+            cur.execute("SELECT COUNT(*) AS c FROM ppm_log WHERE generated_at >= NOW() - INTERVAL '30 days'")
+            ppms_30d = cur.fetchone()['c'] or 0
+            cur.execute("SELECT COUNT(*) AS c FROM subscope_log WHERE generated_at >= NOW() - INTERVAL '30 days'")
+            subscopes_30d = cur.fetchone()['c'] or 0
+            breakdown = _fetch_admin_breakdown(cur)
+            vault = _fetch_vault_summary(cur)
             try:
-                cur2.execute('SELECT * FROM subscope_log ORDER BY generated_at DESC LIMIT 50')
-                all_subscopes = cur2.fetchall()
-            except: pass
-            try:
-                cur2.execute('SELECT id, name, taken_date, primary_disc, secondary_disc, primary_motiv, character_match, character_show FROM profile_results ORDER BY taken_date DESC')
-                profile_rows = cur2.fetchall()
+                cur.execute('SELECT id, name, taken_date, primary_disc, secondary_disc, primary_motiv, character_match, character_show FROM profile_results ORDER BY taken_date DESC')
+                profile_rows = cur.fetchall()
                 profile_count = len(profile_rows)
                 for r in profile_rows:
                     key = r['name'].lower().replace(' ', '_')
                     if key not in profiles_taken:
                         profiles_taken[key] = r['taken_date']
-            except: pass
+            except Exception:
+                pass
             try:
-                cur2.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
-                unread_feedback = cur2.fetchone()['cnt']
-            except: pass
-            client_count = 0
+                cur.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
+                unread_feedback = cur.fetchone()['cnt']
+            except Exception:
+                pass
             try:
-                cur2.execute('SELECT COUNT(*) as cnt FROM clients')
-                client_count = cur2.fetchone()['cnt']
-            except: pass
-            cur2.close()
-            conn2.close()
+                cur.execute('SELECT COUNT(*) as cnt FROM clients')
+                client_count = cur.fetchone()['cnt']
+            except Exception:
+                pass
+            cur.close()
+            conn.close()
     except Exception as e:
-        print(f"Admin extra data error: {e}")
+        print(f"Admin error: {e}")
 
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            profile_rows=profile_rows, profiles_taken=profiles_taken,
                            profile_count=profile_count, unread_feedback=unread_feedback,
                            client_count=client_count,
+                           proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
+                           breakdown=breakdown, vault=vault,
                            selected_year=2026,
                            user_definitions=USERS)
+
+
+@app.route('/admin/search')
+@require_admin
+def admin_search():
+    q = request.args.get('q', '').strip()
+    results = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            results = _admin_search(cur, q)
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Admin search error: {e}")
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'query': q, 'results': results, 'count': len(results)})
+
+
+@app.route('/admin/vault/delete', methods=['POST'])
+@require_admin
+def admin_vault_delete():
+    data = request.get_json(silent=True) or {}
+    doc_id = data.get('document_id') or request.form.get('document_id')
+    try:
+        doc_id = int(doc_id)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid document_id'}), 400
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute('SELECT id, filename FROM documents WHERE id = %s', (doc_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Document not found'}), 404
+        cur.execute('UPDATE proposal_log SET document_id = NULL WHERE document_id = %s', (doc_id,))
+        cur.execute('DELETE FROM documents WHERE id = %s', (doc_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True, 'deleted_id': doc_id})
+    except Exception as e:
+        print(f"Vault delete error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/admin/reset-password', methods=['POST'])
