@@ -774,40 +774,30 @@ def _run_system_health_checks():
     else:
         add('database_connect', False, error='DATABASE_URL not set')
 
-    if INTERNAL_API_KEY:
-        try:
-            ping = _http_get_json(
-                HUB_PUBLIC_URL.rstrip('/') + '/api/internal/ping',
-                headers={'X-API-Key': INTERNAL_API_KEY},
-            )
-            add('hub_internal_ping', ping.get('ok'), detail=ping.get('service', ''))
-        except Exception as e:
-            add('hub_internal_ping', False, error=str(e))
-    else:
-        add('hub_internal_ping', False, error='INTERNAL_API_KEY not set')
+    # Local check only — do not HTTP-call this hub from the same gunicorn worker (deadlocks with 1 worker).
+    add('hub_internal_ping', bool(INTERNAL_API_KEY), detail='configured locally' if INTERNAL_API_KEY else '')
 
     for label, base_url in (('proposal_tool', PROPOSAL_URL), ('profile_tool', PROFILE_URL)):
         if not base_url:
             add(label, False, error=f'{label.upper()} URL not configured')
             continue
         try:
-            data = _http_get_json(base_url.rstrip('/') + '/health', timeout=8)
+            data = _http_get_json(base_url.rstrip('/') + '/health', timeout=6)
             add(label, data.get('ok'), detail=base_url)
+            hub_url = (data.get('hub_url') or data.get('hub_public_url') or '').rstrip('/')
+            hub_expected = HUB_PUBLIC_URL.rstrip('/')
+            if hub_url:
+                add(
+                    f'{label}_hub_link',
+                    hub_url == hub_expected,
+                    detail=hub_url,
+                    error='' if hub_url == hub_expected else f'expected {hub_expected}',
+                )
+            sso_ok = data.get('sso_configured')
+            if sso_ok is not None:
+                add(f'{label}_sso', bool(sso_ok))
         except Exception as e:
             add(label, False, error=str(e))
-
-        if INTERNAL_API_KEY:
-            try:
-                deep = _http_get_json(
-                    base_url.rstrip('/') + '/health/deep',
-                    timeout=12,
-                )
-                add(f'{label}_hub_link', deep.get('ok'), detail=deep.get('hub_url', ''))
-                for sub in deep.get('checks') or []:
-                    if not sub.get('ok'):
-                        add(f'{label}_{sub.get("name")}', False, error=sub.get('error', ''))
-            except Exception as e:
-                add(f'{label}_hub_link', False, error=str(e))
 
     ok = all(c['ok'] for c in checks)
     return {'ok': ok, 'checks': checks}
@@ -1690,21 +1680,29 @@ def admin():
     except Exception as e:
         print(f"Admin error: {e}")
 
-    try:
-        system_health = _run_system_health_checks()
-    except Exception as e:
-        print(f"System health error: {e}")
-        system_health = {'ok': False, 'checks': [{'name': 'health_check', 'ok': False, 'error': str(e)}]}
-
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            profile_rows=profile_rows, profiles_taken=profiles_taken,
                            profile_count=profile_count, unread_feedback=unread_feedback,
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
-                           breakdown=breakdown, vault=vault, system_health=system_health,
+                           breakdown=breakdown, vault=vault,
                            selected_year=2026,
                            user_definitions=USERS)
+
+
+@app.route('/admin/system-health')
+@require_admin
+def admin_system_health():
+    """Load system health async — avoids blocking /admin on outbound HTTP (single-worker deadlock)."""
+    try:
+        return jsonify(_run_system_health_checks())
+    except Exception as e:
+        print(f"System health error: {e}")
+        return jsonify({
+            'ok': False,
+            'checks': [{'name': 'health_check', 'ok': False, 'error': str(e)}],
+        })
 
 
 @app.route('/admin/search')

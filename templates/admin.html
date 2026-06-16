@@ -175,11 +175,9 @@
   </div>
   {% endif %}
 
-  {% if system_health and not system_health.ok %}
-  <div class="alert-banner error">
+  <div id="healthAlert" class="alert-banner error" style="display:none;">
     <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
   </div>
-  {% endif %}
 
   <div class="stats">
     <div class="stat">
@@ -256,14 +254,9 @@
   <!-- SYSTEM HEALTH -->
   <div class="pps-section-head">System Health</div>
   <div class="card" style="padding:18px 20px;margin-bottom:28px;">
-    <p style="font-size:13px;color:#888;margin-bottom:4px;">Cross-service env alignment — refreshed on each admin page load.</p>
-    <div class="health-grid">
-      {% for c in system_health.checks %}
-      <div class="health-item {% if c.ok %}ok{% else %}bad{% endif %}">
-        <span class="health-dot"></span>
-        <span>{{ c.name|replace('_', ' ')|title }}{% if not c.ok and c.error %}: {{ c.error }}{% elif c.detail %}: {{ c.detail }}{% endif %}</span>
-      </div>
-      {% endfor %}
+    <p style="font-size:13px;color:#888;margin-bottom:4px;">Cross-service env alignment — loads in the background so this page opens immediately.</p>
+    <div class="health-grid" id="healthGrid">
+      <div class="health-item" style="grid-column:1/-1;color:#888;font-size:13px;">Checking services…</div>
     </div>
   </div>
 
@@ -529,6 +522,33 @@
 </div>
 
 <script>
+  async function loadSystemHealth() {
+    const grid = document.getElementById('healthGrid');
+    const alert = document.getElementById('healthAlert');
+    if (!grid) return;
+    try {
+      const resp = await fetch('/admin/system-health', { credentials: 'same-origin' });
+      const data = await resp.json();
+      const checks = data.checks || [];
+      if (!checks.length) {
+        grid.innerHTML = '<div class="health-item" style="grid-column:1/-1;color:#888;">No health data returned.</div>';
+        return;
+      }
+      grid.innerHTML = checks.map(c => {
+        const cls = c.ok ? 'ok' : 'bad';
+        const name = (c.name || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+        let extra = '';
+        if (!c.ok && c.error) extra = ': ' + c.error;
+        else if (c.detail) extra = ': ' + c.detail;
+        return `<div class="health-item ${cls}"><span class="health-dot"></span><span>${name}${extra}</span></div>`;
+      }).join('');
+      if (alert && data.ok === false) alert.style.display = 'block';
+    } catch (e) {
+      grid.innerHTML = '<div class="health-item bad" style="grid-column:1/-1;"><span class="health-dot"></span><span>Could not load system health</span></div>';
+    }
+  }
+  loadSystemHealth();
+
   let activeUserKey = null;
 
   function openReset(userKey, displayName) {
