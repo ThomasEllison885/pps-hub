@@ -482,6 +482,31 @@ def init_db():
                 (key, user['display'], hashed, user['role'])
             )
 
+    # Backfill last_login from tool activity where logs are more recent
+    try:
+        cur.execute('''
+            UPDATE hub_users u
+            SET last_login = activity.last_seen
+            FROM (
+                SELECT user_key, MAX(last_seen) AS last_seen
+                FROM (
+                    SELECT generated_by AS user_key, MAX(generated_at) AS last_seen
+                    FROM proposal_log GROUP BY generated_by
+                    UNION ALL
+                    SELECT generated_by, MAX(generated_at) FROM ppm_log GROUP BY generated_by
+                    UNION ALL
+                    SELECT generated_by, MAX(generated_at) FROM subscope_log GROUP BY generated_by
+                    UNION ALL
+                    SELECT generated_by, MAX(generated_at) FROM site_visit_log GROUP BY generated_by
+                ) combined
+                GROUP BY user_key
+            ) activity
+            WHERE u.user_key = activity.user_key
+              AND (u.last_login IS NULL OR u.last_login < activity.last_seen)
+        ''')
+    except Exception as e:
+        print(f"last_login backfill skipped: {e}")
+
     conn.commit()
     cur.close()
     conn.close()
@@ -670,12 +695,26 @@ def login():
                            error=error)
 
 
-def _update_last_login(user_key):
+def _touch_last_active(user_key, force=False):
+    """Record user activity. force=True on explicit login; otherwise throttle to 30 min."""
+    if not user_key:
+        return
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor()
-            cur.execute('UPDATE hub_users SET last_login = NOW() WHERE user_key = %s', (user_key,))
+            if force:
+                cur.execute(
+                    'UPDATE hub_users SET last_login = NOW() WHERE user_key = %s',
+                    (user_key,)
+                )
+            else:
+                cur.execute(
+                    '''UPDATE hub_users SET last_login = NOW()
+                       WHERE user_key = %s
+                         AND (last_login IS NULL OR last_login < NOW() - INTERVAL '30 minutes')''',
+                    (user_key,)
+                )
             conn.commit()
             cur.close()
             conn.close()
@@ -683,10 +722,15 @@ def _update_last_login(user_key):
         pass
 
 
+def _update_last_login(user_key):
+    _touch_last_active(user_key, force=True)
+
+
 @app.route('/dashboard')
 @require_login
 def dashboard():
     user_key = session['user_key']
+    _touch_last_active(user_key)
     user = USERS.get(user_key, {})
     proposal_access = get_user_proposal_access(user_key)
     accessible_consultants = {k: CONSULTANTS[k] for k in proposal_access if k in CONSULTANTS}
@@ -798,6 +842,7 @@ def log_proposal():
             conn.commit()
             cur.close()
             conn.close()
+            _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
         print(f"Log proposal error: {e}")
@@ -899,6 +944,7 @@ def vault_store_proposal():
         conn.commit()
         cur.close()
         conn.close()
+        _touch_last_active(data.get('generated_by') or user_key)
         return jsonify({'success': True, 'log_id': log_id, 'document_id': document_id})
     except Exception as e:
         print(f"Vault store error: {e}")
@@ -990,6 +1036,7 @@ def log_ppm():
             conn.commit()
             cur.close()
             conn.close()
+            _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1131,6 +1178,7 @@ def log_subscope():
             conn.commit()
             cur.close()
             conn.close()
+            _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1445,6 +1493,7 @@ def validate_token():
                 conn.commit()
                 cur.close()
                 conn.close()
+                _touch_last_active(row['user_key'], force=True)
                 return jsonify({
                     'valid': True,
                     'user_key': row['user_key'],
