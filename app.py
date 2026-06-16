@@ -680,12 +680,20 @@ def get_recent_ppms(user_key, limit=5):
         conn = get_db()
         if not conn:
             return []
+        user_def = USERS.get(user_key, {})
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute('''
-            SELECT * FROM ppm_log
-            WHERE generated_by = %s
-            ORDER BY generated_at DESC LIMIT %s
-        ''', (user_key, limit))
+        if user_def.get('role') in ('pm', 'admin'):
+            cur.execute('''
+                SELECT * FROM ppm_log
+                WHERE generated_by = %s OR pm_key = %s
+                ORDER BY generated_at DESC LIMIT %s
+            ''', (user_key, user_key, limit))
+        else:
+            cur.execute('''
+                SELECT * FROM ppm_log
+                WHERE generated_by = %s
+                ORDER BY generated_at DESC LIMIT %s
+            ''', (user_key, limit))
         rows = cur.fetchall()
         cur.close()
         conn.close()
