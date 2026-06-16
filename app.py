@@ -28,6 +28,8 @@ if not _secret:
 app.secret_key = _secret
 
 INTERNAL_API_KEY = os.environ.get('INTERNAL_API_KEY', '').strip()
+CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '').strip()
+CLAUDE_MODEL = 'claude-sonnet-4-6'
 if not INTERNAL_API_KEY:
     print(
         'WARNING: INTERNAL_API_KEY is not set — proposal/profile SSO and internal APIs '
@@ -2051,6 +2053,51 @@ def my_proposals():
     )
 
 
+@app.route('/my-ppms')
+@require_login
+def my_ppms():
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    if user.get('role') not in ('pm', 'admin'):
+        return redirect(url_for('dashboard'))
+
+    rows = []
+    stats = {'total': 0, 'last_30': 0, 'as_pm': 0}
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                '''SELECT * FROM ppm_log
+                   WHERE generated_by = %s OR pm_key = %s
+                   ORDER BY generated_at DESC''',
+                (user_key, user_key)
+            )
+            rows = cur.fetchall()
+            stats['total'] = len(rows)
+            stats['as_pm'] = sum(1 for r in rows if r.get('pm_key') == user_key)
+            cur.execute(
+                '''SELECT COUNT(*) AS c FROM ppm_log
+                   WHERE (generated_by = %s OR pm_key = %s)
+                   AND generated_at >= NOW() - INTERVAL '30 days' ''',
+                (user_key, user_key)
+            )
+            stats['last_30'] = cur.fetchone()['c'] or 0
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"My PPMs error: {e}")
+
+    return render_template(
+        'my_ppms.html',
+        user=user,
+        user_key=user_key,
+        rows=rows,
+        stats=stats,
+        proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+    )
+
+
 @app.route('/admin/proposals')
 def admin_proposals():
     if session.get('role') != 'admin':
@@ -2177,6 +2224,121 @@ def validate_token():
         _touch_last_active(row['user_key'], force=True)
         return jsonify({'valid': True, **row})
     return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
+
+
+def _extract_upload_text(file_storage, label='file'):
+    """Extract plain text from an uploaded proposal (.docx, .txt; .pdf if pdftotext available)."""
+    if not file_storage or not file_storage.filename:
+        raise ValueError(f'Missing {label}')
+    filename = file_storage.filename.lower()
+    if filename.endswith('.docx'):
+        from docx import Document as DocxDoc
+        data = file_storage.read()
+        doc = DocxDoc(BytesIO(data))
+        parts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    t = cell.text.strip()
+                    if t:
+                        parts.append(t)
+        return '\n'.join(parts)
+    if filename.endswith('.txt'):
+        return file_storage.read().decode('utf-8', errors='ignore')
+    if filename.endswith('.pdf'):
+        import subprocess
+        import tempfile
+        data = file_storage.read()
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            result = subprocess.run(
+                ['pdftotext', tmp_path, '-'],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        raise ValueError('Could not extract text from PDF — upload a Word (.docx) or text file instead.')
+    raise ValueError('Unsupported file type — use .docx or .txt')
+
+
+@app.route('/analyze-diff', methods=['POST'])
+def analyze_diff():
+    """Compare original vs edited proposal; return Claude analysis for voice guide updates."""
+    if not session.get('user_key'):
+        return jsonify({'error': 'Not authenticated'}), 401
+    if not CLAUDE_API_KEY:
+        return jsonify({'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}), 503
+
+    original_file = request.files.get('original')
+    edited_file = request.files.get('edited')
+    property_name = (request.form.get('property_name') or '').strip()
+
+    try:
+        original_text = _extract_upload_text(original_file, 'original proposal')
+        edited_text = _extract_upload_text(edited_file, 'edited proposal')
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Could not read files: {e}'}), 400
+
+    if not original_text.strip() or not edited_text.strip():
+        return jsonify({'success': False, 'error': 'Could not extract text from one or both files.'}), 400
+
+    prop_line = f'Property: {property_name}\n\n' if property_name else ''
+    prompt = f"""You are helping improve the PPS (Pure Property Solutions) construction proposal voice guide.
+
+A consultant generated a proposal with AI, then edited it before sending to the client.
+Compare the ORIGINAL and EDITED versions. Focus on meaningful changes to tone, structure,
+wording, scope language, and client-facing phrasing — not trivial formatting.
+
+{prop_line}ORIGINAL (AI-generated):
+{original_text[:14000]}
+
+EDITED (consultant's final version):
+{edited_text[:14000]}
+
+Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
+{{
+  "diff_analysis": "Bullet-style summary of what changed and why it matters for client-facing proposals",
+  "voice_recommendations": "Specific, actionable updates to recommend for pps_voice.txt — phrasing rules, tone shifts, trade language, or sections to add"
+}}"""
+
+    try:
+        import anthropic
+        cl = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        msg = cl.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2500,
+            messages=[{'role': 'user', 'content': prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[-1]
+            if raw.endswith('```'):
+                raw = raw.rsplit('```', 1)[0]
+            raw = raw.strip()
+        parsed = json.loads(raw)
+        diff_analysis = (parsed.get('diff_analysis') or '').strip()
+        voice_recommendations = (parsed.get('voice_recommendations') or '').strip()
+        if not diff_analysis and not voice_recommendations:
+            return jsonify({'success': False, 'error': 'Claude returned an empty analysis.'}), 500
+        return jsonify({
+            'success': True,
+            'diff_analysis': diff_analysis,
+            'voice_recommendations': voice_recommendations,
+        })
+    except json.JSONDecodeError:
+        return jsonify({'success': False, 'error': 'Could not parse Claude response. Try again.'}), 500
+    except Exception as e:
+        print(f"Analyze diff error: {e}")
+        return jsonify({'success': False, 'error': f'Analysis failed: {e}'}), 500
 
 
 @app.route('/submit-diff', methods=['POST'])
