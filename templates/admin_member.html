@@ -231,6 +231,10 @@ const memberPPMs = [
   {% for p in ppms %}
   {type:'ppm', title:{{ (p.property_name or 'Unnamed')|tojson }},
    pm:{{ (p.pm_name or '—')|tojson }}, by:{{ (p.generated_by or '')|tojson }},
+   address:{{ (p.property_address or '—')|tojson }}, client:{{ (p.client_name or '—')|tojson }},
+   num:{{ (p.proposal_number or '—')|tojson }}, value:{{ (p.total_value or '—')|tojson }},
+   projType:{{ (p.proj_type or '—')|tojson }}, scale:{{ (p.scale or '—')|tojson }},
+   clientType:{{ (p.client_type or '—')|tojson }}, occupied:{{ (p.occupied or '—')|tojson }},
    date:{{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }}
   }{% if not loop.last %},{% endif %}
   {% endfor %}
@@ -239,7 +243,9 @@ const memberTPS = [
   {% for s in subscopes %}
   {type:'tps', title:{{ (s.property_name or 'Unnamed')|tojson }},
    pm:{{ (s.pm_name or '—')|tojson }}, by:{{ (s.generated_by or '')|tojson }},
+   address:{{ (s.property_address or '—')|tojson }}, po:{{ (s.po_number or '—')|tojson }},
    language:{{ (s.language or '—')|tojson }}, consultant:{{ (s.consultant_name or '—')|tojson }},
+   material:{{ (s.material_provider or '—')|tojson }}, sourceFile:{{ (s.proposal_filename or '—')|tojson }},
    date:{{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }}
   }{% if not loop.last %},{% endif %}
   {% endfor %}
@@ -248,14 +254,44 @@ const memberTPS = [
 function showMeta(type, idx) {
   let d = type==='proposal' ? memberProposals[idx] : type==='ppm' ? memberPPMs[idx] : memberTPS[idx];
   document.getElementById('mmTitle').textContent = d.title;
-  document.getElementById('mmType').textContent = type==='proposal' ? (d.ptype||'—') : type==='ppm' ? 'PPM' : 'Trade Partner Scope';
-  document.getElementById('mmConsultant').textContent = type==='proposal' ? d.consultant : (d.consultant||'—');
+  document.getElementById('mmType').textContent = type==='proposal' ? (d.ptype||'—') : type==='ppm' ? (d.projType||'PPM') : 'Trade Partner Scope';
+  document.getElementById('mmConsultant').textContent = type==='proposal' ? d.consultant : type==='ppm' ? (d.client||'—') : (d.consultant||'—');
   document.getElementById('mmBy').textContent = (d.by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
   document.getElementById('mmExtra').textContent = type==='proposal' ? (d.template||'—') : (d.pm||'—');
   document.getElementById('mmExtraLabel').textContent = type==='proposal' ? 'Template' : 'PM';
-  document.getElementById('mmScopes').textContent = type==='proposal' ? (d.scopes||'—') : type==='tps' ? (d.language||'—') : '—';
-  document.getElementById('mmScopesLabel').textContent = type==='proposal' ? 'Scopes' : type==='tps' ? 'Language' : 'Notes';
+  if (type==='proposal') {
+    document.getElementById('mmScopes').textContent = d.scopes||'—';
+    document.getElementById('mmScopesLabel').textContent = 'Scopes';
+  } else if (type==='ppm') {
+    document.getElementById('mmScopes').textContent = [d.scale, d.clientType, d.occupied, d.value !== '—' ? d.value : ''].filter(x => x && x !== '—').join(' · ') || '—';
+    document.getElementById('mmScopesLabel').textContent = 'Details';
+  } else {
+    document.getElementById('mmScopes').textContent = [d.language, d.material === 'tp' ? 'TP materials' : d.material === 'pps' ? 'PPS materials' : ''].filter(Boolean).join(' · ') || '—';
+    document.getElementById('mmScopesLabel').textContent = 'Language';
+  }
   document.getElementById('mmDate').textContent = d.date;
+  const addrWrap = document.getElementById('mmAddressWrap');
+  const numWrap = document.getElementById('mmNumWrap');
+  if (type==='proposal') {
+    addrWrap.style.display='none'; numWrap.style.display='none';
+  } else if (type==='ppm') {
+    document.getElementById('mmAddress').textContent = d.address||'—';
+    document.getElementById('mmNum').textContent = d.num||'—';
+    document.getElementById('mmNumLabel').textContent = 'Proposal #';
+    addrWrap.style.display='flex'; numWrap.style.display='flex';
+  } else {
+    document.getElementById('mmAddress').textContent = d.address||'—';
+    document.getElementById('mmNum').textContent = d.po||'—';
+    document.getElementById('mmNumLabel').textContent = 'PO #';
+    addrWrap.style.display='flex'; numWrap.style.display='flex';
+  }
+  const sfWrap = document.getElementById('mmSourceWrap');
+  if (type==='tps' && d.sourceFile && d.sourceFile !== '—') {
+    document.getElementById('mmSource').textContent = d.sourceFile;
+    sfWrap.style.display='block';
+  } else {
+    sfWrap.style.display='none';
+  }
   const iw = document.getElementById('mmIssueWrap');
   const ow = document.getElementById('mmOutcomeWrap');
   if (type==='proposal' && d.issue) { document.getElementById('mmIssue').textContent = d.issue; iw.style.display='block'; } else { iw.style.display='none'; }
@@ -272,6 +308,8 @@ function closeMeta() { document.getElementById('memberMetaModal').style.display=
       <button onclick="closeMeta()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
     </div>
     <div style="display:flex;flex-direction:column;">
+      <div id="mmNumWrap" style="display:none;flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div id="mmNumLabel" style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Proposal #</div><div id="mmNum" style="font-size:14px;color:#444;"></div></div>
+      <div id="mmAddressWrap" style="display:none;flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Address</div><div id="mmAddress" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Type</div><div id="mmType" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Consultant</div><div id="mmConsultant" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;">Generated By</div><div id="mmBy" style="font-size:14px;color:#444;"></div></div>
@@ -286,6 +324,10 @@ function closeMeta() { document.getElementById('memberMetaModal').style.display=
     <div id="mmOutcomeWrap" style="display:none;margin-top:10px;">
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div id="mmOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="mmSourceWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Source Proposal</div>
+      <div id="mmSource" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
     </div>
   </div>
 </div>

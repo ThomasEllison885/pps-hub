@@ -237,7 +237,7 @@
       <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="showPPMMeta({{ loop.index0 }})">
         <div class="act-item-content">
           <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
-          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
         <button class="delete-btn" onclick="event.stopPropagation();deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>
@@ -257,7 +257,7 @@
       <div class="act-item" style="cursor:pointer;" onclick="showTPSMeta({{ loop.index0 }})">
         <div class="act-item-content">
           <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
-          <div class="act-meta">{{ s.generated_by.replace('_',' ').title() }} · {{ s.pm_name or '' }} · {{ s.language|title if s.language else '' }} · {{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
+          <div class="act-meta">{{ s.generated_by.replace('_',' ').title() }} · {{ s.consultant_name or '' }} · {{ s.language|title if s.language else '' }}{% if s.po_number %} · PO {{ s.po_number }}{% endif %} · {{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
         </div>
       </div>
       {% endfor %}
@@ -426,6 +426,15 @@
       property: {{ (p.property_name or 'Unnamed')|tojson }},
       pm: {{ (p.pm_name or '—')|tojson }},
       by: {{ (p.generated_by or '')|tojson }},
+      address: {{ (p.property_address or '—')|tojson }},
+      client: {{ (p.client_name or '—')|tojson }},
+      num: {{ (p.proposal_number or '—')|tojson }},
+      value: {{ (p.total_value or '—')|tojson }},
+      propDate: {{ (p.proposal_date or '—')|tojson }},
+      projType: {{ (p.proj_type or '—')|tojson }},
+      scale: {{ (p.scale or '—')|tojson }},
+      clientType: {{ (p.client_type or '—')|tojson }},
+      occupied: {{ (p.occupied or '—')|tojson }},
       date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
     }{% if not loop.last %},{% endif %}
     {% endfor %}
@@ -437,8 +446,12 @@
       property: {{ (s.property_name or 'Unnamed')|tojson }},
       pm: {{ (s.pm_name or '—')|tojson }},
       by: {{ (s.generated_by or '')|tojson }},
+      address: {{ (s.property_address or '—')|tojson }},
+      po: {{ (s.po_number or '—')|tojson }},
       language: {{ (s.language or '—')|tojson }},
       consultant: {{ (s.consultant_name or '—')|tojson }},
+      material: {{ (s.material_provider or '—')|tojson }},
+      sourceFile: {{ (s.proposal_filename or '—')|tojson }},
       date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
     }{% if not loop.last %},{% endif %}
     {% endfor %}
@@ -474,14 +487,14 @@
   function showPPMMeta(idx) {
     const p = adminPPMs[idx];
     document.getElementById('amTitle').textContent = p.property;
-    document.getElementById('amNum').textContent = '—';
-    document.getElementById('amAddress').textContent = '—';
-    document.getElementById('amConsultant').textContent = '—';
+    document.getElementById('amNum').textContent = p.num;
+    document.getElementById('amAddress').textContent = p.address;
+    document.getElementById('amConsultant').textContent = p.client;
     document.getElementById('amBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-    document.getElementById('amType').textContent = 'PPM';
+    document.getElementById('amType').textContent = p.projType;
     document.getElementById('amTemplate').textContent = p.pm;
-    document.getElementById('amScopes').textContent = '—';
-    document.getElementById('amDate').textContent = p.date;
+    document.getElementById('amScopes').textContent = [p.scale, p.clientType, p.occupied, p.value !== '—' ? p.value : ''].filter(x => x && x !== '—').join(' · ') || '—';
+    document.getElementById('amDate').textContent = p.propDate !== '—' ? p.propDate + ' (generated ' + p.date + ')' : p.date;
     document.getElementById('amIssueWrap').style.display = 'none';
     document.getElementById('amOutcomeWrap').style.display = 'none';
     document.getElementById('amNotesWrap').style.display = 'none';
@@ -492,17 +505,23 @@
   function showTPSMeta(idx) {
     const s = adminTPS[idx];
     document.getElementById('amTitle').textContent = s.property;
-    document.getElementById('amNum').textContent = '—';
-    document.getElementById('amAddress').textContent = '—';
+    document.getElementById('amNum').textContent = s.po;
+    document.getElementById('amAddress').textContent = s.address;
     document.getElementById('amConsultant').textContent = s.consultant;
     document.getElementById('amBy').textContent = s.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
     document.getElementById('amType').textContent = 'Trade Partner Scope';
-    document.getElementById('amTemplate').textContent = s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '—';
-    document.getElementById('amScopes').textContent = '—';
+    document.getElementById('amTemplate').textContent = s.pm;
+    document.getElementById('amScopes').textContent = [s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '', s.material === 'tp' ? 'TP materials' : s.material === 'pps' ? 'PPS materials' : ''].filter(Boolean).join(' · ') || '—';
     document.getElementById('amDate').textContent = s.date;
     document.getElementById('amIssueWrap').style.display = 'none';
     document.getElementById('amOutcomeWrap').style.display = 'none';
-    document.getElementById('amNotesWrap').style.display = 'none';
+    const nw = document.getElementById('amNotesWrap');
+    if (s.sourceFile && s.sourceFile !== '—') {
+      document.getElementById('amNotes').textContent = 'Source proposal: ' + s.sourceFile;
+      nw.style.display = 'block';
+    } else {
+      nw.style.display = 'none';
+    }
     document.getElementById('amDownloadWrap').style.display = 'none';
     document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }

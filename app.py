@@ -395,12 +395,30 @@ def init_db():
         )
     ''')
 
-    # Migrate ppm_log to add pm columns if needed
-    try:
-        cur.execute("ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_key VARCHAR(100)")
-        cur.execute("ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_name VARCHAR(255)")
-        cur.execute("ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'")
-    except: pass
+    # Migrate ppm_log / subscope_log metadata columns
+    for col in [
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_key VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_name VARCHAR(255)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS property_address VARCHAR(255)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS client_name VARCHAR(255)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS proposal_number VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS total_value VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS proposal_date VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS proj_type VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS scale VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS client_type VARCHAR(100)",
+        "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS occupied VARCHAR(100)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS property_address VARCHAR(255)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS po_number VARCHAR(100)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS consultant_key VARCHAR(100)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS pm_key VARCHAR(100)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS material_provider VARCHAR(50)",
+        "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS proposal_filename VARCHAR(255)",
+        "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'",
+    ]:
+        try:
+            cur.execute(col)
+        except: pass
 
     # Client / contact database
     cur.execute('''
@@ -948,10 +966,26 @@ def log_ppm():
         if conn:
             cur = conn.cursor()
             cur.execute(
-                '''INSERT INTO ppm_log (generated_by, property_name, pm_key, pm_name)
-                   VALUES (%s, %s, %s, %s)''',
-                (data.get('generated_by'), data.get('property_name'),
-                 data.get('pm_key', ''), data.get('pm_name', ''))
+                '''INSERT INTO ppm_log
+                   (generated_by, property_name, pm_key, pm_name,
+                    property_address, client_name, proposal_number, total_value,
+                    proposal_date, proj_type, scale, client_type, occupied)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                (
+                    data.get('generated_by'),
+                    data.get('property_name'),
+                    data.get('pm_key', ''),
+                    data.get('pm_name', ''),
+                    data.get('property_address', ''),
+                    data.get('client_name', ''),
+                    data.get('proposal_number', ''),
+                    data.get('total_value', ''),
+                    data.get('proposal_date', ''),
+                    data.get('proj_type', ''),
+                    data.get('scale', ''),
+                    data.get('client_type', ''),
+                    data.get('occupied', ''),
+                )
             )
             conn.commit()
             cur.close()
@@ -1075,10 +1109,24 @@ def log_subscope():
         if conn:
             cur = conn.cursor()
             cur.execute(
-                '''INSERT INTO subscope_log (generated_by, property_name, pm_name, consultant_name, language)
-                   VALUES (%s, %s, %s, %s, %s)''',
-                (data.get('generated_by'), data.get('property_name'),
-                 data.get('pm_name'), data.get('consultant_name'), data.get('language'))
+                '''INSERT INTO subscope_log
+                   (generated_by, property_name, pm_name, consultant_name, language,
+                    property_address, po_number, consultant_key, pm_key,
+                    material_provider, proposal_filename)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+                (
+                    data.get('generated_by'),
+                    data.get('property_name'),
+                    data.get('pm_name'),
+                    data.get('consultant_name'),
+                    data.get('language'),
+                    data.get('property_address', ''),
+                    data.get('po_number', ''),
+                    data.get('consultant_key', ''),
+                    data.get('pm_key', ''),
+                    data.get('material_provider', ''),
+                    data.get('proposal_filename', ''),
+                )
             )
             conn.commit()
             cur.close()
