@@ -408,6 +408,7 @@ const recentProposals = [
     date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
+    notes: {{ (p.scope_notes or '')|tojson }},
     documentId: {{ (p.document_id or none)|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
@@ -426,6 +427,7 @@ const myProposals = [
     date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
+    notes: {{ (p.scope_notes or '')|tojson }},
     documentId: {{ (p.document_id or none)|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
@@ -452,9 +454,13 @@ const myProposals = [
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
       <div id="pdIssue" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
     </div>
-    <div id="pdOutcomeWrap" style="display:none;">
+    <div id="pdOutcomeWrap" style="display:none;margin-bottom:10px;">
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div id="pdOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
+    </div>
+    <div id="pdNotesWrap" style="display:none;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Additional Scope Notes</div>
+      <div id="pdNotes" style="font-size:13px;color:#666;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:10px 12px;border:1px solid #FFE082;"></div>
     </div>
     <div id="pdDownloadWrap" style="display:none;margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;">
       <a id="pdDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
@@ -477,6 +483,8 @@ const myProposals = [
     const ow = document.getElementById('pdOutcomeWrap');
     if (p.issue) { document.getElementById('pdIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
     if (p.outcome) { document.getElementById('pdOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+    const nw = document.getElementById('pdNotesWrap');
+    if (p.notes) { document.getElementById('pdNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
     const dlWrap = document.getElementById('pdDownloadWrap');
     if (p.documentId) {
       document.getElementById('pdDownload').href = '/api/documents/' + p.documentId + '/download';
