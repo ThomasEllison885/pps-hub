@@ -838,6 +838,7 @@ def health():
         'database_configured': bool(DATABASE_URL),
         'database_connected': db_ok,
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
+        'claude_configured': bool(CLAUDE_API_KEY),
     })
 
 
