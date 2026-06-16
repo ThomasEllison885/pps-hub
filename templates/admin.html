@@ -163,19 +163,6 @@
   <div class="page-title">Team Overview</div>
   <p class="page-sub">Pure Property Solutions · All users and activity</p>
 
-  {% if vault.recent_missing_file > 0 %}
-  <div class="alert-banner error">
-    <strong>{{ vault.recent_missing_file }} proposal(s) in the last 7 days have no stored file.</strong>
-    Hub history was logged but the Word document did not vault — consultants cannot re-download these.
-    Check <strong>INTERNAL_API_KEY</strong> and <strong>HUB_URL</strong> on the proposal tool (must match hub).
-  </div>
-  {% elif vault.proposals_missing_file > 0 %}
-  <div class="alert-banner warn">
-    <strong>{{ vault.proposals_missing_file }} proposal(s)</strong> have metadata only (no vaulted file).
-    Older entries from before file storage, or failed vault saves. Coverage: {{ vault.proposals_with_file }} / {{ vault.proposals_total }}.
-  </div>
-  {% endif %}
-
   <div id="healthAlert" class="alert-banner error" style="display:none;">
     <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
   </div>
