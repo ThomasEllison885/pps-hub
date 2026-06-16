@@ -127,7 +127,15 @@
   .vault-stat .vlbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
   .vault-del{background:#FEE;color:#C00;border:1px solid #fcc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .vault-del:hover{background:#fcc;}
-  @media(max-width:900px){.breakdown-grid,.vault-summary{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
+  .alert-banner{border-radius:var(--radius);padding:14px 18px;margin-bottom:20px;font-size:14px;line-height:1.5;}
+  .alert-banner.warn{background:#FFF8E1;border:1.5px solid #FFD54F;color:#E65100;}
+  .alert-banner.error{background:#FFEBEE;border:1.5px solid #EF9A9A;color:#B71C1C;}
+  .health-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px;}
+  .health-item{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;background:var(--light-bg);border-radius:6px;border:1px solid var(--border);}
+  .health-item.ok .health-dot{background:#27ae60;}
+  .health-item.bad .health-dot{background:#C00000;}
+  .health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  @media(max-width:900px){.breakdown-grid,.vault-summary,.health-grid{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
   @media(max-width:600px){.breakdown-grid,.vault-summary,.stats{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -153,6 +161,25 @@
 <div class="main">
   <div class="page-title">Team Overview</div>
   <p class="page-sub">Pure Property Solutions · All users and activity</p>
+
+  {% if vault.recent_missing_file > 0 %}
+  <div class="alert-banner error">
+    <strong>{{ vault.recent_missing_file }} proposal(s) in the last 7 days have no stored file.</strong>
+    Hub history was logged but the Word document did not vault — consultants cannot re-download these.
+    Check <strong>INTERNAL_API_KEY</strong> and <strong>HUB_URL</strong> on the proposal tool (must match hub).
+  </div>
+  {% elif vault.proposals_missing_file > 0 %}
+  <div class="alert-banner warn">
+    <strong>{{ vault.proposals_missing_file }} proposal(s)</strong> have metadata only (no vaulted file).
+    Older entries from before file storage, or failed vault saves. Coverage: {{ vault.proposals_with_file }} / {{ vault.proposals_total }}.
+  </div>
+  {% endif %}
+
+  {% if system_health and not system_health.ok %}
+  <div class="alert-banner error">
+    <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
+  </div>
+  {% endif %}
 
   <div class="stats">
     <div class="stat">
@@ -223,6 +250,20 @@
     <div class="breakdown-card">
       <h4>TPS Languages</h4>
       {{ render_bars(breakdown.get('tps_languages', [])) }}
+    </div>
+  </div>
+
+  <!-- SYSTEM HEALTH -->
+  <div class="pps-section-head">System Health</div>
+  <div class="card" style="padding:18px 20px;margin-bottom:28px;">
+    <p style="font-size:13px;color:#888;margin-bottom:4px;">Cross-service env alignment — refreshed on each admin page load.</p>
+    <div class="health-grid">
+      {% for c in system_health.checks %}
+      <div class="health-item {% if c.ok %}ok{% else %}bad{% endif %}">
+        <span class="health-dot"></span>
+        <span>{{ c.name|replace('_', ' ')|title }}{% if not c.ok and c.error %}: {{ c.error }}{% elif c.detail %}: {{ c.detail }}{% endif %}</span>
+      </div>
+      {% endfor %}
     </div>
   </div>
 

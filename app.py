@@ -336,6 +336,17 @@ def init_db():
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scopes_selected TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scope_notes TEXT",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS document_id INTEGER",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS company VARCHAR(255)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scope_details TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS other_scope TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS pricing_json TEXT",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS warranty_pps VARCHAR(100)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS warranty_mfg VARCHAR(100)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS proposal_date VARCHAR(50)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS expiry_date VARCHAR(50)",
+        "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS contract_total VARCHAR(100)",
     ]:
         try:
             cur.execute(col)
@@ -706,18 +717,126 @@ def get_profile_result(user_key):
 
 # ── ROUTES ──────────────────────────────────────────────────────────────────────
 
+def _http_get_json(url, headers=None, timeout=8):
+    import urllib.request
+    req = urllib.request.Request(url, headers=headers or {}, method='GET')
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode('utf-8'))
+
+
+def _run_system_health_checks():
+    """Verify env alignment and cross-service connectivity."""
+    import urllib.error
+    checks = []
+
+    def add(name, ok, detail='', error=''):
+        checks.append({
+            'name': name,
+            'ok': bool(ok),
+            'detail': detail,
+            'error': error,
+        })
+
+    add('secret_key', os.environ.get('SECRET_KEY', '').strip() != '')
+    add('internal_api_key', bool(INTERNAL_API_KEY))
+    add('database_url', bool(DATABASE_URL))
+
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            if conn:
+                cur = conn.cursor()
+                cur.execute('SELECT 1')
+                cur.close()
+                conn.close()
+                add('database_connect', True)
+            else:
+                add('database_connect', False, error='get_db returned None')
+        except Exception as e:
+            add('database_connect', False, error=str(e))
+    else:
+        add('database_connect', False, error='DATABASE_URL not set')
+
+    if INTERNAL_API_KEY:
+        try:
+            ping = _http_get_json(
+                HUB_PUBLIC_URL.rstrip('/') + '/api/internal/ping',
+                headers={'X-API-Key': INTERNAL_API_KEY},
+            )
+            add('hub_internal_ping', ping.get('ok'), detail=ping.get('service', ''))
+        except Exception as e:
+            add('hub_internal_ping', False, error=str(e))
+    else:
+        add('hub_internal_ping', False, error='INTERNAL_API_KEY not set')
+
+    for label, base_url in (('proposal_tool', PROPOSAL_URL), ('profile_tool', PROFILE_URL)):
+        if not base_url:
+            add(label, False, error=f'{label.upper()} URL not configured')
+            continue
+        try:
+            data = _http_get_json(base_url.rstrip('/') + '/health', timeout=8)
+            add(label, data.get('ok'), detail=base_url)
+        except Exception as e:
+            add(label, False, error=str(e))
+
+        if INTERNAL_API_KEY:
+            try:
+                deep = _http_get_json(
+                    base_url.rstrip('/') + '/health/deep',
+                    timeout=12,
+                )
+                add(f'{label}_hub_link', deep.get('ok'), detail=deep.get('hub_url', ''))
+                for sub in deep.get('checks') or []:
+                    if not sub.get('ok'):
+                        add(f'{label}_{sub.get("name")}', False, error=sub.get('error', ''))
+            except Exception as e:
+                add(f'{label}_hub_link', False, error=str(e))
+
+    ok = all(c['ok'] for c in checks)
+    return {'ok': ok, 'checks': checks}
+
+
 @app.route('/health')
 def health():
+    db_ok = False
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            if conn:
+                cur = conn.cursor()
+                cur.execute('SELECT 1')
+                cur.close()
+                conn.close()
+                db_ok = True
+        except Exception:
+            pass
     return jsonify({
         'ok': True,
+        'service': 'hub',
         'hub_public_url': HUB_PUBLIC_URL,
         'proposal_url': PROPOSAL_URL,
         'profile_url': PROFILE_URL,
         'secret_configured': os.environ.get('SECRET_KEY', '').strip() != '',
         'internal_api_configured': bool(INTERNAL_API_KEY),
         'database_configured': bool(DATABASE_URL),
+        'database_connected': db_ok,
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
     })
+
+
+@app.route('/health/deep')
+def health_deep():
+    if not (_internal_api_ok() or session.get('role') == 'admin'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    report = _run_system_health_checks()
+    return jsonify(report)
+
+
+@app.route('/api/internal/ping')
+def internal_ping():
+    if not _internal_api_ok():
+        return jsonify({'ok': False, 'error': 'Invalid or missing API key'}), 401
+    return jsonify({'ok': True, 'service': 'hub'})
 
 
 @app.route('/')
@@ -1037,18 +1156,47 @@ def proposal_prefill(log_id):
         if row.get('scopes_selected'):
             scopes = [s.strip() for s in row['scopes_selected'].split(',') if s.strip()]
 
+        scope_details = []
+        if row.get('scope_details'):
+            try:
+                parsed = json.loads(row['scope_details'])
+                if isinstance(parsed, list):
+                    scope_details = parsed
+            except Exception:
+                scope_details = [s.strip() for s in row['scope_details'].split(',') if s.strip()]
+
+        pricing_lines = []
+        if row.get('pricing_json'):
+            try:
+                parsed = json.loads(row['pricing_json'])
+                if isinstance(parsed, list):
+                    pricing_lines = parsed
+            except Exception:
+                pass
+
         return jsonify({
             'success': True,
             'consultant_key': row.get('consultant_key') or '',
             'client_name': row.get('client_name') or row.get('property_name') or '',
+            'contact_name': row.get('contact_name') or '',
+            'contact_email': row.get('contact_email') or '',
+            'company': row.get('company') or '',
             'address': row.get('property_address') or '',
             'property_type': row.get('property_type') or '',
             'template_type': row.get('template_type') or 'short',
             'proposal_number': row.get('proposal_number') or '',
+            'proposal_date': row.get('proposal_date') or '',
+            'expiry_date': row.get('expiry_date') or '',
             'existing_issue': row.get('existing_issue') or '',
             'intended_outcome': row.get('intended_outcome') or '',
             'scopes': scopes,
+            'scope_details': scope_details,
+            'other_scope': row.get('other_scope') or '',
             'scope_notes': row.get('scope_notes') or '',
+            'pricing_lines': pricing_lines,
+            'warranty_pps': row.get('warranty_pps') or '',
+            'warranty_mfg': row.get('warranty_mfg') or '',
+            'contract_total': row.get('contract_total') or '',
             'has_file': bool(row.get('document_id')),
             'document_id': row.get('document_id'),
         })
@@ -1094,8 +1242,11 @@ def vault_store_proposal():
             INSERT INTO proposal_log
             (generated_by, consultant_key, consultant_name, client_name,
              property_name, property_address, property_type, template_type,
-             proposal_number, existing_issue, intended_outcome, scopes_selected, scope_notes)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             proposal_number, existing_issue, intended_outcome, scopes_selected, scope_notes,
+             contact_name, contact_email, company, scope_details, other_scope,
+             pricing_json, warranty_pps, warranty_mfg, proposal_date, expiry_date, contract_total)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (
             data.get('generated_by') or user_key,
@@ -1111,6 +1262,17 @@ def vault_store_proposal():
             data.get('intended_outcome', ''),
             data.get('scopes_selected', ''),
             data.get('scope_notes', ''),
+            data.get('contact_name', ''),
+            data.get('contact_email', ''),
+            data.get('company', ''),
+            data.get('scope_details', ''),
+            data.get('other_scope', ''),
+            data.get('pricing_json', ''),
+            data.get('warranty_pps', ''),
+            data.get('warranty_mfg', ''),
+            data.get('proposal_date', ''),
+            data.get('expiry_date', ''),
+            data.get('contract_total', ''),
         ))
         log_id = cur.fetchone()[0]
 
@@ -1288,6 +1450,12 @@ def _fetch_vault_summary(cur):
         vault['proposals_total'] = cur.fetchone()['c'] or 0
         cur.execute('SELECT COUNT(*) AS c FROM proposal_log WHERE document_id IS NOT NULL')
         vault['proposals_with_file'] = cur.fetchone()['c'] or 0
+        vault['proposals_missing_file'] = max(0, vault['proposals_total'] - vault['proposals_with_file'])
+        cur.execute(
+            '''SELECT COUNT(*) AS c FROM proposal_log
+               WHERE document_id IS NULL AND generated_at >= NOW() - INTERVAL '7 days'''
+        )
+        vault['recent_missing_file'] = cur.fetchone()['c'] or 0
         cur.execute('''
             SELECT d.id, d.doc_type, d.filename, d.size_bytes, d.created_at, d.user_key,
                    pl.property_name, pl.consultant_name, pl.generated_by
@@ -1460,7 +1628,12 @@ def admin():
     client_count = 0
     proposals_30d = ppms_30d = subscopes_30d = 0
     breakdown = {}
-    vault = {'files': [], 'file_count': 0, 'total_bytes': 0, 'proposals_with_file': 0, 'proposals_total': 0}
+    vault = {
+        'files': [], 'file_count': 0, 'total_bytes': 0,
+        'proposals_with_file': 0, 'proposals_total': 0,
+        'proposals_missing_file': 0, 'recent_missing_file': 0,
+    }
+    system_health = {'ok': False, 'checks': []}
     try:
         conn = get_db()
         if conn:
@@ -1506,13 +1679,19 @@ def admin():
     except Exception as e:
         print(f"Admin error: {e}")
 
+    try:
+        system_health = _run_system_health_checks()
+    except Exception as e:
+        print(f"System health error: {e}")
+        system_health = {'ok': False, 'checks': [{'name': 'health_check', 'ok': False, 'error': str(e)}]}
+
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            profile_rows=profile_rows, profiles_taken=profiles_taken,
                            profile_count=profile_count, unread_feedback=unread_feedback,
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
-                           breakdown=breakdown, vault=vault,
+                           breakdown=breakdown, vault=vault, system_health=system_health,
                            selected_year=2026,
                            user_definitions=USERS)
 
