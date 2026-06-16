@@ -715,6 +715,13 @@ def get_profile_result(user_key):
         return None
 
 
+def _internal_api_ok():
+    if not INTERNAL_API_KEY:
+        return False
+    api_key = request.headers.get('X-API-Key', '')
+    return api_key == INTERNAL_API_KEY
+
+
 # ── ROUTES ──────────────────────────────────────────────────────────────────────
 
 def _http_get_json(url, headers=None, timeout=8):
@@ -1090,13 +1097,6 @@ def log_proposal():
         return jsonify({'error': str(e)}), 500
 
 
-def _internal_api_ok():
-    if not INTERNAL_API_KEY:
-        return False
-    api_key = request.headers.get('X-API-Key', '')
-    return api_key == INTERNAL_API_KEY
-
-
 def _get_proposal_log_for_document(cur, document_id):
     cur.execute('''
         SELECT pl.*, d.filename, d.mime_type, d.size_bytes, d.user_key AS doc_user_key
@@ -1452,8 +1452,8 @@ def _fetch_vault_summary(cur):
         vault['proposals_with_file'] = cur.fetchone()['c'] or 0
         vault['proposals_missing_file'] = max(0, vault['proposals_total'] - vault['proposals_with_file'])
         cur.execute(
-            '''SELECT COUNT(*) AS c FROM proposal_log
-               WHERE document_id IS NULL AND generated_at >= NOW() - INTERVAL '7 days'''
+            """SELECT COUNT(*) AS c FROM proposal_log
+               WHERE document_id IS NULL AND generated_at >= NOW() - INTERVAL '7 days'"""
         )
         vault['recent_missing_file'] = cur.fetchone()['c'] or 0
         cur.execute('''
