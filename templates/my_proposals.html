@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · My Proposals</title>
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .main{max-width:1100px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:24px;}
+  .stats-row{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;}
+  .stat-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;min-width:120px;}
+  .stat-num{font-size:22px;font-weight:700;color:var(--dark-blue);}
+  .stat-lbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
+  .search-wrap{margin-bottom:20px;}
+  .search-input{width:100%;max-width:420px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;}
+  .search-input:focus{border-color:var(--blue);}
+  .search-hint{font-size:12px;color:#aaa;margin-top:6px;}
+  .prop-name{font-weight:600;color:var(--dark-blue);}
+  .empty{text-align:center;color:#bbb;padding:48px 20px;font-size:14px;}
+  .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;}
+  .modal-overlay.active{display:flex;}
+  .modal{background:white;border-radius:var(--radius);box-shadow:0 8px 40px rgba(0,0,0,0.2);padding:28px;width:90%;max-width:520px;max-height:85vh;overflow-y:auto;}
+  .modal-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;}
+  .modal-title{font-family:'DM Serif Display',serif;font-size:20px;color:var(--dark-blue);line-height:1.3;flex:1;}
+  .modal-close{background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;}
+  .detail-row{display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;}
+  .detail-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;}
+  .detail-val{font-size:14px;color:var(--gray);line-height:1.5;}
+  .detail-text{font-size:13px;color:#666;line-height:1.6;background:var(--light-bg);border-radius:6px;padding:10px 12px;}
+  tr.filtered-out{display:none;}
+  @media(max-width:700px){.main{padding:24px 14px 40px;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">My Proposals</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">My Proposals</div>
+  <p class="page-sub">{{ stats.total }} proposal{% if stats.total != 1 %}s{% endif %} you've generated · re-download or regenerate anytime</p>
+
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-num">{{ stats.total }}</div><div class="stat-lbl">All Time</div></div>
+    <div class="stat-card"><div class="stat-num">{{ stats.last_30 }}</div><div class="stat-lbl">Last 30 Days</div></div>
+    <div class="stat-card"><div class="stat-num">{{ stats.with_file }}</div><div class="stat-lbl">With Download</div></div>
+  </div>
+
+  <div class="search-wrap">
+    <input type="search" id="proposalSearch" class="search-input" placeholder="Search property, client, address, proposal #…" autocomplete="off">
+    <div class="search-hint">Filters the table as you type</div>
+  </div>
+
+  <div class="pps-table-card">
+    {% if rows %}
+    <table class="pps-table" id="proposalTable">
+      <thead>
+        <tr>
+          <th>Client / Property</th>
+          <th>Consultant</th>
+          <th>Type</th>
+          <th>Template</th>
+          <th>Date</th>
+          <th>File</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in rows %}
+        <tr class="proposal-row" data-search="{{ ((p.property_name or '') ~ ' ' ~ (p.client_name or '') ~ ' ' ~ (p.property_address or '') ~ ' ' ~ (p.proposal_number or '') ~ ' ' ~ (p.consultant_name or '') ~ ' ' ~ (p.scopes_selected or ''))|lower }}" onclick="showDetail({{ loop.index0 }})" style="cursor:pointer;">
+          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
+            {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
+          </td>
+          <td>{{ p.consultant_name }}</td>
+          <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
+          <td style="font-size:12px;color:#888;">{{ p.template_type or '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+          <td style="font-size:12px;" onclick="event.stopPropagation();">
+            {% if p.document_id %}
+            <a href="/api/documents/{{ p.document_id }}/download" class="pps-btn pps-btn-sm" style="text-decoration:none;">⬇ Download</a>
+            {% else %}
+            <span style="color:#bbb;">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No proposals yet. Open the <a href="#" onclick="openGenerator();return false;" style="color:var(--blue);font-weight:600;">Proposal Generator</a> from your dashboard to create one.</div>
+    {% endif %}
+  </div>
+
+  <div class="pps-footer">
+    <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
+    <span class="pps-footer-divider"></span>
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" class="pps-footer-motto">
+  </div>
+</div>
+
+<div class="modal-overlay" id="detailModal" onclick="if(event.target===this)closeDetail()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="mTitle">—</div>
+      <button class="modal-close" onclick="closeDetail()">✕</button>
+    </div>
+    <div id="mRows"></div>
+    <div id="mIssueWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
+      <div class="detail-text" id="mIssue"></div>
+    </div>
+    <div id="mOutcomeWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
+      <div class="detail-text" id="mOutcome"></div>
+    </div>
+    <div id="mNotesWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Additional Scope Notes</div>
+      <div class="detail-text" id="mNotes" style="background:#FFF9E6;border:1px solid #FFE082;"></div>
+    </div>
+    <div id="mActionsWrap" style="margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;display:flex;flex-direction:column;gap:10px;">
+      <div id="mDownloadWrap" style="display:none;">
+        <a id="mDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+      </div>
+      <div id="mNoFileWrap" style="display:none;font-size:13px;color:#888;line-height:1.5;background:#f8fafc;border:1px solid #e8f0f6;border-radius:8px;padding:10px 12px;">
+        No Word file stored — use <strong>Regenerate</strong> to create a new version from saved details.
+      </div>
+      <button type="button" id="mRegenerate" class="pps-btn pps-btn-sm" style="align-self:flex-start;" onclick="regenerateProposal()">↻ Regenerate in Proposal Generator</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const proposals = [
+  {% for p in rows %}
+  {
+    logId: {{ p.id }},
+    title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
+    num: {{ (p.proposal_number or '—')|tojson }},
+    client: {{ (p.client_name or '')|tojson }},
+    address: {{ (p.property_address or '—')|tojson }},
+    consultant: {{ (p.consultant_name or '')|tojson }},
+    type: {{ (p.property_type or '—')|tojson }},
+    template: {{ (p.template_type or '—')|tojson }},
+    scopes: {{ (p.scopes_selected or '—')|tojson }},
+    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    issue: {{ (p.existing_issue or '')|tojson }},
+    outcome: {{ (p.intended_outcome or '')|tojson }},
+    notes: {{ (p.scope_notes or '')|tojson }},
+    documentId: {{ (p.document_id or none)|tojson }},
+  }{% if not loop.last %},{% endif %}
+  {% endfor %}
+];
+
+let activeLogId = null;
+
+function rowHtml(label, val) {
+  return `<div class="detail-row"><div class="detail-label">${label}</div><div class="detail-val">${val || '—'}</div></div>`;
+}
+
+function showDetail(idx) {
+  const p = proposals[idx];
+  activeLogId = p.logId;
+  document.getElementById('mTitle').textContent = p.title;
+  document.getElementById('mRows').innerHTML =
+    rowHtml('Proposal #', p.num) +
+    rowHtml('Address', p.address) +
+    rowHtml('Consultant', p.consultant) +
+    rowHtml('Property Type', p.type) +
+    rowHtml('Template', p.template) +
+    rowHtml('Scopes', p.scopes) +
+    rowHtml('Date', p.date);
+  const iw = document.getElementById('mIssueWrap');
+  const ow = document.getElementById('mOutcomeWrap');
+  const nw = document.getElementById('mNotesWrap');
+  if (p.issue) { document.getElementById('mIssue').textContent = p.issue; iw.style.display = 'block'; } else { iw.style.display = 'none'; }
+  if (p.outcome) { document.getElementById('mOutcome').textContent = p.outcome; ow.style.display = 'block'; } else { ow.style.display = 'none'; }
+  if (p.notes) { document.getElementById('mNotes').textContent = p.notes; nw.style.display = 'block'; } else { nw.style.display = 'none'; }
+  const dl = document.getElementById('mDownloadWrap');
+  const nf = document.getElementById('mNoFileWrap');
+  if (p.documentId) {
+    document.getElementById('mDownload').href = '/api/documents/' + p.documentId + '/download';
+    dl.style.display = 'block';
+    nf.style.display = 'none';
+  } else {
+    dl.style.display = 'none';
+    nf.style.display = 'block';
+  }
+  document.getElementById('detailModal').classList.add('active');
+}
+
+function closeDetail() {
+  document.getElementById('detailModal').classList.remove('active');
+  activeLogId = null;
+}
+
+async function openTool(baseUrl, loadId) {
+  try {
+    const resp = await fetch('/generate-code', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
+    if (!resp.ok) throw new Error('SSO failed');
+    const data = await resp.json();
+    const code = data.code || data.token;
+    if (!code) throw new Error('No code');
+    let url = `${baseUrl}?code=${encodeURIComponent(code)}`;
+    if (loadId) url += `&load=${loadId}`;
+    window.open(url, '_blank');
+  } catch (e) {
+    alert('Could not open Proposal Generator. Try again from the dashboard.');
+  }
+}
+
+function openGenerator() { openTool('{{ proposal_url }}/proposal'); }
+async function regenerateProposal() {
+  if (!activeLogId) return;
+  await openTool('{{ proposal_url }}/proposal', activeLogId);
+}
+
+const searchEl = document.getElementById('proposalSearch');
+if (searchEl) {
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.trim().toLowerCase();
+    document.querySelectorAll('.proposal-row').forEach(row => {
+      const hay = row.getAttribute('data-search') || '';
+      row.classList.toggle('filtered-out', q && !hay.includes(q));
+    });
+  });
+}
+</script>
+</body>
+</html>

@@ -57,6 +57,9 @@
   .meta-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;width:120px;flex-shrink:0;}
   .meta-val{font-size:14px;color:var(--gray);}
   .meta-text{font-size:13px;color:#666;line-height:1.6;background:var(--light-bg);border-radius:6px;padding:10px 12px;margin-top:8px;}
+  .meta-notes{background:#FFF9E6;border:1px solid #FFE082;}
+  .meta-actions{margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;display:flex;flex-direction:column;gap:10px;}
+  .meta-no-file{font-size:13px;color:#888;line-height:1.5;background:#f8fafc;border:1px solid #e8f0f6;border-radius:8px;padding:10px 12px;}
 
   .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);margin-top:24px;}
   .hub-footer img{height:22px;opacity:0.45;}
@@ -75,10 +78,6 @@
     <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
   </div>
 </header>
-    <div class="header-title">Team View</div>
-  </div>
-  <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
-</div>
 
 <div class="main">
   <div class="page-title">Team View</div>
@@ -158,6 +157,23 @@
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Intended Outcome</div>
       <div id="metaOutcome" class="meta-text"></div>
     </div>
+    <div id="metaNotesWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Additional Scope Notes</div>
+      <div id="metaNotes" class="meta-text meta-notes"></div>
+    </div>
+    <div id="metaSourceWrap" style="display:none;margin-top:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Source Proposal</div>
+      <div id="metaSource" class="meta-text meta-notes"></div>
+    </div>
+    <div id="metaActionsWrap" class="meta-actions" style="display:none;">
+      <div id="metaDownloadWrap" style="display:none;">
+        <a id="metaDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+      </div>
+      <div id="metaNoFileWrap" class="meta-no-file" style="display:none;">
+        No Word file stored for this proposal.
+      </div>
+      <button type="button" id="metaRegenerate" class="pps-btn pps-btn-sm" style="align-self:flex-start;display:none;" onclick="regenerateFromTeamView()">↻ Regenerate in Proposal Generator</button>
+    </div>
   </div>
 </div>
 
@@ -165,8 +181,12 @@
 const memberData = {{ member_data | tojson }};
 const members = {{ members | tojson }};
 const scope = {{ scope | tojson }};
+const currentUserKey = {{ user_key | tojson }};
+const isAdmin = {{ is_admin | tojson }};
+const proposalToolUrl = {{ proposal_url | tojson }};
 
 let activeMember = null;
+let activeProposalLogId = null;
 
 function showMember(key) {
   // Highlight card
@@ -234,16 +254,77 @@ function closeDetail() {
   activeMember = null;
 }
 
-function showMeta(rows, issue, outcome) {
+function resetMetaExtras() {
+  document.getElementById('metaNotesWrap').style.display = 'none';
+  document.getElementById('metaSourceWrap').style.display = 'none';
+  document.getElementById('metaActionsWrap').style.display = 'none';
+  document.getElementById('metaDownloadWrap').style.display = 'none';
+  document.getElementById('metaNoFileWrap').style.display = 'none';
+  document.getElementById('metaRegenerate').style.display = 'none';
+  activeProposalLogId = null;
+}
+
+function showMeta(rows, issue, outcome, notes, opts) {
+  opts = opts || {};
   document.getElementById('metaRows').innerHTML = rows;
   const iw = document.getElementById('metaIssueWrap');
   const ow = document.getElementById('metaOutcomeWrap');
+  const nw = document.getElementById('metaNotesWrap');
+  const sw = document.getElementById('metaSourceWrap');
   if (issue) { document.getElementById('metaIssue').textContent = issue; iw.style.display='block'; } else { iw.style.display='none'; }
   if (outcome) { document.getElementById('metaOutcome').textContent = outcome; ow.style.display='block'; } else { ow.style.display='none'; }
+  if (notes) { document.getElementById('metaNotes').textContent = notes; nw.style.display='block'; } else { nw.style.display='none'; }
+  if (opts.sourceFile) {
+    document.getElementById('metaSource').textContent = opts.sourceFile;
+    sw.style.display = 'block';
+  } else {
+    sw.style.display = 'none';
+  }
+
+  const actions = document.getElementById('metaActionsWrap');
+  if (opts.showProposalActions) {
+    actions.style.display = 'flex';
+    activeProposalLogId = opts.logId || null;
+    const canRegen = activeProposalLogId && (isAdmin || opts.generatedBy === currentUserKey);
+    if (opts.documentId) {
+      document.getElementById('metaDownload').href = '/api/documents/' + opts.documentId + '/download';
+      document.getElementById('metaDownloadWrap').style.display = 'block';
+      document.getElementById('metaNoFileWrap').style.display = 'none';
+    } else {
+      document.getElementById('metaDownloadWrap').style.display = 'none';
+      document.getElementById('metaNoFileWrap').style.display = 'block';
+    }
+    document.getElementById('metaRegenerate').style.display = canRegen ? 'inline-block' : 'none';
+  } else {
+    resetMetaExtras();
+  }
   document.getElementById('metaModal').classList.add('active');
 }
 
-function closeMeta() { document.getElementById('metaModal').classList.remove('active'); }
+function closeMeta() {
+  document.getElementById('metaModal').classList.remove('active');
+  resetMetaExtras();
+}
+
+async function openTool(baseUrl, loadId) {
+  try {
+    const resp = await fetch('/generate-code', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
+    if (!resp.ok) throw new Error('SSO failed');
+    const data = await resp.json();
+    const code = data.code || data.token;
+    if (!code) throw new Error('No code');
+    let url = `${baseUrl}?code=${encodeURIComponent(code)}`;
+    if (loadId) url += `&load=${loadId}`;
+    window.open(url, '_blank');
+  } catch (e) {
+    alert('Could not open Proposal Generator.');
+  }
+}
+
+async function regenerateFromTeamView() {
+  if (!activeProposalLogId) return;
+  await openTool(proposalToolUrl + '/proposal', activeProposalLogId);
+}
 
 function metaRow(label, val) {
   return `<div class="meta-row"><div class="meta-label">${label}</div><div class="meta-val">${val||'—'}</div></div>`;
@@ -259,8 +340,13 @@ function showProposalMeta(idx, key) {
     metaRow('Property Type', p.property_type) +
     metaRow('Template', p.template_type) +
     metaRow('Scopes', p.scopes_selected) +
-    metaRow('Date', p.generated_at ? p.generated_at.substring(0,10) : '—');
-  showMeta(rows, p.existing_issue, p.intended_outcome);
+    metaRow('Date', p.generated_at ? String(p.generated_at).substring(0,10) : '—');
+  showMeta(rows, p.existing_issue, p.intended_outcome, p.scope_notes, {
+    showProposalActions: true,
+    logId: p.id,
+    documentId: p.document_id,
+    generatedBy: p.generated_by,
+  });
 }
 
 function showPPMMeta(idx, key) {
@@ -281,17 +367,16 @@ function showPPMMeta(idx, key) {
 function showTPSMeta(idx, key) {
   const s = memberData[key].tpscopes[idx];
   document.getElementById('metaTitle').textContent = s.property_name || 'Unnamed';
-  const mat = s.material_provider === 'tp' ? 'Trade Partner' : s.material_provider === 'pps' ? 'PPS' : s.material_provider;
+  const mat = s.material_provider === 'tp' ? 'TP materials' : s.material_provider === 'pps' ? 'PPS materials' : (s.material_provider || '—');
+  const lang = s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '—';
   const rows = metaRow('PO #', s.po_number) +
     metaRow('Address', s.property_address) +
     metaRow('PM', s.pm_name) +
     metaRow('Consultant', s.consultant_name) +
-    metaRow('Language', s.language) +
-    metaRow('Materials', mat) +
-    metaRow('Source File', s.proposal_filename) +
+    metaRow('Details', [lang, mat].filter(x => x && x !== '—').join(' · ') || '—') +
     metaRow('Generated By', (s.generated_by||'').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) +
-    metaRow('Date', s.generated_at ? s.generated_at.substring(0,10) : '—');
-  showMeta(rows, '', '');
+    metaRow('Date', s.generated_at ? String(s.generated_at).substring(0,10) : '—');
+  showMeta(rows, '', '', '', { sourceFile: s.proposal_filename && s.proposal_filename !== '—' ? s.proposal_filename : '' });
 }
 </script>
 </body>

@@ -1989,6 +1989,60 @@ def admin_feedback():
     return render_template('admin_feedback.html', items=items)
 
 
+def _serialize_log_rows(rows):
+    """Convert DB rows to JSON-safe dicts for templates."""
+    out = []
+    for row in rows or []:
+        d = dict(row)
+        for k, v in d.items():
+            if hasattr(v, 'isoformat'):
+                d[k] = v.isoformat()
+        out.append(d)
+    return out
+
+
+@app.route('/my-proposals')
+@require_login
+def my_proposals():
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    if user.get('role') not in ('consultant', 'admin'):
+        return redirect(url_for('dashboard'))
+
+    rows = []
+    stats = {'total': 0, 'last_30': 0, 'with_file': 0}
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                'SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC',
+                (user_key,)
+            )
+            rows = cur.fetchall()
+            stats['total'] = len(rows)
+            stats['with_file'] = sum(1 for r in rows if r.get('document_id'))
+            cur.execute(
+                '''SELECT COUNT(*) AS c FROM proposal_log
+                   WHERE generated_by = %s AND generated_at >= NOW() - INTERVAL '30 days' ''',
+                (user_key,)
+            )
+            stats['last_30'] = cur.fetchone()['c'] or 0
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"My proposals error: {e}")
+
+    return render_template(
+        'my_proposals.html',
+        user=user,
+        user_key=user_key,
+        rows=rows,
+        stats=stats,
+        proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+    )
+
+
 @app.route('/admin/proposals')
 def admin_proposals():
     if session.get('role') != 'admin':
@@ -2225,13 +2279,22 @@ def team_view():
             for key in member_keys:
                 udata = {}
                 if scope == 'consultants':
-                    cur.execute('SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC', (key,))
-                    udata['proposals'] = cur.fetchall()
+                    cur.execute(
+                        'SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC',
+                        (key,)
+                    )
+                    udata['proposals'] = _serialize_log_rows(cur.fetchall())
                 elif scope == 'pms':
-                    cur.execute('SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s ORDER BY generated_at DESC', (key, key))
-                    udata['ppms'] = cur.fetchall()
-                    cur.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (key,))
-                    udata['tpscopes'] = cur.fetchall()
+                    cur.execute(
+                        'SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s ORDER BY generated_at DESC',
+                        (key, key)
+                    )
+                    udata['ppms'] = _serialize_log_rows(cur.fetchall())
+                    cur.execute(
+                        'SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC',
+                        (key,)
+                    )
+                    udata['tpscopes'] = _serialize_log_rows(cur.fetchall())
                 # Profile
                 display_name = USERS.get(key, {}).get('display', '')
                 cur.execute('SELECT * FROM profile_results WHERE LOWER(name) = LOWER(%s) ORDER BY taken_date DESC LIMIT 1', (display_name,))
@@ -2243,10 +2306,16 @@ def team_view():
     except Exception as e:
         print(f"Team view error: {e}")
 
-    return render_template('team_view.html',
-                           user=user, user_key=user_key,
-                           scope=scope, members=members,
-                           member_data=member_data)
+    return render_template(
+        'team_view.html',
+        user=user,
+        user_key=user_key,
+        scope=scope,
+        members=members,
+        member_data=member_data,
+        is_admin=session.get('role') == 'admin',
+        proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+    )
 
 
 @app.route('/admin/tpscopes')

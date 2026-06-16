@@ -301,8 +301,12 @@
     <div class="activity-card" style="visibility:hidden;"></div>
   </div>
 
+  {% if user.role in ('consultant', 'admin') %}
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+    <div class="pps-section-head" style="margin-bottom:0;padding-bottom:0;border-bottom:none;">My Proposal History ({{ all_my_proposals|length }})</div>
+    <a href="/my-proposals" class="pps-btn pps-btn-sm" style="text-decoration:none;white-space:nowrap;">View All →</a>
+  </div>
   {% if all_my_proposals %}
-  <div class="pps-section-head">My Proposal History ({{ all_my_proposals|length }})</div>
   <div class="pps-table-card">
     <table class="pps-table">
       <thead>
@@ -337,6 +341,7 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
   {% endif %}
 
   {% if all_my_ppms %}
