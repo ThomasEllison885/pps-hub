@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
+from pps_game_data import PPS_GAME_META, PPS_GAME_QUESTIONS
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -1589,6 +1590,19 @@ def admin_member(user_key):
                            subscopes=subscopes, profile=profile,
                            feedback_items=feedback_items,
                            profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
+
+
+@app.route('/admin/pps-game')
+@require_admin
+def admin_pps_game():
+    """Admin-only team knowledge quiz from 2025 performance reviews."""
+    return render_template(
+        'admin_pps_game.html',
+        meta=PPS_GAME_META,
+        questions=PPS_GAME_QUESTIONS,
+        meta_json=json.dumps(PPS_GAME_META),
+        questions_json=json.dumps(PPS_GAME_QUESTIONS),
+    )
 
 
 @app.route('/admin/feedback')

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · PPS GAME</title>
+<style>
+  :root { --gold:#B8922A; --gold-light:#FDF6E8; }
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:720px; margin:0 auto; padding:36px 24px 60px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:32px; color:var(--dark-blue); margin-bottom:4px; }
+  .page-sub { font-size:14px; color:#888; margin-bottom:28px; line-height:1.5; }
+  .badge-admin { display:inline-block; background:#FFF3E0; color:#E65100; border:1px solid #FFB74D; font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; padding:3px 9px; border-radius:20px; margin-left:8px; vertical-align:middle; }
+
+  .screen { display:none; }
+  .screen.active { display:block; }
+
+  .start-card, .quiz-card, .result-card {
+    background:white; border-radius:var(--radius); box-shadow:var(--shadow);
+    padding:32px 28px;
+  }
+  .start-card h2, .result-card h2 { font-family:'DM Serif Display',serif; font-size:24px; color:var(--dark-blue); margin-bottom:10px; }
+  .start-card p { font-size:15px; color:#666; line-height:1.6; margin-bottom:8px; }
+  .start-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:24px 0; }
+  .start-stat { background:var(--light-bg); border-radius:8px; padding:14px; text-align:center; }
+  .start-stat .n { font-family:'DM Serif Display',serif; font-size:28px; color:var(--dark-blue); }
+  .start-stat .l { font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.06em; margin-top:4px; }
+
+  .btn-primary {
+    background:var(--dark-blue); color:white; border:none; border-radius:8px;
+    padding:14px 28px; font-size:15px; font-weight:600; cursor:pointer;
+    font-family:'DM Sans',sans-serif; transition:background 0.2s; width:100%; margin-top:8px;
+  }
+  .btn-primary:hover { background:var(--blue); }
+  .btn-secondary {
+    background:white; color:var(--dark-blue); border:1.5px solid var(--border);
+    border-radius:8px; padding:12px 24px; font-size:14px; font-weight:600; cursor:pointer;
+    font-family:'DM Sans',sans-serif; margin-top:10px; width:100%;
+  }
+  .btn-secondary:hover { border-color:var(--blue); color:var(--blue); }
+
+  .progress-wrap { margin-bottom:20px; }
+  .progress-meta { display:flex; justify-content:space-between; font-size:12px; color:#888; margin-bottom:6px; }
+  .progress-track { height:8px; background:#eef4f9; border-radius:4px; overflow:hidden; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:4px; transition:width 0.3s; }
+
+  .q-category { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--gold); margin-bottom:8px; }
+  .q-text { font-size:18px; font-weight:600; color:var(--dark-blue); line-height:1.45; margin-bottom:20px; }
+
+  .options { display:flex; flex-direction:column; gap:10px; }
+  .opt-btn {
+    text-align:left; background:var(--light-bg); border:1.5px solid var(--border);
+    border-radius:8px; padding:13px 16px; font-size:14px; color:#444; cursor:pointer;
+    font-family:'DM Sans',sans-serif; transition:all 0.15s; line-height:1.4;
+  }
+  .opt-btn:hover:not(:disabled) { border-color:var(--blue); background:white; }
+  .opt-btn:disabled { cursor:default; }
+  .opt-btn.correct { background:#E8F5E9; border-color:#81C784; color:#1B5E20; }
+  .opt-btn.wrong { background:#FDEDEC; border-color:#E57373; color:#B71C1C; }
+  .opt-btn.missed { background:#E8F5E9; border-color:#81C784; opacity:0.85; }
+
+  .explain {
+    margin-top:16px; padding:14px 16px; background:var(--gold-light);
+    border-left:4px solid var(--gold); border-radius:0 8px 8px 0;
+    font-size:14px; color:#555; line-height:1.5; display:none;
+  }
+  .explain.show { display:block; }
+  .next-row { margin-top:16px; display:none; }
+  .next-row.show { display:block; }
+
+  .score-ring {
+    width:140px; height:140px; border-radius:50%; margin:0 auto 20px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:var(--light-bg); border:6px solid var(--dark-blue);
+  }
+  .score-ring .pct { font-family:'DM Serif Display',serif; font-size:42px; color:var(--dark-blue); line-height:1; }
+  .score-ring .frac { font-size:13px; color:#888; margin-top:4px; }
+  .tier { text-align:center; font-size:18px; font-weight:600; color:var(--dark-blue); margin-bottom:8px; }
+  .tier-sub { text-align:center; font-size:14px; color:#888; margin-bottom:24px; }
+
+  .cat-breakdown { margin-top:20px; }
+  .cat-row { display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13px; }
+  .cat-name { width:80px; flex-shrink:0; color:#555; }
+  .cat-track { flex:1; height:6px; background:#eef4f9; border-radius:3px; overflow:hidden; }
+  .cat-fill { height:100%; background:var(--blue); border-radius:3px; }
+  .cat-score { width:36px; text-align:right; color:#888; font-size:12px; }
+
+  .confidential { font-size:12px; color:#aaa; text-align:center; margin-top:24px; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">PPS GAME</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+    <a href="/dashboard" class="pps-btn-header">Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">PPS GAME <span class="badge-admin">Admin Only</span></div>
+  <p class="page-sub">{{ meta.description }}</p>
+
+  <!-- Start -->
+  <div id="screen-start" class="screen active">
+    <div class="start-card">
+      <h2>{{ meta.title }}</h2>
+      <p>{{ meta.subtitle }}</p>
+      <p>Questions cover 2025 performance reviews — scores, themes, gaps, and who said what. Nothing leaves the admin panel.</p>
+      <div class="start-stats">
+        <div class="start-stat"><div class="n" id="q-count">{{ questions|length }}</div><div class="l">Questions</div></div>
+        <div class="start-stat"><div class="n">{{ meta.pass_score }}</div><div class="l">To Pass</div></div>
+        <div class="start-stat"><div class="n">{{ meta.expert_score }}</div><div class="l">Expert</div></div>
+      </div>
+      <button class="btn-primary" id="btn-start">Start Game</button>
+    </div>
+  </div>
+
+  <!-- Quiz -->
+  <div id="screen-quiz" class="screen">
+    <div class="quiz-card">
+      <div class="progress-wrap">
+        <div class="progress-meta">
+          <span id="progress-label">Question 1</span>
+          <span id="score-live">0 correct</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      </div>
+      <div class="q-category" id="q-category"></div>
+      <div class="q-text" id="q-text"></div>
+      <div class="options" id="options"></div>
+      <div class="explain" id="explain"></div>
+      <div class="next-row" id="next-row">
+        <button class="btn-primary" id="btn-next">Next Question</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="screen-result" class="screen">
+    <div class="result-card">
+      <div class="score-ring">
+        <div class="pct" id="final-pct">0%</div>
+        <div class="frac" id="final-frac">0 / 0</div>
+      </div>
+      <div class="tier" id="tier-title"></div>
+      <div class="tier-sub" id="tier-sub"></div>
+      <div class="cat-breakdown" id="cat-breakdown"></div>
+      <button class="btn-primary" id="btn-replay">Play Again</button>
+      <button class="btn-secondary" id="btn-admin">Back to Admin</button>
+    </div>
+  </div>
+
+  <p class="confidential">Confidential HR content · Visible only to admin users</p>
+</div>
+
+<div class="pps-footer" style="text-align:center;padding:24px;">
+  <img src="/static/logo.png" alt="Pure Property Solutions" style="height:22px;opacity:0.45;">
+</div>
+
+<script>
+const QUESTIONS = {{ questions_json|safe }};
+const META = {{ meta_json|safe }};
+
+let order = [];
+let idx = 0;
+let correct = 0;
+let answered = false;
+const catStats = {};
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function initCatStats() {
+  QUESTIONS.forEach(q => {
+    if (!catStats[q.category]) catStats[q.category] = { right: 0, total: 0 };
+  });
+}
+
+function renderQuestion() {
+  answered = false;
+  const q = QUESTIONS[order[idx]];
+  const total = order.length;
+  document.getElementById('progress-label').textContent = `Question ${idx + 1} of ${total}`;
+  document.getElementById('progress-fill').style.width = `${(idx / total) * 100}%`;
+  document.getElementById('score-live').textContent = `${correct} correct`;
+  document.getElementById('q-category').textContent = q.category;
+  document.getElementById('q-text').textContent = q.question;
+
+  const opts = document.getElementById('options');
+  opts.innerHTML = '';
+  q.options.forEach((text, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'opt-btn';
+    btn.type = 'button';
+    btn.textContent = text;
+    btn.addEventListener('click', () => pickAnswer(i, btn));
+    opts.appendChild(btn);
+  });
+
+  const exp = document.getElementById('explain');
+  exp.classList.remove('show');
+  exp.textContent = '';
+  document.getElementById('next-row').classList.remove('show');
+}
+
+function pickAnswer(i, btn) {
+  if (answered) return;
+  answered = true;
+  const q = QUESTIONS[order[idx]];
+  catStats[q.category].total++;
+
+  const buttons = document.querySelectorAll('.opt-btn');
+  buttons.forEach((b, j) => {
+    b.disabled = true;
+    if (j === q.correct) b.classList.add('correct');
+    else if (j === i) b.classList.add('wrong');
+  });
+
+  if (i === q.correct) {
+    correct++;
+    catStats[q.category].right++;
+  }
+
+  const exp = document.getElementById('explain');
+  exp.textContent = q.explanation;
+  exp.classList.add('show');
+  document.getElementById('score-live').textContent = `${correct} correct`;
+  document.getElementById('next-row').classList.add('show');
+  document.getElementById('btn-next').textContent = idx < order.length - 1 ? 'Next Question' : 'See Results';
+}
+
+function showResults() {
+  showScreen('screen-result');
+  const total = order.length;
+  const pct = Math.round((correct / total) * 100);
+  document.getElementById('final-pct').textContent = pct + '%';
+  document.getElementById('final-frac').textContent = `${correct} / ${total}`;
+
+  let tier, sub;
+  if (correct >= META.expert_score) {
+    tier = 'President-Level Intel';
+    sub = 'You know this team cold. Reviews, gaps, and wins — all locked in.';
+  } else if (correct >= META.pass_score) {
+    tier = 'Solid Leadership Grip';
+    sub = 'Strong team knowledge. A few review details to refresh before conversations.';
+  } else {
+    tier = 'Time to Re-read Reviews';
+    sub = 'Hit the PDFs again — especially incomplete sections and self vs supervisor gaps.';
+  }
+  document.getElementById('tier-title').textContent = tier;
+  document.getElementById('tier-sub').textContent = sub;
+
+  const bd = document.getElementById('cat-breakdown');
+  bd.innerHTML = '<div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px;">By Person / Topic</div>';
+  Object.keys(catStats).sort().forEach(cat => {
+    const s = catStats[cat];
+    if (!s.total) return;
+    const p = Math.round((s.right / s.total) * 100);
+    const row = document.createElement('div');
+    row.className = 'cat-row';
+    row.innerHTML = `<span class="cat-name">${cat}</span><div class="cat-track"><div class="cat-fill" style="width:${p}%"></div></div><span class="cat-score">${s.right}/${s.total}</span>`;
+    bd.appendChild(row);
+  });
+}
+
+function startGame() {
+  order = shuffle(QUESTIONS.map((_, i) => i));
+  idx = 0;
+  correct = 0;
+  initCatStats();
+  Object.keys(catStats).forEach(k => { catStats[k].right = 0; catStats[k].total = 0; });
+  showScreen('screen-quiz');
+  renderQuestion();
+}
+
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-replay').addEventListener('click', startGame);
+document.getElementById('btn-admin').addEventListener('click', () => { window.location.href = '/admin'; });
+document.getElementById('btn-next').addEventListener('click', () => {
+  if (idx < order.length - 1) {
+    idx++;
+    renderQuestion();
+  } else {
+    showResults();
+  }
+});
+</script>
+</body>
+</html>
