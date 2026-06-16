@@ -1510,7 +1510,7 @@ def admin_vault_delete():
 
 @app.route('/admin/reset-password', methods=['POST'])
 @require_admin
-def reset_password():
+def admin_reset_password():
     user_key = request.form.get('user_key')
     new_password = request.form.get('new_password', '').strip()
     if not user_key or not new_password or len(new_password) < 6:
@@ -2580,7 +2580,7 @@ def forgot_password():
 
 
 @app.route('/reset-password/<token>', methods=['GET', 'POST'])
-def reset_password(token):
+def reset_password_with_token(token):
     error = None
     if request.method == 'GET':
         if not peek_password_reset_token(get_db, token):

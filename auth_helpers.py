@@ -62,7 +62,7 @@ def is_login_locked(get_db, user_key):
         cur.execute(
             '''SELECT COUNT(*) FROM login_attempts
                WHERE user_key = %s AND success = FALSE
-                 AND attempted_at > NOW() - INTERVAL '%s minutes' ''',
+                 AND attempted_at > NOW() - make_interval(mins => %s)''',
             (user_key, LOGIN_LOCKOUT_MINUTES),
         )
         count = cur.fetchone()[0]
@@ -84,7 +84,7 @@ def generate_sso_code(get_db, user_key, display_name, role):
         cur.execute("DELETE FROM auth_codes WHERE expires_at < NOW()")
         cur.execute(
             '''INSERT INTO auth_codes (code, user_key, display_name, role, expires_at)
-               VALUES (%s, %s, %s, %s, NOW() + INTERVAL '%s minutes')''',
+               VALUES (%s, %s, %s, %s, NOW() + make_interval(mins => %s))''',
             (code, user_key, display_name, role, SSO_CODE_TTL_MINUTES),
         )
         conn.commit()
@@ -134,7 +134,7 @@ def create_password_reset_token(get_db, user_key):
         cur.execute("DELETE FROM password_reset_tokens WHERE expires_at < NOW()")
         cur.execute(
             '''INSERT INTO password_reset_tokens (token, user_key, expires_at)
-               VALUES (%s, %s, NOW() + INTERVAL '%s hours')''',
+               VALUES (%s, %s, NOW() + make_interval(hours => %s))''',
             (token, user_key, RESET_TOKEN_TTL_HOURS),
         )
         conn.commit()
