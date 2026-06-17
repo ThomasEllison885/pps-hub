@@ -255,13 +255,16 @@
   <div class="pps-section-head" id="vault">Document Vault</div>
   <div class="card" style="padding:18px 20px;">
     {% set vault_mb = (vault.total_bytes / (1024*1024))|round(2) if vault.total_bytes else 0 %}
-    {% set vault_pct = ((vault.proposals_with_file / vault.proposals_total * 100)|round|int) if vault.proposals_total else 0 %}
     <div class="vault-summary">
       <div class="vault-stat"><div class="vnum">{{ vault.file_count }}</div><div class="vlbl">Stored Files</div></div>
       <div class="vault-stat"><div class="vnum">{{ vault_mb }} MB</div><div class="vlbl">Total Size</div></div>
       <div class="vault-stat"><div class="vnum">{{ vault.proposals_with_file }}</div><div class="vlbl">Vaulted Proposals</div></div>
-      <div class="vault-stat"><div class="vnum">{{ vault_pct }}%</div><div class="vlbl">Coverage</div></div>
+      <div class="vault-stat" title="{{ vault.storage_used_mb }} MB used of {{ vault.storage_limit_mb }} MB vault quota">
+        <div class="vnum">{{ vault.storage_remaining_pct }}%</div>
+        <div class="vlbl">Storage Left</div>
+      </div>
     </div>
+    <p style="font-size:12px;color:#888;margin:-8px 0 16px;">{{ vault.storage_remaining_mb }} MB free of {{ vault.storage_limit_mb }} MB vault quota ({{ vault.storage_used_mb }} MB used)</p>
     {% if vault.files %}
     <table>
       <thead>

@@ -38,7 +38,8 @@ if not INTERNAL_API_KEY:
 MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', '').strip()
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
-MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB per file
+VAULT_STORAGE_LIMIT_BYTES = int(os.environ.get('VAULT_STORAGE_LIMIT_MB', '512')) * 1024 * 1024
 
 _IS_DEBUG = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
 app.config.update(
@@ -1501,6 +1502,17 @@ def _fetch_vault_summary(cur):
             LIMIT 100
         ''')
         vault['files'] = cur.fetchall()
+
+        limit = VAULT_STORAGE_LIMIT_BYTES
+        used = vault['total_bytes'] or 0
+        used_pct = min(100, round(used / limit * 100)) if limit else 0
+        vault['storage_limit_bytes'] = limit
+        vault['storage_used_bytes'] = used
+        vault['storage_used_pct'] = used_pct
+        vault['storage_remaining_pct'] = max(0, 100 - used_pct)
+        vault['storage_used_mb'] = round(used / (1024 * 1024), 1)
+        vault['storage_limit_mb'] = int(limit / (1024 * 1024))
+        vault['storage_remaining_mb'] = round(max(0, limit - used) / (1024 * 1024), 1)
     except Exception as e:
         print(f"Vault summary error: {e}")
     return vault
@@ -1668,6 +1680,11 @@ def admin():
         'files': [], 'file_count': 0, 'total_bytes': 0,
         'proposals_with_file': 0, 'proposals_total': 0,
         'proposals_missing_file': 0, 'recent_missing_file': 0,
+        'storage_limit_bytes': VAULT_STORAGE_LIMIT_BYTES,
+        'storage_used_bytes': 0, 'storage_used_pct': 0,
+        'storage_remaining_pct': 100, 'storage_used_mb': 0,
+        'storage_limit_mb': int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024)),
+        'storage_remaining_mb': int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024)),
     }
     system_health = {'ok': False, 'checks': []}
     try:
