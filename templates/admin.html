@@ -377,8 +377,8 @@
       {% for p in all_ppms[:20] %}
       <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="showPPMMeta({{ loop.index0 }})">
         <div class="act-item-content">
-          <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
-          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+          <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
+          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
         <button class="delete-btn" onclick="event.stopPropagation();deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
       </div>

@@ -122,7 +122,7 @@
       {% if ppms %}
       {% for p in ppms %}
       <div class="act-item" onclick="showMeta('ppm', {{ loop.index0 }})" style="cursor:pointer;">
-        <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
+        <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
         <div class="act-meta">{{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
       </div>
       {% endfor %}
@@ -205,7 +205,7 @@ const memberProposals = [
 ];
 const memberPPMs = [
   {% for p in ppms %}
-  {type:'ppm', title:{{ (p.property_name or 'Unnamed')|tojson }},
+  {type:'ppm', title:{{ ((p.client_name or p.property_name or 'Unnamed') ~ (' · ' ~ p.proj_type if p.proj_type else ''))|tojson }},
    pm:{{ (p.pm_name or '—')|tojson }}, by:{{ (p.generated_by or '')|tojson }},
    address:{{ (p.property_address or '—')|tojson }}, client:{{ (p.client_name or '—')|tojson }},
    num:{{ (p.proposal_number or '—')|tojson }}, value:{{ (p.total_value or '—')|tojson }},

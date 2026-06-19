@@ -219,8 +219,8 @@ function showMember(key) {
     if (ppms.length) {
       ppms.forEach((p, i) => {
         html += `<div class="act-item" onclick="showPPMMeta(${i}, '${key}')">
-          <div class="act-name">${p.property_name || 'Unnamed'}</div>
-          <div class="act-meta">${p.proj_type || ''}${p.proj_type ? ' · ' : ''}${p.pm_name || ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
+          <div class="act-name">${p.client_name || p.property_name || 'Unnamed'}${p.proj_type ? ' · ' + p.proj_type : ''}</div>
+          <div class="act-meta">${p.property_name && p.client_name ? p.property_name + ' · ' : ''}${p.pm_name || ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
         </div>`;
       });
     } else {

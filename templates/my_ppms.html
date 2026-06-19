@@ -77,7 +77,7 @@
       <tbody>
         {% for p in rows %}
         <tr class="ppm-row" data-search="{{ ((p.property_name or '') ~ ' ' ~ (p.client_name or '') ~ ' ' ~ (p.property_address or '') ~ ' ' ~ (p.proposal_number or '') ~ ' ' ~ (p.pm_name or '') ~ ' ' ~ (p.proj_type or '') ~ ' ' ~ (p.generated_by or ''))|lower }}" onclick="showDetail({{ loop.index0 }})" style="cursor:pointer;">
-          <td class="prop-name">{{ p.property_name or 'Unnamed Property' }}
+          <td class="prop-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proj_type }}</span>{% endif %}
             {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
           </td>
           <td>{{ p.pm_name or '—' }}</td>
@@ -117,7 +117,7 @@
 const ppms = [
   {% for p in rows %}
   {
-    title: {{ (p.property_name or 'Unnamed Property')|tojson }},
+    title: {{ ((p.client_name or p.property_name or 'Unnamed') ~ (' · ' ~ p.proj_type if p.proj_type else ''))|tojson }},
     num: {{ (p.proposal_number or '—')|tojson }},
     address: {{ (p.property_address or '—')|tojson }},
     client: {{ (p.client_name or '—')|tojson }},

@@ -222,7 +222,7 @@
       {% for p in recent_ppms %}
       <div class="act-item" onclick="showRecentPPM({{ loop.index0 }})">
         <div class="act-top">
-          <div class="act-name">{{ p.property_name or 'Unnamed Property' }}</div>
+          <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
           <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
         </div>
       </div>
@@ -303,11 +303,11 @@
   {% if all_my_ppms %}
   <div class="pps-table-card">
     <table class="pps-table">
-      <thead><tr><th>Property</th><th>PM</th><th>Date</th></tr></thead>
+      <thead><tr><th>Client / Trade</th><th>PM</th><th>Date</th></tr></thead>
       <tbody>
         {% for p in all_my_ppms %}
         <tr onclick="showPPM({{ loop.index0 }})" style="cursor:pointer;">
-          <td class="prop-name">{{ p.property_name or 'Unnamed Property' }}</td>
+          <td class="prop-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proj_type }}</span>{% endif %}</td>
           <td style="font-size:13px;color:#888;">{{ p.pm_name or '—' }}</td>
           <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
         </tr>
