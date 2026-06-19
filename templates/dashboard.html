@@ -32,18 +32,6 @@
   .greeting h1 { font-family: 'DM Serif Display', serif; font-size: 30px; color: var(--dark-blue); margin-bottom: 4px; }
   .greeting p { font-size: 14px; color: #888; }
 
-  /* Profile prompt banner */
-  .profile-prompt {
-    background: linear-gradient(135deg, #004C8C 0%, #0096D6 100%);
-    border-radius: var(--radius); padding: 18px 24px;
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 28px; gap: 16px;
-  }
-  .profile-prompt p { color: rgba(255,255,255,0.9); font-size: 14px; }
-  .profile-prompt strong { color: #fff; }
-  .prompt-btn { background: #fff; color: var(--dark-blue); border: none; border-radius: 6px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
-  .prompt-btn:hover { background: #EBF6FC; }
-
   .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
 
   .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px; }
@@ -75,15 +63,6 @@
   .tool-desc { font-size: 12px; color: #888; line-height: 1.5; flex: 1; }
   .tool-badge { display: inline-block; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 9px; font-size: 11px; color: var(--dark-blue); font-weight: 500; }
   .tool-meta { font-size: 12px; color: var(--blue); font-weight: 500; margin-top: 2px; }
-
-  .profile-snap { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; display: flex; align-items: center; gap: 16px; margin-bottom: 28px; text-decoration: none; color: var(--gray); border: 1.5px solid transparent; transition: all 0.2s; }
-  .profile-snap:hover { border-color: var(--blue); }
-  .profile-snap-icon { font-size: 28px; flex-shrink: 0; }
-  .ps-label { font-size: 11px; font-weight: 600; color: var(--blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
-  .ps-name { font-size: 17px; font-weight: 600; color: var(--dark-blue); margin-bottom: 2px; }
-  .ps-show { font-size: 13px; color: #888; }
-  .ps-badge { display: inline-block; margin-top: 6px; background: var(--light-bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; font-size: 12px; color: var(--dark-blue); font-weight: 600; }
-  .ps-cta { margin-left: auto; color: var(--blue); font-size: 13px; font-weight: 500; white-space: nowrap; flex-shrink: 0; }
 
   .activity-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 28px; }
   .activity-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; }
@@ -167,13 +146,6 @@
   {% endfor %}
   {% endif %}
 
-  {% if not profile %}
-  <div class="profile-prompt">
-    <p><strong>Take your {{ now_year }} Pure Way Profile</strong> — understand how you work, what drives you, and how to work better with your team.</p>
-    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="prompt-btn">Take the Assessment →</a>
-  </div>
-  {% endif %}
-
   <div class="pps-section-head">Your Tools</div>
   <div class="tools-grid">
     {% if consultants %}
@@ -224,28 +196,7 @@
       <div class="pps-tool-desc">Document site visits, inspect scope compliance, and track project progress.</div>
       <div class="tool-meta">Open →</div>
     </a>
-
-    <a href="#" onclick="openTool('{{ profile_url }}/profile', '{{ user_key }}')" class="pps-tool-card">
-      <div class="pps-tool-icon">🎯</div>
-      <div class="pps-tool-name">Pure Way Profile</div>
-      <div class="pps-tool-desc">Behavioral assessment — understand how you work and what drives you.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
   </div>
-
-  {% if profile %}
-  <div class="pps-section-head">Your Profile</div>
-  <a href="{{ profile_url }}/history/{{ profile.id }}" class="profile-snap" target="_blank">
-    <div class="profile-snap-icon">🎬</div>
-    <div>
-      <div class="ps-label">Most Recent · {{ profile.taken_date }}</div>
-      <div class="ps-name">{{ profile.character_match }}</div>
-      <div class="ps-show">{{ profile.character_show }}</div>
-      <span class="ps-badge">{{ profile.primary_disc }}{% if profile.secondary_disc %}/{{ profile.secondary_disc }}{% endif %} · {{ profile.primary_motiv }}</span>
-    </div>
-    <div class="ps-cta">View Full Results →</div>
-  </a>
-  {% endif %}
 
   <div class="pps-section-head">Recent Activity</div>
   <div class="activity-grid">

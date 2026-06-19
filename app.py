@@ -803,7 +803,7 @@ def _run_system_health_checks():
     # Local check only — do not HTTP-call this hub from the same gunicorn worker (deadlocks with 1 worker).
     add('hub_internal_ping', bool(INTERNAL_API_KEY), detail='configured locally' if INTERNAL_API_KEY else '')
 
-    for label, base_url in (('proposal_tool', PROPOSAL_URL), ('profile_tool', PROFILE_URL)):
+    for label, base_url in (('proposal_tool', PROPOSAL_URL),):
         if not base_url:
             add(label, False, error=f'{label.upper()} URL not configured')
             continue
@@ -1050,13 +1050,7 @@ def dashboard():
             conn_tps.close()
     except Exception as e:
         print(f"Recent activity error: {e}")
-    profile = get_profile_result(user_key)
-
-    from datetime import datetime as _dt
-    now_year = _dt.now().year
     is_admin = (user.get('role') == 'admin')
-    # Check if profile taken this year
-    profile_this_year = profile and profile.get('taken_date') and str(profile['taken_date'])[:4] == str(now_year) if profile else False
     # Get date events
     date_events = get_date_events(user_key, is_admin=is_admin)
     # Get full proposal history for consultants
@@ -1085,11 +1079,8 @@ def dashboard():
                            all_my_proposals=all_my_proposals,
                            all_my_ppms=all_my_ppms,
                            all_my_tpscopes=all_my_tpscopes,
-                           profile=profile if profile_this_year else None,
-                           now_year=now_year,
                            date_events=date_events,
-                           proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
-                           profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
+                           proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
 @app.route('/log-proposal', methods=['POST'])
@@ -1669,9 +1660,6 @@ def admin():
     all_proposals = []
     all_ppms = []
     all_subscopes = []
-    profile_rows = []
-    profiles_taken = {}
-    profile_count = 0
     unread_feedback = 0
     client_count = 0
     proposals_30d = ppms_30d = subscopes_30d = 0
@@ -1708,16 +1696,6 @@ def admin():
             breakdown = _fetch_admin_breakdown(cur)
             vault = _fetch_vault_summary(cur)
             try:
-                cur.execute('SELECT id, name, taken_date, primary_disc, secondary_disc, primary_motiv, character_match, character_show FROM profile_results ORDER BY taken_date DESC')
-                profile_rows = cur.fetchall()
-                profile_count = len(profile_rows)
-                for r in profile_rows:
-                    key = r['name'].lower().replace(' ', '_')
-                    if key not in profiles_taken:
-                        profiles_taken[key] = r['taken_date']
-            except Exception:
-                pass
-            try:
                 cur.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
                 unread_feedback = cur.fetchone()['cnt']
             except Exception:
@@ -1734,12 +1712,10 @@ def admin():
 
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
-                           profile_rows=profile_rows, profiles_taken=profiles_taken,
-                           profile_count=profile_count, unread_feedback=unread_feedback,
+                           unread_feedback=unread_feedback,
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
                            breakdown=breakdown, vault=vault,
-                           selected_year=2026,
                            user_definitions=USERS)
 
 
@@ -1989,7 +1965,7 @@ def admin_member(user_key):
     user_def = USERS.get(user_key)
     if not user_def:
         return redirect(url_for('admin'))
-    proposals, ppms, subscopes, profile, feedback_items = [], [], [], None, []
+    proposals, ppms, subscopes, feedback_items = [], [], [], []
     try:
         conn = get_db()
         if conn:
@@ -2000,8 +1976,6 @@ def admin_member(user_key):
             ppms = cur.fetchall()
             cur.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
             subscopes = cur.fetchall()
-            cur.execute('SELECT * FROM profile_results WHERE LOWER(name) = LOWER(%s) ORDER BY taken_date DESC', (user_def['display'],))
-            profile = cur.fetchone()
             cur.execute('SELECT * FROM feedback WHERE user_key = %s ORDER BY submitted_at DESC', (user_key,))
             feedback_items = cur.fetchall()
             cur.close()
@@ -2011,9 +1985,8 @@ def admin_member(user_key):
     return render_template('admin_member.html',
                            user=user_def, user_key=user_key,
                            proposals=proposals, ppms=ppms,
-                           subscopes=subscopes, profile=profile,
-                           feedback_items=feedback_items,
-                           profile_url=os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com'))
+                           subscopes=subscopes,
+                           feedback_items=feedback_items)
 
 
 @app.route('/admin/pps-game')
@@ -2516,11 +2489,6 @@ def team_view():
                         (key,)
                     )
                     udata['tpscopes'] = _serialize_log_rows(cur.fetchall())
-                # Profile
-                display_name = USERS.get(key, {}).get('display', '')
-                cur.execute('SELECT * FROM profile_results WHERE LOWER(name) = LOWER(%s) ORDER BY taken_date DESC LIMIT 1', (display_name,))
-                prof = cur.fetchone()
-                udata['profile'] = prof
                 member_data[key] = udata
             cur.close()
             conn.close()
@@ -3191,12 +3159,9 @@ def logout():
     import urllib.parse
     session.clear()
     final = f'{HUB_PUBLIC_URL}/login'
-    chain = f'{PROFILE_URL}/logout?next={urllib.parse.quote(final, safe="")}'
     if PROPOSAL_URL:
-        nxt = urllib.parse.quote(chain, safe='')
+        nxt = urllib.parse.quote(final, safe='')
         return redirect(f'{PROPOSAL_URL}/logout?next={nxt}')
-    if PROFILE_URL:
-        return redirect(chain)
     return redirect(url_for('login'))
 
 

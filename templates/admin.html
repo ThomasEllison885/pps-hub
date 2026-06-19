@@ -59,15 +59,6 @@
   .act-item-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
   .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
 
-  /* Profile dist */
-  .dist-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:14px;}
-  .dist-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;text-align:center;}
-  .dist-letter{font-size:26px;font-weight:700;margin-bottom:4px;}
-  .d-l{color:#c0392b;}.i-l{color:#e67e22;}.s-l{color:#27ae60;}.c-l{color:#2980b9;}
-  .dist-label{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
-  .dist-count{font-size:24px;font-weight:700;color:var(--dark-blue);}
-  .dist-pct{font-size:11px;color:#aaa;}
-
   /* Feedback unread badge */
   .unread-badge{background:#C00;color:#fff;border-radius:20px;padding:2px 7px;font-size:10px;font-weight:700;margin-left:6px;}
 
@@ -167,7 +158,7 @@
     <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
   </div>
   <div id="healthWarn" class="alert-banner warn" style="display:none;">
-    <strong>Temporary service throttle.</strong> A health check hit a rate limit — the Profile tool should still work. Refresh in a minute if needed.
+    <strong>Temporary service throttle.</strong> A health check hit a rate limit — services should still work. Refresh in a minute if needed.
   </div>
 
   <div class="stats">
@@ -187,10 +178,6 @@
       <div class="num">{{ subscopes_30d }} <span class="all-time">/ {{ all_subscopes|length }}</span></div>
       <div class="lbl">Trade Partner Scopes <span class="period-note">30d / all</span></div>
     </a>
-    <div class="stat">
-      <div class="num">{{ profile_count }}</div>
-      <div class="lbl">Profiles Taken</div>
-    </div>
     <a href="/clients" class="stat stat-link">
       <div class="num">{{ client_count }}</div>
       <div class="lbl">Client Database</div>
@@ -307,7 +294,7 @@
     <table>
       <thead>
         <tr>
-          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Active</th><th>Profile</th><th>Team View</th><th>Password</th>
+          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Active</th><th>Team View</th><th>Password</th>
         </tr>
       </thead>
       <tbody>
@@ -335,13 +322,6 @@
             {% else %}{{ access|join(', ')|replace('_',' ')|title }}{% endif %}
           </td>
           <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
-          <td style="font-size:12px;color:#888;">
-            {% if u.user_key in profiles_taken %}
-            <span style="color:#27ae60;font-weight:600;">✓ {{ profiles_taken[u.user_key] }}</span>
-            {% else %}
-            <span style="color:#ddd;">Not taken</span>
-            {% endif %}
-          </td>
           <td>
             {% set udef = user_definitions.get(u.user_key, {}) %}
             {% if udef.get('team_view_scope') %}
@@ -369,7 +349,6 @@
         <h3>Proposals Generated</h3>
         <div style="display:flex;gap:6px;">
           <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
-          <button class="clear-btn" onclick="clearMyProfile()" style="background:#f0e8ff;color:#6A1B9A;border-color:#CE93D8;">Clear My Profile</button>
         </div>
       </div>
       {% if all_proposals %}
@@ -427,37 +406,6 @@
     </div>
     <div class="act-card" style="visibility:hidden;"></div>
   </div>
-
-  <!-- PROFILE DISTRIBUTION -->
-  {% if profile_rows %}
-  <div class="pps-section-head">Pure Way Profile Results · {{ selected_year }}</div>
-  {% set d_count = profile_rows | selectattr('primary_disc', 'equalto', 'D') | list | length %}
-  {% set i_count = profile_rows | selectattr('primary_disc', 'equalto', 'I') | list | length %}
-  {% set s_count = profile_rows | selectattr('primary_disc', 'equalto', 'S') | list | length %}
-  {% set c_count = profile_rows | selectattr('primary_disc', 'equalto', 'C') | list | length %}
-  <div class="dist-grid">
-    <div class="dist-card"><div class="dist-letter d-l">D</div><div class="dist-label">Decisive</div><div class="dist-count">{{ d_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((d_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
-    <div class="dist-card"><div class="dist-letter i-l">I</div><div class="dist-label">Interactive</div><div class="dist-count">{{ i_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((i_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
-    <div class="dist-card"><div class="dist-letter s-l">S</div><div class="dist-label">Stabilizing</div><div class="dist-count">{{ s_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((s_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
-    <div class="dist-card"><div class="dist-letter c-l">C</div><div class="dist-label">Cautious</div><div class="dist-count">{{ c_count }}</div><div class="dist-pct">{% if profile_rows %}{{ ((c_count/profile_rows|length)*100)|round|int }}%{% endif %}</div></div>
-  </div>
-  <div class="card" style="margin-top:16px;">
-    <table>
-      <thead><tr><th>Name</th><th>Date</th><th>Type</th><th>Character</th><th>Motivator</th></tr></thead>
-      <tbody>
-        {% for r in profile_rows %}
-        <tr>
-          <td style="font-weight:600;color:var(--dark-blue);">{{ r.name }}</td>
-          <td style="font-size:13px;color:#888;">{{ r.taken_date }}</td>
-          <td><span style="font-weight:600;color:var(--dark-blue);">{{ r.primary_disc }}{% if r.secondary_disc %}/{{ r.secondary_disc }}{% endif %}</span></td>
-          <td style="font-size:13px;">{{ r.character_match }}</td>
-          <td style="font-size:13px;color:#888;">{{ r.primary_motiv }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
 
   <div class="pps-footer">
     <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
@@ -736,13 +684,6 @@
     const r = await fetch('/admin/clear-my-data', { method: 'POST' });
     const d = await r.json();
     if (d.success) location.reload();
-  }
-
-  async function clearMyProfile() {
-    if (!confirm('Delete your profile results? You will need to retake the assessment.')) return;
-    const r = await fetch('/admin/clear-my-profile', { method: 'POST' });
-    const d = await r.json();
-    if (d.success) { alert('Profile results cleared.'); location.reload(); }
   }
 
   const TYPE_LABELS = {proposal:'Proposal', ppm:'PPM', tps:'TPS', site_visit:'Site Visit', client:'Client'};

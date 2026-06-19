@@ -31,7 +31,7 @@
   .mc-stat{text-align:center;}
   .mc-stat .num{font-size:20px;font-weight:700;color:var(--dark-blue);}
   .mc-stat .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;}
-  .mc-profile{display:inline-block;margin-top:8px;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:11px;color:var(--dark-blue);}
+
 
   /* Detail panel */
   .detail-panel{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:24px;display:none;}
@@ -115,9 +115,7 @@
         </div>
         {% endif %}
       </div>
-      {% if mdata.get('profile') %}
-      <div class="mc-profile">{{ mdata.profile.character_match }} · {{ mdata.profile.primary_disc }}{% if mdata.profile.secondary_disc %}/{{ mdata.profile.secondary_disc }}{% endif %}</div>
-      {% endif %}
+
     </div>
     {% endfor %}
   </div>

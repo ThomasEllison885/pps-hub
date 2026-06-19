@@ -25,13 +25,6 @@
   .role-badge.pm{background:var(--light-bg);color:var(--dark-blue);border:1px solid var(--border);}
   .role-badge.office_manager{background:#F3E5F5;color:#6A1B9A;border:1px solid #CE93D8;}
   .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
-  .profile-card{background:linear-gradient(135deg,#EBF6FC 0%,#fff 100%);border:1.5px solid var(--border);border-radius:var(--radius);padding:22px 24px;margin-bottom:28px;display:flex;align-items:center;gap:18px;}
-  .profile-card .icon{font-size:32px;}
-  .ps-name{font-size:18px;font-weight:600;color:var(--dark-blue);margin-bottom:2px;}
-  .ps-show{font-size:13px;color:#888;}
-  .ps-badge{display:inline-block;margin-top:6px;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:2px 10px;font-size:12px;color:var(--dark-blue);font-weight:600;}
-  .ps-cta{margin-left:auto;color:var(--blue);font-size:13px;font-weight:500;text-decoration:none;}
-  .no-profile{background:#f8f8f8;border:1.5px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;color:#aaa;font-size:14px;margin-bottom:28px;}
   .act-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;}
   .act-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;}
   .act-card h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
@@ -76,23 +69,6 @@
     </span>
   </div>
   <p class="page-sub">Full activity summary — admin view only</p>
-
-  <!-- PROFILE -->
-  <div class="pps-section-head">Pure Way Profile</div>
-  {% if profile %}
-  <div class="profile-card">
-    <div class="icon">🎬</div>
-    <div>
-      <div style="font-size:11px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px;">Most Recent · {{ profile.taken_date }}</div>
-      <div class="ps-name">{{ profile.character_match }}</div>
-      <div class="ps-show">{{ profile.character_show }}</div>
-      <span class="ps-badge">{{ profile.primary_disc }}{% if profile.secondary_disc %}/{{ profile.secondary_disc }}{% endif %} · {{ profile.primary_motiv }}</span>
-    </div>
-    <a href="{{ profile_url }}/history/{{ profile.id }}" class="ps-cta" target="_blank">View Full Results →</a>
-  </div>
-  {% else %}
-  <div class="no-profile">{{ user.display }} has not taken the Pure Way Profile yet.</div>
-  {% endif %}
 
   <!-- ACTIVITY -->
   <div class="pps-section-head">Activity</div>
