@@ -603,6 +603,15 @@ def init_db():
             active BOOLEAN DEFAULT TRUE
         )
     ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_notifications (
+            user_key VARCHAR(100) NOT NULL,
+            notification_type VARCHAR(50) NOT NULL,
+            week_num INTEGER NOT NULL DEFAULT -1,
+            created_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_key, notification_type, week_num)
+        )
+    ''')
     try:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_notes_user ON psc_training_notes(user_key)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_feedback_time ON psc_training_feedback(submitted_at DESC)")
@@ -807,10 +816,193 @@ def get_psc_training_progress(user_key):
     return progress
 
 
+def _psc_accountability_recipients():
+    """President and PSC training manager — accountability email recipients."""
+    recipients = []
+    for key in ('thomas_ellison', PSC_TRAINING_MANAGER):
+        email = (USERS.get(key, {}).get('email') or '').strip()
+        if email and email.lower() not in {r.lower() for r in recipients}:
+            recipients.append(email)
+    return recipients
+
+
+def _send_psc_accountability_email(subject, text_body, html_body=None):
+    """Email President and training manager about PSC onboarding events."""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    recipients = _psc_accountability_recipients()
+    if not recipients:
+        print(f"PSC accountability (no recipients): {subject}\n{text_body}")
+        return False
+
+    smtp_host = os.environ.get('SMTP_HOST', '')
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+    if not smtp_host:
+        print(f"PSC accountability email:\nSubject: {subject}\nTo: {', '.join(recipients)}\n{text_body}")
+        return False
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = smtp_user
+        msg['To'] = ', '.join(recipients)
+        msg.attach(MIMEText(text_body, 'plain'))
+        if html_body:
+            msg.attach(MIMEText(html_body, 'html'))
+        with smtplib.SMTP_SSL(smtp_host, 465) as s:
+            s.login(smtp_user, smtp_pass)
+            s.send_message(msg)
+        return True
+    except Exception as e:
+        print(f"PSC accountability email failed: {e}")
+        return False
+
+
+def _psc_week_labels():
+    onboarding, weeks, _, _ = get_training_curriculum()
+    labels = {0: onboarding.get('title', 'Week 0 · PPS Foundations')}
+    for w in weeks:
+        labels[w['week']] = f"Week {w['week']} · {w['topic']}"
+    return labels
+
+
+def _psc_weeks_fully_complete(progress, week_map):
+    """Return {week_num: bool} for whether every item in that week is done."""
+    status = {}
+    for week_num, ids in week_map.items():
+        if not ids:
+            status[week_num] = False
+            continue
+        done = sum(1 for item_id in ids if progress.get(item_id))
+        status[week_num] = done == len(ids)
+    return status
+
+
+def _psc_week_notification_sent(user_key, week_num):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT 1 FROM psc_training_notifications
+            WHERE user_key = %s AND notification_type = %s AND week_num = %s
+        ''', (user_key, 'week_complete', week_num))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return bool(row)
+    except Exception:
+        return False
+
+
+def _record_psc_week_notification(user_key, week_num):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO psc_training_notifications (user_key, notification_type, week_num)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_key, notification_type, week_num) DO NOTHING
+        ''', (user_key, 'week_complete', week_num))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC week notification record error: {e}")
+        return False
+
+
+def _notify_psc_week_completions(user_key, prior_progress, new_progress):
+    """Email accountability owners when a trainee completes a training week."""
+    week_map = _psc_week_item_ids()
+    labels = _psc_week_labels()
+    prior = _psc_weeks_fully_complete(prior_progress, week_map)
+    new = _psc_weeks_fully_complete(new_progress, week_map)
+    display = USERS.get(user_key, {}).get('display', user_key)
+    stats = compute_psc_training_stats(user_key)
+    oversight_url = f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight"
+
+    for week_num in sorted(new.keys()):
+        if not new.get(week_num) or prior.get(week_num):
+            continue
+        if _psc_week_notification_sent(user_key, week_num):
+            continue
+        label = labels.get(week_num, f'Week {week_num}')
+        subject = f'PSC Training — {display} completed {label}'
+        text_body = (
+            f'{display} completed all checklist items for {label}.\n\n'
+            f'Overall progress: {stats["pct"]}% ({stats["done"]} / {stats["total"]} items)\n\n'
+            f'Review progress: {oversight_url}'
+        )
+        html_body = f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+          <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
+            <p style="color:white;font-size:17px;font-weight:600;margin:0;">PSC Training Update</p>
+          </div>
+          <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+            <p style="color:#334155;font-size:15px;margin:0 0 12px;">
+              <strong>{display}</strong> completed <strong>{label}</strong>.
+            </p>
+            <p style="color:#64748b;font-size:14px;margin:0 0 16px;">
+              Overall progress: {stats['pct']}% ({stats['done']} / {stats['total']} items)
+            </p>
+            <p style="margin:0;">
+              <a href="{oversight_url}" style="color:#004C8C;font-weight:600;">Open PSC Accountability dashboard →</a>
+            </p>
+          </div>
+        </div>
+        """
+        if _send_psc_accountability_email(subject, text_body, html_body):
+            _record_psc_week_notification(user_key, week_num)
+
+
+def _notify_psc_training_feedback(user_key, display_name, message, week_num=None):
+    """Email accountability owners when a trainee submits module feedback."""
+    from html import escape
+
+    labels = _psc_week_labels()
+    if week_num is None or week_num == '':
+        week_label = 'General — whole module'
+    else:
+        week_label = labels.get(int(week_num), f'Week {week_num}')
+    oversight_url = f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight"
+    subject = f'PSC Training Feedback — {display_name}'
+    text_body = (
+        f'New PSC training feedback from {display_name}\n'
+        f'Week: {week_label}\n\n'
+        f'{message.strip()}\n\n'
+        f'Review in hub: {oversight_url}'
+    )
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
+        <p style="color:white;font-size:17px;font-weight:600;margin:0;">PSC Training Feedback</p>
+      </div>
+      <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+        <p style="color:#334155;font-size:14px;margin:0 0 8px;"><strong>From:</strong> {display_name}</p>
+        <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>Week:</strong> {week_label}</p>
+        <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(message.strip())}</div>
+        <p style="margin:16px 0 0;">
+          <a href="{oversight_url}" style="color:#004C8C;font-weight:600;">Open PSC Accountability dashboard →</a>
+        </p>
+      </div>
+    </div>
+    """
+    _send_psc_accountability_email(subject, text_body, html_body)
+
+
 def save_psc_training_progress(user_key, progress_dict):
     """Upsert completion state for training items."""
     if not progress_dict or not isinstance(progress_dict, dict):
         return False
+    prior_progress = get_psc_training_progress(user_key)
     valid_ids = set(get_all_item_ids())
     try:
         conn = get_db()
@@ -838,6 +1030,8 @@ def save_psc_training_progress(user_key, progress_dict):
         cur.close()
         conn.close()
         touch_psc_training_activity(user_key)
+        new_progress = get_psc_training_progress(user_key)
+        _notify_psc_week_completions(user_key, prior_progress, new_progress)
         return True
     except Exception as e:
         print(f"PSC training progress save error: {e}")
@@ -1069,6 +1263,7 @@ def submit_psc_training_feedback(user_key, display_name, message, week_num=None,
         conn.commit()
         cur.close()
         conn.close()
+        _notify_psc_training_feedback(user_key, display_name, message, week_num)
         return True
     except Exception as e:
         print(f"PSC training feedback error: {e}")
