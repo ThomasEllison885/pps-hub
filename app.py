@@ -854,8 +854,9 @@ def can_psc_training_oversight(user_key):
 
 
 def is_psc_training_enrolled(user_key):
-    """Active enrollment — only enrolled consultants see the training module."""
-    if USERS.get(user_key, {}).get('role') != 'consultant':
+    """Active enrollment — enrolled consultants (and admin self-preview) see the training module."""
+    role = USERS.get(user_key, {}).get('role')
+    if role not in ('consultant', 'admin'):
         return False
     try:
         conn = get_db()
@@ -919,8 +920,14 @@ def list_psc_enrolled_trainees():
 
 
 def enroll_psc_trainee(user_key, enrolled_by, manager_key=None):
-    if user_key not in USERS or USERS[user_key].get('role') != 'consultant':
-        return False, 'User is not a consultant'
+    user = USERS.get(user_key, {})
+    role = user.get('role')
+    if role == 'consultant':
+        pass
+    elif role == 'admin' and user_key == enrolled_by:
+        pass  # President previewing the trainee experience
+    else:
+        return False, 'User cannot be enrolled in PSC training'
     mgr = manager_key or PSC_TRAINING_MANAGER
     try:
         conn = get_db()
@@ -3229,6 +3236,8 @@ def psc_training_oversight():
         feedback_items=feedback_items,
         total_items=count_trackable_items(),
         is_admin=(session.get('role') == 'admin'),
+        current_user_key=user_key,
+        self_enrolled_as_trainee=is_psc_training_enrolled(user_key),
         manager_name=USERS.get(PSC_TRAINING_MANAGER, {}).get('display', 'VP Sales'),
     )
 

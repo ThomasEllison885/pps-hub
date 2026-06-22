@@ -66,6 +66,20 @@
   </div>
 
   {% if is_admin %}
+  <div class="section-head">Preview Trainee Experience</div>
+  <div class="card card-pad" style="margin-bottom:20px;">
+    {% if self_enrolled_as_trainee %}
+    <p style="margin:0 0 12px;font-size:14px;">You are enrolled as a trainee so you can walk through the full PSC Training module.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a href="/psc-training" class="btn">Open PSC Training</a>
+      <button class="btn btn-outline" onclick="endSelfPreview()">End preview</button>
+    </div>
+    {% else %}
+    <p style="margin:0 0 12px;font-size:14px;">Enroll yourself to see exactly what a new hire sees on their dashboard and in the training module.</p>
+    <button class="btn" onclick="enrollSelfPreview()">Enroll myself for preview</button>
+    {% endif %}
+  </div>
+
   <div class="section-head">Enroll a New Hire</div>
   <div class="card card-pad">
     <div class="enroll-row">
@@ -170,6 +184,13 @@ function enrollTrainee() {
   const key = document.getElementById('enrollSelect').value;
   if (!key) return;
   trainingAction(key, 'enroll');
+}
+function enrollSelfPreview() {
+  trainingAction('{{ current_user_key }}', 'enroll');
+}
+function endSelfPreview() {
+  if (!confirm('End your preview enrollment? PSC Training will disappear from your dashboard.')) return;
+  trainingAction('{{ current_user_key }}', 'unenroll');
 }
 function graduateTrainee(key, name) {
   if (!confirm('Mark ' + name + ' as graduated? This removes PSC Training from their dashboard.')) return;
