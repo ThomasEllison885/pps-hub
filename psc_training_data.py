@@ -6,16 +6,16 @@ PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
-        'An 11-week program (Weeks 0–11) covering PPS culture and voice, sales fundamentals, '
-        'construction trades by property segment, field shadowing, and PPS tools. '
+        'A 12-week program (Weeks 1–12, plus Week 0 foundations) covering PPS culture and voice, '
+        'sales fundamentals, construction trades by property segment, field shadowing, and PPS tools. '
+        'The 4 Disciplines of Execution runs all four hospitality/commercial weeks — it is the densest read. '
         'Enrolled when you start — not tied to any specific past hire.'
     ),
-    'duration_weeks': 11,
+    'duration_weeks': 12,
     'segments': [
         {'name': 'Apartments', 'weeks': [1, 2, 3, 4], 'color': '#004C8C'},
         {'name': 'Condos', 'weeks': [5, 6, 7, 8], 'color': '#0096D6'},
-        {'name': 'Hospitality / Commercial', 'weeks': [9], 'color': '#B8922A'},
-        {'name': '4DX & Graduation', 'weeks': [10, 11], 'color': '#6A1B9A'},
+        {'name': 'Hospitality / Commercial', 'weeks': [9, 10, 11, 12], 'color': '#B8922A'},
     ],
 }
 
@@ -36,6 +36,42 @@ FOUR_DX_CHAPTERS = [
     {'num': 13, 'title': 'Case Studies — Winning with 4DX'},
     {'num': 14, 'title': 'Case Studies — Marriott & Comcast'},
     {'num': 15, 'title': 'Applying 4DX to Your Life'},
+]
+
+# 4DX chapter slices for weeks 9–12 (full book over four weeks — densest reading segment)
+FOUR_DX_WEEKLY = [
+    {
+        'chapters': FOUR_DX_CHAPTERS[0:4],
+        'discussion': 'Discuss: What is the whirlwind in your role? What would a first WIG look like?',
+        'reading_note': (
+            '4DX is the hardest read in the program — go slowly. Week 9 covers the four core disciplines (Ch 1–4). '
+            'Take notes; re-read any chapter that does not land on the first pass.'
+        ),
+    },
+    {
+        'chapters': FOUR_DX_CHAPTERS[4:7],
+        'discussion': 'Discuss: How do you choose where to focus when everything feels urgent?',
+        'reading_note': (
+            'Continue 4DX (Ch 5–7). These chapters bridge personal execution to organizational focus. '
+            'Schedule two reading blocks this week — this material rewards re-reading.'
+        ),
+    },
+    {
+        'chapters': FOUR_DX_CHAPTERS[7:11],
+        'discussion': 'Discuss: Who are your leaders of leaders at PPS? What does installing 4DX look like on a team?',
+        'reading_note': (
+            'Hardest 4DX section (Ch 8–11): leader alignment, installation, and engagement. '
+            'Budget extra time; do a mid-week check-in with your manager on what you are retaining.'
+        ),
+    },
+    {
+        'chapters': FOUR_DX_CHAPTERS[11:15],
+        'discussion': 'Finish the book. Present your 90-day WIG, lead measures, and scoreboard in graduation review.',
+        'reading_note': (
+            'Finish 4DX (Ch 12–15): sustaining results, case studies, and personal application. '
+            'Connect every chapter to your first 90 days as a PSC.'
+        ),
+    },
 ]
 
 PSC_CORE_VALUES = {
@@ -566,6 +602,7 @@ PSC_TRAINING_WEEKS = [
         ],
         'additional': [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=u4ZoJKF_VuA', 'title': 'Find Your Why'},
+            {'type': 'reading', 'title': 'PPS Why', 'text': 'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.'},
         ],
         'pps_focus': [
             {
@@ -670,13 +707,12 @@ PSC_TRAINING_WEEKS = [
         'segment': 'Hospitality / Commercial',
         'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
         'book_chapters': {
-            'chapters': FOUR_DX_CHAPTERS[0:5],
-            'discussion': 'Start 4DX: understand the whirlwind vs. WIG. Draft a rough 90-day WIG to refine in Weeks 10–11.',
+            **FOUR_DX_WEEKLY[0],
         },
         'topic': 'Remodels & Interior Renovation',
         'topic_summary': (
             'Hospitality and commercial remodels involve phasing, occupied spaces, and permit requirements. '
-            'Learn renovation scope structure and how PPS handles complex interior projects.'
+            'Week 9 begins the 4DX reading track — allow extra time alongside field training.'
         ),
         'videos': [
             {'url': 'https://www.youtube.com/watch?v=KnMe4LC22lc', 'title': 'Renovation Overview (DIY)'},
@@ -698,73 +734,111 @@ PSC_TRAINING_WEEKS = [
                 'text': 'Ask your PM: when does PPS pull permits vs. client? Document the answer for your market.',
             },
             {
-                'id': 'w9_focus_graduation',
-                'title': 'Graduation prep',
-                'text': 'Prepare a 10-minute presentation: one trade you mastered, one still developing, and your 90-day WIG.',
+                'id': 'w9_focus_4dx_start',
+                'title': 'Start your 4DX reading log',
+                'text': 'Keep a running doc of whirlwind vs. WIG examples from your shadowing. You will use this through Week 12.',
             },
         ],
-        'manager_checkin': 'Commercial segment review — ready for 4DX deep dive?',
+        'manager_checkin': 'Remodel scope basics clear? 4DX Ch 1–4 complete?',
     },
     {
         'week': 10,
-        'segment': '4DX & Graduation',
+        'segment': 'Hospitality / Commercial',
         'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
         'book_chapters': {
-            'chapters': FOUR_DX_CHAPTERS[5:10],
-            'discussion': 'Define your Team WIG in "from X to Y by when" format. Identify 2–3 lead measures with your manager.',
+            **FOUR_DX_WEEKLY[1],
         },
-        'topic': '4DX — Installing Execution',
+        'topic': 'Pressure Washing & Gutter Cleaning',
         'topic_summary': (
-            'Part 2 of 4DX covers how leaders of leaders focus the organization. '
-            'Apply these chapters to your first 90 days as a PSC — your WIG, lead measures, and scoreboard.'
+            'Pressure washing and gutter cleaning are common hospitality/commercial scopes. '
+            'Learn equipment, technique, and how these services are scoped and sold in commercial contexts.'
         ),
-        'videos': [],
+        'videos': [
+            {'url': 'https://www.youtube.com/watch?v=R3CZw2xam40', 'title': 'Gutter Cleaning and Pressure Washing Business'},
+            {'url': 'https://www.youtube.com/watch?v=X39Wdk9zVEk', 'title': 'How I Wash Gutters, Fascias and Soffits With a Pressure Washer'},
+            {'url': 'https://www.youtube.com/watch?v=Mzbe7uUnphk', 'title': 'Pressure Washing — 2 Story Gutter Cleaning (Small Business)'},
+        ],
         'shadowing': [
-            'Shadow on a hospitality or commercial job — focus on phasing and occupied-space coordination.',
-            'Attend a weekly WIG-style check-in with your manager (account, review scoreboard, plan).',
+            'Shadow an experienced consultant (e.g. Adam) on pressure washing and gutter cleaning in hospitality/commercial properties.',
+            'Goal: Master techniques for pressure washing and gutter cleaning in commercial/hospitality contexts.',
         ],
         'additional': [],
         'pps_focus': [
             {
-                'id': 'w10_focus_wig',
-                'title': 'Write your 90-day WIG',
-                'text': 'Format: "From X to Y by [date]." Example: "From 0 to 12 qualified site visits by end of Q2." Review with VP Sales.',
-            },
-            {
-                'id': 'w10_focus_scoreboard',
-                'title': 'Build a simple scoreboard',
-                'text': 'Track your lead measures weekly in Monday.com. Must be visible, simple, and show if you are winning.',
+                'id': 'w10_focus_wig_draft',
+                'title': 'Draft your 90-day WIG',
+                'text': 'Using 4DX Ch 5–7, write a rough WIG in "from X to Y by when" format. Review with your manager.',
             },
         ],
-        'manager_checkin': 'WIG and lead measures approved by VP Sales?',
+        'manager_checkin': 'Can you scope a pressure washing / gutter cleaning job on a walkthrough?',
     },
     {
         'week': 11,
-        'segment': '4DX & Graduation',
+        'segment': 'Hospitality / Commercial',
         'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
         'book_chapters': {
-            'chapters': FOUR_DX_CHAPTERS[10:15],
-            'discussion': 'Finish 4DX. Present your 90-day WIG, lead measures, and scoreboard in graduation review.',
+            **FOUR_DX_WEEKLY[2],
         },
-        'topic': 'Graduation & Independent Execution',
+        'topic': 'Estimating & Building Proposals',
         'topic_summary': (
-            'Complete 4DX and demonstrate readiness for independent client-facing work. '
-            'Case study chapters show how organizations sustain execution — model that in your first 90 days.'
+            'Commercial estimating and proposal building are core PSC skills. '
+            'This week pairs the hardest 4DX chapters with hands-on estimate and proposal shadowing.'
         ),
-        'videos': [],
+        'videos': [
+            {'url': 'https://www.youtube.com/watch?v=paXn-Ff5LPA', 'title': 'Mastering Construction Estimation — A Beginner\'s Guide'},
+            {'url': 'https://www.youtube.com/watch?v=6R-QkVe6Nfg', 'title': 'The Ultimate Construction Estimating Guide'},
+            {'url': 'https://www.youtube.com/watch?v=42PcHNSOSEg', 'title': 'Construction Cost Estimating — Complete Guide'},
+        ],
         'shadowing': [
-            'Lead a site visit walkthrough with your manager observing (you drive, they coach).',
-            'Shadow a proposal presentation or client review call if available.',
+            'Shadow an experienced consultant on estimating and proposal-building in hospitality/commercial properties.',
+            'Goal: Assist in on-site estimates and learn to build proposals for commercial projects.',
         ],
         'additional': [],
         'pps_focus': [
             {
-                'id': 'w11_focus_graduation',
-                'title': 'Graduation presentation',
-                'text': '10-minute presentation: one trade mastered, one still developing, your 90-day WIG, and lead measures.',
+                'id': 'w11_focus_scoreboard',
+                'title': 'Build your scoreboard',
+                'text': 'Define 2–3 lead measures for your WIG. Track them weekly in Monday.com — simple, visible, shows if you are winning.',
             },
             {
-                'id': 'w11_focus_cadence',
+                'id': 'w11_focus_proposal',
+                'title': 'Commercial proposal review',
+                'text': 'Pull a hospitality/commercial proposal from hub history. Identify scope structure, phasing language, and investment framing.',
+            },
+        ],
+        'manager_checkin': '4DX Ch 8–11 complete? WIG and lead measures approved?',
+    },
+    {
+        'week': 12,
+        'segment': 'Hospitality / Commercial',
+        'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
+        'book_chapters': {
+            **FOUR_DX_WEEKLY[3],
+        },
+        'topic': 'Prospecting & Graduation',
+        'topic_summary': (
+            'Finish 4DX and demonstrate commercial prospecting skills. '
+            'Graduation week: present your 90-day WIG, lead measures, and readiness for independent client-facing work.'
+        ),
+        'videos': [
+            {'url': 'https://www.youtube.com/watch?v=Hls3vpyAYAo', 'title': 'Prospecting Masterclass — How To Get More Listings Fast'},
+            {'url': 'https://www.youtube.com/watch?v=iFYGB5bBH94', 'title': 'Prospecting Tips Every Salesperson Should Know'},
+            {'url': 'https://www.youtube.com/watch?v=8IP4_3jAjyU', 'title': 'Prospecting Tips for Effective Real Estate Sales'},
+        ],
+        'shadowing': [
+            'Shadow an experienced consultant on prospecting activities in hospitality/commercial properties.',
+            'Goal: Observe and practice sales prospecting techniques for acquiring new commercial clients.',
+            'Lead a site visit walkthrough with your manager observing (you drive, they coach).',
+        ],
+        'additional': [],
+        'pps_focus': [
+            {
+                'id': 'w12_focus_graduation',
+                'title': 'Graduation presentation',
+                'text': '10-minute presentation: one trade mastered, one still developing, your 90-day WIG, lead measures, and scoreboard.',
+            },
+            {
+                'id': 'w12_focus_cadence',
                 'title': 'Commit to weekly accountability',
                 'text': 'Schedule a recurring 30-minute WIG session with your manager for your first 90 days post-graduation.',
             },

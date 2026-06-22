@@ -598,7 +598,7 @@ def init_db():
             enrolled_at TIMESTAMP DEFAULT NOW(),
             enrolled_by VARCHAR(100),
             manager_key VARCHAR(100) NOT NULL DEFAULT 'tony_cumella',
-            target_weeks INTEGER DEFAULT 11,
+            target_weeks INTEGER DEFAULT 12,
             last_activity_at TIMESTAMP,
             graduated_at TIMESTAMP,
             active BOOLEAN DEFAULT TRUE
