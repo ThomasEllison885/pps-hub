@@ -24,7 +24,14 @@
   .week-dots { display:flex; gap:4px; flex-wrap:wrap; }
   .week-dot { width:22px; height:22px; border-radius:50%; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; border:1.5px solid var(--border); color:#aaa; background:white; }
   .week-dot.done { background:#E8F5E9; border-color:#81C784; color:#2E7D32; }
+  .week-dot.ready { background:#E3F2FD; border-color:#64B5F6; color:#1565C0; cursor:pointer; }
+  .week-dot.ready:hover { background:#BBDEFB; }
   .week-dot.partial { background:#FFF8E1; border-color:#FFD54F; color:#E65100; }
+  .signoff-queue { margin-top:10px; }
+  .signoff-item { display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; padding:10px 0; border-bottom:1px solid #f0f4f8; font-size:13px; }
+  .signoff-item:last-child { border-bottom:none; }
+  .signoff-q { flex:1; min-width:200px; color:#666; line-height:1.45; }
+  .signoff-q strong { color:var(--dark-blue); }
   .meta-sm { font-size:11px; color:#aaa; display:block; margin-top:2px; }
   .enroll-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
   .enroll-row select { padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; min-width:220px; }
@@ -62,7 +69,8 @@
 
   <div class="accountability-note">
     <strong>PSC Training vs. PSC Accountability:</strong> PSC Training is what the hire uses — checklists, reading, notes, and feedback. PSC Accountability is this oversight view for you and {{ manager_name }} — enrollment, progress dots, and feedback review.<br><br>
-    <strong>Email alerts:</strong> You and {{ manager_name }} receive an email when a trainee completes a full week (Week 0–12) or submits module feedback.<br><br>
+    <strong>Manager sign-off:</strong> A week is not complete until you verify the check-in question and sign off (blue week dots). Email alerts fire on sign-off, not when the trainee checks boxes.<br><br>
+    <strong>Email alerts:</strong> You and {{ manager_name }} receive an email when a week is signed off or when module feedback is submitted.<br><br>
     <strong>Graduation:</strong> When a hire finishes onboarding, mark them graduated to remove PSC Training from their dashboard.
   </div>
 
@@ -125,9 +133,27 @@
           <td>
             <div class="week-dots">
               {% for w in row.week_pcts %}
-              <div class="week-dot {% if w.pct == 100 %}done{% elif w.pct > 0 %}partial{% endif %}" title="Week {{ w.week }}: {{ w.pct }}%">{{ w.week }}</div>
+              <div class="week-dot {% if w.manager_signed and w.trainee_pct == 100 %}done{% elif w.ready_for_signoff %}ready{% elif w.trainee_pct > 0 %}partial{% endif %}"
+                {% if can_signoff and w.ready_for_signoff %}
+                data-checkin="{{ w.checkin }}"
+                onclick="signoffWeek(this, '{{ row.user_key }}', {{ w.week }}, '{{ row.display|e }}')"
+                {% endif %}
+                title="Week {{ w.week }}: {{ w.trainee_pct }}% trainee{% if w.manager_signed %} · signed off{% elif w.ready_for_signoff %} · click to sign off{% endif %}{% if w.checkin %} — {{ w.checkin }}{% endif %}">{{ w.week }}</div>
               {% endfor %}
             </div>
+            {% if can_signoff %}
+            {% set ready_weeks = row.week_pcts|selectattr('ready_for_signoff')|list %}
+            {% if ready_weeks %}
+            <div class="signoff-queue">
+              {% for w in ready_weeks %}
+              <div class="signoff-item">
+                <div class="signoff-q"><strong>Week {{ w.week }} ready</strong> — {{ w.checkin }}</div>
+                <button class="btn btn-sm" data-checkin="{{ w.checkin }}" onclick="signoffWeek(this, '{{ row.user_key }}', {{ w.week }}, '{{ row.display|e }}')">Sign off</button>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% endif %}
           </td>
           <td>
             <span class="meta-sm" style="margin:0;">
@@ -167,6 +193,24 @@
     {% endif %}
   </div>
 </div>
+
+{% if can_signoff %}
+<script>
+async function signoffWeek(el, user_key, week, name) {
+  const q = el.getAttribute('data-checkin') || '';
+  if (!confirm(`Sign off Week ${week} for ${name}?${q ? '\n\nCheck-in: ' + q : ''}`)) return;
+  const resp = await fetch('/api/psc-training/signoff', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key, week, action: 'signoff' }),
+  });
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Sign-off failed');
+}
+</script>
+{% endif %}
 
 {% if is_admin %}
 <script>

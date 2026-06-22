@@ -612,6 +612,15 @@ def init_db():
             PRIMARY KEY (user_key, notification_type, week_num)
         )
     ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_manager_signoffs (
+            user_key VARCHAR(100) NOT NULL,
+            week_num INTEGER NOT NULL,
+            signed_by VARCHAR(100) NOT NULL,
+            signed_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_key, week_num)
+        )
+    ''')
     try:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_notes_user ON psc_training_notes(user_key)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_feedback_time ON psc_training_feedback(submitted_at DESC)")
@@ -869,8 +878,8 @@ def _psc_week_labels():
     return labels
 
 
-def _psc_weeks_fully_complete(progress, week_map):
-    """Return {week_num: bool} for whether every item in that week is done."""
+def _psc_week_trainee_complete(progress, week_map):
+    """Return {week_num: bool} for whether the trainee finished every item in that week."""
     status = {}
     for week_num, ids in week_map.items():
         if not ids:
@@ -879,6 +888,95 @@ def _psc_weeks_fully_complete(progress, week_map):
         done = sum(1 for item_id in ids if progress.get(item_id))
         status[week_num] = done == len(ids)
     return status
+
+
+def get_psc_manager_signoffs(user_key):
+    """Return {week_num: {signed_by, signed_at, signed_by_display}}."""
+    signoffs = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return signoffs
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT week_num, signed_by, signed_at FROM psc_training_manager_signoffs WHERE user_key = %s',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            signer = row['signed_by']
+            signoffs[row['week_num']] = {
+                'signed_by': signer,
+                'signed_at': row['signed_at'],
+                'signed_by_display': USERS.get(signer, {}).get('display', signer),
+            }
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PSC manager signoffs read error: {e}")
+    return signoffs
+
+
+def _psc_week_checkin_questions():
+    onboarding, weeks, _, _ = get_training_curriculum()
+    questions = {}
+    if onboarding.get('manager_checkin'):
+        questions[0] = onboarding['manager_checkin']
+    for w in weeks:
+        if w.get('manager_checkin'):
+            questions[w['week']] = w['manager_checkin']
+    return questions
+
+
+def manager_signoff_psc_week(trainee_key, week_num, signed_by):
+    """Manager verifies a week after the trainee completes all items."""
+    week_map = _psc_week_item_ids()
+    week_num = int(week_num)
+    if week_num not in week_map:
+        return False, 'Invalid week'
+    progress = get_psc_training_progress(trainee_key)
+    if not _psc_week_trainee_complete(progress, week_map).get(week_num):
+        return False, 'Trainee has not completed all items for this week yet'
+    if not is_psc_training_enrolled(trainee_key):
+        return False, 'Trainee is not actively enrolled'
+    try:
+        conn = get_db()
+        if not conn:
+            return False, 'Database unavailable'
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO psc_training_manager_signoffs (user_key, week_num, signed_by, signed_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_key, week_num)
+            DO UPDATE SET signed_by = EXCLUDED.signed_by, signed_at = NOW()
+        ''', (trainee_key, week_num, signed_by))
+        conn.commit()
+        cur.close()
+        conn.close()
+        touch_psc_training_activity(trainee_key)
+        _notify_psc_week_signed_off(trainee_key, week_num, signed_by)
+        return True, None
+    except Exception as e:
+        print(f"PSC manager signoff error: {e}")
+        return False, str(e)
+
+
+def revoke_psc_manager_signoff(trainee_key, week_num):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'DELETE FROM psc_training_manager_signoffs WHERE user_key = %s AND week_num = %s',
+            (trainee_key, int(week_num)),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC signoff revoke error: {e}")
+        return False
 
 
 def _psc_week_notification_sent(user_key, week_num):
@@ -919,48 +1017,48 @@ def _record_psc_week_notification(user_key, week_num):
         return False
 
 
-def _notify_psc_week_completions(user_key, prior_progress, new_progress):
-    """Email accountability owners when a trainee completes a training week."""
-    week_map = _psc_week_item_ids()
-    labels = _psc_week_labels()
-    prior = _psc_weeks_fully_complete(prior_progress, week_map)
-    new = _psc_weeks_fully_complete(new_progress, week_map)
-    display = USERS.get(user_key, {}).get('display', user_key)
-    stats = compute_psc_training_stats(user_key)
-    oversight_url = f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight"
+def _notify_psc_week_signed_off(trainee_key, week_num, signed_by):
+    """Email accountability owners when a manager officially signs off a week."""
+    from html import escape
 
-    for week_num in sorted(new.keys()):
-        if not new.get(week_num) or prior.get(week_num):
-            continue
-        if _psc_week_notification_sent(user_key, week_num):
-            continue
-        label = labels.get(week_num, f'Week {week_num}')
-        subject = f'PSC Training — {display} completed {label}'
-        text_body = (
-            f'{display} completed all checklist items for {label}.\n\n'
-            f'Overall progress: {stats["pct"]}% ({stats["done"]} / {stats["total"]} items)\n\n'
-            f'Review progress: {oversight_url}'
-        )
-        html_body = f"""
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
-          <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
-            <p style="color:white;font-size:17px;font-weight:600;margin:0;">PSC Training Update</p>
-          </div>
-          <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
-            <p style="color:#334155;font-size:15px;margin:0 0 12px;">
-              <strong>{display}</strong> completed <strong>{label}</strong>.
-            </p>
-            <p style="color:#64748b;font-size:14px;margin:0 0 16px;">
-              Overall progress: {stats['pct']}% ({stats['done']} / {stats['total']} items)
-            </p>
-            <p style="margin:0;">
-              <a href="{oversight_url}" style="color:#004C8C;font-weight:600;">Open PSC Accountability dashboard →</a>
-            </p>
-          </div>
-        </div>
-        """
-        if _send_psc_accountability_email(subject, text_body, html_body):
-            _record_psc_week_notification(user_key, week_num)
+    if _psc_week_notification_sent(trainee_key, week_num):
+        return
+    labels = _psc_week_labels()
+    checkins = _psc_week_checkin_questions()
+    display = USERS.get(trainee_key, {}).get('display', trainee_key)
+    signer = USERS.get(signed_by, {}).get('display', signed_by)
+    stats = compute_psc_training_stats(trainee_key)
+    oversight_url = f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight"
+    label = labels.get(week_num, f'Week {week_num}')
+    checkin = checkins.get(week_num, '')
+    subject = f'PSC Training — {display} completed {label} (manager sign-off)'
+    text_body = (
+        f'{signer} signed off {label} for {display}.\n\n'
+        f'Manager check-in: {checkin}\n\n'
+        f'Overall progress: {stats["pct"]}% ({stats["done"]} / {stats["total"]} items)\n\n'
+        f'Review progress: {oversight_url}'
+    )
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
+        <p style="color:white;font-size:17px;font-weight:600;margin:0;">PSC Training — Week Signed Off</p>
+      </div>
+      <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+        <p style="color:#334155;font-size:15px;margin:0 0 12px;">
+          <strong>{signer}</strong> signed off <strong>{label}</strong> for <strong>{display}</strong>.
+        </p>
+        <p style="color:#64748b;font-size:14px;margin:0 0 12px;"><strong>Check-in covered:</strong> {escape(checkin)}</p>
+        <p style="color:#64748b;font-size:14px;margin:0 0 16px;">
+          Overall progress: {stats['pct']}% ({stats['done']} / {stats['total']} items)
+        </p>
+        <p style="margin:0;">
+          <a href="{oversight_url}" style="color:#004C8C;font-weight:600;">Open PSC Accountability dashboard →</a>
+        </p>
+      </div>
+    </div>
+    """
+    if _send_psc_accountability_email(subject, text_body, html_body):
+        _record_psc_week_notification(trainee_key, week_num)
 
 
 def _notify_psc_training_feedback(user_key, display_name, message, week_num=None):
@@ -1002,7 +1100,6 @@ def save_psc_training_progress(user_key, progress_dict):
     """Upsert completion state for training items."""
     if not progress_dict or not isinstance(progress_dict, dict):
         return False
-    prior_progress = get_psc_training_progress(user_key)
     valid_ids = set(get_all_item_ids())
     try:
         conn = get_db()
@@ -1030,8 +1127,6 @@ def save_psc_training_progress(user_key, progress_dict):
         cur.close()
         conn.close()
         touch_psc_training_activity(user_key)
-        new_progress = get_psc_training_progress(user_key)
-        _notify_psc_week_completions(user_key, prior_progress, new_progress)
         return True
     except Exception as e:
         print(f"PSC training progress save error: {e}")
@@ -1271,7 +1366,7 @@ def submit_psc_training_feedback(user_key, display_name, message, week_num=None,
 
 
 def _psc_week_item_ids():
-    """Map week number -> list of item IDs for that week."""
+    """Map week number -> list of trainee item IDs for that week."""
     onboarding, weeks, core_values, sales_training = get_training_curriculum()
     result = {0: []}
 
@@ -1287,11 +1382,15 @@ def _psc_week_item_ids():
             ids.append(f['id'])
         if week_data.get('book_id'):
             ids.append(week_data['book_id'])
-        if week_data.get('checkin_id'):
-            ids.append(week_data['checkin_id'])
         return ids
 
     result[0] = collect(onboarding)
+    for section in core_values['sections']:
+        for act in section.get('activities', []):
+            result[0].append(act['id'])
+    for module in sales_training['modules']:
+        for item in module['items']:
+            result[0].append(item['id'])
     for w in weeks:
         result[w['week']] = collect(w)
     return result
@@ -1301,6 +1400,8 @@ def compute_psc_training_stats(user_key):
     """Overall and per-week completion stats."""
     progress = get_psc_training_progress(user_key)
     week_map = _psc_week_item_ids()
+    signoffs = get_psc_manager_signoffs(user_key)
+    checkins = _psc_week_checkin_questions()
     total = count_trackable_items()
     done = sum(1 for i in get_all_item_ids() if progress.get(i))
     week_pcts = []
@@ -1308,10 +1409,32 @@ def compute_psc_training_stats(user_key):
         ids = week_map[week_num]
         w_done = sum(1 for i in ids if progress.get(i))
         w_total = len(ids)
-        pct = round((w_done / w_total) * 100) if w_total else 0
-        week_pcts.append({'week': week_num, 'done': w_done, 'total': w_total, 'pct': pct})
+        trainee_pct = round((w_done / w_total) * 100) if w_total else 0
+        manager_signed = week_num in signoffs
+        entry = {
+            'week': week_num,
+            'done': w_done,
+            'total': w_total,
+            'trainee_pct': trainee_pct,
+            'manager_signed': manager_signed,
+            'ready_for_signoff': trainee_pct == 100 and not manager_signed,
+            'pct': 100 if manager_signed and trainee_pct == 100 else trainee_pct,
+            'checkin': checkins.get(week_num, ''),
+        }
+        if manager_signed:
+            entry['signed_by_display'] = signoffs[week_num]['signed_by_display']
+            entry['signed_at'] = signoffs[week_num]['signed_at']
+        week_pcts.append(entry)
     pct = round((done / total) * 100) if total else 0
-    return {'done': done, 'total': total, 'pct': pct, 'week_pcts': week_pcts}
+    signed_weeks = sum(1 for w in week_pcts if w['manager_signed'] and w['trainee_pct'] == 100)
+    return {
+        'done': done,
+        'total': total,
+        'pct': pct,
+        'week_pcts': week_pcts,
+        'signed_weeks': signed_weeks,
+        'total_weeks': len(week_map),
+    }
 
 
 def _internal_api_ok():
@@ -3272,6 +3395,7 @@ def psc_training():
     progress = get_psc_training_progress(user_key)
     notes = get_psc_training_notes(user_key)
     stats = compute_psc_training_stats(user_key)
+    week_status = {wp['week']: wp for wp in stats['week_pcts']}
     return render_template(
         'psc_training.html',
         meta=PSC_TRAINING_META,
@@ -3285,6 +3409,7 @@ def psc_training():
         enrollment=enrollment,
         manager=manager,
         stats=stats,
+        week_status=week_status,
         user=user,
     )
 
@@ -3417,6 +3542,7 @@ def psc_training_oversight():
         feedback_items=feedback_items,
         total_items=count_trackable_items(),
         is_admin=(session.get('role') == 'admin'),
+        can_signoff=True,
         current_user_key=user_key,
         self_enrolled_as_trainee=is_psc_training_enrolled(user_key),
         manager_name=USERS.get(PSC_TRAINING_MANAGER, {}).get('display', 'VP Sales'),
@@ -3427,6 +3553,32 @@ def psc_training_oversight():
 @require_admin
 def admin_psc_training():
     return redirect(url_for('psc_training_oversight'))
+
+
+@app.route('/api/psc-training/signoff', methods=['POST'])
+@require_login
+def psc_training_signoff_api():
+    user_key = session['user_key']
+    if not can_psc_training_oversight(user_key):
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.get_json(silent=True) or {}
+    trainee_key = (data.get('user_key') or '').strip()
+    action = (data.get('action') or 'signoff').strip()
+    if not trainee_key:
+        return jsonify({'error': 'user_key required'}), 400
+    try:
+        week_num = int(data.get('week'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'week required'}), 400
+    if action == 'revoke':
+        if session.get('role') != 'admin':
+            return jsonify({'error': 'Only admin can revoke sign-offs'}), 403
+        ok = revoke_psc_manager_signoff(trainee_key, week_num)
+        return jsonify({'success': ok}) if ok else (jsonify({'error': 'Could not revoke'}), 500)
+    ok, err = manager_signoff_psc_week(trainee_key, week_num, user_key)
+    if not ok:
+        return jsonify({'error': err or 'Could not sign off'}), 400
+    return jsonify({'success': True, 'stats': compute_psc_training_stats(trainee_key)})
 
 
 @app.route('/api/psc-training/enroll', methods=['POST'])

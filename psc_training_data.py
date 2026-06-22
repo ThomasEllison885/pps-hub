@@ -518,8 +518,11 @@ PSC_TRAINING_WEEKS = [
         'pps_focus': [
             {
                 'id': 'w1_focus_proposal',
-                'title': 'Review a painting proposal in the vault',
-                'text': 'Find a recent painting proposal in hub history. Identify scope language, unit counts, and warranty terms.',
+                'title': 'Estimating track — Step 1: Read a proposal',
+                'text': (
+                    'Find a recent painting proposal in hub history. Identify scope language, unit counts, '
+                    'investment framing, and warranty terms. Be ready to explain how scope becomes a proposal.'
+                ),
             },
             {
                 'id': 'w1_focus_identify',
@@ -563,6 +566,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w2_lifecycle_site',
+                'title': 'Project lifecycle — Site visit',
+                'text': (
+                    'Shadow a site visit end-to-end. Note what the consultant captures (photos, measurements, failure modes, '
+                    'access, phasing) and how that feeds Monday.com and the Site Visit Report.'
+                ),
+            },
+            {
                 'id': 'w2_focus_tps',
                 'title': 'Understand Trade Partner Scope handoff',
                 'text': 'After shadowing a roof job, review the Trade Partner Scope document for that trade. Note crew-ready language.',
@@ -602,6 +613,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w3_lifecycle_proposal',
+                'title': 'Project lifecycle — Site visit to proposal',
+                'text': (
+                    'With your manager, trace one real job from site visit notes to a generated proposal. '
+                    'Identify what transferred and what the consultant refined before the client saw it.'
+                ),
+            },
+            {
                 'id': 'w3_focus_objections',
                 'title': 'Practice objection handling',
                 'text': 'Role-play: "Your price is higher than the last vendor." Use the Sales Objections video and PPS Sales Training module.',
@@ -640,6 +659,22 @@ PSC_TRAINING_WEEKS = [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=gLRIW64ZcOo', 'title': '5 Tips for Handling Complaints'},
         ],
         'pps_focus': [
+            {
+                'id': 'w4_lifecycle_review',
+                'title': 'Project lifecycle — Proposal review with client',
+                'text': (
+                    'Shadow or role-play a proposal review with a property manager. Note how PPS walks through scope, '
+                    'phasing, investment language, and next steps — never a cold email send.'
+                ),
+            },
+            {
+                'id': 'w4_focus_scope_edit',
+                'title': 'Estimating track — Step 2: Refine scope language',
+                'text': (
+                    'Generate a practice apartment proposal, then edit three scope lines to better fit the property '
+                    '(phasing, resident disruption, concealed conditions). Manager reviews before you check this off.'
+                ),
+            },
             {
                 'id': 'w4_focus_complaints',
                 'title': 'Complaint response drill',
@@ -688,6 +723,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w5_lifecycle_award',
+                'title': 'Project lifecycle — Award & handoff',
+                'text': (
+                    'Ask your manager to walk you through what happens when a client awards a job: internal notifications, '
+                    'PM assignment, PPS handoff from sales to production, and what the PSC still owns.'
+                ),
+            },
+            {
                 'id': 'w5_focus_hoa',
                 'title': 'HOA decision-maker map',
                 'text': 'For your condo prospects, identify: board president, property manager, and who signs contracts. Document in Monday.com.',
@@ -731,6 +774,22 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w6_lifecycle_ppm',
+                'title': 'Project lifecycle — Pre-Project Meeting',
+                'text': (
+                    'Shadow or review a PPM for an awarded job. Identify what the PM needs from the proposal, '
+                    'who attends, and what the PSC must confirm before mobilization.'
+                ),
+            },
+            {
+                'id': 'w6_focus_condo_proposal',
+                'title': 'Estimating track — Step 3: Build a condo proposal',
+                'text': (
+                    'Generate a practice condo/HOA proposal in the Proposal Generator. Adjust tone for a board audience '
+                    '(homeowner value, deferred risk). Manager reviews before client-facing use.'
+                ),
+            },
+            {
                 'id': 'w6_focus_prospecting',
                 'title': 'Prospecting block',
                 'text': 'Apply Fanatical Prospecting: schedule 10 new condo/HOA outreach touches this week. Log in Monday.com.',
@@ -772,6 +831,14 @@ PSC_TRAINING_WEEKS = [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=vXJ_vL4_vsA', 'title': 'The Power of Moments'},
         ],
         'pps_focus': [
+            {
+                'id': 'w7_lifecycle_mobilization',
+                'title': 'Project lifecycle — Mobilization',
+                'text': (
+                    'Observe mobilization on an active job or debrief with a PM. Document the PSC role: client communication, '
+                    'resident notice, Trade Partner arrival, and what gets escalated on day one.'
+                ),
+            },
             {
                 'id': 'w7_focus_warranty',
                 'title': 'Warranty language review',
@@ -820,6 +887,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w8_lifecycle_active',
+                'title': 'Project lifecycle — Active job communication',
+                'text': (
+                    'On a job in progress, note how the PSC and PM coordinate updates with property management. '
+                    'What does the client hear from you vs. production? Write three rules for yourself.'
+                ),
+            },
+            {
                 'id': 'w8_focus_condo_complete',
                 'title': 'Condo segment recap',
                 'text': 'Compare EIFS vs. vinyl vs. Hardie: when would you recommend each? Write a one-paragraph answer.',
@@ -853,6 +928,14 @@ PSC_TRAINING_WEEKS = [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=vKNdNN03vw4', 'title': 'Construction Permits'},
         ],
         'pps_focus': [
+            {
+                'id': 'w9_lifecycle_change',
+                'title': 'Project lifecycle — Change orders & T&M',
+                'text': (
+                    'Review a real change order or T&M scenario with your manager. Walk through: cease work, photos, '
+                    'written approval, and how the PSC communicates scope additions to the client.'
+                ),
+            },
             {
                 'id': 'w9_focus_permits',
                 'title': 'Permit workflow',
@@ -890,6 +973,14 @@ PSC_TRAINING_WEEKS = [
         'additional': [],
         'pps_focus': [
             {
+                'id': 'w10_lifecycle_concealed',
+                'title': 'Project lifecycle — Concealed conditions',
+                'text': (
+                    'Find an example of concealed conditions discovered mid-project. Document the PPS sequence: '
+                    'stop work, photograph, notify client/management, written approval before proceeding.'
+                ),
+            },
+            {
                 'id': 'w10_focus_wig_draft',
                 'title': 'Draft your 90-day WIG',
                 'text': 'Using 4DX Ch 5–7, write a rough WIG in "from X to Y by when" format. Review with your manager.',
@@ -920,6 +1011,22 @@ PSC_TRAINING_WEEKS = [
         ],
         'additional': [],
         'pps_focus': [
+            {
+                'id': 'w11_lifecycle_punch',
+                'title': 'Project lifecycle — Punch list & close-out',
+                'text': (
+                    'Shadow a punch walk or close-out with a PM. Note how remaining items get documented, '
+                    'who signs off, and when the PSC reconnects with the client after production wraps.'
+                ),
+            },
+            {
+                'id': 'w11_focus_estimate_live',
+                'title': 'Estimating track — Step 4: Assist on a live estimate',
+                'text': (
+                    'Join an experienced consultant on an on-site estimate. Take notes on measurements, scope decisions, '
+                    'Trade Partner input, and what goes into the proposal. Debrief with your manager same week.'
+                ),
+            },
             {
                 'id': 'w11_focus_scoreboard',
                 'title': 'Build your scoreboard',
@@ -957,6 +1064,22 @@ PSC_TRAINING_WEEKS = [
         ],
         'additional': [],
         'pps_focus': [
+            {
+                'id': 'w12_lifecycle_recap',
+                'title': 'Project lifecycle — Full recap',
+                'text': (
+                    'Write the lifecycle in your own words: site visit → proposal → award → PPM → mobilization → '
+                    'active job → change order → punch/close-out. Identify where the PSC leads vs. supports the PM.'
+                ),
+            },
+            {
+                'id': 'w12_focus_estimate_lead',
+                'title': 'Estimating track — Step 5: Lead a walkthrough',
+                'text': (
+                    'Lead a site visit walkthrough with your manager observing. You drive scope conversation, '
+                    'photos, and notes. Debrief on what you would put in a proposal.'
+                ),
+            },
             {
                 'id': 'w12_focus_graduation',
                 'title': 'Graduation presentation',
@@ -1047,8 +1170,6 @@ def get_all_item_ids():
             ids.append(f['id'])
         if week_data.get('book_id'):
             ids.append(week_data['book_id'])
-        if week_data.get('checkin_id'):
-            ids.append(week_data['checkin_id'])
 
     for section in core_values['sections']:
         for act in section.get('activities', []):
