@@ -37,6 +37,7 @@
   .cv-section { margin-bottom:16px; }
   .cv-section-title { font-size:14px; font-weight:600; color:var(--dark-blue); margin-bottom:6px; }
   .cv-content { font-size:13px; color:#666; line-height:1.55; margin-bottom:8px; font-style:italic; }
+  .cv-activity-text { font-size:13px; color:#888; margin-top:4px; line-height:1.55; white-space:pre-line; }
   .cv-bullets { list-style:none; font-size:13px; line-height:1.55; color:#555; }
   .cv-bullets li { padding:4px 0 4px 14px; position:relative; }
   .cv-bullets li::before { content:'•'; position:absolute; left:0; color:var(--blue); }
@@ -191,7 +192,7 @@
       <div class="ref-icon">⭐</div>
       <div class="ref-info">
         <div class="ref-title">{{ core_values.title }}</div>
-        <div class="ref-meta">{{ core_values.sections|length }} sections · from PPS Voice Guide</div>
+        <div class="ref-meta">Week 0 training · mission, values, and voice practice</div>
       </div>
       <div class="ref-chevron">▼</div>
     </div>
@@ -199,18 +200,21 @@
       <p class="ref-intro">{{ core_values.intro }}</p>
       {% for section in core_values.sections %}
       <div class="cv-section">
-        <div class="check-item" data-id="{{ section.check_id }}" onclick="toggleItem('{{ section.check_id }}', event)">
-          <div class="check-box"></div>
-          <div class="check-label">
-            <div class="cv-section-title">{{ section.title }}</div>
-            {% if section.content %}<div class="cv-content">{{ section.content }}</div>{% endif %}
-            {% if section.bullets %}
-            <ul class="cv-bullets">
-              {% for b in section.bullets %}<li>{{ b }}</li>{% endfor %}
-            </ul>
-            {% endif %}
+        <div class="cv-section-title">{{ section.title }}</div>
+        {% if section.content %}<div class="cv-content">{{ section.content }}</div>{% endif %}
+        {% if section['activities'] %}
+        <div class="check-list" style="margin-top:10px;">
+          {% for act in section['activities'] %}
+          <div class="check-item" data-id="{{ act.id }}" onclick="toggleItem('{{ act.id }}', event)">
+            <div class="check-box"></div>
+            <div class="check-label">
+              <strong>{{ act.title }}</strong>
+              <div class="cv-activity-text">{{ act.text }}</div>
+            </div>
           </div>
+          {% endfor %}
         </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>

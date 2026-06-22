@@ -75,88 +75,213 @@ FOUR_DX_WEEKLY = [
 ]
 
 PSC_CORE_VALUES = {
-    'title': 'Core Values & PPS Voice',
+    'title': 'Mission, Values & PPS Voice',
     'intro': (
-        'Every proposal, site conversation, and client email should sound like PPS. '
-        'Study these standards before your first client-facing work and revisit them weekly.'
+        'This is training — not a document to memorize. Work through each activity before your first '
+        'client-facing assignment. The PPS Voice Guide powers the Proposal Generator; these exercises '
+        'teach you how to use it, adapt it, and represent PPS on site and in writing.'
     ),
     'sections': [
         {
-            'id': 'cv_why',
-            'title': 'PPS Why',
-            'content': 'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.',
-            'bullets': [
-                'PPS is a capital expenditure partner — planning through close-out, not just a contractor.',
-                'One point of contact across all trades streamlines communication for ownership and management.',
-                'Every project reflects who we are: Trust. Quality. Results.™',
+            'id': 'cv_mission',
+            'title': 'PPS Mission',
+            'content': (
+                'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_mission_reflect',
+                    'title': 'Mission in your own words',
+                    'text': (
+                        'In 3–4 sentences, explain what this mission looks like on a real project — '
+                        'for residents, property staff, and ownership. Share with your manager in Week 0.'
+                    ),
+                },
+                {
+                    'id': 'cv_mission_site',
+                    'title': 'Mission on a walkthrough',
+                    'text': (
+                        'On your first ride-along, note one moment where PPS elevated the experience '
+                        '(communication, cleanliness, professionalism, or problem-solving). Write it down.'
+                    ),
+                },
             ],
         },
         {
-            'id': 'cv_brand',
-            'title': 'Brand & Credentials',
-            'content': 'Improving People. Improving Property.',
-            'bullets': [
-                'First mention: "Pure Property Solutions (PPS)" — then "PPS." Never "Pure Prop" or "Pure" alone.',
-                'Tagline for closings: Trust. Quality. Results.™',
-                '12+ years in business · $60M+ completed across 6 states · multi-family and commercial only.',
-                'Management relationships: Morgan, Connor, Hills, Neyer, Towne. Trade Partners: many 8+ year relationships.',
-                'PPM standard on every project. References available upon request.',
+            'id': 'cv_resourcefulness',
+            'title': 'Resourcefulness',
+            'content': (
+                'We have a figure-it-out mentality. Obstacles are normal — waiting for perfect conditions '
+                'is not the PPS way. Use the tools, ask the right person, and keep the work moving.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_resource_hub',
+                    'title': 'Know your toolkit',
+                    'text': (
+                        'Open the PPS Hub and identify where you will: generate proposals, run a PPM, '
+                        'build Trade Partner Scope, and log site visits. Ask your manager which you will use first.'
+                    ),
+                },
+                {
+                    'id': 'cv_resource_scenario',
+                    'title': 'Figure-it-out scenario',
+                    'text': (
+                        'Scenario: A property manager needs a scope answer today, your PM is on another site, '
+                        'and production has not confirmed crew dates. Write your next three moves before escalating. '
+                        'Review with your manager.'
+                    ),
+                },
+                {
+                    'id': 'cv_resource_blocker',
+                    'title': 'Remove one blocker',
+                    'text': (
+                        'In Week 0 or 1, identify something you do not know yet (a trade term, a client contact '
+                        'workflow, a hub feature) and resolve it yourself — documentation, a teammate, or a tool — '
+                        'before asking your manager to solve it for you.'
+                    ),
+                },
             ],
         },
         {
-            'id': 'cv_pillars',
-            'title': 'Why PPS — Three Pillars',
-            'bullets': [
-                'Multi-Family Expertise — operational experience, named management relationships, resident-aware execution.',
-                'Experience & Stability — track record, long-term Trade Partner relationships, professional on-site standards.',
-                'Comprehensive Services — single point of contact across all trades.',
+            'id': 'cv_integrity',
+            'title': 'Integrity',
+            'content': (
+                'Your professional judgment has to hold up in any room — with a client, a Trade Partner, '
+                'or a teammate. If you would not stand behind a scope call, timeline, or price in a direct '
+                'conversation, do not commit to it privately.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_integrity_scope',
+                    'title': 'Scope you would sign',
+                    'text': (
+                        'Pull any proposal from hub history. Find one scope line you would put your name on '
+                        'and one that still needs refinement. Be ready to explain the difference to your manager.'
+                    ),
+                },
+                {
+                    'id': 'cv_integrity_concealed',
+                    'title': 'Concealed conditions drill',
+                    'text': (
+                        'Role-play with your manager: on site you find rot behind siding that was not in scope. '
+                        'Walk through exactly what PPS does before any extra work starts — words, photos, approvals.'
+                    ),
+                },
+                {
+                    'id': 'cv_integrity_promise',
+                    'title': 'No promises production has not confirmed',
+                    'text': (
+                        'List three things a PSC must never promise a client without PM or production sign-off '
+                        '(schedule, pricing beyond proposal, scope not in writing). Check with your manager.'
+                    ),
+                },
             ],
         },
         {
-            'id': 'cv_language',
-            'title': 'Universal Language Rules',
-            'bullets': [
-                '"residents" not "tenants" · "apartment community" not "complex"',
-                '"ownership" or "ownership/management" not "the owner"',
-                '"Trade Partners" not "subcontractors" or "subs"',
-                '"investment" not "cost/price" for totals · "homeowners" in condo/HOA context',
-                '"T&M" not "hourly" · "concealed conditions" not "hidden damage"',
-                '"Trade Partner Scope" not "sub scope" · "punch list" not "final items"',
-                'Work hours: 8am–7pm M–F unless specified.',
+            'id': 'cv_loyalty',
+            'title': 'Loyalty & Teamwork',
+            'content': (
+                'We look out for each other. Share what you learn, surface problems early, and back up '
+                'the team on site and in client communication.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_loyalty_escalation',
+                    'title': 'Build your escalation map',
+                    'text': (
+                        'Document who you go to for: production questions, pricing help, client complaints, '
+                        'and urgent site issues. Confirm the list with your manager and save it in Monday.com.'
+                    ),
+                },
+                {
+                    'id': 'cv_loyalty_handoff',
+                    'title': 'Clean handoffs',
+                    'text': (
+                        'After shadowing, write a 3-bullet handoff you would leave for the next person on that '
+                        'account — open items, client preferences, and what still needs follow-up.'
+                    ),
+                },
+                {
+                    'id': 'cv_loyalty_habit',
+                    'title': 'Weekly team habit',
+                    'text': (
+                        'Commit to one recurring habit for your first 90 days: share a site learning in team chat, '
+                        'cover a follow-up for a busy teammate, or flag a risk before it becomes a client problem.'
+                    ),
+                },
             ],
         },
         {
-            'id': 'cv_voice',
-            'title': 'Voice & Tone',
-            'content': 'Confident, direct, contractor-fluent, outcome-focused. NOT bureaucratic, passive, or filler-heavy.',
-            'bullets': [
-                'Active voice always. Lead with PPS: "PPS will remove and dispose of all existing roofing material."',
-                'Universal opening: "Pure Property Solutions (PPS) will provide all labor, materials, equipment, and supervision necessary to complete [scope] as outlined below."',
-                'Never use: "is committed to" / "strives to" / "is pleased to present" / "looks forward to" / "we are excited to" / "please be advised".',
-                'Key phrase: "PPS will coordinate with property management and onsite staff to minimize disruption to residents."',
-                'Key phrase: "If work extends beyond scope, PPS will cease work, document with photos, and reach out for written approval before proceeding."',
-                'Key phrase: "A Pre-Project Meeting will be scheduled prior to mobilization."',
+            'id': 'cv_voice_practice',
+            'title': 'PPS Voice — Learn by Doing',
+            'content': (
+                'PPS voice is confident, direct, and outcome-focused. The Proposal Generator applies the '
+                'voice guide automatically — your job is to recognize good PPS language and refine it for each client.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_voice_generate',
+                    'title': 'First practice proposal',
+                    'text': (
+                        'Generate a practice apartment proposal in the Proposal Generator (do not send). '
+                        'Highlight five phrases that sound distinctly PPS vs. a generic contractor. '
+                        'Discuss with your manager.'
+                    ),
+                },
+                {
+                    'id': 'cv_voice_rewrite',
+                    'title': 'Rewrite drill',
+                    'text': (
+                        'Rewrite these three lines in PPS voice and share with your manager:\n'
+                        '1. "We are pleased to present the following scope of work."\n'
+                        '2. "The owner will be responsible for selecting paint colors."\n'
+                        '3. "Hidden damage may be discovered during the project."'
+                    ),
+                },
+                {
+                    'id': 'cv_voice_vault',
+                    'title': 'Approved proposal scavenger hunt',
+                    'text': (
+                        'From hub history, find an approved proposal and locate: the universal opening, '
+                        'one resident-disruption phrase, and one concealed-conditions or T&M phrase. '
+                        'Explain why each is there.'
+                    ),
+                },
             ],
         },
         {
-            'id': 'cv_property',
-            'title': 'Property Type Tone',
-            'bullets': [
-                'Apartments — clinical, efficient, operationally precise. Prioritize resident disruption, phasing, communication protocols.',
-                'Condos / HOAs — warm, trust-building, explanatory. Write for the Board. Connect scope to homeowner investment value.',
-                'Hospitality — guest experience and brand standards first. Say "guests" not "residents."',
-                'Commercial — business continuity first. ADA/code compliance. After-hours work when needed.',
-            ],
-        },
-        {
-            'id': 'cv_pricing',
-            'title': 'Pricing Language',
-            'bullets': [
-                '"Investment" not "Cost/Price" for totals · "Base Contract Amount" for primary line.',
-                'T&M: "Any work not included can be performed at agreed T&M rates."',
-                'Multi-scope: "Pricing is contingent upon all scopes being awarded."',
-                'Towne Condo/HOA ONLY: Towne Preferred Customer Discount (10%). Not apartments. Not non-Towne clients.',
-                'Tariff clause: "Pricing is based on current market conditions. Due to potential tariff or supply chain fluctuations, PPS reserves the right to adjust pricing with prompt written notice."',
+            'id': 'cv_voice_property',
+            'title': 'PPS Voice — Property Type Practice',
+            'content': (
+                'The same scope reads differently by property type. Apartments need operational precision; '
+                'condos need board-ready trust-building. Hospitality and commercial prioritize continuity and brand.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_voice_apartment_condo',
+                    'title': 'Apartment vs. condo openings',
+                    'text': (
+                        'Your manager gives you the same exterior scope for an apartment community and a condo HOA. '
+                        'Write 2–3 opening sentences for each — tone and audience should clearly differ. Review together.'
+                    ),
+                },
+                {
+                    'id': 'cv_voice_audience',
+                    'title': 'Name the decision-maker',
+                    'text': (
+                        'For each property type you will sell (apartment, condo, hospitality/commercial), write one '
+                        'sentence: who approves the work day-to-day, who signs the contract, and what they care about most.'
+                    ),
+                },
+                {
+                    'id': 'cv_voice_diff',
+                    'title': 'Proposal Comparison habit',
+                    'text': (
+                        'After your first real proposal edit, run the original and your version through the '
+                        'Proposal Comparison Tool on the dashboard. Submit one voice improvement the guide should capture.'
+                    ),
+                },
             ],
         },
     ],
@@ -349,8 +474,8 @@ PSC_ONBOARDING = {
     'pps_focus': [
         {
             'id': 'w0_focus_core',
-            'title': 'Complete Core Values & PPS Voice section',
-            'text': 'Read every subsection above and check each item off before Week 1.',
+            'title': 'Complete Mission, Values & PPS Voice activities',
+            'text': 'Finish every training activity above — not just the mission statement — before Week 1.',
         },
         {
             'id': 'w0_focus_vocab',
@@ -873,8 +998,18 @@ def _assign_ids(week_data):
 
 def _prepare_core_values():
     data = dict(PSC_CORE_VALUES)
+    sections = []
     for section in data['sections']:
-        section['check_id'] = section['id']
+        sec = dict(section)
+        activities = []
+        for i, act in enumerate(sec.get('activities', [])):
+            item = dict(act)
+            if 'id' not in item:
+                item['id'] = f"{sec['id']}_{i}"
+            activities.append(item)
+        sec['activities'] = activities
+        sections.append(sec)
+    data['sections'] = sections
     return data
 
 
@@ -916,7 +1051,8 @@ def get_all_item_ids():
             ids.append(week_data['checkin_id'])
 
     for section in core_values['sections']:
-        ids.append(section['check_id'])
+        for act in section.get('activities', []):
+            ids.append(act['id'])
     for module in sales_training['modules']:
         for item in module['items']:
             ids.append(item['id'])
