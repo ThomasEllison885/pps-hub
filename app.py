@@ -4,7 +4,6 @@ import base64
 from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
-from pps_game_data import PPS_GAME_META, PPS_GAME_QUESTIONS
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
     get_all_item_ids, count_trackable_items,
@@ -2389,19 +2388,6 @@ def admin_member(user_key):
                            proposals=proposals, ppms=ppms,
                            subscopes=subscopes,
                            feedback_items=feedback_items)
-
-
-@app.route('/admin/pps-game')
-@require_admin
-def admin_pps_game():
-    """Admin-only team knowledge quiz from 2025 performance reviews."""
-    return render_template(
-        'admin_pps_game.html',
-        meta=PPS_GAME_META,
-        questions=PPS_GAME_QUESTIONS,
-        meta_json=json.dumps(PPS_GAME_META),
-        questions_json=json.dumps(PPS_GAME_QUESTIONS),
-    )
 
 
 @app.route('/admin/feedback')

@@ -232,7 +232,7 @@
       <div class="sales-module">
         <div class="sales-module-title">{{ module.title }}</div>
         <div class="check-list">
-          {% for item in module.items %}
+          {% for item in module['items'] %}
           <div class="check-item" data-id="{{ item.id }}" onclick="toggleItem('{{ item.id }}', event)">
             <div class="check-box"></div>
             <div class="check-label">
