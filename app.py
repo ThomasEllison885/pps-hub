@@ -5,6 +5,9 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 from pps_game_data import PPS_GAME_META, PPS_GAME_QUESTIONS
+from psc_training_data import (
+    PSC_TRAINING_META, get_training_curriculum, get_all_item_ids, count_trackable_items,
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -550,6 +553,22 @@ def init_db():
     except Exception:
         pass
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_progress (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            item_id VARCHAR(100) NOT NULL,
+            completed BOOLEAN DEFAULT FALSE,
+            completed_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_key, item_id)
+        )
+    ''')
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_user ON psc_training_progress(user_key)")
+    except Exception:
+        pass
+
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
     if default_password:
@@ -724,6 +743,107 @@ def get_profile_result(user_key):
         return row
     except:
         return None
+
+
+def get_psc_training_progress(user_key):
+    """Return {item_id: True} for completed training items."""
+    progress = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return progress
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT item_id FROM psc_training_progress WHERE user_key = %s AND completed = TRUE',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            progress[row['item_id']] = True
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PSC training progress read error: {e}")
+    return progress
+
+
+def save_psc_training_progress(user_key, progress_dict):
+    """Upsert completion state for training items."""
+    if not progress_dict or not isinstance(progress_dict, dict):
+        return False
+    valid_ids = set(get_all_item_ids())
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        for item_id, completed in progress_dict.items():
+            if item_id not in valid_ids:
+                continue
+            if completed:
+                cur.execute('''
+                    INSERT INTO psc_training_progress (user_key, item_id, completed, completed_at, updated_at)
+                    VALUES (%s, %s, TRUE, NOW(), NOW())
+                    ON CONFLICT (user_key, item_id)
+                    DO UPDATE SET completed = TRUE, completed_at = NOW(), updated_at = NOW()
+                ''', (user_key, item_id))
+            else:
+                cur.execute('''
+                    INSERT INTO psc_training_progress (user_key, item_id, completed, completed_at, updated_at)
+                    VALUES (%s, %s, FALSE, NULL, NOW())
+                    ON CONFLICT (user_key, item_id)
+                    DO UPDATE SET completed = FALSE, completed_at = NULL, updated_at = NOW()
+                ''', (user_key, item_id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC training progress save error: {e}")
+        return False
+
+
+def _psc_week_item_ids():
+    """Map week number -> list of item IDs for that week."""
+    onboarding, weeks = get_training_curriculum()
+    result = {0: []}
+
+    def collect(week_data):
+        ids = []
+        for v in week_data.get('videos', []):
+            ids.append(v['id'])
+        for s in week_data.get('shadowing', []):
+            ids.append(s['id'] if isinstance(s, dict) else s)
+        for a in week_data.get('additional', []):
+            ids.append(a['id'])
+        for f in week_data.get('pps_focus', []):
+            ids.append(f['id'])
+        if week_data.get('book_id'):
+            ids.append(week_data['book_id'])
+        if week_data.get('checkin_id'):
+            ids.append(week_data['checkin_id'])
+        return ids
+
+    result[0] = collect(onboarding)
+    for w in weeks:
+        result[w['week']] = collect(w)
+    return result
+
+
+def compute_psc_training_stats(user_key):
+    """Overall and per-week completion stats."""
+    progress = get_psc_training_progress(user_key)
+    week_map = _psc_week_item_ids()
+    total = count_trackable_items()
+    done = sum(1 for i in get_all_item_ids() if progress.get(i))
+    week_pcts = []
+    for week_num in sorted(week_map.keys()):
+        ids = week_map[week_num]
+        w_done = sum(1 for i in ids if progress.get(i))
+        w_total = len(ids)
+        pct = round((w_done / w_total) * 100) if w_total else 0
+        week_pcts.append({'week': week_num, 'done': w_done, 'total': w_total, 'pct': pct})
+    pct = round((done / total) * 100) if total else 0
+    return {'done': done, 'total': total, 'pct': pct, 'week_pcts': week_pcts}
 
 
 def _internal_api_ok():
@@ -1067,6 +1187,9 @@ def dashboard():
         except: pass
     team_view = user.get('team_view', False)
     team_view_scope = user.get('team_view_scope')
+    psc_training_stats = None
+    if user.get('role') in ('consultant', 'admin'):
+        psc_training_stats = compute_psc_training_stats(user_key)
     return render_template('dashboard.html',
                            user=user,
                            user_key=user_key,
@@ -1080,6 +1203,7 @@ def dashboard():
                            all_my_ppms=all_my_ppms,
                            all_my_tpscopes=all_my_tpscopes,
                            date_events=date_events,
+                           psc_training_stats=psc_training_stats,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
@@ -2674,6 +2798,66 @@ def admin_site_visits():
     except Exception as e:
         print(f"Admin site visits error: {e}")
     return render_template('admin_site_visits.html', rows=rows)
+
+
+@app.route('/psc-training')
+@require_login
+def psc_training():
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    if user.get('role') not in ('consultant', 'admin'):
+        return redirect(url_for('dashboard'))
+    onboarding, weeks = get_training_curriculum()
+    progress = get_psc_training_progress(user_key)
+    return render_template(
+        'psc_training.html',
+        meta=PSC_TRAINING_META,
+        onboarding=onboarding,
+        weeks=weeks,
+        total_items=count_trackable_items(),
+        progress_json=json.dumps(progress),
+        is_admin=(user.get('role') == 'admin'),
+        user=user,
+    )
+
+
+@app.route('/api/psc-training/progress', methods=['GET', 'POST'])
+@require_login
+def psc_training_progress_api():
+    user_key = session['user_key']
+    if request.method == 'GET':
+        return jsonify({'progress': get_psc_training_progress(user_key)})
+    data = request.get_json(silent=True) or {}
+    progress = data.get('progress', {})
+    if not isinstance(progress, dict):
+        return jsonify({'error': 'Invalid progress data'}), 400
+    ok = save_psc_training_progress(user_key, progress)
+    if not ok:
+        return jsonify({'error': 'Could not save progress'}), 500
+    return jsonify({'success': True, 'stats': compute_psc_training_stats(user_key)})
+
+
+@app.route('/admin/psc-training')
+@require_admin
+def admin_psc_training():
+    trainees = []
+    for key, user in USERS.items():
+        if user.get('role') != 'consultant':
+            continue
+        stats = compute_psc_training_stats(key)
+        trainees.append({
+            'user_key': key,
+            'display': user.get('display', key),
+            'done': stats['done'],
+            'pct': stats['pct'],
+            'week_pcts': stats['week_pcts'],
+        })
+    trainees.sort(key=lambda t: (-t['pct'], t['display']))
+    return render_template(
+        'admin_psc_training.html',
+        trainees=trainees,
+        total_items=count_trackable_items(),
+    )
 
 
 @app.route('/email-doc', methods=['POST'])

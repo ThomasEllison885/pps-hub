@@ -196,6 +196,20 @@
       <div class="pps-tool-desc">Document site visits, inspect scope compliance, and track project progress.</div>
       <div class="tool-meta">Open →</div>
     </a>
+
+    {% if user.role in ('consultant', 'admin') %}
+    <a href="/psc-training" class="pps-tool-card">
+      <div class="pps-tool-icon">🎓</div>
+      <div class="pps-tool-name">PSC Training</div>
+      <div class="pps-tool-desc">9-week onboarding: construction trades, shadowing, PPS tools, and reading milestones.</div>
+      {% if psc_training_stats %}
+      <span class="tool-badge">{{ psc_training_stats.pct }}% complete</span>
+      {% else %}
+      <span class="tool-badge">Onboarding</span>
+      {% endif %}
+      <div class="tool-meta">Open →</div>
+    </a>
+    {% endif %}
   </div>
 
   <div class="pps-section-head">Recent Activity</div>

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · PSC Training</title>
+<style>
+  :root { --gold:#B8922A; --gold-light:#FDF6E8; --green:#27AE60; }
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:860px; margin:0 auto; padding:28px 20px 72px; }
+
+  .hero { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:28px 26px; margin-bottom:20px; }
+  .hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:30px; color:var(--dark-blue); line-height:1.2; }
+  .page-sub { font-size:14px; color:#888; line-height:1.55; margin-top:6px; max-width:560px; }
+  .profile-badge { background:var(--gold-light); border:1px solid #E8D5A8; color:#7A5B12; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; padding:6px 12px; border-radius:20px; white-space:nowrap; }
+
+  .progress-card { background:var(--light-bg); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-top:18px; }
+  .progress-meta { display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px; }
+  .progress-meta strong { color:var(--dark-blue); }
+  .progress-track { height:10px; background:#ddeaf3; border-radius:5px; overflow:hidden; }
+  .progress-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:5px; transition:width 0.4s ease; }
+
+  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+  .info-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; }
+  .info-card h3 { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--dark-blue); margin-bottom:10px; }
+  .info-card ul { list-style:none; font-size:13px; line-height:1.6; color:#666; }
+  .info-card li { padding:3px 0; padding-left:14px; position:relative; }
+  .info-card li::before { content:'•'; position:absolute; left:0; color:var(--blue); }
+  .book-row { display:flex; align-items:center; gap:8px; font-size:13px; color:#555; margin-bottom:6px; }
+  .book-weeks { font-size:11px; color:#aaa; }
+
+  .segment-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+  .segment-pill { font-size:12px; font-weight:600; padding:6px 14px; border-radius:20px; border:1.5px solid var(--border); background:white; cursor:pointer; transition:all 0.15s; }
+  .segment-pill:hover { border-color:var(--blue); }
+  .segment-pill.active { color:white; border-color:transparent; }
+
+  .week-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden; border:1.5px solid transparent; transition:border-color 0.2s; }
+  .week-card.expanded { border-color:rgba(0,150,214,0.25); }
+  .week-card.complete { border-color:rgba(39,174,96,0.35); }
+  .week-header { padding:16px 18px; cursor:pointer; display:flex; align-items:center; gap:14px; user-select:none; }
+  .week-header:hover { background:#fafcff; }
+  .week-num { width:40px; height:40px; border-radius:50%; background:var(--light-bg); display:flex; align-items:center; justify-content:center; font-family:'DM Serif Display',serif; font-size:18px; color:var(--dark-blue); flex-shrink:0; border:2px solid var(--border); }
+  .week-card.complete .week-num { background:#E8F5E9; border-color:var(--green); color:#1B5E20; }
+  .week-info { flex:1; min-width:0; }
+  .week-title { font-size:15px; font-weight:600; color:var(--dark-blue); }
+  .week-meta { font-size:12px; color:#888; margin-top:2px; }
+  .week-pct { font-size:13px; font-weight:600; color:var(--blue); flex-shrink:0; }
+  .week-chevron { color:#ccc; font-size:12px; flex-shrink:0; transition:transform 0.2s; }
+  .week-card.expanded .week-chevron { transform:rotate(180deg); }
+
+  .week-body { display:none; padding:0 18px 18px; border-top:1px solid #f0f4f8; }
+  .week-card.expanded .week-body { display:block; }
+  .topic-summary { font-size:14px; color:#666; line-height:1.6; padding:14px 0 12px; }
+
+  .section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--dark-blue); margin:16px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .section-label .icon { font-size:14px; }
+
+  .check-list { display:flex; flex-direction:column; gap:8px; }
+  .check-item {
+    display:flex; align-items:flex-start; gap:12px; padding:11px 14px;
+    background:var(--light-bg); border:1.5px solid var(--border); border-radius:8px;
+    transition:all 0.15s; cursor:pointer;
+  }
+  .check-item:hover { border-color:rgba(0,150,214,0.35); background:white; }
+  .check-item.done { background:#F0FAF4; border-color:#A5D6A7; }
+  .check-item.done .check-label { color:#555; }
+  .check-item.done .check-label a { color:#2E7D32; }
+  .check-box {
+    width:20px; height:20px; border-radius:5px; border:2px solid #ccc; flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-size:12px; color:white;
+    transition:all 0.15s; margin-top:1px;
+  }
+  .check-item.done .check-box { background:var(--green); border-color:var(--green); }
+  .check-label { font-size:14px; line-height:1.45; color:#444; flex:1; }
+  .check-label a { color:var(--blue); text-decoration:none; font-weight:500; }
+  .check-label a:hover { text-decoration:underline; }
+  .check-type { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#aaa; margin-bottom:2px; }
+
+  .book-milestone { background:var(--gold-light); border:1px solid #E8D5A8; border-radius:8px; padding:12px 14px; margin-top:8px; }
+  .book-milestone .check-item { background:white; border-color:#E8D5A8; }
+
+  .checkin-box { background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:12px 14px; margin-top:8px; font-size:13px; color:#6D4C00; line-height:1.5; }
+  .checkin-box strong { display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+
+  .save-indicator { position:fixed; bottom:20px; right:20px; background:var(--dark-blue); color:white; font-size:12px; font-weight:600; padding:8px 14px; border-radius:20px; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:100; }
+  .save-indicator.show { opacity:1; }
+
+  @media (max-width:640px) {
+    .info-grid { grid-template-columns:1fr; }
+    .hero-top { flex-direction:column; }
+  }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">PSC Training</span>
+  </a>
+  <div class="pps-header-right">
+    {% if is_admin %}<a href="/admin/psc-training" class="pps-btn-header">Team Progress</a>{% endif %}
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="page-title">{{ meta.title }}</div>
+        <div class="page-sub">{{ meta.description }}</div>
+      </div>
+      <span class="profile-badge">{{ meta.profile.label }}</span>
+    </div>
+    <p style="font-size:14px;color:#666;line-height:1.6;margin-bottom:4px;">{{ meta.profile.summary }}</p>
+    <div class="progress-card">
+      <div class="progress-meta">
+        <span>Overall progress: <strong id="overallPct">0%</strong></span>
+        <span id="overallCount">0 / {{ total_items }} items</span>
+      </div>
+      <div class="progress-track"><div class="progress-fill" id="overallBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-card">
+      <h3>Your Strengths</h3>
+      <ul>{% for s in meta.profile.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+    </div>
+    <div class="info-card">
+      <h3>Focus Areas</h3>
+      <ul>{% for f in meta.profile.focus_areas %}<li>{{ f }}</li>{% endfor %}</ul>
+    </div>
+  </div>
+
+  <div class="info-card" style="margin-bottom:20px;">
+    <h3>Reading Schedule</h3>
+    {% for book in meta.books %}
+    <div class="book-row">
+      <strong>{{ book.title }}</strong>
+      <span class="book-weeks">Weeks {{ book.weeks|join(', ') }}</span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="segment-pills" id="segmentPills">
+    <button class="segment-pill active" data-filter="all" style="background:var(--dark-blue);color:white;">All Weeks</button>
+    {% for seg in meta.segments %}
+    <button class="segment-pill" data-filter="{{ seg.name }}" data-color="{{ seg.color }}">{{ seg.name }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- Week 0 -->
+  <div class="week-card" data-week="0" data-segment="All Segments" id="week-0">
+    <div class="week-header" onclick="toggleWeek(0)">
+      <div class="week-num">0</div>
+      <div class="week-info">
+        <div class="week-title">{{ onboarding.title }}</div>
+        <div class="week-meta">{{ onboarding.topic }} · Complete before Week 1</div>
+      </div>
+      <div class="week-pct" id="weekPct-0">0%</div>
+      <div class="week-chevron">▼</div>
+    </div>
+    <div class="week-body">
+      {% if onboarding.book_note %}
+      <p class="topic-summary" style="font-style:italic;color:#888;">📖 {{ onboarding.book_note }}</p>
+      {% endif %}
+
+      <div class="section-label"><span class="icon">🏗️</span> Shadowing & Field</div>
+      <div class="check-list">
+        {% for s in onboarding.shadowing %}
+        <div class="check-item" data-id="{{ s.id }}" onclick="toggleItem('{{ s.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">{{ s.text }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section-label"><span class="icon">📚</span> Additional Training</div>
+      <div class="check-list">
+        {% for a in onboarding.additional %}
+        <div class="check-item" data-id="{{ a.id }}" onclick="toggleItem('{{ a.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">
+            {% if a.type %}<div class="check-type">{{ a.type }}</div>{% endif %}
+            {% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ a.title }}</a>{% else %}<strong>{{ a.title }}</strong>{% endif %}
+            {% if a.text %}<div style="font-size:13px;color:#888;margin-top:3px;">{{ a.text }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section-label"><span class="icon">🎯</span> PPS Focus</div>
+      <div class="check-list">
+        {% for f in onboarding.pps_focus %}
+        <div class="check-item" data-id="{{ f.id }}" onclick="toggleItem('{{ f.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label"><strong>{{ f.title }}</strong><div style="font-size:13px;color:#888;margin-top:3px;">{{ f.text }}</div></div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if onboarding.manager_checkin %}
+      <div class="checkin-box"><strong>Manager Check-in</strong>{{ onboarding.manager_checkin }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Weeks 1-9 -->
+  {% for w in weeks %}
+  <div class="week-card" data-week="{{ w.week }}" data-segment="{{ w.segment }}" id="week-{{ w.week }}">
+    <div class="week-header" onclick="toggleWeek({{ w.week }})">
+      <div class="week-num">{{ w.week }}</div>
+      <div class="week-info">
+        <div class="week-title">Week {{ w.week }} · {{ w.topic }}</div>
+        <div class="week-meta">{{ w.segment }} · {{ w.book or 'No book this week' }}</div>
+      </div>
+      <div class="week-pct" id="weekPct-{{ w.week }}">0%</div>
+      <div class="week-chevron">▼</div>
+    </div>
+    <div class="week-body">
+      {% if w.topic_summary %}
+      <p class="topic-summary">{{ w.topic_summary }}</p>
+      {% endif %}
+
+      {% if w.videos %}
+      <div class="section-label"><span class="icon">🎬</span> Training Videos</div>
+      <div class="check-list">
+        {% for v in w.videos %}
+        <div class="check-item" data-id="{{ v.id }}" onclick="toggleItem('{{ v.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label"><a href="{{ v.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ v.title }}</a></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="section-label"><span class="icon">🏗️</span> Shadowing Activities (~3×/week)</div>
+      <div class="check-list">
+        {% for s in w.shadowing %}
+        <div class="check-item" data-id="{{ s.id }}" onclick="toggleItem('{{ s.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">{{ s.text }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {% if w.additional %}
+      <div class="section-label"><span class="icon">📚</span> Additional Training</div>
+      <div class="check-list">
+        {% for a in w.additional %}
+        <div class="check-item" data-id="{{ a.id }}" onclick="toggleItem('{{ a.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">
+            {% if a.type %}<div class="check-type">{{ a.type }}</div>{% endif %}
+            {% if a.url %}<a href="{{ a.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ a.title }}</a>{% else %}<strong>{{ a.title }}</strong>{% endif %}
+            {% if a.text %}<div style="font-size:13px;color:#888;margin-top:3px;">{{ a.text }}</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if w.pps_focus %}
+      <div class="section-label"><span class="icon">🎯</span> PPS Focus</div>
+      <div class="check-list">
+        {% for f in w.pps_focus %}
+        <div class="check-item" data-id="{{ f.id }}" onclick="toggleItem('{{ f.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label"><strong>{{ f.title }}</strong><div style="font-size:13px;color:#888;margin-top:3px;">{{ f.text }}</div></div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if w.book %}
+      <div class="book-milestone">
+        <div class="section-label" style="margin-top:0;border:none;padding:0;"><span class="icon">📖</span> Book Milestone — {{ w.book }}</div>
+        {% if w.book_note %}<p style="font-size:13px;color:#7A5B12;margin-bottom:8px;">{{ w.book_note }}</p>{% endif %}
+        <div class="check-item" data-id="{{ w.book_id }}" onclick="toggleItem('{{ w.book_id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">Mark reading complete for this week</div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if w.manager_checkin %}
+      <div class="checkin-box">
+        <strong>Manager Check-in</strong>{{ w.manager_checkin }}
+        <div class="check-item" data-id="{{ w.checkin_id }}" onclick="toggleItem('{{ w.checkin_id }}', event)" style="margin-top:10px;background:white;">
+          <div class="check-box"></div>
+          <div class="check-label">Manager sign-off complete</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="save-indicator" id="saveIndicator">✓ Saved</div>
+
+<script>
+const TOTAL_ITEMS = {{ total_items }};
+let progress = {{ progress_json|safe }};
+let saveTimer = null;
+
+function applyProgress() {
+  const items = document.querySelectorAll('.check-item[data-id]');
+  let done = 0;
+  const weekCounts = {};
+
+  items.forEach(el => {
+    const id = el.dataset.id;
+    const isDone = !!progress[id];
+    el.classList.toggle('done', isDone);
+    el.querySelector('.check-box').textContent = isDone ? '✓' : '';
+    if (isDone) done++;
+
+    const weekCard = el.closest('.week-card');
+    if (weekCard) {
+      const w = weekCard.dataset.week;
+      if (!weekCounts[w]) weekCounts[w] = { done: 0, total: 0 };
+      weekCounts[w].total++;
+      if (isDone) weekCounts[w].done++;
+    }
+  });
+
+  const pct = TOTAL_ITEMS ? Math.round((done / TOTAL_ITEMS) * 100) : 0;
+  document.getElementById('overallPct').textContent = pct + '%';
+  document.getElementById('overallCount').textContent = done + ' / ' + TOTAL_ITEMS + ' items';
+  document.getElementById('overallBar').style.width = pct + '%';
+
+  Object.keys(weekCounts).forEach(w => {
+    const wc = weekCounts[w];
+    const wp = wc.total ? Math.round((wc.done / wc.total) * 100) : 0;
+    const el = document.getElementById('weekPct-' + w);
+    if (el) el.textContent = wp + '%';
+    const card = document.getElementById('week-' + w);
+    if (card) card.classList.toggle('complete', wp === 100);
+  });
+}
+
+function toggleWeek(num) {
+  const card = document.getElementById('week-' + num);
+  card.classList.toggle('expanded');
+}
+
+function toggleItem(id, event) {
+  if (event.target.tagName === 'A') return;
+  progress[id] = !progress[id];
+  applyProgress();
+  scheduleSave();
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveProgress, 400);
+}
+
+async function saveProgress() {
+  try {
+    const resp = await fetch('/api/psc-training/progress', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ progress }),
+    });
+    if (resp.ok) {
+      const el = document.getElementById('saveIndicator');
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 1500);
+    }
+  } catch (e) { console.error('Save failed', e); }
+}
+
+document.getElementById('segmentPills').addEventListener('click', e => {
+  const btn = e.target.closest('.segment-pill');
+  if (!btn) return;
+  document.querySelectorAll('.segment-pill').forEach(p => {
+    p.classList.remove('active');
+    p.style.background = '';
+    p.style.color = '';
+  });
+  btn.classList.add('active');
+  const color = btn.dataset.color;
+  if (color) { btn.style.background = color; btn.style.color = 'white'; }
+  else { btn.style.background = 'var(--dark-blue)'; btn.style.color = 'white'; }
+
+  const filter = btn.dataset.filter;
+  document.querySelectorAll('.week-card').forEach(card => {
+    if (filter === 'all') {
+      card.style.display = '';
+    } else {
+      card.style.display = card.dataset.segment === filter ? '' : 'none';
+    }
+  });
+});
+
+applyProgress();
+document.getElementById('week-0').classList.add('expanded');
+</script>
+</body>
+</html>
