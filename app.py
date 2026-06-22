@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
 from pps_game_data import PPS_GAME_META, PPS_GAME_QUESTIONS
 from psc_training_data import (
-    PSC_TRAINING_META, get_training_curriculum, get_all_item_ids, count_trackable_items,
+    PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
+    get_all_item_ids, count_trackable_items,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
@@ -591,9 +592,22 @@ def init_db():
             read_by_admin BOOLEAN DEFAULT FALSE
         )
     ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_enrollment (
+            user_key VARCHAR(100) PRIMARY KEY,
+            enrolled_at TIMESTAMP DEFAULT NOW(),
+            enrolled_by VARCHAR(100),
+            manager_key VARCHAR(100) NOT NULL DEFAULT 'tony_cumella',
+            target_weeks INTEGER DEFAULT 11,
+            last_activity_at TIMESTAMP,
+            graduated_at TIMESTAMP,
+            active BOOLEAN DEFAULT TRUE
+        )
+    ''')
     try:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_notes_user ON psc_training_notes(user_key)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_feedback_time ON psc_training_feedback(submitted_at DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_enrollment_active ON psc_training_enrollment(active)")
     except Exception:
         pass
 
@@ -824,10 +838,170 @@ def save_psc_training_progress(user_key, progress_dict):
         conn.commit()
         cur.close()
         conn.close()
+        touch_psc_training_activity(user_key)
         return True
     except Exception as e:
         print(f"PSC training progress save error: {e}")
         return False
+
+
+def can_psc_training_oversight(user_key):
+    """President (admin) and VP Sales track enrolled trainee progress."""
+    user = USERS.get(user_key, {})
+    if user.get('role') == 'admin':
+        return True
+    return user_key == PSC_TRAINING_MANAGER
+
+
+def is_psc_training_enrolled(user_key):
+    """Active enrollment — only enrolled consultants see the training module."""
+    if USERS.get(user_key, {}).get('role') != 'consultant':
+        return False
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT 1 FROM psc_training_enrollment WHERE user_key = %s AND active = TRUE AND graduated_at IS NULL',
+            (user_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return bool(row)
+    except Exception as e:
+        print(f"PSC enrollment check error: {e}")
+        return False
+
+
+def get_psc_enrollment(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM psc_training_enrollment WHERE user_key = %s', (user_key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row
+    except Exception:
+        return None
+
+
+def list_psc_enrolled_trainees():
+    rows = []
+    try:
+        conn = get_db()
+        if not conn:
+            return rows
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('''
+            SELECT * FROM psc_training_enrollment
+            WHERE active = TRUE AND graduated_at IS NULL
+            ORDER BY enrolled_at DESC
+        ''')
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PSC enrollment list error: {e}")
+    result = []
+    for row in rows:
+        key = row['user_key']
+        u = USERS.get(key, {})
+        result.append({
+            **dict(row),
+            'display': u.get('display', row.get('display_name') or key),
+        })
+    return result
+
+
+def enroll_psc_trainee(user_key, enrolled_by, manager_key=None):
+    if user_key not in USERS or USERS[user_key].get('role') != 'consultant':
+        return False, 'User is not a consultant'
+    mgr = manager_key or PSC_TRAINING_MANAGER
+    try:
+        conn = get_db()
+        if not conn:
+            return False, 'Database unavailable'
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO psc_training_enrollment
+            (user_key, enrolled_by, manager_key, enrolled_at, active, graduated_at, last_activity_at)
+            VALUES (%s, %s, %s, NOW(), TRUE, NULL, NOW())
+            ON CONFLICT (user_key) DO UPDATE SET
+                enrolled_by = EXCLUDED.enrolled_by,
+                manager_key = EXCLUDED.manager_key,
+                enrolled_at = NOW(),
+                active = TRUE,
+                graduated_at = NULL,
+                last_activity_at = NOW()
+        ''', (user_key, enrolled_by, mgr))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, None
+    except Exception as e:
+        print(f"PSC enroll error: {e}")
+        return False, str(e)
+
+
+def graduate_psc_trainee(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            UPDATE psc_training_enrollment
+            SET graduated_at = NOW(), active = FALSE, last_activity_at = NOW()
+            WHERE user_key = %s
+        ''', (user_key,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC graduate error: {e}")
+        return False
+
+
+def unenroll_psc_trainee(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'UPDATE psc_training_enrollment SET active = FALSE WHERE user_key = %s',
+            (user_key,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC unenroll error: {e}")
+        return False
+
+
+def touch_psc_training_activity(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute(
+            'UPDATE psc_training_enrollment SET last_activity_at = NOW() WHERE user_key = %s AND active = TRUE',
+            (user_key,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
 
 
 def get_psc_training_notes(user_key):
@@ -866,6 +1040,7 @@ def save_psc_training_notes(user_key, week_num, notes_text):
         conn.commit()
         cur.close()
         conn.close()
+        touch_psc_training_activity(user_key)
         return True
     except Exception as e:
         print(f"PSC training notes save error: {e}")
@@ -1280,8 +1455,10 @@ def dashboard():
     team_view = user.get('team_view', False)
     team_view_scope = user.get('team_view_scope')
     psc_training_stats = None
-    if user.get('role') in ('consultant', 'admin'):
+    psc_training_enrolled = is_psc_training_enrolled(user_key)
+    if psc_training_enrolled:
         psc_training_stats = compute_psc_training_stats(user_key)
+    psc_training_oversight = can_psc_training_oversight(user_key)
     return render_template('dashboard.html',
                            user=user,
                            user_key=user_key,
@@ -1296,6 +1473,8 @@ def dashboard():
                            all_my_tpscopes=all_my_tpscopes,
                            date_events=date_events,
                            psc_training_stats=psc_training_stats,
+                           psc_training_enrolled=psc_training_enrolled,
+                           psc_training_oversight=psc_training_oversight,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
@@ -2896,12 +3075,15 @@ def admin_site_visits():
 @require_login
 def psc_training():
     user_key = session['user_key']
-    user = USERS.get(user_key, {})
-    if user.get('role') not in ('consultant', 'admin'):
+    if not is_psc_training_enrolled(user_key):
         return redirect(url_for('dashboard'))
+    user = USERS.get(user_key, {})
+    enrollment = get_psc_enrollment(user_key) or {}
+    manager = USERS.get(enrollment.get('manager_key') or PSC_TRAINING_MANAGER, {})
     onboarding, weeks, core_values, sales_training = get_training_curriculum()
     progress = get_psc_training_progress(user_key)
     notes = get_psc_training_notes(user_key)
+    stats = compute_psc_training_stats(user_key)
     return render_template(
         'psc_training.html',
         meta=PSC_TRAINING_META,
@@ -2912,7 +3094,9 @@ def psc_training():
         total_items=count_trackable_items(),
         progress_json=json.dumps(progress),
         notes_json=json.dumps(notes),
-        is_admin=(user.get('role') == 'admin'),
+        enrollment=enrollment,
+        manager=manager,
+        stats=stats,
         user=user,
     )
 
@@ -2921,6 +3105,8 @@ def psc_training():
 @require_login
 def psc_training_progress_api():
     user_key = session['user_key']
+    if not is_psc_training_enrolled(user_key):
+        return jsonify({'error': 'Not enrolled in PSC training'}), 403
     if request.method == 'GET':
         return jsonify({'progress': get_psc_training_progress(user_key)})
     data = request.get_json(silent=True) or {}
@@ -2937,6 +3123,8 @@ def psc_training_progress_api():
 @require_login
 def psc_training_notes_api():
     user_key = session['user_key']
+    if not is_psc_training_enrolled(user_key):
+        return jsonify({'error': 'Not enrolled in PSC training'}), 403
     if request.method == 'GET':
         return jsonify({'notes': get_psc_training_notes(user_key)})
     data = request.get_json(silent=True) or {}
@@ -2954,9 +3142,9 @@ def psc_training_notes_api():
 @require_login
 def psc_training_feedback_api():
     user_key = session['user_key']
+    if not is_psc_training_enrolled(user_key):
+        return jsonify({'error': 'Not enrolled in PSC training'}), 403
     user = USERS.get(user_key, {})
-    if user.get('role') not in ('consultant', 'admin'):
-        return jsonify({'error': 'Unauthorized'}), 403
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or '').strip()
     if not message:
@@ -2982,44 +3170,93 @@ def psc_training_feedback_api():
     return jsonify({'success': True})
 
 
-@app.route('/admin/psc-training')
-@require_admin
-def admin_psc_training():
+def _psc_training_oversight_data(mark_read=True):
+    enrolled = list_psc_enrolled_trainees()
     trainees = []
-    for key, user in USERS.items():
-        if user.get('role') != 'consultant':
-            continue
+    for row in enrolled:
+        key = row['user_key']
         stats = compute_psc_training_stats(key)
         trainees.append({
             'user_key': key,
-            'display': user.get('display', key),
+            'display': row.get('display', key),
+            'enrolled_at': row.get('enrolled_at'),
+            'last_activity_at': row.get('last_activity_at'),
+            'manager_key': row.get('manager_key'),
+            'manager_display': USERS.get(row.get('manager_key', ''), {}).get('display', ''),
             'done': stats['done'],
             'pct': stats['pct'],
             'week_pcts': stats['week_pcts'],
         })
     trainees.sort(key=lambda t: (-t['pct'], t['display']))
+    all_consultants = []
+    for k, u in USERS.items():
+        if u.get('role') != 'consultant':
+            continue
+        enr = get_psc_enrollment(k)
+        all_consultants.append({
+            'user_key': k,
+            'display': u.get('display', k),
+            'enrolled': bool(enr and enr.get('active') and not enr.get('graduated_at')),
+        })
     feedback_items = []
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute('''
-                SELECT * FROM psc_training_feedback
-                ORDER BY submitted_at DESC LIMIT 100
-            ''')
+            cur.execute('SELECT * FROM psc_training_feedback ORDER BY submitted_at DESC LIMIT 100')
             feedback_items = cur.fetchall()
-            cur.execute('UPDATE psc_training_feedback SET read_by_admin = TRUE WHERE read_by_admin = FALSE')
+            if mark_read:
+                cur.execute('UPDATE psc_training_feedback SET read_by_admin = TRUE WHERE read_by_admin = FALSE')
             conn.commit()
             cur.close()
             conn.close()
     except Exception as e:
-        print(f"Admin PSC training feedback error: {e}")
+        print(f"PSC training feedback error: {e}")
+    return trainees, all_consultants, feedback_items
+
+
+@app.route('/psc-training/oversight')
+@require_login
+def psc_training_oversight():
+    user_key = session['user_key']
+    if not can_psc_training_oversight(user_key):
+        return redirect(url_for('dashboard'))
+    trainees, all_consultants, feedback_items = _psc_training_oversight_data(mark_read=True)
     return render_template(
-        'admin_psc_training.html',
+        'psc_training_oversight.html',
         trainees=trainees,
+        all_consultants=all_consultants,
         feedback_items=feedback_items,
         total_items=count_trackable_items(),
+        is_admin=(session.get('role') == 'admin'),
+        manager_name=USERS.get(PSC_TRAINING_MANAGER, {}).get('display', 'VP Sales'),
     )
+
+
+@app.route('/admin/psc-training')
+@require_admin
+def admin_psc_training():
+    return redirect(url_for('psc_training_oversight'))
+
+
+@app.route('/api/psc-training/enroll', methods=['POST'])
+@require_admin
+def psc_training_enroll_api():
+    data = request.get_json(silent=True) or {}
+    target_key = (data.get('user_key') or '').strip()
+    action = (data.get('action') or 'enroll').strip()
+    if not target_key:
+        return jsonify({'error': 'user_key required'}), 400
+    if action == 'graduate':
+        ok = graduate_psc_trainee(target_key)
+        return jsonify({'success': ok}) if ok else (jsonify({'error': 'Could not graduate'}), 500)
+    if action == 'unenroll':
+        ok = unenroll_psc_trainee(target_key)
+        return jsonify({'success': ok}) if ok else (jsonify({'error': 'Could not unenroll'}), 500)
+    ok, err = enroll_psc_trainee(target_key, session.get('user_key'), data.get('manager_key'))
+    if not ok:
+        return jsonify({'error': err or 'Could not enroll'}), 400
+    return jsonify({'success': True})
 
 
 @app.route('/email-doc', methods=['POST'])

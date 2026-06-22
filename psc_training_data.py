@@ -1,19 +1,42 @@
 """PSC Onboarding — Property Solutions Consultant training curriculum."""
 
+PSC_TRAINING_MANAGER = 'tony_cumella'  # VP Sales — accountability owner for enrolled trainees
+
 PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
-        'A guided 9-week program covering PPS culture and voice, sales fundamentals, '
-        'construction trades by property segment, field shadowing, and PPS tools.'
+        'An 11-week program (Weeks 0–11) covering PPS culture and voice, sales fundamentals, '
+        'construction trades by property segment, field shadowing, and PPS tools. '
+        'Enrolled when you start — not tied to any specific past hire.'
     ),
-    'duration_weeks': 9,
+    'duration_weeks': 11,
     'segments': [
         {'name': 'Apartments', 'weeks': [1, 2, 3, 4], 'color': '#004C8C'},
         {'name': 'Condos', 'weeks': [5, 6, 7, 8], 'color': '#0096D6'},
         {'name': 'Hospitality / Commercial', 'weeks': [9], 'color': '#B8922A'},
+        {'name': '4DX & Graduation', 'weeks': [10, 11], 'color': '#6A1B9A'},
     ],
 }
+
+# The 4 Disciplines of Execution — 2nd edition, revised & updated (© 2012, 2021)
+FOUR_DX_CHAPTERS = [
+    {'num': 1, 'title': 'The Challenge'},
+    {'num': 2, 'title': 'Discipline 1 — Focus on the Wildly Important'},
+    {'num': 3, 'title': 'Discipline 2 — Act on the Lead Measures'},
+    {'num': 4, 'title': 'Discipline 3 — Keep a Compelling Scoreboard'},
+    {'num': 5, 'title': 'Discipline 4 — Create a Cadence of Accountability'},
+    {'num': 6, 'title': 'Choosing Where to Focus'},
+    {'num': 7, 'title': 'Translating Organizational Focus into Executable Targets'},
+    {'num': 8, 'title': 'Getting Your Leaders on Board'},
+    {'num': 9, 'title': 'Leader of Leaders'},
+    {'num': 10, 'title': 'Installing 4DX'},
+    {'num': 11, 'title': 'Engaging the Organization'},
+    {'num': 12, 'title': 'Sustaining the Results'},
+    {'num': 13, 'title': 'Case Studies — Winning with 4DX'},
+    {'num': 14, 'title': 'Case Studies — Marriott & Comcast'},
+    {'num': 15, 'title': 'Applying 4DX to Your Life'},
+]
 
 PSC_CORE_VALUES = {
     'title': 'Core Values & PPS Voice',
@@ -645,16 +668,10 @@ PSC_TRAINING_WEEKS = [
     {
         'week': 9,
         'segment': 'Hospitality / Commercial',
-        'book': 'The 4 Disciplines of Execution',
+        'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
         'book_chapters': {
-            'chapters': [
-                {'num': 1, 'title': 'The Challenge'},
-                {'num': 2, 'title': 'Discipline 1 — Focus on the Wildly Important'},
-                {'num': 3, 'title': 'Discipline 2 — Act on Lead Measures'},
-                {'num': 4, 'title': 'Discipline 3 — Keep a Compelling Scoreboard'},
-                {'num': 5, 'title': 'Discipline 4 — Create a Cadence of Accountability'},
-            ],
-            'discussion': 'Define your 90-day WIG (Wildly Important Goal) and lead measures. Review in graduation check-in.',
+            'chapters': FOUR_DX_CHAPTERS[0:5],
+            'discussion': 'Start 4DX: understand the whirlwind vs. WIG. Draft a rough 90-day WIG to refine in Weeks 10–11.',
         },
         'topic': 'Remodels & Interior Renovation',
         'topic_summary': (
@@ -686,7 +703,73 @@ PSC_TRAINING_WEEKS = [
                 'text': 'Prepare a 10-minute presentation: one trade you mastered, one still developing, and your 90-day WIG.',
             },
         ],
-        'manager_checkin': 'Final graduation review — sign-off for independent client-facing work.',
+        'manager_checkin': 'Commercial segment review — ready for 4DX deep dive?',
+    },
+    {
+        'week': 10,
+        'segment': '4DX & Graduation',
+        'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
+        'book_chapters': {
+            'chapters': FOUR_DX_CHAPTERS[5:10],
+            'discussion': 'Define your Team WIG in "from X to Y by when" format. Identify 2–3 lead measures with your manager.',
+        },
+        'topic': '4DX — Installing Execution',
+        'topic_summary': (
+            'Part 2 of 4DX covers how leaders of leaders focus the organization. '
+            'Apply these chapters to your first 90 days as a PSC — your WIG, lead measures, and scoreboard.'
+        ),
+        'videos': [],
+        'shadowing': [
+            'Shadow on a hospitality or commercial job — focus on phasing and occupied-space coordination.',
+            'Attend a weekly WIG-style check-in with your manager (account, review scoreboard, plan).',
+        ],
+        'additional': [],
+        'pps_focus': [
+            {
+                'id': 'w10_focus_wig',
+                'title': 'Write your 90-day WIG',
+                'text': 'Format: "From X to Y by [date]." Example: "From 0 to 12 qualified site visits by end of Q2." Review with VP Sales.',
+            },
+            {
+                'id': 'w10_focus_scoreboard',
+                'title': 'Build a simple scoreboard',
+                'text': 'Track your lead measures weekly in Monday.com. Must be visible, simple, and show if you are winning.',
+            },
+        ],
+        'manager_checkin': 'WIG and lead measures approved by VP Sales?',
+    },
+    {
+        'week': 11,
+        'segment': '4DX & Graduation',
+        'book': 'The 4 Disciplines of Execution (2nd ed., rev. 2021)',
+        'book_chapters': {
+            'chapters': FOUR_DX_CHAPTERS[10:15],
+            'discussion': 'Finish 4DX. Present your 90-day WIG, lead measures, and scoreboard in graduation review.',
+        },
+        'topic': 'Graduation & Independent Execution',
+        'topic_summary': (
+            'Complete 4DX and demonstrate readiness for independent client-facing work. '
+            'Case study chapters show how organizations sustain execution — model that in your first 90 days.'
+        ),
+        'videos': [],
+        'shadowing': [
+            'Lead a site visit walkthrough with your manager observing (you drive, they coach).',
+            'Shadow a proposal presentation or client review call if available.',
+        ],
+        'additional': [],
+        'pps_focus': [
+            {
+                'id': 'w11_focus_graduation',
+                'title': 'Graduation presentation',
+                'text': '10-minute presentation: one trade mastered, one still developing, your 90-day WIG, and lead measures.',
+            },
+            {
+                'id': 'w11_focus_cadence',
+                'title': 'Commit to weekly accountability',
+                'text': 'Schedule a recurring 30-minute WIG session with your manager for your first 90 days post-graduation.',
+            },
+        ],
+        'manager_checkin': 'Final graduation sign-off — VP Sales + President notified.',
     },
 ]
 

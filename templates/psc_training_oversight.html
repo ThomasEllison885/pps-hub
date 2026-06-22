@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · PSC Training Accountability</title>
+<style>
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:960px; margin:0 auto; padding:36px 24px 60px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:28px; color:var(--dark-blue); margin-bottom:4px; }
+  .page-sub { font-size:14px; color:#888; margin-bottom:28px; line-height:1.55; }
+  .card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:24px; }
+  .card-pad { padding:18px 20px; }
+  .section-head { font-size:12px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px; padding-bottom:8px; border-bottom:1.5px solid var(--border); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--dark-blue); padding:12px 16px; background:var(--light-bg); border-bottom:1.5px solid var(--border); }
+  td { padding:12px 16px; border-bottom:1px solid #f0f4f8; font-size:14px; vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  tr:hover td { background:#fafcff; }
+  .bar-track { height:8px; background:#eef4f9; border-radius:4px; overflow:hidden; margin-bottom:4px; min-width:120px; }
+  .bar-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:4px; }
+  .pct-text { font-size:12px; color:#888; }
+  .week-dots { display:flex; gap:4px; flex-wrap:wrap; }
+  .week-dot { width:22px; height:22px; border-radius:50%; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; border:1.5px solid var(--border); color:#aaa; background:white; }
+  .week-dot.done { background:#E8F5E9; border-color:#81C784; color:#2E7D32; }
+  .week-dot.partial { background:#FFF8E1; border-color:#FFD54F; color:#E65100; }
+  .meta-sm { font-size:11px; color:#aaa; display:block; margin-top:2px; }
+  .enroll-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .enroll-row select { padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; min-width:220px; }
+  .btn { background:var(--dark-blue); color:white; border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn:hover { background:var(--blue); }
+  .btn-outline { background:white; color:var(--dark-blue); border:1.5px solid var(--border); }
+  .btn-outline:hover { border-color:var(--blue); color:var(--blue); }
+  .btn-sm { padding:5px 10px; font-size:11px; margin-left:6px; }
+  .feedback-item { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:8px; }
+  .feedback-meta { font-size:11px; color:#aaa; margin-bottom:6px; display:flex; gap:10px; flex-wrap:wrap; }
+  .feedback-week { background:#FFF8E1; color:#E65100; padding:2px 8px; border-radius:12px; font-weight:600; }
+  .feedback-msg { font-size:14px; color:#444; line-height:1.55; }
+  .empty { color:#bbb; font-size:13px; padding:20px; text-align:center; }
+  .accountability-note { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:14px 16px; font-size:13px; color:#666; line-height:1.55; margin-bottom:24px; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">PSC Accountability</span>
+  </a>
+  <div class="pps-header-right">
+    {% if is_admin %}<a href="/admin" class="pps-btn-header">← Admin</a>{% else %}<a href="/dashboard" class="pps-btn-header">← Dashboard</a>{% endif %}
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">PSC Training Accountability</div>
+  <p class="page-sub">
+    Track enrolled PSC onboarding progress. Accountability owner: <strong>{{ manager_name }}</strong>.
+    {% if is_admin %}You enroll new hires here when they start — existing consultants (e.g. already onboarded) stay unenrolled until you add them.{% endif %}
+  </p>
+
+  <div class="accountability-note">
+    <strong>Who sees what:</strong> Enrolled trainees track their own progress in PSC Training.
+    {{ manager_name }} and the President review progress here. When a hire graduates, mark them complete to remove the training module from their dashboard.
+  </div>
+
+  {% if is_admin %}
+  <div class="section-head">Enroll a New Hire</div>
+  <div class="card card-pad">
+    <div class="enroll-row">
+      <select id="enrollSelect">
+        <option value="">Select consultant…</option>
+        {% for c in all_consultants %}
+        {% if not c.enrolled %}
+        <option value="{{ c.user_key }}">{{ c.display }}</option>
+        {% endif %}
+        {% endfor %}
+      </select>
+      <button class="btn" onclick="enrollTrainee()">Enroll in PSC Training</button>
+    </div>
+    <p style="font-size:12px;color:#aaa;">Enrolling gives dashboard access to the full 11-week program. Progress and notes are tracked automatically.</p>
+  </div>
+  {% endif %}
+
+  <div class="section-head">Enrolled Trainees ({{ trainees|length }})</div>
+  <div class="card">
+    {% if trainees %}
+    <table>
+      <thead>
+        <tr>
+          <th>Trainee</th>
+          <th>Progress</th>
+          <th>Weeks 0–11</th>
+          <th>Activity</th>
+          {% if is_admin %}<th></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in trainees %}
+        <tr>
+          <td>
+            <strong>{{ row.display }}</strong>
+            <span class="meta-sm">Enrolled {{ row.enrolled_at.strftime('%b %d, %Y') if row.enrolled_at else '—' }}</span>
+          </td>
+          <td>
+            <div class="bar-track"><div class="bar-fill" style="width:{{ row.pct }}%"></div></div>
+            <div class="pct-text">{{ row.done }} / {{ total_items }} ({{ row.pct }}%)</div>
+          </td>
+          <td>
+            <div class="week-dots">
+              {% for w in row.week_pcts %}
+              <div class="week-dot {% if w.pct == 100 %}done{% elif w.pct > 0 %}partial{% endif %}" title="Week {{ w.week }}: {{ w.pct }}%">{{ w.week }}</div>
+              {% endfor %}
+            </div>
+          </td>
+          <td>
+            <span class="meta-sm" style="margin:0;">
+              {% if row.last_activity_at %}Last active {{ row.last_activity_at.strftime('%b %d') }}{% else %}No activity yet{% endif %}
+            </span>
+          </td>
+          {% if is_admin %}
+          <td style="white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" onclick="graduateTrainee('{{ row.user_key }}', '{{ row.display }}')">Graduate</button>
+            <button class="btn btn-outline btn-sm" onclick="unenrollTrainee('{{ row.user_key }}', '{{ row.display }}')">Remove</button>
+          </td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No consultants enrolled. {% if is_admin %}Use the form above when your next PSC hire starts.{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <div class="section-head">Trainee Feedback</div>
+  <div class="card card-pad">
+    {% if feedback_items %}
+    {% for fb in feedback_items %}
+    <div class="feedback-item">
+      <div class="feedback-meta">
+        <strong>{{ fb.display_name }}</strong>
+        <span>{{ fb.submitted_at.strftime('%b %d, %Y') if fb.submitted_at else '' }}</span>
+        {% if fb.week_num is not none %}<span class="feedback-week">Week {{ fb.week_num }}</span>{% else %}<span class="feedback-week">General</span>{% endif %}
+      </div>
+      <div class="feedback-msg">{{ fb.message }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty">No feedback submitted yet</div>
+    {% endif %}
+  </div>
+</div>
+
+{% if is_admin %}
+<script>
+async function trainingAction(user_key, action) {
+  const resp = await fetch('/api/psc-training/enroll', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key, action }),
+  });
+  const data = await resp.json();
+  if (data.success) location.reload();
+  else alert(data.error || 'Action failed');
+}
+function enrollTrainee() {
+  const key = document.getElementById('enrollSelect').value;
+  if (!key) return;
+  trainingAction(key, 'enroll');
+}
+function graduateTrainee(key, name) {
+  if (!confirm('Mark ' + name + ' as graduated? This removes PSC Training from their dashboard.')) return;
+  trainingAction(key, 'graduate');
+}
+function unenrollTrainee(key, name) {
+  if (!confirm('Remove ' + name + ' from PSC Training enrollment?')) return;
+  trainingAction(key, 'unenroll');
+}
+</script>
+{% endif %}
+</body>
+</html>

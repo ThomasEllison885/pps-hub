@@ -197,16 +197,22 @@
       <div class="tool-meta">Open →</div>
     </a>
 
-    {% if user.role in ('consultant', 'admin') %}
+    {% if psc_training_enrolled %}
     <a href="/psc-training" class="pps-tool-card">
       <div class="pps-tool-icon">🎓</div>
       <div class="pps-tool-name">PSC Training</div>
-      <div class="pps-tool-desc">9-week onboarding: construction trades, shadowing, PPS tools, and reading milestones.</div>
-      {% if psc_training_stats %}
+      <div class="pps-tool-desc">11-week onboarding: trades, shadowing, PPS voice, sales, and reading milestones.</div>
       <span class="tool-badge">{{ psc_training_stats.pct }}% complete</span>
-      {% else %}
-      <span class="tool-badge">Onboarding</span>
-      {% endif %}
+      <div class="tool-meta">Open →</div>
+    </a>
+    {% endif %}
+
+    {% if psc_training_oversight %}
+    <a href="/psc-training/oversight" class="pps-tool-card">
+      <div class="pps-tool-icon">📊</div>
+      <div class="pps-tool-name">PSC Training Accountability</div>
+      <div class="pps-tool-desc">Track enrolled PSC onboarding progress, feedback, and graduation.</div>
+      <span class="tool-badge">Oversight</span>
       <div class="tool-meta">Open →</div>
     </a>
     {% endif %}

@@ -130,8 +130,15 @@
   .feedback-btn:hover { background:var(--blue); }
   .feedback-success { display:none; color:var(--green); font-size:13px; margin-top:8px; font-weight:500; }
 
+  .accountability-strip { background:var(--light-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:20px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .acc-item label { display:block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#888; margin-bottom:4px; }
+  .acc-item span { font-size:14px; font-weight:600; color:var(--dark-blue); }
+  .acc-item .sub { font-size:12px; font-weight:400; color:#888; }
+
   .save-indicator { position:fixed; bottom:20px; right:20px; background:var(--dark-blue); color:white; font-size:12px; font-weight:600; padding:8px 14px; border-radius:20px; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:100; }
   .save-indicator.show { opacity:1; }
+
+  @media (max-width:640px) { .accountability-strip { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
@@ -142,7 +149,6 @@
     <span class="pps-header-title">PSC Training</span>
   </a>
   <div class="pps-header-right">
-    {% if is_admin %}<a href="/admin/psc-training" class="pps-btn-header">Team Progress</a>{% endif %}
     <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
   </div>
 </header>
@@ -157,6 +163,24 @@
         <span id="overallCount">0 / {{ total_items }} items</span>
       </div>
       <div class="progress-track"><div class="progress-fill" id="overallBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="accountability-strip">
+    <div class="acc-item">
+      <label>Your Manager</label>
+      <span>{{ manager.display or 'VP Sales' }}</span>
+      <div class="sub">Weekly check-ins & sign-offs</div>
+    </div>
+    <div class="acc-item">
+      <label>Enrolled</label>
+      <span>{% if enrollment.enrolled_at %}{{ enrollment.enrolled_at.strftime('%b %d, %Y') }}{% else %}—{% endif %}</span>
+      <div class="sub">{{ meta.duration_weeks }}-week program</div>
+    </div>
+    <div class="acc-item">
+      <label>Your Progress</label>
+      <span>{{ stats.pct }}% complete</span>
+      <div class="sub">{{ stats.done }} of {{ stats.total }} items · tracked by leadership</div>
     </div>
   </div>
 
