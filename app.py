@@ -569,6 +569,34 @@ def init_db():
     except Exception:
         pass
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_notes (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            week_num INTEGER NOT NULL,
+            notes TEXT,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_key, week_num)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_training_feedback (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            week_num INTEGER,
+            message TEXT NOT NULL,
+            feedback_type VARCHAR(50) DEFAULT 'improvement',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            read_by_admin BOOLEAN DEFAULT FALSE
+        )
+    ''')
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_notes_user ON psc_training_notes(user_key)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_feedback_time ON psc_training_feedback(submitted_at DESC)")
+    except Exception:
+        pass
+
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
     if default_password:
@@ -802,9 +830,73 @@ def save_psc_training_progress(user_key, progress_dict):
         return False
 
 
+def get_psc_training_notes(user_key):
+    """Return {week_num: notes_text} for a trainee."""
+    notes = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return notes
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT week_num, notes FROM psc_training_notes WHERE user_key = %s',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            notes[row['week_num']] = row['notes'] or ''
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PSC training notes read error: {e}")
+    return notes
+
+
+def save_psc_training_notes(user_key, week_num, notes_text):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO psc_training_notes (user_key, week_num, notes, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_key, week_num)
+            DO UPDATE SET notes = EXCLUDED.notes, updated_at = NOW()
+        ''', (user_key, int(week_num), notes_text or ''))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC training notes save error: {e}")
+        return False
+
+
+def submit_psc_training_feedback(user_key, display_name, message, week_num=None, feedback_type='improvement'):
+    if not message or not message.strip():
+        return False
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO psc_training_feedback
+            (user_key, display_name, week_num, message, feedback_type)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (user_key, display_name, week_num, message.strip(), feedback_type))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PSC training feedback error: {e}")
+        return False
+
+
 def _psc_week_item_ids():
     """Map week number -> list of item IDs for that week."""
-    onboarding, weeks = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training = get_training_curriculum()
     result = {0: []}
 
     def collect(week_data):
@@ -2807,15 +2899,19 @@ def psc_training():
     user = USERS.get(user_key, {})
     if user.get('role') not in ('consultant', 'admin'):
         return redirect(url_for('dashboard'))
-    onboarding, weeks = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training = get_training_curriculum()
     progress = get_psc_training_progress(user_key)
+    notes = get_psc_training_notes(user_key)
     return render_template(
         'psc_training.html',
         meta=PSC_TRAINING_META,
         onboarding=onboarding,
         weeks=weeks,
+        core_values=core_values,
+        sales_training=sales_training,
         total_items=count_trackable_items(),
         progress_json=json.dumps(progress),
+        notes_json=json.dumps(notes),
         is_admin=(user.get('role') == 'admin'),
         user=user,
     )
@@ -2837,6 +2933,55 @@ def psc_training_progress_api():
     return jsonify({'success': True, 'stats': compute_psc_training_stats(user_key)})
 
 
+@app.route('/api/psc-training/notes', methods=['GET', 'POST'])
+@require_login
+def psc_training_notes_api():
+    user_key = session['user_key']
+    if request.method == 'GET':
+        return jsonify({'notes': get_psc_training_notes(user_key)})
+    data = request.get_json(silent=True) or {}
+    week_num = data.get('week')
+    if week_num is None:
+        return jsonify({'error': 'week required'}), 400
+    notes_text = data.get('notes', '')
+    ok = save_psc_training_notes(user_key, week_num, notes_text)
+    if not ok:
+        return jsonify({'error': 'Could not save notes'}), 500
+    return jsonify({'success': True})
+
+
+@app.route('/api/psc-training/feedback', methods=['POST'])
+@require_login
+def psc_training_feedback_api():
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    if user.get('role') not in ('consultant', 'admin'):
+        return jsonify({'error': 'Unauthorized'}), 403
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'Message required'}), 400
+    week_num = data.get('week')
+    if week_num is not None and week_num != '':
+        try:
+            week_num = int(week_num)
+        except (TypeError, ValueError):
+            week_num = None
+    else:
+        week_num = None
+    feedback_type = (data.get('type') or 'improvement').strip()[:50]
+    ok = submit_psc_training_feedback(
+        user_key,
+        user.get('display', user_key),
+        message,
+        week_num=week_num,
+        feedback_type=feedback_type,
+    )
+    if not ok:
+        return jsonify({'error': 'Could not submit feedback'}), 500
+    return jsonify({'success': True})
+
+
 @app.route('/admin/psc-training')
 @require_admin
 def admin_psc_training():
@@ -2853,9 +2998,26 @@ def admin_psc_training():
             'week_pcts': stats['week_pcts'],
         })
     trainees.sort(key=lambda t: (-t['pct'], t['display']))
+    feedback_items = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute('''
+                SELECT * FROM psc_training_feedback
+                ORDER BY submitted_at DESC LIMIT 100
+            ''')
+            feedback_items = cur.fetchall()
+            cur.execute('UPDATE psc_training_feedback SET read_by_admin = TRUE WHERE read_by_admin = FALSE')
+            conn.commit()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Admin PSC training feedback error: {e}")
     return render_template(
         'admin_psc_training.html',
         trainees=trainees,
+        feedback_items=feedback_items,
         total_items=count_trackable_items(),
     )
 

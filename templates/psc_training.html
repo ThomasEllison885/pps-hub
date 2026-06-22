@@ -11,10 +11,8 @@
   .main { max-width:860px; margin:0 auto; padding:28px 20px 72px; }
 
   .hero { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:28px 26px; margin-bottom:20px; }
-  .hero-top { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
   .page-title { font-family:'DM Serif Display',serif; font-size:30px; color:var(--dark-blue); line-height:1.2; }
-  .page-sub { font-size:14px; color:#888; line-height:1.55; margin-top:6px; max-width:560px; }
-  .profile-badge { background:var(--gold-light); border:1px solid #E8D5A8; color:#7A5B12; font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; padding:6px 12px; border-radius:20px; white-space:nowrap; }
+  .page-sub { font-size:14px; color:#888; line-height:1.55; margin-top:6px; }
 
   .progress-card { background:var(--light-bg); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin-top:18px; }
   .progress-meta { display:flex; justify-content:space-between; align-items:center; font-size:13px; margin-bottom:8px; }
@@ -22,14 +20,29 @@
   .progress-track { height:10px; background:#ddeaf3; border-radius:5px; overflow:hidden; }
   .progress-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:5px; transition:width 0.4s ease; }
 
-  .info-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
-  .info-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px 18px; }
-  .info-card h3 { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--dark-blue); margin-bottom:10px; }
-  .info-card ul { list-style:none; font-size:13px; line-height:1.6; color:#666; }
-  .info-card li { padding:3px 0; padding-left:14px; position:relative; }
-  .info-card li::before { content:'•'; position:absolute; left:0; color:var(--blue); }
-  .book-row { display:flex; align-items:center; gap:8px; font-size:13px; color:#555; margin-bottom:6px; }
-  .book-weeks { font-size:11px; color:#aaa; }
+  .ref-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:14px; overflow:hidden; border:1.5px solid transparent; }
+  .ref-card.expanded { border-color:rgba(0,150,214,0.25); }
+  .ref-header { padding:16px 18px; cursor:pointer; display:flex; align-items:center; gap:14px; user-select:none; }
+  .ref-header:hover { background:#fafcff; }
+  .ref-icon { width:40px; height:40px; border-radius:10px; background:var(--light-bg); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .ref-info { flex:1; }
+  .ref-title { font-size:15px; font-weight:600; color:var(--dark-blue); }
+  .ref-meta { font-size:12px; color:#888; margin-top:2px; }
+  .ref-chevron { color:#ccc; font-size:12px; transition:transform 0.2s; }
+  .ref-card.expanded .ref-chevron { transform:rotate(180deg); }
+  .ref-body { display:none; padding:0 18px 18px; border-top:1px solid #f0f4f8; }
+  .ref-card.expanded .ref-body { display:block; }
+  .ref-intro { font-size:14px; color:#666; line-height:1.6; padding:14px 0 8px; }
+
+  .cv-section { margin-bottom:16px; }
+  .cv-section-title { font-size:14px; font-weight:600; color:var(--dark-blue); margin-bottom:6px; }
+  .cv-content { font-size:13px; color:#666; line-height:1.55; margin-bottom:8px; font-style:italic; }
+  .cv-bullets { list-style:none; font-size:13px; line-height:1.55; color:#555; }
+  .cv-bullets li { padding:4px 0 4px 14px; position:relative; }
+  .cv-bullets li::before { content:'•'; position:absolute; left:0; color:var(--blue); }
+
+  .sales-module { margin-bottom:14px; }
+  .sales-module-title { font-size:13px; font-weight:700; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
 
   .segment-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
   .segment-pill { font-size:12px; font-weight:600; padding:6px 14px; border-radius:20px; border:1.5px solid var(--border); background:white; cursor:pointer; transition:all 0.15s; }
@@ -80,17 +93,45 @@
 
   .book-milestone { background:var(--gold-light); border:1px solid #E8D5A8; border-radius:8px; padding:12px 14px; margin-top:8px; }
   .book-milestone .check-item { background:white; border-color:#E8D5A8; }
+  .chapter-list { list-style:none; margin:8px 0 10px; }
+  .chapter-list li { font-size:13px; color:#5D4E37; padding:3px 0; }
+  .chapter-list strong { color:#7A5B12; }
+  .book-discussion { font-size:13px; color:#7A5B12; font-style:italic; margin-bottom:8px; line-height:1.5; }
 
   .checkin-box { background:#FFF8E1; border:1px solid #FFE082; border-radius:8px; padding:12px 14px; margin-top:8px; font-size:13px; color:#6D4C00; line-height:1.5; }
   .checkin-box strong { display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
 
+  .notes-box { margin-top:14px; }
+  .notes-box label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--dark-blue); margin-bottom:6px; }
+  .notes-box textarea {
+    width:100%; min-height:72px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:14px; color:#444; resize:vertical; outline:none;
+  }
+  .notes-box textarea:focus { border-color:var(--blue); }
+  .notes-hint { font-size:11px; color:#aaa; margin-top:4px; }
+
+  .feedback-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:22px 20px; margin-top:28px; }
+  .feedback-card h3 { font-family:'DM Serif Display',serif; font-size:20px; color:var(--dark-blue); margin-bottom:6px; }
+  .feedback-card p { font-size:14px; color:#888; line-height:1.55; margin-bottom:14px; }
+  .feedback-row { display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+  .feedback-row select {
+    padding:9px 12px; border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:14px; color:#444; background:white;
+  }
+  .feedback-card textarea {
+    width:100%; min-height:100px; padding:11px 14px; border:1.5px solid var(--border); border-radius:8px;
+    font-family:'DM Sans',sans-serif; font-size:14px; color:#444; resize:vertical; outline:none; margin-bottom:10px;
+  }
+  .feedback-card textarea:focus { border-color:var(--blue); }
+  .feedback-btn {
+    background:var(--dark-blue); color:white; border:none; border-radius:8px; padding:11px 22px;
+    font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif;
+  }
+  .feedback-btn:hover { background:var(--blue); }
+  .feedback-success { display:none; color:var(--green); font-size:13px; margin-top:8px; font-weight:500; }
+
   .save-indicator { position:fixed; bottom:20px; right:20px; background:var(--dark-blue); color:white; font-size:12px; font-weight:600; padding:8px 14px; border-radius:20px; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:100; }
   .save-indicator.show { opacity:1; }
-
-  @media (max-width:640px) {
-    .info-grid { grid-template-columns:1fr; }
-    .hero-top { flex-direction:column; }
-  }
 </style>
 </head>
 <body>
@@ -108,14 +149,8 @@
 
 <div class="main">
   <div class="hero">
-    <div class="hero-top">
-      <div>
-        <div class="page-title">{{ meta.title }}</div>
-        <div class="page-sub">{{ meta.description }}</div>
-      </div>
-      <span class="profile-badge">{{ meta.profile.label }}</span>
-    </div>
-    <p style="font-size:14px;color:#666;line-height:1.6;margin-bottom:4px;">{{ meta.profile.summary }}</p>
+    <div class="page-title">{{ meta.title }}</div>
+    <div class="page-sub">{{ meta.description }}</div>
     <div class="progress-card">
       <div class="progress-meta">
         <span>Overall progress: <strong id="overallPct">0%</strong></span>
@@ -125,25 +160,66 @@
     </div>
   </div>
 
-  <div class="info-grid">
-    <div class="info-card">
-      <h3>Your Strengths</h3>
-      <ul>{% for s in meta.profile.strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+  <!-- Core Values -->
+  <div class="ref-card expanded" id="ref-core">
+    <div class="ref-header" onclick="toggleRef('core')">
+      <div class="ref-icon">⭐</div>
+      <div class="ref-info">
+        <div class="ref-title">{{ core_values.title }}</div>
+        <div class="ref-meta">{{ core_values.sections|length }} sections · from PPS Voice Guide</div>
+      </div>
+      <div class="ref-chevron">▼</div>
     </div>
-    <div class="info-card">
-      <h3>Focus Areas</h3>
-      <ul>{% for f in meta.profile.focus_areas %}<li>{{ f }}</li>{% endfor %}</ul>
+    <div class="ref-body">
+      <p class="ref-intro">{{ core_values.intro }}</p>
+      {% for section in core_values.sections %}
+      <div class="cv-section">
+        <div class="check-item" data-id="{{ section.check_id }}" onclick="toggleItem('{{ section.check_id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">
+            <div class="cv-section-title">{{ section.title }}</div>
+            {% if section.content %}<div class="cv-content">{{ section.content }}</div>{% endif %}
+            {% if section.bullets %}
+            <ul class="cv-bullets">
+              {% for b in section.bullets %}<li>{{ b }}</li>{% endfor %}
+            </ul>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
     </div>
   </div>
 
-  <div class="info-card" style="margin-bottom:20px;">
-    <h3>Reading Schedule</h3>
-    {% for book in meta.books %}
-    <div class="book-row">
-      <strong>{{ book.title }}</strong>
-      <span class="book-weeks">Weeks {{ book.weeks|join(', ') }}</span>
+  <!-- Sales Training -->
+  <div class="ref-card" id="ref-sales">
+    <div class="ref-header" onclick="toggleRef('sales')">
+      <div class="ref-icon">📈</div>
+      <div class="ref-info">
+        <div class="ref-title">{{ sales_training.title }}</div>
+        <div class="ref-meta">{{ sales_training.modules|length }} modules · use as needed with your manager</div>
+      </div>
+      <div class="ref-chevron">▼</div>
     </div>
-    {% endfor %}
+    <div class="ref-body">
+      <p class="ref-intro">{{ sales_training.intro }}</p>
+      {% for module in sales_training.modules %}
+      <div class="sales-module">
+        <div class="sales-module-title">{{ module.title }}</div>
+        <div class="check-list">
+          {% for item in module.items %}
+          <div class="check-item" data-id="{{ item.id }}" onclick="toggleItem('{{ item.id }}', event)">
+            <div class="check-box"></div>
+            <div class="check-label">
+              <strong>{{ item.title }}</strong>
+              <div style="font-size:13px;color:#888;margin-top:3px;">{{ item.text }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
   <div class="segment-pills" id="segmentPills">
@@ -154,7 +230,7 @@
   </div>
 
   <!-- Week 0 -->
-  <div class="week-card" data-week="0" data-segment="All Segments" id="week-0">
+  <div class="week-card expanded" data-week="0" data-segment="All Segments" id="week-0">
     <div class="week-header" onclick="toggleWeek(0)">
       <div class="week-num">0</div>
       <div class="week-info">
@@ -165,8 +241,20 @@
       <div class="week-chevron">▼</div>
     </div>
     <div class="week-body">
-      {% if onboarding.book_note %}
-      <p class="topic-summary" style="font-style:italic;color:#888;">📖 {{ onboarding.book_note }}</p>
+      {% if onboarding.book_chapters %}
+      <div class="book-milestone" style="margin-top:14px;">
+        <div class="section-label" style="margin-top:0;border:none;padding:0;"><span class="icon">📖</span> Reading — {{ onboarding.book_chapters.title }}</div>
+        <ul class="chapter-list">
+          {% for ch in onboarding.book_chapters.chapters %}
+          <li><strong>Ch {{ ch.num }}:</strong> {{ ch.title }}</li>
+          {% endfor %}
+        </ul>
+        {% if onboarding.book_chapters.discussion %}<p class="book-discussion">{{ onboarding.book_chapters.discussion }}</p>{% endif %}
+        <div class="check-item" data-id="{{ onboarding.book_id }}" onclick="toggleItem('{{ onboarding.book_id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">Mark this week's reading complete</div>
+        </div>
+      </div>
       {% endif %}
 
       <div class="section-label"><span class="icon">🏗️</span> Shadowing & Field</div>
@@ -206,6 +294,12 @@
       {% if onboarding.manager_checkin %}
       <div class="checkin-box"><strong>Manager Check-in</strong>{{ onboarding.manager_checkin }}</div>
       {% endif %}
+
+      <div class="notes-box">
+        <label>My Notes — Week 0</label>
+        <textarea data-week-notes="0" placeholder="Shadowing takeaways, questions for your manager, things to revisit…" oninput="scheduleNotesSave(0)"></textarea>
+        <div class="notes-hint">Auto-saved · only you and admin can see these</div>
+      </div>
     </div>
   </div>
 
@@ -216,7 +310,7 @@
       <div class="week-num">{{ w.week }}</div>
       <div class="week-info">
         <div class="week-title">Week {{ w.week }} · {{ w.topic }}</div>
-        <div class="week-meta">{{ w.segment }} · {{ w.book or 'No book this week' }}</div>
+        <div class="week-meta">{{ w.segment }}{% if w.book %} · {{ w.book }}{% endif %}</div>
       </div>
       <div class="week-pct" id="weekPct-{{ w.week }}">0%</div>
       <div class="week-chevron">▼</div>
@@ -224,6 +318,22 @@
     <div class="week-body">
       {% if w.topic_summary %}
       <p class="topic-summary">{{ w.topic_summary }}</p>
+      {% endif %}
+
+      {% if w.book_chapters %}
+      <div class="book-milestone" style="margin-bottom:12px;">
+        <div class="section-label" style="margin-top:0;border:none;padding:0;"><span class="icon">📖</span> Reading — {{ w.book }}</div>
+        <ul class="chapter-list">
+          {% for ch in w.book_chapters.chapters %}
+          <li><strong>Ch {{ ch.num }}:</strong> {{ ch.title }}</li>
+          {% endfor %}
+        </ul>
+        {% if w.book_chapters.discussion %}<p class="book-discussion">{{ w.book_chapters.discussion }}</p>{% endif %}
+        <div class="check-item" data-id="{{ w.book_id }}" onclick="toggleItem('{{ w.book_id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">Mark this week's reading complete</div>
+        </div>
+      </div>
       {% endif %}
 
       {% if w.videos %}
@@ -276,17 +386,6 @@
       </div>
       {% endif %}
 
-      {% if w.book %}
-      <div class="book-milestone">
-        <div class="section-label" style="margin-top:0;border:none;padding:0;"><span class="icon">📖</span> Book Milestone — {{ w.book }}</div>
-        {% if w.book_note %}<p style="font-size:13px;color:#7A5B12;margin-bottom:8px;">{{ w.book_note }}</p>{% endif %}
-        <div class="check-item" data-id="{{ w.book_id }}" onclick="toggleItem('{{ w.book_id }}', event)">
-          <div class="check-box"></div>
-          <div class="check-label">Mark reading complete for this week</div>
-        </div>
-      </div>
-      {% endif %}
-
       {% if w.manager_checkin %}
       <div class="checkin-box">
         <strong>Manager Check-in</strong>{{ w.manager_checkin }}
@@ -296,9 +395,33 @@
         </div>
       </div>
       {% endif %}
+
+      <div class="notes-box">
+        <label>My Notes — Week {{ w.week }}</label>
+        <textarea data-week-notes="{{ w.week }}" placeholder="What you learned, questions, site visit observations…" oninput="scheduleNotesSave({{ w.week }})"></textarea>
+        <div class="notes-hint">Auto-saved · helps us improve training for future hires</div>
+      </div>
     </div>
   </div>
   {% endfor %}
+
+  <!-- Module Feedback -->
+  <div class="feedback-card" id="feedbackSection">
+    <h3>Notes & Feedback</h3>
+    <p>Your feedback improves this module for every future PSC hire. Tell us what's working, what's missing, or what would have helped you learn faster.</p>
+    <div class="feedback-row">
+      <select id="feedbackWeek">
+        <option value="">General — whole module</option>
+        <option value="0">Week 0 — PPS Foundations</option>
+        {% for w in weeks %}
+        <option value="{{ w.week }}">Week {{ w.week }} — {{ w.topic }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <textarea id="feedbackText" placeholder="Example: Week 3 masonry videos were helpful but I needed more PPS-specific scope language. The shadowing checklist could include a sign-off field…"></textarea>
+    <button class="feedback-btn" onclick="submitFeedback()">Submit Feedback</button>
+    <div class="feedback-success" id="feedbackSuccess">✓ Thank you — your feedback was submitted.</div>
+  </div>
 </div>
 
 <div class="save-indicator" id="saveIndicator">✓ Saved</div>
@@ -306,7 +429,9 @@
 <script>
 const TOTAL_ITEMS = {{ total_items }};
 let progress = {{ progress_json|safe }};
+let weekNotes = {{ notes_json|safe }};
 let saveTimer = null;
+let notesTimer = null;
 
 function applyProgress() {
   const items = document.querySelectorAll('.check-item[data-id]');
@@ -344,9 +469,12 @@ function applyProgress() {
   });
 }
 
+function toggleRef(id) {
+  document.getElementById('ref-' + id).classList.toggle('expanded');
+}
+
 function toggleWeek(num) {
-  const card = document.getElementById('week-' + num);
-  card.classList.toggle('expanded');
+  document.getElementById('week-' + num).classList.toggle('expanded');
 }
 
 function toggleItem(id, event) {
@@ -369,12 +497,59 @@ async function saveProgress() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ progress }),
     });
-    if (resp.ok) {
-      const el = document.getElementById('saveIndicator');
-      el.classList.add('show');
-      setTimeout(() => el.classList.remove('show'), 1500);
-    }
+    if (resp.ok) showSaved();
   } catch (e) { console.error('Save failed', e); }
+}
+
+function scheduleNotesSave(week) {
+  clearTimeout(notesTimer);
+  notesTimer = setTimeout(() => saveNotes(week), 600);
+}
+
+async function saveNotes(week) {
+  const ta = document.querySelector(`textarea[data-week-notes="${week}"]`);
+  if (!ta) return;
+  weekNotes[week] = ta.value;
+  try {
+    const resp = await fetch('/api/psc-training/notes', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ week, notes: ta.value }),
+    });
+    if (resp.ok) showSaved();
+  } catch (e) { console.error('Notes save failed', e); }
+}
+
+function showSaved() {
+  const el = document.getElementById('saveIndicator');
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 1500);
+}
+
+async function submitFeedback() {
+  const msg = document.getElementById('feedbackText').value.trim();
+  if (!msg) return;
+  const week = document.getElementById('feedbackWeek').value;
+  const btn = document.querySelector('.feedback-btn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const resp = await fetch('/api/psc-training/feedback', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg, week: week || null }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      document.getElementById('feedbackText').value = '';
+      document.getElementById('feedbackSuccess').style.display = 'block';
+      setTimeout(() => document.getElementById('feedbackSuccess').style.display = 'none', 5000);
+    }
+  } catch (e) { console.error(e); }
+  btn.disabled = false;
+  btn.textContent = 'Submit Feedback';
 }
 
 document.getElementById('segmentPills').addEventListener('click', e => {
@@ -392,16 +567,16 @@ document.getElementById('segmentPills').addEventListener('click', e => {
 
   const filter = btn.dataset.filter;
   document.querySelectorAll('.week-card').forEach(card => {
-    if (filter === 'all') {
-      card.style.display = '';
-    } else {
-      card.style.display = card.dataset.segment === filter ? '' : 'none';
-    }
+    card.style.display = (filter === 'all' || card.dataset.segment === filter) ? '' : 'none';
   });
 });
 
+document.querySelectorAll('textarea[data-week-notes]').forEach(ta => {
+  const w = ta.dataset.weekNotes;
+  if (weekNotes[w] !== undefined) ta.value = weekNotes[w];
+});
+
 applyProgress();
-document.getElementById('week-0').classList.add('expanded');
 </script>
 </body>
 </html>

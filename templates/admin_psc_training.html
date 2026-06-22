@@ -26,6 +26,12 @@
   .week-dot { width:22px; height:22px; border-radius:50%; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; border:1.5px solid var(--border); color:#aaa; background:white; }
   .week-dot.done { background:#E8F5E9; border-color:#81C784; color:#2E7D32; }
   .week-dot.partial { background:#FFF8E1; border-color:#FFD54F; color:#E65100; }
+  .section-head { font-size:12px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px; padding-bottom:8px; border-bottom:1.5px solid var(--border); }
+  .feedback-item { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:8px; }
+  .feedback-meta { font-size:11px; color:#aaa; margin-bottom:6px; display:flex; gap:10px; flex-wrap:wrap; }
+  .feedback-week { background:#FFF8E1; color:#E65100; padding:2px 8px; border-radius:12px; font-weight:600; }
+  .feedback-msg { font-size:14px; color:#444; line-height:1.55; }
+  .empty { color:#bbb; font-size:13px; padding:20px; text-align:center; }
 </style>
 </head>
 <body>
@@ -70,10 +76,28 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="3" style="text-align:center;color:#bbb;padding:24px;">No consultants found</td></tr>
+        <tr><td colspan="3" class="empty">No consultants found</td></tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  <div class="section-head">Trainee Feedback (improves future hires)</div>
+  <div class="card" style="padding:18px 20px;">
+    {% if feedback_items %}
+    {% for fb in feedback_items %}
+    <div class="feedback-item">
+      <div class="feedback-meta">
+        <strong>{{ fb.display_name }}</strong>
+        <span>{{ fb.submitted_at.strftime('%b %d, %Y') if fb.submitted_at else '' }}</span>
+        {% if fb.week_num is not none %}<span class="feedback-week">Week {{ fb.week_num }}</span>{% else %}<span class="feedback-week">General</span>{% endif %}
+      </div>
+      <div class="feedback-msg">{{ fb.message }}</div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty">No feedback submitted yet</div>
+    {% endif %}
   </div>
 </div>
 </body>

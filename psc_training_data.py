@@ -4,35 +4,222 @@ PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
-        'A 9-week guided program covering construction trades, property segments, '
-        'PPS tools, and field shadowing. Built for hires with sales and multifamily '
-        'experience who are new to construction.'
+        'A guided 9-week program covering PPS culture and voice, sales fundamentals, '
+        'construction trades by property segment, field shadowing, and PPS tools.'
     ),
     'duration_weeks': 9,
-    'profile': {
-        'label': 'Sales + Multifamily · No Construction',
-        'summary': (
-            'You already know how to sell and navigate apartment communities. '
-            'This track fills in construction vocabulary, trade basics, and PPS workflows '
-            'so you can speak confidently on site and in proposals.'
-        ),
-        'strengths': ['Sales experience', 'Multifamily property knowledge', 'Client relationships'],
-        'focus_areas': [
-            'Construction trade fundamentals',
-            'Scope vocabulary & visual identification',
-            'PPS tools & proposal workflow',
-            'Field shadowing & site visits',
-        ],
-    },
-    'books': [
-        {'title': 'The Infinite Game', 'author': 'Simon Sinek', 'weeks': [1, 2, 3, 4]},
-        {'title': 'Fanatical Prospecting', 'author': 'Jeb Blount', 'weeks': [5, 6, 7, 8]},
-        {'title': 'The 4 Disciplines of Execution', 'author': 'McChesney, Covey & Huling', 'weeks': [9]},
-    ],
     'segments': [
         {'name': 'Apartments', 'weeks': [1, 2, 3, 4], 'color': '#004C8C'},
         {'name': 'Condos', 'weeks': [5, 6, 7, 8], 'color': '#0096D6'},
         {'name': 'Hospitality / Commercial', 'weeks': [9], 'color': '#B8922A'},
+    ],
+}
+
+PSC_CORE_VALUES = {
+    'title': 'Core Values & PPS Voice',
+    'intro': (
+        'Every proposal, site conversation, and client email should sound like PPS. '
+        'Study these standards before your first client-facing work and revisit them weekly.'
+    ),
+    'sections': [
+        {
+            'id': 'cv_why',
+            'title': 'PPS Why',
+            'content': 'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.',
+            'bullets': [
+                'PPS is a capital expenditure partner — planning through close-out, not just a contractor.',
+                'One point of contact across all trades streamlines communication for ownership and management.',
+                'Every project reflects who we are: Trust. Quality. Results.™',
+            ],
+        },
+        {
+            'id': 'cv_brand',
+            'title': 'Brand & Credentials',
+            'content': 'Improving People. Improving Property.',
+            'bullets': [
+                'First mention: "Pure Property Solutions (PPS)" — then "PPS." Never "Pure Prop" or "Pure" alone.',
+                'Tagline for closings: Trust. Quality. Results.™',
+                '12+ years in business · $60M+ completed across 6 states · multi-family and commercial only.',
+                'Management relationships: Morgan, Connor, Hills, Neyer, Towne. Trade Partners: many 8+ year relationships.',
+                'PPM standard on every project. References available upon request.',
+            ],
+        },
+        {
+            'id': 'cv_pillars',
+            'title': 'Why PPS — Three Pillars',
+            'bullets': [
+                'Multi-Family Expertise — operational experience, named management relationships, resident-aware execution.',
+                'Experience & Stability — track record, long-term Trade Partner relationships, professional on-site standards.',
+                'Comprehensive Services — single point of contact across all trades.',
+            ],
+        },
+        {
+            'id': 'cv_language',
+            'title': 'Universal Language Rules',
+            'bullets': [
+                '"residents" not "tenants" · "apartment community" not "complex"',
+                '"ownership" or "ownership/management" not "the owner"',
+                '"Trade Partners" not "subcontractors" or "subs"',
+                '"investment" not "cost/price" for totals · "homeowners" in condo/HOA context',
+                '"T&M" not "hourly" · "concealed conditions" not "hidden damage"',
+                '"Trade Partner Scope" not "sub scope" · "punch list" not "final items"',
+                'Work hours: 8am–7pm M–F unless specified.',
+            ],
+        },
+        {
+            'id': 'cv_voice',
+            'title': 'Voice & Tone',
+            'content': 'Confident, direct, contractor-fluent, outcome-focused. NOT bureaucratic, passive, or filler-heavy.',
+            'bullets': [
+                'Active voice always. Lead with PPS: "PPS will remove and dispose of all existing roofing material."',
+                'Universal opening: "Pure Property Solutions (PPS) will provide all labor, materials, equipment, and supervision necessary to complete [scope] as outlined below."',
+                'Never use: "is committed to" / "strives to" / "is pleased to present" / "looks forward to" / "we are excited to" / "please be advised".',
+                'Key phrase: "PPS will coordinate with property management and onsite staff to minimize disruption to residents."',
+                'Key phrase: "If work extends beyond scope, PPS will cease work, document with photos, and reach out for written approval before proceeding."',
+                'Key phrase: "A Pre-Project Meeting will be scheduled prior to mobilization."',
+            ],
+        },
+        {
+            'id': 'cv_property',
+            'title': 'Property Type Tone',
+            'bullets': [
+                'Apartments — clinical, efficient, operationally precise. Prioritize resident disruption, phasing, communication protocols.',
+                'Condos / HOAs — warm, trust-building, explanatory. Write for the Board. Connect scope to homeowner investment value.',
+                'Hospitality — guest experience and brand standards first. Say "guests" not "residents."',
+                'Commercial — business continuity first. ADA/code compliance. After-hours work when needed.',
+            ],
+        },
+        {
+            'id': 'cv_pricing',
+            'title': 'Pricing Language',
+            'bullets': [
+                '"Investment" not "Cost/Price" for totals · "Base Contract Amount" for primary line.',
+                'T&M: "Any work not included can be performed at agreed T&M rates."',
+                'Multi-scope: "Pricing is contingent upon all scopes being awarded."',
+                'Towne Condo/HOA ONLY: Towne Preferred Customer Discount (10%). Not apartments. Not non-Towne clients.',
+                'Tariff clause: "Pricing is based on current market conditions. Due to potential tariff or supply chain fluctuations, PPS reserves the right to adjust pricing with prompt written notice."',
+            ],
+        },
+    ],
+}
+
+PSC_SALES_TRAINING = {
+    'title': 'PPS Sales Training',
+    'intro': (
+        'Use this section to build or sharpen sales skills. Work through it alongside your weekly trade training — '
+        'especially prospecting weeks 5–8. Your manager can assign specific modules based on what you need.'
+    ),
+    'modules': [
+        {
+            'id': 'sales_pipeline',
+            'title': 'Pipeline & Prospecting',
+            'items': [
+                {
+                    'id': 'sales_pipe_1',
+                    'title': 'Know your numbers',
+                    'text': 'Track outreach attempts, conversations, site visits, proposals sent, and close rate in Monday.com. You cannot improve what you do not measure.',
+                },
+                {
+                    'id': 'sales_pipe_2',
+                    'title': 'Protect golden hours',
+                    'text': 'Block dedicated prospecting time on your calendar. Treat it like a client appointment — non-negotiable.',
+                },
+                {
+                    'id': 'sales_pipe_3',
+                    'title': 'Balanced prospecting mix',
+                    'text': 'Use phone, email, in-person, and social touchpoints. No single channel fills a pipeline alone.',
+                },
+                {
+                    'id': 'sales_pipe_4',
+                    'title': 'Own your database',
+                    'text': 'Every contact, property, and follow-up date lives in Monday.com. A CRM is only as good as what you put into it.',
+                },
+            ],
+        },
+        {
+            'id': 'sales_property',
+            'title': 'Selling by Property Type',
+            'items': [
+                {
+                    'id': 'sales_prop_1',
+                    'title': 'Apartment communities',
+                    'text': 'Sell to the property manager day-to-day; ownership/regional approves. Lead with operational confidence: phasing, resident communication, single point of contact.',
+                },
+                {
+                    'id': 'sales_prop_2',
+                    'title': 'Condos & HOAs',
+                    'text': 'The property manager presents; the Board votes. Your proposal is a relationship document. Explain WHY, connect scope to homeowner value, offer to attend a board meeting.',
+                },
+                {
+                    'id': 'sales_prop_3',
+                    'title': 'Hospitality & commercial',
+                    'text': 'Lead with business continuity and brand standards. Address work-hour restrictions, phasing around guests or tenants, and after-hours options.',
+                },
+            ],
+        },
+        {
+            'id': 'sales_proposal',
+            'title': 'The Proposal as a Sales Tool',
+            'items': [
+                {
+                    'id': 'sales_prop_tool_1',
+                    'title': 'Generate, then refine',
+                    'text': 'Use the Proposal Generator for PPS-standard language, then adjust for client context. Submit before/after edits via the Comparison Tool to improve our voice guide.',
+                },
+                {
+                    'id': 'sales_prop_tool_2',
+                    'title': 'Scope to investment',
+                    'text': 'Help clients see scope as protecting their asset — not just a line-item cost. Use "investment" language and deferred-risk framing on condo work.',
+                },
+                {
+                    'id': 'sales_prop_tool_3',
+                    'title': 'Walk the client through it',
+                    'text': 'Never email a proposal cold without context. Schedule a review call or meeting. Highlight phasing, warranties, and what happens at mobilization (PPM).',
+                },
+            ],
+        },
+        {
+            'id': 'sales_objections',
+            'title': 'Objections & Difficult Conversations',
+            'items': [
+                {
+                    'id': 'sales_obj_1',
+                    'title': 'Price objections',
+                    'text': 'Acknowledge, reframe to scope quality and risk reduction, compare apples-to-apples. PPS pricing reflects resident-aware execution and long-term Trade Partner relationships.',
+                },
+                {
+                    'id': 'sales_obj_2',
+                    'title': 'Complaints & resident issues',
+                    'text': 'Listen first. Document. Coordinate through property management. Never dismiss a resident concern — escalate to your PM immediately.',
+                },
+                {
+                    'id': 'sales_obj_3',
+                    'title': 'Gatekeepers & brush-offs',
+                    'text': 'Be respectful, persistent, and concise. Ask for the right person. Follow up on a schedule, not when you "get around to it."',
+                },
+            ],
+        },
+        {
+            'id': 'sales_relationship',
+            'title': 'Relationships & Follow-Through',
+            'items': [
+                {
+                    'id': 'sales_rel_1',
+                    'title': 'Law of familiarity',
+                    'text': 'Consistent, professional touchpoints build trust before you need it. Show up on site. Send useful updates. Be the consultant they think of first.',
+                },
+                {
+                    'id': 'sales_rel_2',
+                    'title': 'Post-award handoff',
+                    'text': 'A signed proposal is the start, not the finish. Ensure PPM happens, PM intro is smooth, and the client hears from you during mobilization.',
+                },
+                {
+                    'id': 'sales_rel_3',
+                    'title': 'Trade Partner relationships',
+                    'text': 'Understand how PPS works with Trade Partners. Never promise scope or schedule that production has not confirmed.',
+                },
+            ],
+        },
     ],
 }
 
@@ -42,8 +229,15 @@ PSC_ONBOARDING = {
     'title': 'Week 0 · PPS Foundations',
     'segment': 'All Segments',
     'topic': 'Company, Tools & Workflow',
-    'book': None,
-    'book_note': 'Start reading The Infinite Game — aim for 1–2 chapters before Week 1.',
+    'book': 'The Infinite Game',
+    'book_chapters': {
+        'title': 'The Infinite Game',
+        'author': 'Simon Sinek',
+        'chapters': [
+            {'num': 1, 'title': 'To Play or Not to Play'},
+        ],
+        'discussion': 'Preview only — discuss finite vs. infinite mindset with your manager before Week 1.',
+    },
     'videos': [],
     'shadowing': [
         {
@@ -63,12 +257,6 @@ PSC_ONBOARDING = {
             'title': 'Monday.com Tutorial for Beginners (Step-by-Step)',
         },
         {
-            'id': 'w0_add_pps_why',
-            'type': 'reading',
-            'title': 'PPS Why',
-            'text': 'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.',
-        },
-        {
             'id': 'w0_add_hub',
             'type': 'tool',
             'title': 'Explore the PPS Hub Dashboard',
@@ -78,7 +266,7 @@ PSC_ONBOARDING = {
             'id': 'w0_add_proposal',
             'type': 'tool',
             'title': 'Walk through the Proposal Generator',
-            'text': 'Generate a practice proposal (do not send to client). Note how scopes, property type, and consultant voice work together.',
+            'text': 'Generate a practice proposal (do not send to client). Study how PPS voice, scopes, and property type work together.',
         },
         {
             'id': 'w0_add_ppm',
@@ -101,14 +289,14 @@ PSC_ONBOARDING = {
     ],
     'pps_focus': [
         {
-            'id': 'w0_focus_vocab',
-            'title': 'Build your scope vocabulary list',
-            'text': 'Start a personal glossary: tuck pointing, EIFS, B&B, mobilization, punch list, change order. Add terms each week.',
+            'id': 'w0_focus_core',
+            'title': 'Complete Core Values & PPS Voice section',
+            'text': 'Read every subsection above and check each item off before Week 1.',
         },
         {
-            'id': 'w0_focus_questions',
-            'title': 'Prepare shadowing questions',
-            'text': 'Write 5 questions to ask on every ride-along: What trade is this? What failed? What does good look like?',
+            'id': 'w0_focus_vocab',
+            'title': 'Start your scope vocabulary list',
+            'text': 'Begin a personal glossary: tuck pointing, EIFS, B&B, mobilization, punch list, change order. Add terms each week.',
         },
     ],
     'manager_checkin': 'Confirm Week 0 complete before starting trade-specific training.',
@@ -119,7 +307,14 @@ PSC_TRAINING_WEEKS = [
         'week': 1,
         'segment': 'Apartments',
         'book': 'The Infinite Game',
-        'book_note': 'Continue reading — discuss one insight with your manager this week.',
+        'book_chapters': {
+            'chapters': [
+                {'num': 1, 'title': 'To Play or Not to Play'},
+                {'num': 2, 'title': 'The Infinite Game'},
+                {'num': 3, 'title': 'The Responsibility of Businesses'},
+            ],
+            'discussion': 'Discuss: Is PPS playing a finite or infinite game? What does that mean for client relationships?',
+        },
         'topic': 'Painting & Drywall',
         'topic_summary': (
             'Interior and exterior paint scope is one of the highest-volume trades in multifamily. '
@@ -154,6 +349,14 @@ PSC_TRAINING_WEEKS = [
         'week': 2,
         'segment': 'Apartments',
         'book': 'The Infinite Game',
+        'book_chapters': {
+            'chapters': [
+                {'num': 4, 'title': 'Just Cause'},
+                {'num': 5, 'title': "A Cause That's Worth the Cost"},
+                {'num': 6, 'title': 'Trusting Teams'},
+            ],
+            'discussion': 'Discuss: What is PPS\'s Just Cause? How do trusting teams show up on a job site?',
+        },
         'topic': 'Roofing & Gutters',
         'topic_summary': (
             'Roofing drives major capital decisions. Understand shingle systems, drainage, and when a gutter scope '
@@ -187,6 +390,14 @@ PSC_TRAINING_WEEKS = [
         'week': 3,
         'segment': 'Apartments',
         'book': 'The Infinite Game',
+        'book_chapters': {
+            'chapters': [
+                {'num': 7, 'title': 'Ethical Fading'},
+                {'num': 8, 'title': 'Worthy Rival'},
+                {'num': 9, 'title': 'Existential Flexibility'},
+            ],
+            'discussion': 'Discuss: Who is a worthy rival in our market? What would existential flexibility look like at PPS?',
+        },
         'topic': 'Masonry (Tuck Pointing & Brick)',
         'topic_summary': (
             'Masonry scopes require visual identification of mortar joint failure. Learn tuck pointing, '
@@ -209,7 +420,7 @@ PSC_TRAINING_WEEKS = [
             {
                 'id': 'w3_focus_objections',
                 'title': 'Practice objection handling',
-                'text': 'Role-play: "Your price is higher than the last vendor." Use what you learned from the Sales Objections video.',
+                'text': 'Role-play: "Your price is higher than the last vendor." Use the Sales Objections video and PPS Sales Training module.',
             },
         ],
         'manager_checkin': 'Can you spot failed mortar joints vs. efflorescence on a walkthrough?',
@@ -218,7 +429,13 @@ PSC_TRAINING_WEEKS = [
         'week': 4,
         'segment': 'Apartments',
         'book': 'The Infinite Game',
-        'book_note': 'Finish The Infinite Game this week. Be ready to share your top takeaway.',
+        'book_chapters': {
+            'chapters': [
+                {'num': 10, 'title': 'The Courage to Lead'},
+                {'num': 11, 'title': 'The Infinite Game'},
+            ],
+            'discussion': 'Finish the book. Share your top takeaway with your manager — how will it change how you show up for clients?',
+        },
         'topic': 'Concrete',
         'topic_summary': (
             'Sidewalks, pads, and curbs are everywhere on apartment communities. Learn pour basics, '
@@ -256,7 +473,16 @@ PSC_TRAINING_WEEKS = [
         'week': 5,
         'segment': 'Condos',
         'book': 'Fanatical Prospecting',
-        'book_note': 'Start Fanatical Prospecting — focus on the prospecting mindset chapters.',
+        'book_chapters': {
+            'chapters': [
+                {'num': 1, 'title': 'The Case for Prospecting'},
+                {'num': 2, 'title': 'Seven Mindsets of Fanatical Prospectors'},
+                {'num': 3, 'title': 'To Cold Call or Not to Cold Call?'},
+                {'num': 4, 'title': 'Adopt a Balanced Prospecting Methodology'},
+                {'num': 5, 'title': 'The More You Prospect, the Luckier You Get'},
+            ],
+            'discussion': 'Discuss: What is your prospecting block schedule? Which channels will you use for condo/HOA outreach?',
+        },
         'topic': 'EIFS',
         'topic_summary': (
             'Condos and HOAs frequently have EIFS (synthetic stucco) cladding. Learn identification, '
@@ -289,6 +515,17 @@ PSC_TRAINING_WEEKS = [
         'week': 6,
         'segment': 'Condos',
         'book': 'Fanatical Prospecting',
+        'book_chapters': {
+            'chapters': [
+                {'num': 6, 'title': 'Know Your Numbers'},
+                {'num': 7, 'title': 'The Three Ps That Are Holding You Back'},
+                {'num': 8, 'title': 'Time: The Great Equalizer of Sales'},
+                {'num': 9, 'title': 'The Four Objectives of Prospecting'},
+                {'num': 10, 'title': 'Leveraging the Prospecting Pyramid'},
+                {'num': 11, 'title': 'Own Your Database'},
+            ],
+            'discussion': 'Review your outreach ratios with your manager. What are your numbers this week?',
+        },
         'topic': 'Siding (Vinyl)',
         'topic_summary': (
             'Vinyl siding is common on condo townhome-style construction. Learn installation, '
@@ -306,7 +543,6 @@ PSC_TRAINING_WEEKS = [
         ],
         'additional': [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=u4ZoJKF_VuA', 'title': 'Find Your Why'},
-            {'type': 'reading', 'title': 'PPS Why (revisit)', 'text': 'We believe in elevating lives and spaces through relentless improvement and unbreakable trust.'},
         ],
         'pps_focus': [
             {
@@ -321,6 +557,16 @@ PSC_TRAINING_WEEKS = [
         'week': 7,
         'segment': 'Condos',
         'book': 'Fanatical Prospecting',
+        'book_chapters': {
+            'chapters': [
+                {'num': 12, 'title': 'The Law of Familiarity'},
+                {'num': 13, 'title': 'Social Selling'},
+                {'num': 14, 'title': 'Message Matters'},
+                {'num': 15, 'title': 'Telephone Prospecting Excellence'},
+                {'num': 16, 'title': 'Turning Around RBOs'},
+            ],
+            'discussion': 'Role-play a brush-off and turnaround using the RBO framework from Chapter 16.',
+        },
         'topic': 'Siding (Hardie & Board-and-Batten)',
         'topic_summary': (
             'Fiber cement (Hardie) and board-and-batten are premium siding systems with strict '
@@ -353,7 +599,18 @@ PSC_TRAINING_WEEKS = [
         'week': 8,
         'segment': 'Condos',
         'book': 'Fanatical Prospecting',
-        'book_note': 'Finish Fanatical Prospecting this week.',
+        'book_chapters': {
+            'chapters': [
+                {'num': 17, 'title': 'The Secret Lives of Gatekeepers'},
+                {'num': 18, 'title': 'In-Person Prospecting'},
+                {'num': 19, 'title': 'E-Mail Prospecting'},
+                {'num': 20, 'title': 'Text Messaging'},
+                {'num': 21, 'title': 'Developing Mental Toughness'},
+                {'num': 22, 'title': 'Eleven Words That Changed My Life'},
+                {'num': 23, 'title': 'The Only Question That Really Matters'},
+            ],
+            'discussion': 'Finish the book. Answer Chapter 23\'s question for yourself and share with your manager.',
+        },
         'topic': 'Carpentry (Decks & Wood Replacement)',
         'topic_summary': (
             'Deck rebuilds and wood trim replacement are high-visibility scopes. Learn structural basics, '
@@ -389,7 +646,16 @@ PSC_TRAINING_WEEKS = [
         'week': 9,
         'segment': 'Hospitality / Commercial',
         'book': 'The 4 Disciplines of Execution',
-        'book_note': 'Start 4DX — focus on WIG (Wildly Important Goal) discipline for your first 90 days.',
+        'book_chapters': {
+            'chapters': [
+                {'num': 1, 'title': 'The Challenge'},
+                {'num': 2, 'title': 'Discipline 1 — Focus on the Wildly Important'},
+                {'num': 3, 'title': 'Discipline 2 — Act on Lead Measures'},
+                {'num': 4, 'title': 'Discipline 3 — Keep a Compelling Scoreboard'},
+                {'num': 5, 'title': 'Discipline 4 — Create a Cadence of Accountability'},
+            ],
+            'discussion': 'Define your 90-day WIG (Wildly Important Goal) and lead measures. Review in graduation check-in.',
+        },
         'topic': 'Remodels & Interior Renovation',
         'topic_summary': (
             'Hospitality and commercial remodels involve phasing, occupied spaces, and permit requirements. '
@@ -441,23 +707,41 @@ def _assign_ids(week_data):
     for item in week_data.get('pps_focus', []):
         if 'id' not in item:
             item['id'] = f'w{w}_focus_{item["title"][:20].lower().replace(" ", "_")}'
-    if week_data.get('book'):
+    if week_data.get('book') or week_data.get('book_chapters'):
         week_data['book_id'] = f'w{w}_book'
     if week_data.get('manager_checkin'):
         week_data['checkin_id'] = f'w{w}_checkin'
     return week_data
 
 
+def _prepare_core_values():
+    data = dict(PSC_CORE_VALUES)
+    for section in data['sections']:
+        section['check_id'] = section['id']
+    return data
+
+
+def _prepare_sales_training():
+    data = dict(PSC_SALES_TRAINING)
+    for module in data['modules']:
+        for item in module['items']:
+            if 'id' not in item:
+                item['id'] = f"sales_{module['id']}_{item['title'][:12].lower().replace(' ', '_')}"
+    return data
+
+
 def get_training_curriculum():
     """Return full curriculum with IDs assigned."""
     onboarding = _assign_ids(dict(PSC_ONBOARDING))
     weeks = [_assign_ids(dict(w)) for w in PSC_TRAINING_WEEKS]
-    return onboarding, weeks
+    core_values = _prepare_core_values()
+    sales_training = _prepare_sales_training()
+    return onboarding, weeks, core_values, sales_training
 
 
 def get_all_item_ids():
     """Flat list of every trackable item ID."""
-    onboarding, weeks = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training = get_training_curriculum()
     ids = []
 
     def collect(week_data):
@@ -474,6 +758,11 @@ def get_all_item_ids():
         if week_data.get('checkin_id'):
             ids.append(week_data['checkin_id'])
 
+    for section in core_values['sections']:
+        ids.append(section['check_id'])
+    for module in sales_training['modules']:
+        for item in module['items']:
+            ids.append(item['id'])
     collect(onboarding)
     for w in weeks:
         collect(w)
