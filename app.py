@@ -1933,6 +1933,20 @@ def dashboard():
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
+@app.route('/estimating/property-lookup')
+@require_login
+def estimating_property_lookup():
+    """Search hub clients and past jobs by address — not external measurement APIs."""
+    q = (request.args.get('q') or '').strip()
+    try:
+        from estimators.property_lookup import lookup_property_by_address
+        return jsonify(lookup_property_by_address(get_db, q))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'results': []}), 500
+
+
 @app.route('/estimating/confidence', methods=['POST'])
 @require_login
 def estimating_confidence():
@@ -5223,33 +5237,6 @@ def painting_estimator():
         pricing_defaults=_pricing_defaults(),
         sections=sections_for_ui(),
     )
-
-
-@app.route('/painting-estimator/parse', methods=['POST'])
-@require_login
-def painting_estimator_parse():
-    pdf_file = request.files.get('pdf')
-    if not pdf_file:
-        return jsonify({'error': 'No PDF uploaded'}), 400
-    try:
-        from estimators.painting import parse_painting_measurements
-        from estimators.reliability import build_painting_reliability
-        measurements, warnings, suggestions = parse_painting_measurements(pdf_file.read())
-        line_items = [
-            {'category': k, 'measured': v.get('measured'), 'from_report': True}
-            for k, v in suggestions.items()
-        ]
-        confidence = build_painting_reliability(measurements, line_items)
-        return jsonify({
-            'measurements': measurements,
-            'warnings': warnings,
-            'suggestions': suggestions,
-            'confidence': confidence,
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/painting-estimator/generate', methods=['POST'])

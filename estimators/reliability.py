@@ -405,29 +405,24 @@ def build_siding_job_reliability(buildings, pricing_loaded=0):
 
 
 def build_painting_reliability(measurements, line_items, user_overrides=None):
-    measurements = measurements or {}
     line_items = line_items or []
-    user_overrides = user_overrides or {}
-    report_type = measurements.get('report_type', 'manual')
-
     active = [li for li in line_items if li.get('measured')]
-    ev_sourced = sum(1 for li in active if li.get('from_report'))
-    manual_count = len(active) - ev_sourced
 
     fields = [
         _field(
             'data_source',
             'Data source',
-            'EagleView Walls' if report_type == 'eagleview_walls' else 'Manual takeoff',
-            HIGH if report_type == 'eagleview_walls' else MANUAL,
-            'eagleview_walls' if report_type == 'eagleview_walls' else 'field_measure',
+            'Field takeoff',
+            MANUAL,
+            'field_measure',
+            'Exterior painting uses site measurements, not aerial reports',
             critical=True,
         ),
         _field(
             'line_items',
             'Takeoff lines',
             len(active),
-            HIGH if len(active) >= 3 else MEDIUM if active else MISSING,
+            HIGH if len(active) >= 5 else MEDIUM if len(active) >= 2 else MISSING,
             'user_entry' if active else 'field_measure',
             f'{len(active)} categories with quantities' if active else 'Enter measured quantities',
             critical=True,
@@ -435,50 +430,28 @@ def build_painting_reliability(measurements, line_items, user_overrides=None):
         ),
     ]
 
-    wall = measurements.get('wall_area_net')
-    if wall or user_overrides.get('wall_manual'):
+    types = {li.get('exterior_type') for li in active if li.get('exterior_type')}
+    if types:
         fields.append(_field(
-            'wall_area_net',
-            'Wall area (SF)',
-            wall,
-            HIGH if wall and not user_overrides.get('wall_manual') else MANUAL,
-            'eagleview_walls' if wall and not user_overrides.get('wall_manual') else 'user_entry',
-            critical=True,
-            display=f'{_format_display(wall)} sf' if wall else '—',
-        ))
-
-    if ev_sourced:
-        fields.append(_field(
-            'ev_lines',
-            'From EagleView',
-            ev_sourced,
-            HIGH,
-            'eagleview_walls',
-            f'{ev_sourced} lines pre-filled from report',
-            display=str(ev_sourced),
-        ))
-    if manual_count:
-        fields.append(_field(
-            'manual_lines',
-            'Manual lines',
-            manual_count,
-            MANUAL,
+            'categories',
+            'Exterior types',
+            len(types),
+            MEDIUM if len(types) >= 2 else MANUAL,
             'user_entry',
-            'Field counts and paint categories',
-            display=str(manual_count),
+            ', '.join(sorted(types)),
+            display=', '.join(sorted(types)),
         ))
 
     if not active:
         overall = MISSING
-    elif report_type == 'eagleview_walls' and ev_sourced >= len(active) // 2:
-        overall = HIGH if manual_count == 0 else MEDIUM
-    elif report_type == 'eagleview_walls':
+    elif len(active) >= 5:
         overall = MEDIUM
+    elif len(active) >= 2:
+        overall = MANUAL
     else:
-        overall = MANUAL if active else LOW
+        overall = LOW
 
-    label = 'Exterior painting takeoff'
-    return _package(fields, overall, label)
+    return _package(fields, overall, 'Exterior painting takeoff')
 
 
 def reliability_excel_lines(confidence):
