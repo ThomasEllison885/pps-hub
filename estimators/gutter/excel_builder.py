@@ -188,6 +188,10 @@ def build_estimate_excel(job, measurements, inputs, confidence=None):
             ws4[f'C{rr}'].font = Font(bold=True, color=WHITE)
             ws4[f'B{rr}'].fill = PatternFill('solid', start_color=DARK_BLUE)
             ws4[f'C{rr}'].fill = PatternFill('solid', start_color=DARK_BLUE)
+
+    from estimators.excel_branding import brand_estimate_workbook
+    brand_estimate_workbook(wb)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

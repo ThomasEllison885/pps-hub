@@ -70,6 +70,9 @@ def build_estimate_excel(job, buildings, inputs, pricing, library_rows=None, con
     labor_subtotal_row = _build_labor(wb, building_results)
     _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row)
 
+    from estimators.excel_branding import brand_estimate_workbook
+    brand_estimate_workbook(wb)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

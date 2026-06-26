@@ -37,6 +37,9 @@ def build_estimate_excel(job, measurements, inputs, pricing=None, confidence=Non
         qty = calculate_materials(measurements, inputs)
         _build_full_estimate(wb, job, measurements, inputs, qty, pricing, confidence=confidence)
 
+    from estimators.excel_branding import brand_estimate_workbook
+    brand_estimate_workbook(wb)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
