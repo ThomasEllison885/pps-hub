@@ -33,6 +33,9 @@
     <h1>Roof Estimate Ready</h1>
     <p class="sub">{{ property_name }} · {{ report_label }}</p>
     <p style="font-size:13px;color:#888;margin-bottom:16px;">{{ filename }}</p>
+    {% if confidence %}
+    <div class="summary-box" style="margin-bottom:12px;">Takeoff: <strong>{{ confidence.title }}</strong> — {{ confidence.summary_line }}</div>
+    {% endif %}
     <div class="summary-box">
       <strong>Summary:</strong><br>
       {% if is_quick_bid %}

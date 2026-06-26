@@ -19,8 +19,10 @@
   .main{max-width:1100px;margin:0 auto;padding:36px 24px 60px;}
   .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
   .page-sub{font-size:14px;color:#888;margin-bottom:32px;}
-  .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:36px;}
+  .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:36px;}
   .stat{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;text-align:center;}
+  a.stat-link{text-decoration:none;color:inherit;transition:box-shadow 0.2s,transform 0.15s;}
+  a.stat-link:hover{box-shadow:0 4px 20px rgba(0,76,140,0.14);transform:translateY(-1px);}
   .stat .num{font-family:'DM Serif Display',serif;font-size:32px;color:var(--dark-blue);}
   .stat .lbl{font-size:11px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:0.08em;margin-top:4px;}
   .section-head{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
@@ -139,6 +141,7 @@
     <span class="pps-header-title">Admin Panel</span>
   </a>
   <div class="pps-header-right">
+    <a href="/admin/pricing-defaults" class="pps-btn-header">Estimating Defaults</a>
     <a href="/clients" class="pps-btn-header">Client Database</a>
     <a href="#vault" class="pps-btn-header">Vault</a>
     <a href="/psc-training/oversight" class="pps-btn-header">PSC Training</a>
@@ -181,6 +184,10 @@
     <a href="/clients" class="stat stat-link">
       <div class="num">{{ client_count }}</div>
       <div class="lbl">Client Database</div>
+    </a>
+    <a href="/admin/pricing-defaults" class="stat stat-link">
+      <div class="num" style="font-size:22px;line-height:1.2;padding-top:6px;">$</div>
+      <div class="lbl">Estimating Defaults</div>
     </a>
   </div>
 

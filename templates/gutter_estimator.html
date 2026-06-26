@@ -67,17 +67,18 @@
     <div class="field-row" style="margin-top:12px;">
       <div class="field">
         <label>Downspout height (ft each)</label>
-        <input type="number" id="dsHeight" value="10" min="1" step="0.5">
+        <input type="number" id="dsHeight" value="{{ pricing_defaults.gutter.downspout_lf_each }}" min="1" step="0.5">
       </div>
       <div class="field">
         <label>Downspout spacing (LF)</label>
-        <input type="number" id="dsSpacing" value="35" min="10" step="1" title="1 downspout per this many LF of gutter">
+        <input type="number" id="dsSpacing" value="{{ pricing_defaults.gutter.downspout_spacing_ft }}" min="10" step="1" title="1 downspout per this many LF of gutter">
       </div>
     </div>
     <div class="field-row" style="margin-top:12px;">
       <div class="field">
         <label>Waste / cuts (%)</label>
-        <select id="wastePct"><option value="0">0%</option><option value="10" selected>10%</option><option value="15">15%</option></select>
+        {% set gw = pricing_defaults.gutter.waste_pct %}
+        <select id="wastePct"><option value="0" {% if gw == 0 %}selected{% endif %}>0%</option><option value="10" {% if gw == 10 or not gw %}selected{% endif %}>10%</option><option value="15" {% if gw == 15 %}selected{% endif %}>15%</option></select>
       </div>
       <div class="field" style="display:flex;align-items:flex-end;">
         <label class="chk" style="margin:0;"><input type="checkbox" id="incGuards"> Include gutter guards</label>
@@ -98,13 +99,13 @@
     <div class="form-section-title">3. Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid);">(all editable)</span></div>
     <p class="section-hint">Rates pre-fill the Excel workbook. Yellow cells on Tab 1 and Tab 3 can be changed after download too.</p>
     <div class="field-row-3" style="margin-bottom:12px;">
-      <div class="field"><label>Gutter + DS $/LF</label><input type="number" id="gutterRate" value="7" step="0.5" min="0"></div>
-      <div class="field"><label>Guard $/LF</label><input type="number" id="guardRate" value="2" step="0.5" min="0"></div>
-      <div class="field"><label>Extra labor $/LF</label><input type="number" id="laborLf" value="0" step="0.5" min="0"></div>
+      <div class="field"><label>Gutter + DS $/LF</label><input type="number" id="gutterRate" value="{{ pricing_defaults.gutter.gutter_price_per_lf }}" step="0.5" min="0"></div>
+      <div class="field"><label>Guard $/LF</label><input type="number" id="guardRate" value="{{ pricing_defaults.gutter.guard_price_per_lf }}" step="0.5" min="0"></div>
+      <div class="field"><label>Extra labor $/LF</label><input type="number" id="laborLf" value="{{ pricing_defaults.gutter.labor_per_lf }}" step="0.5" min="0"></div>
     </div>
     <div class="field-row-3">
-      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1" min="0"></div>
-      <div class="field"><label>Margin %</label><input type="number" id="marginPct" value="25" min="0" max="50"></div>
+      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="{{ pricing_defaults.gutter.tax_pct }}" step="0.1" min="0"></div>
+      <div class="field"><label>Margin %</label><input type="number" id="marginPct" value="{{ pricing_defaults.gutter.margin_pct }}" min="0" max="50"></div>
     </div>
   </div>
 

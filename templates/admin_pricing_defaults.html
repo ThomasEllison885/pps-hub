@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estimating Defaults — PPS Admin</title>
+<style>
+  .main{max-width:900px;margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:28px;line-height:1.5;}
+  .card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:20px;}
+  .card h2{font-size:15px;color:var(--dark-blue);margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+  .field input{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;}
+  .meta{font-size:12px;color:#888;margin-bottom:20px;padding:12px;background:var(--light-bg);border-radius:8px;}
+  .msg-ok{color:var(--green);font-size:14px;margin-bottom:16px;}
+  .msg-err{color:var(--red);font-size:14px;margin-bottom:16px;}
+  .save-btn{background:var(--dark-blue);color:white;border:none;border-radius:10px;padding:14px 28px;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
+  .save-btn:hover{background:var(--blue);}
+  @media(max-width:700px){.grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/admin" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Estimating Defaults</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Estimating Pricing Defaults</div>
+  <p class="page-sub">These values pre-fill siding, roofing, and gutter estimators for the whole team. Estimators can still override per job. Excel yellow cells remain editable after download.</p>
+
+  {% if message %}<div class="msg-ok">✓ {{ message }}</div>{% endif %}
+  {% if error %}<div class="msg-err">✗ {{ error }}</div>{% endif %}
+
+  <div class="meta">
+    {% if defaults.updated_at %}
+    Last updated {{ defaults.updated_at.strftime('%b %d, %Y %I:%M %p') if defaults.updated_at.strftime else defaults.updated_at }}
+    {% if defaults.updated_by_name or defaults.updated_by %} by {{ defaults.updated_by_name or defaults.updated_by }}{% endif %}
+    {% else %}
+    Using built-in defaults — save below to store company rates in the database.
+    {% endif %}
+  </div>
+
+  <form method="post">
+    {% set sd = defaults.siding %}
+    {% set rd = defaults.roofing %}
+    {% set gd = defaults.gutter %}
+
+    <div class="card">
+      <h2>Siding</h2>
+      <div class="grid">
+        <div class="field"><label>Labor $/sq (net)</label><input type="number" name="siding_labor_per_sq" value="{{ sd.labor_per_sq }}" step="5"></div>
+        <div class="field"><label>Haul off $/sq</label><input type="number" name="siding_haul_per_sq" value="{{ sd.haul_per_sq }}" step="1"></div>
+        <div class="field"><label>Material tax %</label><input type="number" name="siding_tax_pct" value="{{ sd.tax_pct }}" step="0.1"></div>
+        <div class="field"><label>Delivery ($)</label><input type="number" name="siding_delivery" value="{{ sd.delivery }}" step="1"></div>
+        <div class="field"><label>Default waste %</label><input type="number" name="siding_waste_pct" value="{{ sd.waste_pct }}" step="1"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Roofing</h2>
+      <div class="grid">
+        <div class="field"><label>Labor $/sq</label><input type="number" name="roofing_labor_per_sq" value="{{ rd.labor_per_sq }}" step="1"></div>
+        <div class="field"><label>Material $/sq (quick bid)</label><input type="number" name="roofing_material_per_sq" value="{{ rd.material_per_sq }}" step="1"></div>
+        <div class="field"><label>Tax %</label><input type="number" name="roofing_tax_pct" value="{{ rd.tax_pct }}" step="0.1"></div>
+        <div class="field"><label>Margin %</label><input type="number" name="roofing_margin_pct" value="{{ rd.margin_pct }}" step="1"></div>
+        <div class="field"><label>Waste %</label><input type="number" name="roofing_waste_pct" value="{{ rd.waste_pct }}" step="1"></div>
+        <div class="field"><label>Dump: sq per load</label><input type="number" name="roofing_dump_divisor" value="{{ rd.dump_divisor }}" step="1"></div>
+        <div class="field"><label>Dump $/load</label><input type="number" name="roofing_dump_cost" value="{{ rd.dump_cost }}" step="25"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Gutters</h2>
+      <div class="grid">
+        <div class="field"><label>Gutter + DS $/LF</label><input type="number" name="gutter_price_per_lf" value="{{ gd.gutter_price_per_lf }}" step="0.5"></div>
+        <div class="field"><label>Guard $/LF</label><input type="number" name="gutter_guard_per_lf" value="{{ gd.guard_price_per_lf }}" step="0.5"></div>
+        <div class="field"><label>Extra labor $/LF</label><input type="number" name="gutter_labor_per_lf" value="{{ gd.labor_per_lf }}" step="0.5"></div>
+        <div class="field"><label>Tax %</label><input type="number" name="gutter_tax_pct" value="{{ gd.tax_pct }}" step="0.1"></div>
+        <div class="field"><label>Margin %</label><input type="number" name="gutter_margin_pct" value="{{ gd.margin_pct }}" step="1"></div>
+        <div class="field"><label>Waste %</label><input type="number" name="gutter_waste_pct" value="{{ gd.waste_pct }}" step="1"></div>
+        <div class="field"><label>Downspout height (ft)</label><input type="number" name="gutter_ds_height" value="{{ gd.downspout_lf_each }}" step="0.5"></div>
+        <div class="field"><label>Downspout spacing (LF)</label><input type="number" name="gutter_ds_spacing" value="{{ gd.downspout_spacing_ft }}" step="1"></div>
+      </div>
+    </div>
+
+    <button type="submit" class="save-btn">Save Pricing Defaults</button>
+  </form>
+</div>
+</body>
+</html>

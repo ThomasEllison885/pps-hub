@@ -113,11 +113,12 @@
         <div class="field">
           <label>Waste Factor</label>
           <select id="wastePct">
-            <option value="10">10%</option>
-            <option value="12">12%</option>
-            <option value="14" selected>14% (recommended)</option>
-            <option value="15">15%</option>
-            <option value="20">20%</option>
+            {% set dw = pricing_defaults.siding.waste_pct %}
+            <option value="10" {% if dw == 10 %}selected{% endif %}>10%</option>
+            <option value="12" {% if dw == 12 %}selected{% endif %}>12%</option>
+            <option value="14" {% if dw == 14 or not dw %}selected{% endif %}>14% (recommended)</option>
+            <option value="15" {% if dw == 15 %}selected{% endif %}>15%</option>
+            <option value="20" {% if dw == 20 %}selected{% endif %}>20%</option>
           </select>
         </div>
         <div class="field">
@@ -152,12 +153,12 @@
     <div class="form-section-title">4. Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(all editable)</span></div>
     <p class="section-hint">Set labor, haul, tax, and delivery below — or upload a supplier price file. Yellow cells on Tab 1 and Tab 4 in the workbook can be changed after download too.</p>
     <div class="field-row-3" style="margin-bottom:14px;">
-      <div class="field"><label>Labor $/sq (net)</label><input type="number" id="laborSq" value="180" step="5" min="0"></div>
-      <div class="field"><label>Haul off $/sq</label><input type="number" id="haulSq" value="25" step="1" min="0"></div>
-      <div class="field"><label>Material tax %</label><input type="number" id="taxPct" value="7" step="0.1" min="0"></div>
+      <div class="field"><label>Labor $/sq (net)</label><input type="number" id="laborSq" value="{{ pricing_defaults.siding.labor_per_sq }}" step="5" min="0"></div>
+      <div class="field"><label>Haul off $/sq</label><input type="number" id="haulSq" value="{{ pricing_defaults.siding.haul_per_sq }}" step="1" min="0"></div>
+      <div class="field"><label>Material tax %</label><input type="number" id="taxPct" value="{{ pricing_defaults.siding.tax_pct }}" step="0.1" min="0"></div>
     </div>
     <div class="field" style="margin-bottom:14px;max-width:200px;">
-      <label>Delivery ($)</label><input type="number" id="delivery" value="15" step="1" min="0">
+      <label>Delivery ($)</label><input type="number" id="delivery" value="{{ pricing_defaults.siding.delivery }}" step="1" min="0">
     </div>
     <p class="section-hint" style="margin-bottom:10px;"><strong>Material unit prices (optional):</strong> upload CSV or Excel with <strong>Item</strong> + <strong>Item Price</strong> columns (same as the team worksheet).</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">

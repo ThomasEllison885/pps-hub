@@ -71,7 +71,13 @@
     <div class="field-row-3" style="margin-bottom:12px;">
       <div class="field">
         <label>Waste %</label>
-        <select id="wastePct"><option value="10">10%</option><option value="12" selected>12%</option><option value="13">13%</option><option value="15">15%</option></select>
+        <select id="wastePct">
+          {% set rw = pricing_defaults.roofing.waste_pct %}
+          <option value="10" {% if rw == 10 %}selected{% endif %}>10%</option>
+          <option value="12" {% if rw == 12 or not rw %}selected{% endif %}>12%</option>
+          <option value="13" {% if rw == 13 %}selected{% endif %}>13%</option>
+          <option value="15" {% if rw == 15 %}selected{% endif %}>15%</option>
+        </select>
       </div>
       <div class="field">
         <label>Pipe Boots</label>
@@ -79,17 +85,17 @@
       </div>
       <div class="field">
         <label>Target Margin %</label>
-        <input type="number" id="marginPct" value="25" min="0" max="50">
+        <input type="number" id="marginPct" value="{{ pricing_defaults.roofing.margin_pct }}" min="0" max="50">
       </div>
     </div>
     <div class="field-row-3" style="margin-bottom:12px;">
-      <div class="field"><label>Labor $/sq</label><input type="number" id="laborSq" value="60" step="1" min="0"></div>
-      <div class="field"><label>Material $/sq (quick bid)</label><input type="number" id="matSq" value="65" step="1" min="0"></div>
-      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1" min="0"></div>
+      <div class="field"><label>Labor $/sq</label><input type="number" id="laborSq" value="{{ pricing_defaults.roofing.labor_per_sq }}" step="1" min="0"></div>
+      <div class="field"><label>Material $/sq (quick bid)</label><input type="number" id="matSq" value="{{ pricing_defaults.roofing.material_per_sq }}" step="1" min="0"></div>
+      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="{{ pricing_defaults.roofing.tax_pct }}" step="0.1" min="0"></div>
     </div>
     <div class="field-row-3">
-      <div class="field"><label>Dump: sq per load</label><input type="number" id="dumpDiv" value="45" step="1" min="1"></div>
-      <div class="field"><label>Dump $/load</label><input type="number" id="dumpCost" value="200" step="25" min="0"></div>
+      <div class="field"><label>Dump: sq per load</label><input type="number" id="dumpDiv" value="{{ pricing_defaults.roofing.dump_divisor }}" step="1" min="1"></div>
+      <div class="field"><label>Dump $/load</label><input type="number" id="dumpCost" value="{{ pricing_defaults.roofing.dump_cost }}" step="25" min="0"></div>
     </div>
     <p class="section-hint" style="margin-top:12px;">Pipe boots are not on EagleView reports — count from site photos. Quick-bid material $/sq is for Bid Perfect only. Premium/Roofr material unit prices are editable in yellow cells on Tab 3 after download.</p>
   </div>

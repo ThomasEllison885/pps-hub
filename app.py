@@ -577,6 +577,15 @@ def init_db():
     except Exception:
         pass
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS hub_settings (
+            key VARCHAR(100) PRIMARY KEY,
+            value JSONB NOT NULL,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            updated_by VARCHAR(100)
+        )
+    ''')
+
     # Auth support tables
     cur.execute('''
         CREATE TABLE IF NOT EXISTS auth_codes (
@@ -1671,12 +1680,18 @@ def _establish_session(user_key, user_def, db_user=None):
     session.permanent = True
     session['user_key'] = user_key
     session['display_name'] = user_def.get('display', '')
+    session['user_email'] = user_def.get('email', '')
     session['role'] = user_def.get('role', 'consultant')
     session['proposal_access'] = get_user_proposal_access(user_key)
     session['team_view'] = user_def.get('team_view', False)
     session['team_view_scope'] = user_def.get('team_view_scope')
     if db_user and db_user.get('must_change_password'):
         session['must_change_password'] = True
+
+
+def _pricing_defaults():
+    from estimators.pricing_defaults import get_pricing_defaults
+    return get_pricing_defaults(get_db)
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -2612,6 +2627,63 @@ def admin():
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
                            breakdown=breakdown, vault=vault,
                            user_definitions=USERS)
+
+
+@app.route('/admin/pricing-defaults', methods=['GET', 'POST'])
+@require_admin
+def admin_pricing_defaults():
+    from estimators.pricing_defaults import save_pricing_defaults, SYSTEM_DEFAULTS
+
+    defaults = _pricing_defaults()
+    message = None
+    error = None
+    if request.method == 'POST':
+        try:
+            trades = {
+                'siding': {
+                    'labor_per_sq': request.form.get('siding_labor_per_sq'),
+                    'haul_per_sq': request.form.get('siding_haul_per_sq'),
+                    'tax_pct': request.form.get('siding_tax_pct'),
+                    'delivery': request.form.get('siding_delivery'),
+                    'waste_pct': request.form.get('siding_waste_pct'),
+                },
+                'roofing': {
+                    'labor_per_sq': request.form.get('roofing_labor_per_sq'),
+                    'material_per_sq': request.form.get('roofing_material_per_sq'),
+                    'tax_pct': request.form.get('roofing_tax_pct'),
+                    'margin_pct': request.form.get('roofing_margin_pct'),
+                    'waste_pct': request.form.get('roofing_waste_pct'),
+                    'dump_divisor': request.form.get('roofing_dump_divisor'),
+                    'dump_cost': request.form.get('roofing_dump_cost'),
+                },
+                'gutter': {
+                    'gutter_price_per_lf': request.form.get('gutter_price_per_lf'),
+                    'guard_price_per_lf': request.form.get('gutter_guard_per_lf'),
+                    'labor_per_lf': request.form.get('gutter_labor_per_lf'),
+                    'tax_pct': request.form.get('gutter_tax_pct'),
+                    'margin_pct': request.form.get('gutter_margin_pct'),
+                    'waste_pct': request.form.get('gutter_waste_pct'),
+                    'downspout_lf_each': request.form.get('gutter_ds_height'),
+                    'downspout_spacing_ft': request.form.get('gutter_ds_spacing'),
+                },
+            }
+            defaults = save_pricing_defaults(
+                get_db,
+                trades,
+                session['user_key'],
+                session.get('display_name', ''),
+            )
+            message = 'Pricing defaults saved. New estimates will use these values.'
+        except Exception as e:
+            error = str(e)
+
+    return render_template(
+        'admin_pricing_defaults.html',
+        defaults=defaults,
+        system_defaults=SYSTEM_DEFAULTS,
+        message=message,
+        error=error,
+    )
 
 
 @app.route('/admin/system-health')
@@ -4337,6 +4409,7 @@ def siding_estimator():
     return render_template(
         'siding_estimator.html',
         display_name=session.get('display_name', ''),
+        pricing_defaults=_pricing_defaults(),
     )
 
 
@@ -4455,6 +4528,7 @@ def siding_estimator_result(estimate_id):
         building_count=row.get('building_count') or 1,
         filename=_siding_filename(data.get('job', {})),
         totals=ctx['totals'],
+        confidence=data.get('confidence'),
         user_email=session.get('user_email', ''),
     )
 
@@ -4632,7 +4706,11 @@ def _roofing_filename(job):
 @app.route('/roofing-estimator')
 @require_login
 def roofing_estimator():
-    return render_template('roofing_estimator.html', display_name=session.get('display_name', ''))
+    return render_template(
+        'roofing_estimator.html',
+        display_name=session.get('display_name', ''),
+        pricing_defaults=_pricing_defaults(),
+    )
 
 
 @app.route('/roofing-estimator/parse', methods=['POST'])
@@ -4729,6 +4807,7 @@ def roofing_estimator_result(estimate_id):
         report_label=ctx['report_label'],
         is_quick_bid=ctx['is_quick_bid'],
         summary=ctx['summary'],
+        confidence=data.get('confidence'),
         user_email=session.get('user_email', ''),
     )
 
@@ -4853,7 +4932,11 @@ def _gutter_filename(job):
 @app.route('/gutter-estimator')
 @require_login
 def gutter_estimator():
-    return render_template('gutter_estimator.html', display_name=session.get('display_name', ''))
+    return render_template(
+        'gutter_estimator.html',
+        display_name=session.get('display_name', ''),
+        pricing_defaults=_pricing_defaults(),
+    )
 
 
 @app.route('/gutter-estimator/parse', methods=['POST'])
@@ -4935,6 +5018,22 @@ def gutter_estimator_generate():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/gutter-estimator/preview/<int:estimate_id>')
+@require_login
+def gutter_estimator_preview(estimate_id):
+    row = _load_gutter_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _gutter_preview_context(row)
+    data = _gutter_job_data_from_row(row)
+    return render_template(
+        'gutter_preview.html',
+        estimate_id=estimate_id,
+        confidence=data.get('confidence'),
+        **ctx,
+    )
 
 
 @app.route('/gutter-estimator/result/<int:estimate_id>')

@@ -47,6 +47,12 @@
     <p class="sub">{{ property_name }} — {{ building_count }} building{{ 's' if building_count != 1 else '' }}</p>
     <p style="font-size:13px;color:#888;margin-bottom:16px;">{{ filename }}</p>
 
+    {% if confidence %}
+    <div class="summary-box" style="margin-bottom:12px;">
+      Takeoff: <strong>{{ confidence.title }}</strong> — {{ confidence.summary_line }}
+    </div>
+    {% endif %}
+
     <div class="summary-box">
       <strong>Job totals (all buildings):</strong><br>
       Net wall area: {{ totals.wall_area_net | default(0) }} sq ft<br>

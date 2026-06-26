@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gutter Estimate Preview — PPS</title>
+<style>
+  .main{max-width:800px;margin:0 auto;padding:32px 24px 60px;}
+  .card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:24px;margin-bottom:16px;}
+  h1{font-family:var(--font-serif);font-size:24px;color:var(--dark-blue);}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--dark-blue);padding:8px;background:var(--light-bg);}
+  td{padding:8px;border-bottom:1px solid #f0f4f8;}
+  .conf{font-size:12px;color:#666;margin:12px 0;padding:10px;background:var(--light-bg);border-radius:8px;}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/estimating" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <span class="pps-header-title">Gutter Estimator</span>
+  </a>
+  <div class="pps-header-right"><a href="{{ url_for('gutter_estimator_result', estimate_id=estimate_id) }}" class="pps-btn-header">← Back</a></div>
+</header>
+<div class="main">
+  <div class="card">
+    <h1>{{ job.property_name or 'Gutter Estimate' }}</h1>
+    <p style="font-size:13px;color:#888;">{{ job.address }} · Waste {{ inputs.waste_pct }}%</p>
+    {% if confidence %}
+    <div class="conf">Takeoff: <strong>{{ confidence.title }}</strong> — {{ confidence.summary_line }}</div>
+    {% endif %}
+    <table>
+      <tr><th>Item</th><th>Qty</th></tr>
+      <tr><td>Gutter run</td><td>{{ summary.gutter_lf_raw }} LF</td></tr>
+      <tr><td>Downspouts</td><td>{{ summary.downspout_count }} ({{ summary.downspout_lf }} LF vertical)</td></tr>
+      <tr><td>Order LF (with waste)</td><td>{{ summary.total_lf_order }} LF</td></tr>
+      {% if summary.include_guards %}<tr><td>Guards</td><td>{{ summary.guard_lf }} LF</td></tr>{% endif %}
+      <tr><td>Invoice total</td><td><strong>${{ '%.2f'|format(summary.invoice_total) }}</strong></td></tr>
+    </table>
+  </div>
+</div>
+</body>
+</html>
