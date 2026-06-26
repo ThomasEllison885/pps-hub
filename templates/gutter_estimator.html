@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS · Gutter Estimator</title>
+<style>
+  .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
+  .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
+  .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;}
+  .upload-zone input{display:none;}
+  .parsed-box{display:none;margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;}
+  .parsed-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .parsed-warn{background:#FEF9E7;border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;color:#7A5C00;margin-top:6px;}
+  .section-hint{font-size:13px;color:var(--gray-mid);margin-bottom:12px;line-height:1.5;}
+  .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
+  label.chk{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:8px;}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/estimating" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Gutter Estimator</span>
+  </a>
+  <div class="pps-header-right"><a href="/estimating" class="pps-btn-header">← Estimating</a></div>
+</header>
+
+<div class="pps-main-narrow">
+  <div class="pps-page-title">Gutter Estimator</div>
+  <p class="pps-page-sub">Upload a roof report to pull <strong>eaves length</strong> as gutter run, or enter LF manually. Defaults from PPS gutter worksheet: <strong>$7/LF</strong> installed, <strong>$2/LF</strong> guards.</p>
+
+  <div class="form-section">
+    <div class="form-section-title">1. Measurements</div>
+    <p class="section-hint">EagleView Premium and Roofr include eaves LF. Downspouts are suggested at 1 per 35 LF (editable).</p>
+    <div class="upload-zone" onclick="this.querySelector('input').click()">
+      <strong style="color:var(--blue);">Upload roof PDF</strong> (optional — EagleView or Roofr)
+      <input type="file" id="pdfFile" accept=".pdf" onchange="parsePdf(this.files[0])">
+      <div id="fileStatus" style="font-size:12px;margin-top:6px;"></div>
+    </div>
+    <div class="parsed-box" id="parsedBox">
+      <div class="parsed-grid" id="parsedGrid"></div>
+      <div id="parsedWarns"></div>
+    </div>
+    <div class="field-row" style="margin-top:14px;">
+      <div class="field">
+        <label>Gutter Run (LF)</label>
+        <input type="number" id="gutterLf" min="0" step="1" placeholder="Eaves length">
+      </div>
+      <div class="field">
+        <label>Downspout Count</label>
+        <input type="number" id="downspoutCount" min="0" step="1" placeholder="Auto-suggested if blank">
+      </div>
+    </div>
+    <div class="field-row" style="margin-top:12px;">
+      <div class="field">
+        <label>Downspout height (ft each)</label>
+        <input type="number" id="dsHeight" value="10" min="1" step="0.5">
+      </div>
+      <div class="field">
+        <label>Waste / cuts (%)</label>
+        <select id="wastePct"><option value="0">0%</option><option value="10" selected>10%</option><option value="15">15%</option></select>
+      </div>
+    </div>
+    <label class="chk"><input type="checkbox" id="incGuards"> Include gutter guards ($2/LF)</label>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">2. Job &amp; Pricing</div>
+    <div class="field-row" style="margin-bottom:12px;">
+      <div class="field"><label>Property Name</label><input type="text" id="propName"></div>
+      <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
+    </div>
+    <div class="field" style="margin-bottom:12px;"><label>Address</label><input type="text" id="propAddr"></div>
+    <div class="field-row-3">
+      <div class="field"><label>Gutter $/LF</label><input type="number" id="gutterRate" value="7" step="0.5"></div>
+      <div class="field"><label>Guard $/LF</label><input type="number" id="guardRate" value="2" step="0.5"></div>
+      <div class="field"><label>Margin %</label><input type="number" id="marginPct" value="25"></div>
+    </div>
+  </div>
+
+  <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+</div>
+
+<script>
+let measurements = {};
+
+function suggestDownspouts(lf) {
+  if (!lf) return '';
+  return Math.max(2, Math.ceil(lf / 35));
+}
+
+function onGutterLfChange() {
+  const lf = parseFloat(document.getElementById('gutterLf').value);
+  const ds = document.getElementById('downspoutCount');
+  if (!ds.value && lf) ds.placeholder = 'Suggested: ' + suggestDownspouts(lf);
+}
+
+document.getElementById('gutterLf').addEventListener('input', onGutterLfChange);
+
+async function parsePdf(file) {
+  if (!file) return;
+  const st = document.getElementById('fileStatus');
+  st.textContent = '⏳ Parsing…';
+  const fd = new FormData();
+  fd.append('pdf', file);
+  try {
+    const r = await fetch('/gutter-estimator/parse', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    measurements = d.measurements || {};
+    st.textContent = '✓ ' + file.name;
+    st.style.color = 'var(--green)';
+    if (measurements.property_address) {
+      document.getElementById('propAddr').value = measurements.property_address;
+      document.getElementById('propName').value = measurements.property_address.split(',')[0].trim();
+    }
+    if (measurements.gutter_lf) {
+      document.getElementById('gutterLf').value = Math.round(measurements.gutter_lf);
+      document.getElementById('downspoutCount').placeholder = 'Suggested: ' + suggestDownspouts(measurements.gutter_lf);
+    }
+    document.getElementById('parsedBox').style.display = 'block';
+    document.getElementById('parsedGrid').innerHTML = [
+      ['Eaves / gutter run', (measurements.gutter_lf || '—') + ' ft'],
+      ['Roof area', measurements.roof_area_sqft ? measurements.roof_area_sqft + ' sq ft' : '—'],
+      ['Report', measurements.report_type || '—'],
+    ].map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
+    document.getElementById('parsedWarns').innerHTML = (d.warnings||[]).map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
+  } catch (e) {
+    st.textContent = '✗ ' + e.message;
+    st.style.color = 'var(--red)';
+  }
+}
+
+async function generate() {
+  const gutterLf = parseFloat(document.getElementById('gutterLf').value);
+  if (!gutterLf && !measurements.gutter_lf) {
+    alert('Enter gutter run (LF) or upload a report with eaves length.');
+    return;
+  }
+  measurements.gutter_lf = gutterLf || measurements.gutter_lf;
+  const dsVal = document.getElementById('downspoutCount').value;
+  const inputs = {
+    waste_pct: parseInt(document.getElementById('wastePct').value, 10),
+    downspout_count: dsVal !== '' ? parseInt(dsVal, 10) : null,
+    downspout_lf_each: parseFloat(document.getElementById('dsHeight').value) || 10,
+    include_guards: document.getElementById('incGuards').checked,
+    gutter_price_per_lf: parseFloat(document.getElementById('gutterRate').value) || 7,
+    guard_price_per_lf: parseFloat(document.getElementById('guardRate').value) || 2,
+    margin_pct: parseFloat(document.getElementById('marginPct').value) || 25,
+    tax_pct: 7.5,
+  };
+  const job = {
+    property_name: document.getElementById('propName').value || 'Property',
+    address: document.getElementById('propAddr').value,
+    estimator: document.getElementById('estimator').value,
+    date: new Date().toISOString().split('T')[0],
+  };
+  const fd = new FormData();
+  fd.append('job', JSON.stringify(job));
+  fd.append('measurements', JSON.stringify(measurements));
+  fd.append('inputs', JSON.stringify(inputs));
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/gutter-estimator/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error);
+    window.location.href = d.redirect_url;
+  } catch (e) {
+    alert(e.message);
+    btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

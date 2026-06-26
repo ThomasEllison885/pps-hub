@@ -558,6 +558,25 @@ def init_db():
     except Exception:
         pass
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS gutter_estimate_log (
+            id SERIAL PRIMARY KEY,
+            generated_by VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255),
+            property_name VARCHAR(255),
+            property_address VARCHAR(255),
+            gutter_lf NUMERIC,
+            job_data JSONB NOT NULL,
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    try:
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gutter_estimate_user ON gutter_estimate_log(generated_by, generated_at DESC)"
+        )
+    except Exception:
+        pass
+
     # Auth support tables
     cur.execute('''
         CREATE TABLE IF NOT EXISTS auth_codes (
@@ -1774,6 +1793,7 @@ def dashboard():
     recent_ppms = get_recent_ppms(user_key)
     recent_siding_estimates = []
     recent_roofing_estimates = []
+    recent_gutter_estimates = []
     # Recent Trade Partner Scopes
     recent_tpscopes = []
     all_my_ppms = []
@@ -1813,6 +1833,13 @@ def dashboard():
                 (user_key,),
             )
             recent_roofing_estimates = cur_tps.fetchall()
+            cur_tps.execute(
+                '''SELECT id, property_name, property_address, gutter_lf, generated_at
+                   FROM gutter_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_gutter_estimates = cur_tps.fetchall()
             cur_tps.close()
             conn_tps.close()
     except Exception as e:
@@ -1857,7 +1884,52 @@ def dashboard():
                            psc_training_oversight=psc_training_oversight,
                            recent_siding_estimates=recent_siding_estimates,
                            recent_roofing_estimates=recent_roofing_estimates,
+                           recent_gutter_estimates=recent_gutter_estimates,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
+
+
+@app.route('/estimating')
+@require_login
+def estimating_hub():
+    user_key = session['user_key']
+    recent_siding = []
+    recent_roofing = []
+    recent_gutters = []
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                '''SELECT id, property_name, building_count, generated_at
+                   FROM siding_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_siding = cur.fetchall()
+            cur.execute(
+                '''SELECT id, property_name, report_type, generated_at
+                   FROM roofing_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_roofing = cur.fetchall()
+            cur.execute(
+                '''SELECT id, property_name, gutter_lf, generated_at
+                   FROM gutter_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_gutters = cur.fetchall()
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f"Estimating hub error: {e}")
+    return render_template(
+        'estimating.html',
+        recent_siding=recent_siding,
+        recent_roofing=recent_roofing,
+        recent_gutters=recent_gutters,
+    )
 
 
 @app.route('/log-proposal', methods=['POST'])
@@ -3679,6 +3751,7 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
         'site_visit': 'Site Visit Report',
         'siding_estimate': 'Siding Estimate',
         'roofing_estimate': 'Roofing Estimate',
+        'gutter_estimate': 'Gutter Estimate',
     }
     label = type_labels.get(doc_type, 'Document')
     subject = f'PPS {label} — {property_name}' if property_name else f'PPS {label}'
@@ -4657,6 +4730,202 @@ def roofing_estimator_email(estimate_id):
             to_email=to_email,
             doc_type='roofing_estimate',
             filename=_roofing_filename(data.get('job', {})),
+            property_name=data.get('job', {}).get('property_name', ''),
+            doc_b64=doc_b64,
+            sender_name=session.get('display_name', 'PPS Hub'),
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+def _gutter_job_data_from_row(row):
+    data = row.get('job_data') or {}
+    if isinstance(data, str):
+        data = json.loads(data)
+    return data
+
+
+def _load_gutter_estimate_row(estimate_id, user_key=None):
+    conn = get_db()
+    if not conn:
+        return None
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM gutter_estimate_log WHERE id = %s', (estimate_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    if user_key and row.get('generated_by') != user_key and session.get('role') != 'admin':
+        return None
+    return row
+
+
+def _gutter_preview_context(row):
+    from estimators.gutter import calculate_gutter_estimate
+
+    data = _gutter_job_data_from_row(row)
+    summary = calculate_gutter_estimate(
+        data.get('measurements', {}),
+        data.get('inputs', {}),
+    )
+    return {
+        'job': data.get('job', {}),
+        'inputs': data.get('inputs', {}),
+        'measurements': data.get('measurements', {}),
+        'summary': summary,
+    }
+
+
+def _gutter_filename(job):
+    prop = (job.get('property_name') or 'Property').replace(' ', '_')
+    return f'PPS_Gutter_Estimate_{prop}.xlsx'
+
+
+@app.route('/gutter-estimator')
+@require_login
+def gutter_estimator():
+    return render_template('gutter_estimator.html', display_name=session.get('display_name', ''))
+
+
+@app.route('/gutter-estimator/parse', methods=['POST'])
+@require_login
+def gutter_estimator_parse():
+    pdf_file = request.files.get('pdf')
+    if not pdf_file:
+        return jsonify({'error': 'No PDF uploaded'}), 400
+    try:
+        from estimators.gutter import parse_gutter_measurements
+        measurements, warnings = parse_gutter_measurements(pdf_file.read())
+        return jsonify({'measurements': measurements, 'warnings': warnings})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/gutter-estimator/generate', methods=['POST'])
+@require_login
+def gutter_estimator_generate():
+    import json as _json
+    try:
+        job = _json.loads(request.form.get('job', '{}'))
+        measurements = _json.loads(request.form.get('measurements', '{}'))
+        inputs = _json.loads(request.form.get('inputs', '{}'))
+
+        gutter_lf = float(measurements.get('gutter_lf') or measurements.get('eaves_ft') or 0)
+        if not gutter_lf:
+            return jsonify({'error': 'Enter gutter run (LF) or upload a report with eaves length.'}), 400
+
+        from estimators.gutter import build_estimate_excel, calculate_gutter_estimate
+        calc = calculate_gutter_estimate(measurements, inputs)
+        buf = build_estimate_excel(job, measurements, inputs)
+
+        job_data = {'job': job, 'measurements': measurements, 'inputs': inputs}
+        estimate_id = None
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO gutter_estimate_log (
+                    generated_by, display_name, property_name, property_address,
+                    gutter_lf, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (
+                    session['user_key'],
+                    session.get('display_name', ''),
+                    job.get('property_name'),
+                    job.get('address'),
+                    calc.get('gutter_lf_raw'),
+                    _json.dumps(job_data),
+                ),
+            )
+            estimate_id = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+            conn.close()
+
+        if not estimate_id:
+            return jsonify({'error': 'Could not save estimate to history'}), 500
+
+        return jsonify({
+            'success': True,
+            'estimate_id': estimate_id,
+            'redirect_url': url_for('gutter_estimator_result', estimate_id=estimate_id),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/gutter-estimator/result/<int:estimate_id>')
+@require_login
+def gutter_estimator_result(estimate_id):
+    row = _load_gutter_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _gutter_preview_context(row)
+    return render_template(
+        'gutter_result.html',
+        estimate_id=estimate_id,
+        property_name=row.get('property_name') or 'Property',
+        summary=ctx['summary'],
+        user_email=session.get('user_email', ''),
+    )
+
+
+@app.route('/gutter-estimator/download/<int:estimate_id>')
+@require_login
+def gutter_estimator_download(estimate_id):
+    row = _load_gutter_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    try:
+        from estimators.gutter import build_estimate_excel
+        data = _gutter_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('measurements', {}),
+            data.get('inputs', {}),
+        )
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=_gutter_filename(data.get('job', {})),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return str(e), 500
+
+
+@app.route('/gutter-estimator/email/<int:estimate_id>', methods=['POST'])
+@require_login
+def gutter_estimator_email(estimate_id):
+    row = _load_gutter_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return jsonify({'error': 'Estimate not found'}), 404
+    payload = request.get_json(silent=True) or {}
+    to_email = (payload.get('to_email') or session.get('user_email') or '').strip()
+    if not to_email:
+        return jsonify({'error': 'No email address'}), 400
+    try:
+        from estimators.gutter import build_estimate_excel
+        data = _gutter_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('measurements', {}),
+            data.get('inputs', {}),
+        )
+        doc_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+        return _send_resend_document(
+            to_email=to_email,
+            doc_type='gutter_estimate',
+            filename=_gutter_filename(data.get('job', {})),
             property_name=data.get('job', {}).get('property_name', ''),
             doc_b64=doc_b64,
             sender_name=session.get('display_name', 'PPS Hub'),

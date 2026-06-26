@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS · Estimating</title>
+<style>
+  .tools-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;}
+  @media(max-width:800px){.tools-grid{grid-template-columns:1fr;}}
+  .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:700px){.activity-grid{grid-template-columns:1fr;}}
+  .act-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:7px;text-decoration:none;color:inherit;display:block;}
+  .act-item:hover{border-color:rgba(0,150,214,0.4);background:#fff;}
+  .act-top{display:flex;justify-content:space-between;align-items:center;}
+  .act-name{font-size:13px;font-weight:600;color:var(--dark-blue);}
+  .act-date{font-size:11px;color:#aaa;}
+  .act-meta{font-size:12px;color:#888;}
+  .empty-state{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Estimating</span>
+  </a>
+  <div class="pps-header-right"><a href="/dashboard" class="pps-btn-header">← Dashboard</a></div>
+</header>
+
+<div class="pps-main-narrow">
+  <div class="pps-page-title">Estimating</div>
+  <p class="pps-page-sub">Material takeoffs and quick bids from EagleView, Roofr, and field measurements.</p>
+
+  <div class="pps-section-head">Tools</div>
+  <div class="tools-grid">
+    <a href="/siding-estimator" class="pps-tool-card">
+      <div class="pps-tool-icon">📐</div>
+      <div class="pps-tool-name">Siding Estimator</div>
+      <div class="pps-tool-desc">Per-building siding materials from EagleView walls reports or field measurements.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
+    <a href="/roofing-estimator" class="pps-tool-card">
+      <div class="pps-tool-icon">🏠</div>
+      <div class="pps-tool-name">Roofing Estimator</div>
+      <div class="pps-tool-desc">GAF material list from Premium/Roofr, or quick bid from EagleView Bid Perfect.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
+    <a href="/gutter-estimator" class="pps-tool-card">
+      <div class="pps-tool-icon">🌧️</div>
+      <div class="pps-tool-name">Gutter Estimator</div>
+      <div class="pps-tool-desc">Gutters, downspouts, and guards from eaves measurements or manual takeoff.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
+  </div>
+
+  <div class="pps-section-head">Recent Estimates</div>
+  <div class="activity-grid">
+    <div class="form-section" style="padding:18px;">
+      <h3 style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;margin-bottom:12px;">Siding</h3>
+      {% if recent_siding %}
+      {% for e in recent_siding %}
+      <a href="/siding-estimator/result/{{ e.id }}" class="act-item">
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-meta">{{ e.building_count or 1 }} building{{ 's' if (e.building_count or 1) != 1 else '' }}</div>
+      </a>
+      {% endfor %}
+      {% else %}<div class="empty-state">None yet</div>{% endif %}
+    </div>
+    <div class="form-section" style="padding:18px;">
+      <h3 style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;margin-bottom:12px;">Roofing</h3>
+      {% if recent_roofing %}
+      {% for e in recent_roofing %}
+      <a href="/roofing-estimator/result/{{ e.id }}" class="act-item">
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-meta">{{ e.report_type or 'roof' }} report</div>
+      </a>
+      {% endfor %}
+      {% else %}<div class="empty-state">None yet</div>{% endif %}
+    </div>
+    <div class="form-section" style="padding:18px;">
+      <h3 style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;margin-bottom:12px;">Gutters</h3>
+      {% if recent_gutters %}
+      {% for e in recent_gutters %}
+      <a href="/gutter-estimator/result/{{ e.id }}" class="act-item">
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-meta">{{ '%.0f'|format(e.gutter_lf or 0) }} LF gutter run</div>
+      </a>
+      {% endfor %}
+      {% else %}<div class="empty-state">None yet</div>{% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>
