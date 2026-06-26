@@ -35,3 +35,21 @@ services:
         sync: false
       - key: HUB_NOTIFY_EMAIL
         sync: false
+      - key: DAILY_DIGEST_ENABLED
+        value: "true"
+      - key: DAILY_DIGEST_EXCLUDE
+        value: thomas_ellison
+      - key: DAILY_DIGEST_EMAIL
+        sync: false
+
+  - type: cron
+    name: pps-hub-daily-digest
+    runtime: python
+    schedule: "0 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -c "import os,urllib.request; urllib.request.urlopen(urllib.request.Request((os.environ.get('HUB_PUBLIC_URL','https://hub.purepropsolutions.com').rstrip('/')+'/api/cron/daily-digest'), headers={'X-API-Key': os.environ['INTERNAL_API_KEY']}, method='POST'), timeout=120)"
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com

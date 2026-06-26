@@ -354,6 +354,10 @@ def init_db():
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS expiry_date VARCHAR(50)",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS contract_total VARCHAR(100)",
         "ALTER TABLE proposal_log ADD COLUMN IF NOT EXISTS scope_style VARCHAR(50)",
+        "ALTER TABLE siding_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
+        "ALTER TABLE roofing_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
+        "ALTER TABLE gutter_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
+        "ALTER TABLE painting_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
     ]:
         try:
             cur.execute(col)
@@ -1694,6 +1698,7 @@ def health():
             and os.environ.get('SMTP_USER', '').strip()
             and os.environ.get('SMTP_PASS', '').strip()
         ),
+        'daily_digest_enabled': os.environ.get('DAILY_DIGEST_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'),
         'hub_notify_email': _hub_notify_recipients(),
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
         'claude_configured': bool(CLAUDE_API_KEY),
@@ -1713,6 +1718,36 @@ def internal_ping():
     if not _internal_api_ok():
         return jsonify({'ok': False, 'error': 'Invalid or missing API key'}), 401
     return jsonify({'ok': True, 'service': 'hub'})
+
+
+@app.route('/api/cron/daily-digest', methods=['POST'])
+def cron_daily_digest():
+    """Nightly team activity digest — triggered by Render cron at midnight US/Eastern."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    from datetime import date as date_type
+    from daily_digest import run_daily_digest
+
+    force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
+    date_param = request.args.get('date', '').strip()
+    date_override = None
+    if date_param:
+        try:
+            date_override = date_type.fromisoformat(date_param)
+        except ValueError:
+            return jsonify({'error': 'Invalid date (use YYYY-MM-DD)'}), 400
+
+    result = run_daily_digest(
+        get_db,
+        USERS,
+        _format_template_label,
+        _send_smtp_email,
+        force=force,
+        date_override=date_override,
+    )
+    status = 200 if result.get('ok') else 500
+    return jsonify(result), status
 
 
 @app.route('/')
@@ -3207,22 +3242,21 @@ def _hub_notify_recipients():
     return [e.strip() for e in raw.split(',') if e.strip()]
 
 
-def _send_hub_notify_email(subject, text_body, html_body=None):
-    """Email hub admin when users submit feedback or voice comparisons."""
+def _send_smtp_email(subject, text_body, html_body=None, recipients=None):
+    """Send email via SMTP to the given recipient list."""
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
-    recipients = _hub_notify_recipients()
     if not recipients:
-        print(f"Hub notify (no recipients): {subject}\n{text_body}")
+        print(f"SMTP email (no recipients): {subject}\n{text_body}")
         return False
 
     smtp_host = os.environ.get('SMTP_HOST', '')
     smtp_user = os.environ.get('SMTP_USER', '')
     smtp_pass = os.environ.get('SMTP_PASS', '')
     if not smtp_host:
-        print(f"Hub notify email:\nSubject: {subject}\nTo: {', '.join(recipients)}\n{text_body}")
+        print(f"SMTP email:\nSubject: {subject}\nTo: {', '.join(recipients)}\n{text_body}")
         return False
 
     try:
@@ -3238,8 +3272,13 @@ def _send_hub_notify_email(subject, text_body, html_body=None):
             s.send_message(msg)
         return True
     except Exception as e:
-        print(f"Hub notify email failed: {e}")
+        print(f"SMTP email failed: {e}")
         return False
+
+
+def _send_hub_notify_email(subject, text_body, html_body=None):
+    """Email hub admin when users submit feedback or voice comparisons."""
+    return _send_smtp_email(subject, text_body, html_body, _hub_notify_recipients())
 
 
 def _send_feedback_email(name, message):
@@ -4932,11 +4971,15 @@ def siding_estimator_generate():
         conn = get_db()
         if conn:
             cur = conn.cursor()
+            siding_summary = ' · '.join(x for x in [
+                f"{len(buildings)} building{'s' if len(buildings) != 1 else ''}",
+                inputs.get('siding_type'),
+            ] if x)
             cur.execute(
                 '''INSERT INTO siding_estimate_log (
                     generated_by, display_name, property_name, property_address,
-                    building_count, siding_type, job_data
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                    building_count, siding_type, summary_meta, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
                 (
                     user_key,
                     display_name,
@@ -4944,6 +4987,7 @@ def siding_estimator_generate():
                     job.get('address'),
                     len(buildings),
                     inputs.get('siding_type'),
+                    siding_summary[:255],
                     _json.dumps(job_data),
                 ),
             )
@@ -5213,17 +5257,21 @@ def roofing_estimator_generate():
         conn = get_db()
         if conn:
             cur = conn.cursor()
+            roofing_summary = measurements.get('report_type') or 'report'
+            if measurements.get('roof_area_squares'):
+                roofing_summary = f"{roofing_summary} · {measurements.get('roof_area_squares')} sq"
             cur.execute(
                 '''INSERT INTO roofing_estimate_log (
                     generated_by, display_name, property_name, property_address,
-                    report_type, job_data
-                ) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id''',
+                    report_type, summary_meta, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
                 (
                     session['user_key'],
                     session.get('display_name', ''),
                     job.get('property_name'),
                     job.get('address'),
                     measurements.get('report_type'),
+                    roofing_summary[:255],
                     _json.dumps(job_data),
                 ),
             )
@@ -5442,17 +5490,19 @@ def gutter_estimator_generate():
         conn = get_db()
         if conn:
             cur = conn.cursor()
+            gutter_summary = f"{float(calc.get('gutter_lf_raw') or 0):.0f} LF"
             cur.execute(
                 '''INSERT INTO gutter_estimate_log (
                     generated_by, display_name, property_name, property_address,
-                    gutter_lf, job_data
-                ) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id''',
+                    gutter_lf, summary_meta, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
                 (
                     session['user_key'],
                     session.get('display_name', ''),
                     job.get('property_name'),
                     job.get('address'),
                     calc.get('gutter_lf_raw'),
+                    gutter_summary[:255],
                     _json.dumps(job_data),
                 ),
             )
@@ -5659,11 +5709,17 @@ def painting_estimator_generate():
         conn = get_db()
         if conn:
             cur = conn.cursor()
+            painting_parts = []
+            if calc.get('line_count'):
+                painting_parts.append(f"{calc.get('line_count')} lines")
+            if calc.get('one_coat_bid'):
+                painting_parts.append(f"${float(calc.get('one_coat_bid')):,.0f} 1-coat")
+            painting_summary = ' · '.join(painting_parts)
             cur.execute(
                 '''INSERT INTO painting_estimate_log (
                     generated_by, display_name, property_name, property_address,
-                    line_count, one_coat_bid, two_coat_bid, job_data
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                    line_count, one_coat_bid, two_coat_bid, summary_meta, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
                 (
                     session['user_key'],
                     session.get('display_name', ''),
@@ -5672,6 +5728,7 @@ def painting_estimator_generate():
                     calc.get('line_count'),
                     calc.get('one_coat_bid'),
                     calc.get('two_coat_bid'),
+                    painting_summary[:255],
                     _json.dumps(job_data),
                 ),
             )
