@@ -4110,22 +4110,9 @@ def change_password():
     return render_template('change_password.html', error=error)
 
 
-def _parse_siding_pricing_csv(pricing_file):
-    import csv
-    pricing = {}
-    if not pricing_file:
-        return pricing
-    content = pricing_file.read().decode('utf-8').splitlines()
-    reader = csv.DictReader(content)
-    for row in reader:
-        key = (row.get('key') or '').strip()
-        price = row.get('unit_price') or row.get('price') or ''
-        if key and price:
-            try:
-                pricing[key] = float(str(price).replace('$', '').replace(',', ''))
-            except Exception:
-                pass
-    return pricing
+def _parse_siding_pricing_upload(pricing_file):
+    from estimators.siding.pricing_parser import parse_pricing_upload
+    return parse_pricing_upload(pricing_file)
 
 
 def _load_siding_estimate_row(estimate_id, user_key=None):
@@ -4159,6 +4146,7 @@ def _build_siding_excel_from_row(row):
         data.get('buildings', []),
         data.get('inputs', {}),
         data.get('pricing', {}),
+        library_rows=data.get('library', []),
     )
 
 
@@ -4232,13 +4220,15 @@ def siding_estimator_generate():
         job = _json.loads(request.form.get('job', '{}'))
         buildings = _json.loads(request.form.get('buildings', '[]'))
         inputs = _json.loads(request.form.get('inputs', '{}'))
-        pricing = _parse_siding_pricing_csv(request.files.get('pricing'))
+        parsed_pricing = _parse_siding_pricing_upload(request.files.get('pricing'))
+        pricing = parsed_pricing.get('prices', {})
+        library_rows = parsed_pricing.get('library', [])
 
         if not buildings:
             return jsonify({'error': 'Add at least one building'}), 400
 
         from estimators.siding import build_estimate_excel
-        buf = build_estimate_excel(job, buildings, inputs, pricing)
+        buf = build_estimate_excel(job, buildings, inputs, pricing, library_rows=library_rows)
 
         user_key = session['user_key']
         display_name = session.get('display_name', '')
@@ -4247,6 +4237,11 @@ def siding_estimator_generate():
             'buildings': buildings,
             'inputs': inputs,
             'pricing': pricing,
+            'library': library_rows,
+            'pricing_meta': {
+                'loaded_count': parsed_pricing.get('loaded_count', 0),
+                'warnings': parsed_pricing.get('warnings', []),
+            },
         }
         estimate_id = None
         conn = get_db()
@@ -4279,6 +4274,8 @@ def siding_estimator_generate():
             'success': True,
             'estimate_id': estimate_id,
             'redirect_url': url_for('siding_estimator_result', estimate_id=estimate_id),
+            'pricing_loaded': parsed_pricing.get('loaded_count', 0),
+            'pricing_warnings': parsed_pricing.get('warnings', []),
         })
     except Exception as e:
         import traceback
@@ -4368,6 +4365,18 @@ def siding_estimator_email(estimate_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/siding-estimator/pricing-preview', methods=['POST'])
+@require_login
+def siding_pricing_preview():
+    parsed = _parse_siding_pricing_upload(request.files.get('pricing'))
+    return jsonify({
+        'loaded_count': parsed.get('loaded_count', 0),
+        'warnings': parsed.get('warnings', []),
+        'price_count': len(parsed.get('prices', {})),
+        'library_count': len(parsed.get('library', [])),
+    })
+
+
 @app.route('/siding-estimator/pricing-template')
 @require_login
 def siding_pricing_template():
@@ -4376,17 +4385,25 @@ def siding_pricing_template():
     from flask import Response
 
     template_rows = [
-        ['key', 'description', 'unit', 'unit_price'],
-        ['siding_sq', 'Siding (primary product)', 'per sq', ''],
-        ['starter_piece', 'Starter Strip / Receiver Track', 'per 10ft piece', ''],
-        ['jchannel_piece', 'J-Channel', 'per 12ft stick', ''],
-        ['inside_corner_post', 'Inside Corner Post', 'per post', ''],
-        ['outside_corner_post', 'Outside Corner Post', 'per post', ''],
-        ['fascia_piece', 'Fascia Cover / Aluminum Coil Stock', 'per 12ft piece', ''],
-        ['utility_piece', 'Under-Sill / Utility Trim', 'per 12ft piece', ''],
-        ['soffit_piece', 'Soffit', 'per 12ft piece', ''],
-        ['housewrap_roll', 'House Wrap (e.g. Tyvek 9sq roll)', 'per roll', ''],
-        ['fanfold_sq', 'Fan Fold Insulation', 'per sq', ''],
+        ['item_name', 'unit_price', 'qty_per_sq'],
+        ['NDX Vinyl Siding', '', ''],
+        ['QA Starter', '', ''],
+        ['NDX 5/8 J Channel', '', ''],
+        ['NDX Inside Corner 3/4', '', ''],
+        ["NDX 12' Outside Corner", '', ''],
+        ['Roll of Coil Stock', '', ''],
+        ['NDX Universal Trim', '', ''],
+        ['House Wrap', '', ''],
+        ['House Wrap Tape', '', ''],
+        ['J Block Uniblock', '', ''],
+        ['J Block M Block', '', ''],
+        ['Exhaust Vent', '', ''],
+        ['Roofing Nails', '', ''],
+        ['Cap Nails', '', ''],
+        ['', '', ''],
+        ['NDX Vinyl Siding (per sq)', '', '1'],
+        ['NDX 5/8 J Channel', '5', ''],
+        ['QA Starter', '5', ''],
     ]
     output = io.StringIO()
     writer = csv.writer(output)
@@ -4394,7 +4411,7 @@ def siding_pricing_template():
     return Response(
         output.getvalue(),
         mimetype='text/csv',
-        headers={'Content-Disposition': 'attachment; filename=PPS_Pricing_Template.csv'},
+        headers={'Content-Disposition': 'attachment; filename=PPS_Siding_Pricing_Template.csv'},
     )
 
 

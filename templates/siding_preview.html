@@ -35,7 +35,7 @@
     <div class="meta">
       {{ job.address or '' }}<br>
       Estimator: {{ job.estimator or '' }} · Date: {{ job.date or '' }}<br>
-      Siding: {{ inputs.siding_type }} · Waste: {{ inputs.waste_pct }}%
+      Siding: {{ inputs.siding_type }} · Waste: {{ inputs.waste_pct | default(14) }}%
     </div>
 
     <table>

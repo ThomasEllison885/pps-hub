@@ -113,8 +113,9 @@
         <div class="field">
           <label>Waste Factor</label>
           <select id="wastePct">
-            <option value="10" selected>10%</option>
+            <option value="10">10%</option>
             <option value="12">12%</option>
+            <option value="14" selected>14% (recommended)</option>
             <option value="15">15%</option>
             <option value="20">20%</option>
           </select>
@@ -149,10 +150,12 @@
 
   <div class="form-section">
     <div class="form-section-title">4. Material Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(Optional)</span></div>
+    <p class="section-hint">Upload a CSV with <strong>item_name</strong> and <strong>unit_price</strong> to pre-fill Tab 4. Add <strong>qty_per_sq</strong> on a row when you want it in the optional Tab 3 Material Library (per-square detail).</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <a href="/siding-estimator/pricing-template" class="pps-btn pps-btn-outline pps-btn-sm">⬇ Pricing Template</a>
-      <input type="file" id="pricingFile" accept=".csv" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      <input type="file" id="pricingFile" accept=".csv" onchange="previewPricing(this.files[0])" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
     </div>
+    <div id="pricingStatus" style="font-size:12px;margin-top:8px;display:none;"></div>
   </div>
 
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
@@ -389,6 +392,34 @@ function getInputs() {
     include_soffit: document.getElementById('incSoffit').checked,
     include_fascia_wrap: document.getElementById('incFasciaWrap').checked,
   };
+}
+
+async function previewPricing(file) {
+  const status = document.getElementById('pricingStatus');
+  if (!file) {
+    status.style.display = 'none';
+    return;
+  }
+  status.style.display = 'block';
+  status.textContent = '⏳ Checking pricing file…';
+  status.style.color = '';
+  const fd = new FormData();
+  fd.append('pricing', file);
+  try {
+    const r = await fetch('/siding-estimator/pricing-preview', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Could not read pricing file');
+    const parts = [`✓ ${d.loaded_count} price${d.loaded_count === 1 ? '' : 's'} loaded`];
+    if (d.library_count) parts.push(`${d.library_count} per-sq library row${d.library_count === 1 ? '' : 's'}`);
+    status.textContent = parts.join(' · ');
+    status.style.color = 'var(--green)';
+    if (d.warnings && d.warnings.length) {
+      status.innerHTML = parts.join(' · ') + '<br>' + d.warnings.map(w => `<span class="parsed-warn" style="display:inline-block;margin-top:4px;">⚠ ${w}</span>`).join('');
+    }
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+    status.style.color = 'var(--red)';
+  }
 }
 
 async function generate() {

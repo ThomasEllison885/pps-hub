@@ -11,7 +11,7 @@ def _scale(val, qty):
 def calculate_quantities(measurements, inputs, qty=1):
     """Compute material quantities for one building (multiplied by qty)."""
     qty = max(int(qty or 1), 1)
-    waste_pct = inputs.get('waste_pct', 10) / 100
+    waste_pct = inputs.get('waste_pct', 14) / 100
     exposure = inputs.get('exposure_in', 4.5)
     post_len = inputs.get('post_length', 12)
     stories = inputs.get('stories', 2)
@@ -61,7 +61,7 @@ def calculate_quantities(measurements, inputs, qty=1):
         'siding_area_with_waste': round(siding_area_with_waste, 1),
         'siding_squares_net': round(siding_squares_net, 2),
         'siding_squares': round(siding_squares, 2),
-        'waste_pct': inputs.get('waste_pct', 10),
+        'waste_pct': inputs.get('waste_pct', 14),
         'exposure_in': exposure,
         'post_length': post_len,
         'stories': stories,
