@@ -207,8 +207,13 @@ def _build_takeoff(wb, building_results):
             qty = takeoff.get(field) or 0
             ws[f'B{row}'] = label
             ws[f'C{row}'] = qty
-            ws[f'D{row}'] = f'=C{row}*(1+{SUMMARY_WASTE_CELL}/100)'
-            ws[f'E{row}'] = ''
+            # Unit/apartment counts are not inflated by material waste %
+            if key == 'unit_count':
+                ws[f'D{row}'] = f'=C{row}'
+                ws[f'E{row}'] = 'No waste applied'
+            else:
+                ws[f'D{row}'] = f'=C{row}*(1+{SUMMARY_WASTE_CELL}/100)'
+                ws[f'E{row}'] = ''
             refs[bi][key] = row
             for col in 'BCDE':
                 ws[f'{col}{row}'].border = border
@@ -268,15 +273,35 @@ def _build_library(wb, pricing, library_rows):
     return total_row
 
 
+# Takeoff keys that reference column C (raw count — no material waste %)
+_NO_WASTE_TAKEOFF_KEYS = frozenset({'unit_count'})
+
+# Wall sq ft per house wrap roll (matches housewrap_roll material line)
+_HOUSEWRAP_SQFT_PER_ROLL = 1350.0
+
+
 def _qty_formula(takeoff_refs, bi, takeoff_key, divisor, fixed_qty, count_mult, row):
     """Build qty formula for a material line."""
     if fixed_qty is not None:
         return fixed_qty
     if takeoff_key == 'housewrap_rolls':
+        # Tape qty = house wrap roll count × rolls per roll of tape (typically 2)
         wall_row = takeoff_refs[bi].get('wall_area')
         if wall_row:
-            return f"=ROUND('{SHEET_TAKEOFF}'!D{wall_row}/{divisor},2)"
+            rolls = (
+                f"ROUND('{SHEET_TAKEOFF}'!D{wall_row}/{_HOUSEWRAP_SQFT_PER_ROLL},2)"
+            )
+            mult = divisor or 1
+            return f"={rolls}*{mult}" if mult != 1 else f"={rolls}"
         return 0
+    if takeoff_key in _NO_WASTE_TAKEOFF_KEYS:
+        trow = takeoff_refs[bi].get(takeoff_key)
+        if not trow:
+            return 0
+        base = f"='{SHEET_TAKEOFF}'!C{trow}"
+        if count_mult:
+            return f"={base[1:]}*{count_mult}"
+        return base
     if takeoff_key == 'siding_sq_order':
         wall_row = takeoff_refs[bi].get('wall_area')
         if wall_row:

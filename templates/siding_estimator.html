@@ -220,6 +220,10 @@ function addBuilding() {
     <div class="source-panel" id="${id}-field">
       <div class="manual-grid">${manualInputs}</div>
     </div>
+    <div class="field" style="margin-top:12px;">
+      <label>Units / Apartments</label>
+      <input type="number" data-role="unit-count" min="0" step="1" placeholder="e.g. 12 — drives J-blocks &amp; exhaust vents">
+    </div>
     <div class="field-row-3" style="margin-top:12px;">
       <div class="field"><label>Label</label><input type="text" data-role="label" value="Building ${n}"></div>
       <div class="field"><label>Type</label><select data-role="type">${typeOpts}</select></div>
@@ -331,6 +335,7 @@ function renderParsed(card, m, warns) {
     ['Inside Corners', fmt(m.inside_corners) + ' lin ft'],
     ['Outside Corners', fmt(m.outside_corners) + ' lin ft'],
     ['Fascia', fmt(m.fascia) + ' lin ft'],
+    ['Units / Apts', m.unit_count != null ? fmt(m.unit_count) : '<span style="color:#7A5C00">enter manually</span>'],
   ];
   grid.innerHTML = items.map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
   card.querySelector('[data-role="parsed-warns"]').innerHTML =
@@ -358,7 +363,12 @@ function collectBuilding(card) {
   if (source === 'field') {
     measurements = collectManualMeasurements(card);
   } else {
-    measurements = card._measurements || {};
+    measurements = { ...(card._measurements || {}) };
+  }
+  const unitInp = card.querySelector('[data-role="unit-count"]');
+  if (unitInp && unitInp.value !== '') {
+    const units = parseInt(unitInp.value, 10);
+    if (!isNaN(units) && units >= 0) measurements.unit_count = units;
   }
   return {
     label: card.querySelector('[data-role="label"]').value.trim() || 'Building',

@@ -7,7 +7,7 @@ TAKEOFF_LINES = [
     ('inside_corners', 'Inside Corners', 'inside_corners'),
     ('outside_corners', 'Outside Corners', 'outside_corners'),
     ('window_door_perimeter', 'Window and Door Perimeter', 'window_door_perimeter'),
-    ('unit_count', 'Number of Units / Openings', 'wd_count'),
+    ('unit_count', 'Number of Units / Apartments', 'unit_count'),
     ('fascia', 'Fascia', 'fascia'),
 ]
 
@@ -38,7 +38,7 @@ DETAIL_LINES = [
     ('starter_piece', 'QA Starter', 'bottom_walls', 12.0, 'pcs', None, None),
     ('housewrap_roll', 'House Wrap', 'wall_area', 1350.0, 'rolls', None, None),
     ('housewrap_tape', 'House Wrap Tape', 'housewrap_rolls', 2.0, 'rolls', None, None),
-    ('jblock_uniblock', 'J Block Uniblock White', None, None, 'pcs', 2.0, None),
+    ('jblock_uniblock', 'J Block Uniblock White', 'unit_count', 1.0, 'pcs', None, 2.0),
     ('jblock_mblock', 'J Block M Block White', 'unit_count', 1.0, 'pcs', None, 2.0),
     ('exhaust_vent', 'Exhaust Vent', 'unit_count', 1.0, 'pcs', None, 2.0),
     ('roofing_nails', 'Roofing Nails', None, None, 'box', 2.0, None),
@@ -62,6 +62,7 @@ def measurement_values(measurements, quantities):
         'outside_corners': m.get('outside_corners') or 0,
         'window_door_perimeter': m.get('window_door_perimeter') or 0,
         'wd_count': m.get('window_door_count') or q.get('wd_count') or 0,
+        'unit_count': m.get('unit_count') or m.get('apartment_count') or 0,
         'fascia': m.get('fascia') or 0,
         'jchannel_total': (m.get('window_door_perimeter') or 0) + top,
         'housewrap_rolls': q.get('housewrap_rolls') or 0,
