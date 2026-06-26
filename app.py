@@ -3151,25 +3151,109 @@ def submit_feedback():
         return jsonify({'error': str(e)}), 500
 
 
-def _send_feedback_email(name, message):
+def _hub_notify_recipients():
+    """Primary inbox(es) for hub feedback and proposal comparison submissions."""
+    raw = os.environ.get('HUB_NOTIFY_EMAIL', 'thomas@purepropsolutions.com')
+    return [e.strip() for e in raw.split(',') if e.strip()]
+
+
+def _send_hub_notify_email(subject, text_body, html_body=None):
+    """Email hub admin when users submit feedback or voice comparisons."""
     import smtplib
+    from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
+
+    recipients = _hub_notify_recipients()
+    if not recipients:
+        print(f"Hub notify (no recipients): {subject}\n{text_body}")
+        return False
+
     smtp_host = os.environ.get('SMTP_HOST', '')
     smtp_user = os.environ.get('SMTP_USER', '')
     smtp_pass = os.environ.get('SMTP_PASS', '')
     if not smtp_host:
-        print(f"Feedback from {name}: {message}")
-        return
+        print(f"Hub notify email:\nSubject: {subject}\nTo: {', '.join(recipients)}\n{text_body}")
+        return False
+
     try:
-        msg = MIMEText(f"Feedback from {name}:\n\n{message}")
-        msg['Subject'] = f'PPS Hub Feedback — {name}'
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
         msg['From'] = smtp_user
-        msg['To'] = 'thomas@purepropsolutions.com'
+        msg['To'] = ', '.join(recipients)
+        msg.attach(MIMEText(text_body, 'plain'))
+        if html_body:
+            msg.attach(MIMEText(html_body, 'html'))
         with smtplib.SMTP_SSL(smtp_host, 465) as s:
             s.login(smtp_user, smtp_pass)
             s.send_message(msg)
+        return True
     except Exception as e:
-        print(f"Email send failed: {e}")
+        print(f"Hub notify email failed: {e}")
+        return False
+
+
+def _send_feedback_email(name, message):
+    from html import escape
+
+    admin_url = f"{HUB_PUBLIC_URL.rstrip('/')}/admin/feedback"
+    subject = f'PPS Hub Feedback — {name}'
+    text_body = f"Feedback from {name}:\n\n{message.strip()}\n\nReview in hub: {admin_url}"
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
+        <p style="color:white;font-size:17px;font-weight:600;margin:0;">PPS Hub Feedback</p>
+      </div>
+      <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+        <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>From:</strong> {escape(name)}</p>
+        <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(message.strip())}</div>
+        <p style="margin:16px 0 0;">
+          <a href="{admin_url}" style="color:#004C8C;font-weight:600;">Open feedback in Admin →</a>
+        </p>
+      </div>
+    </div>
+    """
+    _send_hub_notify_email(subject, text_body, html_body)
+
+
+def _send_proposal_diff_email(name, property_name, user_notes, diff_analysis, voice_recommendations):
+    from html import escape
+
+    admin_url = f"{HUB_PUBLIC_URL.rstrip('/')}/admin/diffs"
+    prop = property_name or 'Unnamed property'
+    subject = f'Proposal Comparison — {name} · {prop}'
+    notes_block = f"\n\nConsultant notes:\n{user_notes.strip()}" if user_notes else ''
+    text_body = (
+        f"New proposal comparison from {name}\n"
+        f"Property: {prop}\n"
+        f"{notes_block}\n\n"
+        f"Analysis summary:\n{(diff_analysis or '').strip()[:2000]}\n\n"
+        f"Voice recommendations:\n{(voice_recommendations or '').strip()[:2000]}\n\n"
+        f"Review in hub: {admin_url}"
+    )
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+      <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
+        <p style="color:white;font-size:17px;font-weight:600;margin:0;">Proposal Comparison</p>
+      </div>
+      <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
+        <p style="color:#334155;font-size:14px;margin:0 0 8px;"><strong>From:</strong> {escape(name)}</p>
+        <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>Property:</strong> {escape(prop)}</p>
+        {'<div style="margin-bottom:14px;"><p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Consultant Notes</p><div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">' + escape(user_notes.strip()) + '</div></div>' if user_notes else ''}
+        <div style="margin-bottom:14px;">
+          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Analysis</p>
+          <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape((diff_analysis or '').strip()[:4000])}</div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Voice Recommendations</p>
+          <div style="background:#FFF9E6;border:1px solid #FFE082;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape((voice_recommendations or '').strip()[:4000])}</div>
+        </div>
+        <p style="margin:0;">
+          <a href="{admin_url}" style="color:#004C8C;font-weight:600;">Open comparisons in Admin →</a>
+        </p>
+      </div>
+    </div>
+    """
+    _send_hub_notify_email(subject, text_body, html_body)
 
 
 @app.route('/admin/delete-activity', methods=['POST'])
@@ -3654,6 +3738,9 @@ def submit_diff():
             conn.commit()
             cur.close()
             conn.close()
+        _send_proposal_diff_email(
+            display_name, property_name, user_notes, diff_analysis, voice_recommendations
+        )
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

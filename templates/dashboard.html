@@ -102,8 +102,10 @@
   .act-meta { font-size: 12px; color: #888; }
   .empty-state { color: #bbb; font-size: 13px; padding: 12px 0; text-align: center; }
 
+  .feedback-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .feedback-section .pps-tool-card { height: 100%; }
   /* Feedback card */
-  .feedback-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 24px; margin-bottom: 28px; }
+  .feedback-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px 24px; }
   .feedback-card h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
   .feedback-card textarea { width: 100%; border: 1.5px solid var(--border); border-radius: 8px; padding: 11px 14px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--gray); resize: vertical; min-height: 80px; outline: none; transition: border-color 0.2s; }
   .feedback-card textarea:focus { border-color: var(--blue); }
@@ -215,21 +217,22 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if consultants %}
-          <a href="/my-diffs" class="pps-tool-card">
-            <div class="pps-tool-icon">🔍</div>
-            <div class="pps-tool-name">Proposal Comparison</div>
-            <div class="pps-tool-desc">Compare generated vs. edited proposals to improve our voice guide.</div>
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
-
           {% if psc_training_enrolled %}
           <a href="/psc-training" class="pps-tool-card">
             <div class="pps-tool-icon">🎓</div>
             <div class="pps-tool-name">PSC Training</div>
             <div class="pps-tool-desc">12-week onboarding: trades, shadowing, PPS voice, and sales.</div>
             <span class="tool-badge">{{ psc_training_stats.pct }}% complete</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
+          {% if psc_training_oversight %}
+          <a href="/psc-training/oversight" class="pps-tool-card">
+            <div class="pps-tool-icon">📈</div>
+            <div class="pps-tool-name">PSC Training Accountability</div>
+            <div class="pps-tool-desc">Track PSC onboarding progress and graduation.</div>
+            <span class="tool-badge">Oversight</span>
             <div class="tool-meta">Open →</div>
           </a>
           {% endif %}
@@ -241,27 +244,20 @@
       <summary>
         <div>
           <div class="lane-title">Production &amp; Field</div>
-          <div class="lane-sub">Plan and deliver — estimating, PPMs, scopes, site visits</div>
+          <div class="lane-sub">Plan and deliver — PPMs, TPS scopes, estimating, site visits</div>
         </div>
         <div class="lane-links" onclick="event.stopPropagation()">
-          <a href="/estimating" class="lane-link">Estimating →</a>
           {% if user_role in ('pm', 'office_manager', 'admin') %}
           <a href="/my-ppms" class="lane-link">My PPMs →</a>
           {% endif %}
+          <a href="/estimating" class="lane-link">Estimating →</a>
         </div>
       </summary>
       <div class="lane-body">
         <div class="tools-grid">
-          <a href="/estimating" class="pps-tool-card">
-            <div class="pps-tool-icon">📊</div>
-            <div class="pps-tool-name">Estimating</div>
-            <div class="pps-tool-desc">Siding, roofing, gutter, and painting takeoffs and quick bids.</div>
-            <div class="tool-meta">Open →</div>
-          </a>
-
           <a href="#" onclick="openTool('{{ proposal_url }}/ppm'); return false;" class="pps-tool-card">
             <div class="pps-tool-icon">📋</div>
-            <div class="pps-tool-name">Pre-Project Meeting</div>
+            <div class="pps-tool-name">Pre-Project Meeting (PPM)</div>
             <div class="pps-tool-desc">PPM checklist from an approved proposal.</div>
             <div class="tool-meta">Open →</div>
           </a>
@@ -269,17 +265,24 @@
           {% if consultants %}
           <a href="#" onclick="openTool('{{ proposal_url }}/subscope'); return false;" class="pps-tool-card">
             <div class="pps-tool-icon">📝</div>
-            <div class="pps-tool-name">Trade Partner Scope</div>
+            <div class="pps-tool-name">Trade Partner Scope (TPS)</div>
             <div class="pps-tool-desc">Crew-ready scopes from proposals. English &amp; Spanish.</div>
             <div class="tool-meta">Open →</div>
           </a>
           {% else %}
           <div class="tool-card disabled">
             <div class="pps-tool-icon">📝</div>
-            <div class="pps-tool-name">Trade Partner Scope</div>
+            <div class="pps-tool-name">Trade Partner Scope (TPS)</div>
             <div class="pps-tool-desc">Not available for your role.</div>
           </div>
           {% endif %}
+
+          <a href="/estimating" class="pps-tool-card">
+            <div class="pps-tool-icon">📊</div>
+            <div class="pps-tool-name">Estimating</div>
+            <div class="pps-tool-desc">Siding, roofing, gutter, and painting takeoffs and quick bids.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
 
           <a href="/site-visit" class="pps-tool-card">
             <div class="pps-tool-icon">🏗️</div>
@@ -287,16 +290,6 @@
             <div class="pps-tool-desc">Document site visits and scope compliance in the field.</div>
             <div class="tool-meta">Open →</div>
           </a>
-
-          {% if psc_training_oversight %}
-          <a href="/psc-training/oversight" class="pps-tool-card">
-            <div class="pps-tool-icon">📈</div>
-            <div class="pps-tool-name">PSC Training Accountability</div>
-            <div class="pps-tool-desc">Track PSC onboarding progress and graduation.</div>
-            <span class="tool-badge">Oversight</span>
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
         </div>
       </div>
     </details>
@@ -338,12 +331,22 @@
     {% endif %}
   </div>
 
-  <div class="pps-section-head">Feedback &amp; Suggestions</div>
-  <div class="feedback-card">
-    <h3>Share a Suggestion or Idea</h3>
-    <textarea id="feedbackText" placeholder="What could be better? Have an idea for a new tool or feature? Let Thomas know…"></textarea>
-    <button class="feedback-submit" onclick="submitFeedback()">Send Feedback</button>
-    <div class="feedback-success" id="feedbackSuccess">✓ Feedback sent — thanks!</div>
+  <div class="pps-section-head">Feedback &amp; Voice</div>
+  <div class="feedback-section">
+    {% if consultants %}
+    <a href="/my-diffs" class="pps-tool-card">
+      <div class="pps-tool-icon">🔍</div>
+      <div class="pps-tool-name">Proposal Comparison</div>
+      <div class="pps-tool-desc">Upload generated vs. edited proposals so we can improve the PPS voice guide.</div>
+      <div class="tool-meta">Open tool →</div>
+    </a>
+    {% endif %}
+    <div class="feedback-card">
+      <h3>Share a Suggestion or Idea</h3>
+      <textarea id="feedbackText" placeholder="What could be better? Have an idea for a new tool or feature? Let Thomas know…"></textarea>
+      <button class="feedback-submit" onclick="submitFeedback()">Send Feedback</button>
+      <div class="feedback-success" id="feedbackSuccess">✓ Feedback sent — thanks!</div>
+    </div>
   </div>
 
   <div class="pps-footer">
