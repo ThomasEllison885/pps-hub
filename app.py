@@ -1584,15 +1584,40 @@ def _run_system_health_checks():
     add('internal_api_key', bool(INTERNAL_API_KEY))
     add('database_url', bool(DATABASE_URL))
 
+    smtp_host = os.environ.get('SMTP_HOST', '').strip()
+    smtp_user = os.environ.get('SMTP_USER', '').strip()
+    smtp_pass = os.environ.get('SMTP_PASS', '').strip()
+    smtp_ok = bool(smtp_host and smtp_user and smtp_pass)
+    add(
+        'smtp_configured',
+        smtp_ok,
+        detail='feedback & comparison emails' if smtp_ok else '',
+        error='' if smtp_ok else 'Set SMTP_HOST, SMTP_USER, and SMTP_PASS on Render',
+    )
+    notify = _hub_notify_recipients()
+    add(
+        'hub_notify_email',
+        bool(notify),
+        detail=', '.join(notify) if notify else '',
+        error='' if notify else 'Set HUB_NOTIFY_EMAIL or use default',
+    )
+
     if DATABASE_URL:
         try:
             conn = get_db()
             if conn:
                 cur = conn.cursor()
                 cur.execute('SELECT 1')
+                add('database_connect', True)
+                for table in ('feedback', 'proposal_diffs', 'proposal_log', 'ppm_log', 'subscope_log'):
+                    cur.execute(
+                        "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = %s)",
+                        (table,),
+                    )
+                    exists = cur.fetchone()[0]
+                    add(f'table_{table}', bool(exists), error='' if exists else 'missing')
                 cur.close()
                 conn.close()
-                add('database_connect', True)
             else:
                 add('database_connect', False, error='get_db returned None')
         except Exception as e:
@@ -1663,6 +1688,12 @@ def health():
         'internal_api_configured': bool(INTERNAL_API_KEY),
         'database_configured': bool(DATABASE_URL),
         'database_connected': db_ok,
+        'smtp_configured': bool(
+            os.environ.get('SMTP_HOST', '').strip()
+            and os.environ.get('SMTP_USER', '').strip()
+            and os.environ.get('SMTP_PASS', '').strip()
+        ),
+        'hub_notify_email': _hub_notify_recipients(),
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
         'claude_configured': bool(CLAUDE_API_KEY),
     })
