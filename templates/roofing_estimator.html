@@ -47,7 +47,8 @@
     </div>
     <div class="parsed-box" id="parsedBox">
       <div id="reportBadge"></div>
-      <div class="parsed-grid" id="parsedGrid"></div>
+      <div id="confidenceBanner"></div>
+      <div id="reliabilityGrid"></div>
       <div id="parsedWarns"></div>
     </div>
   </div>
@@ -96,9 +97,11 @@
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
 </div>
 
+<script src="/static/estimate-reliability.js"></script>
 <script>
 let measurements = {};
 let reportType = '';
+let lastConfidence = null;
 
 function fmt(v, suffix='') {
   if (v == null || v === '') return '—';
@@ -130,33 +133,23 @@ async function parsePdf(file) {
       document.getElementById('propName').value = measurements.property_address.split(',')[0].trim();
     }
     if (measurements.report_number) document.getElementById('reportNum').value = measurements.report_number;
-    renderParsed(d.measurements, d.warnings || []);
+    lastConfidence = d.confidence || null;
+    renderParsed(d.measurements, d.warnings || [], lastConfidence);
   } catch (e) {
     status.textContent = '✗ ' + e.message;
     status.style.color = 'var(--red)';
   }
 }
 
-function renderParsed(m, warns) {
-  document.getElementById('parsedBox').style.display = 'block';
+function renderParsed(m, warns, confidence) {
   document.getElementById('reportBadge').innerHTML =
     '<span class="report-badge">' + (REPORT_NAMES[m.report_type] || m.report_type || 'Unknown') + '</span>';
-
-  const items = [];
-  if (m.structures && m.structures.length) {
-    m.structures.forEach(s => items.push([s.label, fmt(s.squares) + ' sq']));
-    items.push(['Total squares', fmt(m.roof_area_squares)]);
-  } else {
-    items.push(['Roof area', fmt(m.roof_area_sqft) + ' sq ft']);
-    items.push(['Squares', fmt(m.roof_area_squares)]);
-    items.push(['Pitch', m.predominant_pitch || '—']);
-    items.push(['Eaves', fmt(m.eaves_ft) + ' ft']);
-    items.push(['Rakes', fmt(m.rakes_ft) + ' ft']);
-    items.push(['Valleys', fmt(m.valleys_ft) + ' ft']);
-    items.push(['Ridges', fmt(m.ridges_ft) + ' ft']);
-  }
-  document.getElementById('parsedGrid').innerHTML = items.map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
-  document.getElementById('parsedWarns').innerHTML = warns.map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
+  PPSReliability.renderParsedBlock(confidence, warns, {
+    bannerId: 'confidenceBanner',
+    gridId: 'reliabilityGrid',
+    warnId: 'parsedWarns',
+    boxId: 'parsedBox',
+  });
 }
 
 function getInputs() {
@@ -184,10 +177,17 @@ async function generate() {
     date: document.getElementById('estDate').value,
     report_number: document.getElementById('reportNum').value,
   };
+  const inputs = getInputs();
+  try {
+    lastConfidence = await PPSReliability.fetchConfidence('roofing', { measurements, inputs });
+    renderParsed(measurements, [], lastConfidence);
+  } catch (e) { /* continue */ }
+  if (!PPSReliability.confirmGenerate(lastConfidence)) return;
+
   const fd = new FormData();
   fd.append('job', JSON.stringify(job));
   fd.append('measurements', JSON.stringify(measurements));
-  fd.append('inputs', JSON.stringify(getInputs()));
+  fd.append('inputs', JSON.stringify(inputs));
 
   const btn = document.getElementById('genBtn');
   btn.disabled = true;

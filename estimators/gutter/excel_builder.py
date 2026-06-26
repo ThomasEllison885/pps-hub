@@ -13,7 +13,7 @@ WHITE = 'FFFFFF'
 GRAY = 'F2F7FB'
 
 
-def build_estimate_excel(job, measurements, inputs):
+def build_estimate_excel(job, measurements, inputs, confidence=None):
     calc = calculate_gutter_estimate(measurements, inputs)
     wb = Workbook()
     wb.remove(wb.active)
@@ -29,13 +29,6 @@ def build_estimate_excel(job, measurements, inputs):
     ws2 = wb.create_sheet('2 – Takeoff')
     ws3 = wb.create_sheet('3 – Estimate')
     ws4 = wb.create_sheet('4 – Bid Total')
-
-    waste_row = 12
-    gutter_rate_row = 13
-    guard_rate_row = 14
-    labor_row = 15
-    tax_row = 16
-    margin_row = 17
 
     # Summary
     ws1.sheet_view.showGridLines = False
@@ -59,32 +52,52 @@ def build_estimate_excel(job, measurements, inputs):
         ws1[f'C{r}'] = val
         r += 1
 
-    ws1.merge_cells('B10:C10')
-    ws1['B10'] = 'ASSUMPTIONS'
-    ws1['B10'].font = Font(bold=True, color=WHITE)
-    ws1['B10'].fill = PatternFill('solid', start_color=DARK_BLUE)
+    if confidence:
+        from estimators.reliability import reliability_excel_lines
+        for lbl, val in reliability_excel_lines(confidence):
+            ws1[f'B{r}'] = lbl
+            ws1[f'B{r}'].font = Font(bold=True, color=DARK_BLUE, size=10)
+            ws1[f'C{r}'] = val
+            ws1[f'C{r}'].font = Font(size=10)
+            r += 1
+        r += 1
 
-    for rr, lbl, val, fmt in [
-        (11, 'Material', 'K-Style Aluminum (5")', None),
-        (waste_row, 'Waste / cuts (%)', inputs.get('waste_pct', 10), '0'),
-        (gutter_rate_row, 'Gutter + downspout $/LF', inputs.get('gutter_price_per_lf', 7), '_($* #,##0.00_)'),
-        (guard_rate_row, 'Gutter guard $/LF', inputs.get('guard_price_per_lf', 2), '_($* #,##0.00_)'),
-        (labor_row, 'Extra labor $/LF', inputs.get('labor_per_lf', 0), '_($* #,##0.00_)'),
-        (tax_row, 'Tax (%)', inputs.get('tax_pct', 7.5), '0.0%'),
-        (margin_row, 'Target margin (%)', inputs.get('margin_pct', 25), '0.0%'),
-    ]:
+    assump_row = r
+    ws1.merge_cells(f'B{assump_row}:C{assump_row}')
+    ws1[f'B{assump_row}'] = 'ASSUMPTIONS'
+    ws1[f'B{assump_row}'].font = Font(bold=True, color=WHITE)
+    ws1[f'B{assump_row}'].fill = PatternFill('solid', start_color=DARK_BLUE)
+
+    assumption_lines = [
+        ('Material', 'K-Style Aluminum (5")', None),
+        ('Waste / cuts (%)', inputs.get('waste_pct', 10), '0'),
+        ('Gutter + downspout $/LF', inputs.get('gutter_price_per_lf', 7), '_($* #,##0.00_)'),
+        ('Gutter guard $/LF', inputs.get('guard_price_per_lf', 2), '_($* #,##0.00_)'),
+        ('Extra labor $/LF', inputs.get('labor_per_lf', 0), '_($* #,##0.00_)'),
+        ('Tax (%)', inputs.get('tax_pct', 7.5), '0.0%'),
+        ('Target margin (%)', inputs.get('margin_pct', 25), '0.0%'),
+    ]
+    rr = assump_row + 1
+    tax_row = margin_row = rr
+    for lbl, val, fmt in assumption_lines:
         ws1[f'B{rr}'] = lbl
         ws1[f'C{rr}'] = val
         ws1[f'B{rr}'].border = bdr
         ws1[f'C{rr}'].border = bdr
+        if lbl == 'Tax (%)':
+            tax_row = rr
+        if lbl == 'Target margin (%)':
+            margin_row = rr
         if fmt:
             ws1[f'C{rr}'].number_format = fmt
             ws1[f'C{rr}'].fill = PatternFill('solid', start_color=WARNING)
+        rr += 1
 
-    ws1['B19'] = 'Invoice Total'
-    ws1['B19'].font = Font(bold=True)
-    ws1['C19'] = "='4 – Bid Total'!C8"
-    ws1['C19'].number_format = '_($* #,##0.00_)'
+    invoice_row = rr + 1
+    ws1[f'B{invoice_row}'] = 'Invoice Total'
+    ws1[f'B{invoice_row}'].font = Font(bold=True)
+    ws1[f'C{invoice_row}'] = "='4 – Bid Total'!C8"
+    ws1[f'C{invoice_row}'].number_format = '_($* #,##0.00_)'
 
     # Takeoff
     ws2.sheet_view.showGridLines = False

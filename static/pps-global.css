@@ -704,3 +704,82 @@ body {
   .pps-form-row-3 { grid-template-columns: 1fr; }
   .pps-table td, .pps-table th { padding: 9px 12px; }
 }
+
+/* ── ESTIMATE RELIABILITY ─────────────────────────────────────────── */
+.pps-confidence {
+  border-radius: var(--radius, 10px);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  border: 1.5px solid var(--border);
+}
+.pps-confidence-high {
+  background: var(--green-light);
+  border-color: #81C784;
+}
+.pps-confidence-medium {
+  background: var(--amber-light);
+  border-color: #FFD54F;
+}
+.pps-confidence-low {
+  background: var(--red-light);
+  border-color: #EF9A9A;
+}
+.pps-confidence-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dark-blue);
+  margin-bottom: 4px;
+}
+.pps-confidence-headline {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dark-blue);
+  margin-bottom: 4px;
+}
+.pps-confidence-detail {
+  font-size: 12px;
+  color: var(--gray-mid);
+}
+.pps-confidence-hint {
+  font-size: 11px;
+  color: var(--gray-light);
+  margin-top: 6px;
+  font-style: italic;
+}
+.pps-reliability-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.pps-reliability-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  padding: 6px 8px;
+  background: var(--light-bg-2, #f8fbfd);
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+}
+.pps-reliability-label { font-weight: 600; color: var(--dark-blue); }
+.pps-reliability-value { color: var(--gray); text-align: right; }
+.pps-reliability-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.pps-rel-high { background: var(--green-light); color: var(--green); }
+.pps-rel-medium { background: #E3F2FD; color: var(--blue-mid); }
+.pps-rel-low { background: var(--amber-light); color: #9A6B00; }
+.pps-rel-manual { background: #E8EAF6; color: #3949AB; }
+.pps-rel-missing { background: var(--red-light); color: var(--red); }
+@media (max-width: 600px) {
+  .pps-reliability-row { grid-template-columns: 1fr; text-align: left; }
+  .pps-reliability-value { text-align: left; }
+}

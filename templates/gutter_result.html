@@ -24,6 +24,7 @@
     <h1 style="font-family:var(--font-serif);color:var(--dark-blue);">Gutter Estimate Ready</h1>
     <p style="color:#666;">{{ property_name }}</p>
     <div class="summary">
+      {% if confidence %}<div style="font-size:12px;color:#666;margin-bottom:8px;">Takeoff: <strong>{{ confidence.title }}</strong> — {{ confidence.summary_line }}</div>{% endif %}
       <strong>{{ summary.total_lf_order }} LF</strong> order (gutter + downspouts)<br>
       {{ summary.downspout_count }} downspouts · Invoice <strong>${{ '%.2f'|format(summary.invoice_total) }}</strong>
       {% if summary.include_guards %}<br>Includes gutter guards{% endif %}

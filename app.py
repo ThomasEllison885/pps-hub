@@ -1888,6 +1888,52 @@ def dashboard():
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
+@app.route('/estimating/confidence', methods=['POST'])
+@require_login
+def estimating_confidence():
+    """Return takeoff reliability metadata for gutter, roofing, or siding."""
+    data = request.get_json(silent=True) or {}
+    tool = (data.get('tool') or '').strip()
+    try:
+        from estimators.reliability import (
+            build_gutter_reliability,
+            build_roofing_reliability,
+            build_siding_job_reliability,
+            build_siding_reliability,
+        )
+        if tool == 'gutter':
+            confidence = build_gutter_reliability(
+                data.get('measurements') or {},
+                data.get('inputs') or {},
+                data.get('user_overrides') or {},
+            )
+        elif tool == 'roofing':
+            confidence = build_roofing_reliability(
+                data.get('measurements') or {},
+                data.get('inputs') or {},
+            )
+        elif tool == 'siding':
+            buildings = data.get('buildings') or []
+            if buildings:
+                confidence = build_siding_job_reliability(
+                    buildings,
+                    int(data.get('pricing_loaded') or 0),
+                )
+            else:
+                confidence = build_siding_reliability(
+                    data.get('measurements') or {},
+                    data.get('source') or 'eagleview',
+                    int(data.get('pricing_loaded') or 0),
+                )
+        else:
+            return jsonify({'error': 'Unknown tool'}), 400
+        return jsonify({'confidence': confidence})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/estimating')
 @require_login
 def estimating_hub():
@@ -4249,6 +4295,7 @@ def _build_siding_excel_from_row(row):
         data.get('inputs', {}),
         data.get('pricing', {}),
         library_rows=data.get('library', []),
+        confidence=data.get('confidence'),
     )
 
 
@@ -4307,7 +4354,9 @@ def siding_estimator_parse():
             measurements, warnings = parse_eagleview_walls(pdf_bytes)
         else:
             measurements, warnings = parse_aerial_report(pdf_bytes)
-        return jsonify({'measurements': measurements, 'warnings': warnings})
+        from estimators.reliability import build_siding_reliability
+        confidence = build_siding_reliability(measurements, source=source)
+        return jsonify({'measurements': measurements, 'warnings': warnings, 'confidence': confidence})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -4330,7 +4379,12 @@ def siding_estimator_generate():
             return jsonify({'error': 'Add at least one building'}), 400
 
         from estimators.siding import build_estimate_excel
-        buf = build_estimate_excel(job, buildings, inputs, pricing, library_rows=library_rows)
+        from estimators.reliability import build_siding_job_reliability
+        pricing_loaded = parsed_pricing.get('loaded_count', 0)
+        confidence = build_siding_job_reliability(buildings, pricing_loaded)
+        buf = build_estimate_excel(
+            job, buildings, inputs, pricing, library_rows=library_rows, confidence=confidence
+        )
 
         user_key = session['user_key']
         display_name = session.get('display_name', '')
@@ -4340,8 +4394,9 @@ def siding_estimator_generate():
             'inputs': inputs,
             'pricing': pricing,
             'library': library_rows,
+            'confidence': confidence,
             'pricing_meta': {
-                'loaded_count': parsed_pricing.get('loaded_count', 0),
+                'loaded_count': pricing_loaded,
                 'warnings': parsed_pricing.get('warnings', []),
             },
         }
@@ -4588,8 +4643,10 @@ def roofing_estimator_parse():
         return jsonify({'error': 'No PDF uploaded'}), 400
     try:
         from estimators.roofing import parse_roof_report
+        from estimators.reliability import build_roofing_reliability
         measurements, warnings = parse_roof_report(pdf_file.read())
-        return jsonify({'measurements': measurements, 'warnings': warnings})
+        confidence = build_roofing_reliability(measurements, {})
+        return jsonify({'measurements': measurements, 'warnings': warnings, 'confidence': confidence})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -4609,9 +4666,16 @@ def roofing_estimator_generate():
             return jsonify({'error': 'No roof measurements — upload a valid report PDF.'}), 400
 
         from estimators.roofing import build_estimate_excel
-        buf = build_estimate_excel(job, measurements, inputs, {})
+        from estimators.reliability import build_roofing_reliability
+        confidence = build_roofing_reliability(measurements, inputs)
+        buf = build_estimate_excel(job, measurements, inputs, {}, confidence=confidence)
 
-        job_data = {'job': job, 'measurements': measurements, 'inputs': inputs}
+        job_data = {
+            'job': job,
+            'measurements': measurements,
+            'inputs': inputs,
+            'confidence': confidence,
+        }
         estimate_id = None
         conn = get_db()
         if conn:
@@ -4693,6 +4757,7 @@ def roofing_estimator_download(estimate_id):
             data.get('measurements', {}),
             data.get('inputs', {}),
             data.get('pricing', {}),
+            confidence=data.get('confidence'),
         )
         return send_file(
             buf,
@@ -4724,6 +4789,7 @@ def roofing_estimator_email(estimate_id):
             data.get('measurements', {}),
             data.get('inputs', {}),
             data.get('pricing', {}),
+            confidence=data.get('confidence'),
         )
         doc_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
         return _send_resend_document(
@@ -4798,8 +4864,10 @@ def gutter_estimator_parse():
         return jsonify({'error': 'No PDF uploaded'}), 400
     try:
         from estimators.gutter import parse_gutter_measurements
+        from estimators.reliability import build_gutter_reliability
         measurements, warnings = parse_gutter_measurements(pdf_file.read())
-        return jsonify({'measurements': measurements, 'warnings': warnings})
+        confidence = build_gutter_reliability(measurements, {})
+        return jsonify({'measurements': measurements, 'warnings': warnings, 'confidence': confidence})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -4820,10 +4888,18 @@ def gutter_estimator_generate():
             return jsonify({'error': 'Enter gutter run (LF) or upload a report with eaves length.'}), 400
 
         from estimators.gutter import build_estimate_excel, calculate_gutter_estimate
+        from estimators.reliability import build_gutter_reliability
+        user_overrides = inputs.pop('user_overrides', None) or {}
         calc = calculate_gutter_estimate(measurements, inputs)
-        buf = build_estimate_excel(job, measurements, inputs)
+        confidence = build_gutter_reliability(measurements, inputs, user_overrides)
+        buf = build_estimate_excel(job, measurements, inputs, confidence=confidence)
 
-        job_data = {'job': job, 'measurements': measurements, 'inputs': inputs}
+        job_data = {
+            'job': job,
+            'measurements': measurements,
+            'inputs': inputs,
+            'confidence': confidence,
+        }
         estimate_id = None
         conn = get_db()
         if conn:
@@ -4868,11 +4944,13 @@ def gutter_estimator_result(estimate_id):
     if not row:
         return 'Estimate not found', 404
     ctx = _gutter_preview_context(row)
+    data = _gutter_job_data_from_row(row)
     return render_template(
         'gutter_result.html',
         estimate_id=estimate_id,
         property_name=row.get('property_name') or 'Property',
         summary=ctx['summary'],
+        confidence=data.get('confidence'),
         user_email=session.get('user_email', ''),
     )
 
@@ -4890,6 +4968,7 @@ def gutter_estimator_download(estimate_id):
             data.get('job', {}),
             data.get('measurements', {}),
             data.get('inputs', {}),
+            confidence=data.get('confidence'),
         )
         return send_file(
             buf,
@@ -4920,6 +4999,7 @@ def gutter_estimator_email(estimate_id):
             data.get('job', {}),
             data.get('measurements', {}),
             data.get('inputs', {}),
+            confidence=data.get('confidence'),
         )
         doc_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
         return _send_resend_document(

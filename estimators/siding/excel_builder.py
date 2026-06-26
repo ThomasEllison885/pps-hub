@@ -42,7 +42,7 @@ SHEET_LABOR = '5 – Labor'
 SHEET_TOTAL = '6 – Estimate Total'
 
 
-def build_estimate_excel(job, buildings, inputs, pricing, library_rows=None):
+def build_estimate_excel(job, buildings, inputs, pricing, library_rows=None, confidence=None):
     pricing = pricing or {}
     library_rows = library_rows or []
 
@@ -63,7 +63,7 @@ def build_estimate_excel(job, buildings, inputs, pricing, library_rows=None):
     wb = Workbook()
     wb.remove(wb.active)
 
-    _build_summary(wb, job, building_results, inputs)
+    _build_summary(wb, job, building_results, inputs, confidence=confidence)
     takeoff_refs = _build_takeoff(wb, building_results)
     library_total_row = _build_library(wb, pricing, library_rows)
     mat_subtotal_row = _build_materials(wb, building_results, pricing, takeoff_refs, inputs)
@@ -100,7 +100,7 @@ def _money_cols(ws, row, cols='GHI'):
         ws[f'{col}{row}'].alignment = Alignment(horizontal='right')
 
 
-def _build_summary(wb, job, building_results, inputs):
+def _build_summary(wb, job, building_results, inputs, confidence=None):
     ws = wb.create_sheet(SHEET_SUMMARY)
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['A'].width = 2
@@ -123,6 +123,13 @@ def _build_summary(wb, job, building_results, inputs):
     ws['E7'] = f"='{SHEET_TOTAL}'!C12"
     ws['F7'] = f"='{SHEET_TOTAL}'!C13"
     ws['G7'] = '=IF(F7=0,"",D7/F7)'
+
+    if confidence:
+        ws.merge_cells('B8:G8')
+        ws['B8'] = (
+            f"Takeoff confidence: {confidence.get('title', '')} — {confidence.get('summary_line', '')}"
+        )
+        ws['B8'].font = Font(name='Arial', italic=True, size=9, color='666666')
 
     row = 9
     info = [

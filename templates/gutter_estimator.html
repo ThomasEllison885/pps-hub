@@ -50,7 +50,8 @@
     </div>
     <div class="parsed-box" id="parsedBox">
       <div id="reportBadge"></div>
-      <div class="parsed-grid" id="parsedGrid"></div>
+      <div id="confidenceBanner"></div>
+      <div id="reliabilityGrid"></div>
       <div id="parsedWarns"></div>
     </div>
     <div class="field-row" style="margin-top:14px;">
@@ -110,8 +111,10 @@
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
 </div>
 
+<script src="/static/estimate-reliability.js"></script>
 <script>
 let measurements = {};
+let lastConfidence = null;
 
 const REPORT_NAMES = {
   bid_perfect: 'EagleView Bid Perfect',
@@ -175,36 +178,35 @@ async function parsePdf(file) {
       );
     }
 
-    document.getElementById('parsedBox').style.display = 'block';
     const rt = measurements.report_type || 'unknown';
     document.getElementById('reportBadge').innerHTML =
       '<span class="report-badge">' + (REPORT_NAMES[rt] || rt) + '</span>';
-
-    const dsCount = measurements.suggested_downspout_count || suggestDownspouts(measurements.gutter_lf);
-    const dsLf = measurements.suggested_downspout_lf || (dsCount * (parseFloat(document.getElementById('dsHeight').value) || 10));
-
-    document.getElementById('parsedGrid').innerHTML = [
-      ['Eaves → gutter run', (measurements.gutter_lf || '—') + ' ft'],
-      ['Suggested downspouts', dsCount + ' (' + dsLf + ' ft vertical)'],
-      ['Roof area', measurements.roof_area_sqft ? measurements.roof_area_sqft.toLocaleString() + ' sq ft' : '—'],
-      ['Report #', measurements.report_number || '—'],
-    ].map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
-    document.getElementById('parsedWarns').innerHTML = (d.warnings||[]).map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
+    lastConfidence = d.confidence || null;
+    PPSReliability.renderParsedBlock(lastConfidence, d.warnings, {
+      bannerId: 'confidenceBanner',
+      gridId: 'reliabilityGrid',
+      warnId: 'parsedWarns',
+      boxId: 'parsedBox',
+    });
   } catch (e) {
     st.textContent = '✗ ' + e.message;
     st.style.color = 'var(--red)';
   }
 }
 
-async function generate() {
-  const gutterLf = parseFloat(document.getElementById('gutterLf').value);
-  if (!gutterLf && !measurements.gutter_lf) {
-    alert('Upload an EagleView PDF or enter gutter run (LF) manually.');
-    return;
-  }
-  measurements.gutter_lf = gutterLf || measurements.gutter_lf;
+function gutterUserOverrides() {
+  const parsedLf = measurements.gutter_lf ? Math.round(measurements.gutter_lf) : null;
+  const enteredLf = parseInt(document.getElementById('gutterLf').value, 10);
+  return {
+    gutter_lf_manual: parsedLf != null && enteredLf !== parsedLf,
+    downspout_manual: !!document.getElementById('downspoutCount').dataset.userEdited,
+    gutter_lf: enteredLf || measurements.gutter_lf,
+  };
+}
+
+function getGutterInputs() {
   const dsVal = document.getElementById('downspoutCount').value;
-  const inputs = {
+  return {
     waste_pct: parseInt(document.getElementById('wastePct').value, 10),
     downspout_count: dsVal !== '' ? parseInt(dsVal, 10) : null,
     downspout_lf_each: parseFloat(document.getElementById('dsHeight').value) || 10,
@@ -215,7 +217,31 @@ async function generate() {
     labor_per_lf: parseFloat(document.getElementById('laborLf').value) || 0,
     margin_pct: parseFloat(document.getElementById('marginPct').value) || 25,
     tax_pct: parseFloat(document.getElementById('taxPct').value) || 7.5,
+    user_overrides: gutterUserOverrides(),
   };
+}
+
+async function generate() {
+  const gutterLf = parseFloat(document.getElementById('gutterLf').value);
+  if (!gutterLf && !measurements.gutter_lf) {
+    alert('Upload an EagleView PDF or enter gutter run (LF) manually.');
+    return;
+  }
+  measurements.gutter_lf = gutterLf || measurements.gutter_lf;
+  const inputs = getGutterInputs();
+  try {
+    lastConfidence = await PPSReliability.fetchConfidence('gutter', {
+      measurements,
+      inputs,
+      user_overrides: inputs.user_overrides,
+    });
+    PPSReliability.renderParsedBlock(lastConfidence, [], {
+      bannerId: 'confidenceBanner',
+      gridId: 'reliabilityGrid',
+      boxId: 'parsedBox',
+    });
+  } catch (e) { /* proceed with last known confidence */ }
+  if (!PPSReliability.confirmGenerate(lastConfidence)) return;
   const job = {
     property_name: document.getElementById('propName').value || 'Property',
     address: document.getElementById('propAddr').value,

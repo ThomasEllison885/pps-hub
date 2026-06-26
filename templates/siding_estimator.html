@@ -167,6 +167,10 @@
     <div id="pricingStatus" style="font-size:12px;margin-top:8px;display:none;"></div>
   </div>
 
+  <div id="jobConfidenceWrap" style="display:none;margin-bottom:12px;">
+    <div id="jobConfidenceBanner"></div>
+  </div>
+
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
 
   <div class="pps-footer" style="margin-top:20px;">
@@ -174,8 +178,11 @@
   </div>
 </div>
 
+<script src="/static/estimate-reliability.js"></script>
 <script>
 const BUILDING_TYPES = ['Building', 'Garage', 'Clubhouse', 'Carport / Shed', 'Other'];
+let lastJobConfidence = null;
+let pricingLoadedCount = 0;
 const MANUAL_FIELDS = [
   ['wall_area_net', 'Net Wall Area (sq ft)'],
   ['wall_area_gross', 'Gross Wall Area (sq ft)'],
@@ -222,7 +229,8 @@ function addBuilding() {
         <div data-role="file-status" style="font-size:12px;margin-top:6px;"></div>
       </div>
       <div class="parsed-box" data-role="parsed-box">
-        <div class="parsed-grid" data-role="parsed-grid"></div>
+        <div data-role="confidence-banner"></div>
+        <div data-role="reliability-grid"></div>
         <div data-role="parsed-warns"></div>
       </div>
     </div>
@@ -324,32 +332,25 @@ async function parsePdf(id, file) {
     if (d.error) throw new Error(d.error);
     card._measurements = d.measurements || {};
     card._warnings = d.warnings || [];
+    card._confidence = d.confidence || null;
     status.textContent = '✓ ' + file.name;
     status.style.color = 'var(--green)';
     applyJobFromPdf(d.measurements || {});
-    renderParsed(card, d.measurements, d.warnings);
+    renderParsed(card, d.measurements, d.warnings, d.confidence);
   } catch (e) {
     status.textContent = '✗ ' + e.message;
     status.style.color = 'var(--red)';
   }
 }
 
-function renderParsed(card, m, warns) {
+function renderParsed(card, m, warns, confidence) {
   const box = card.querySelector('[data-role="parsed-box"]');
-  const grid = card.querySelector('[data-role="parsed-grid"]');
-  const items = [
-    ['Net Wall', fmt(m.wall_area_net) + ' sq ft'],
-    ['Gross Wall', fmt(m.wall_area_gross) + ' sq ft'],
-    ['W&D Perim', fmt(m.window_door_perimeter) + ' lin ft'],
-    ['Inside Corners', fmt(m.inside_corners) + ' lin ft'],
-    ['Outside Corners', fmt(m.outside_corners) + ' lin ft'],
-    ['Fascia', fmt(m.fascia) + ' lin ft'],
-    ['Units / Apts', m.unit_count != null ? fmt(m.unit_count) : '<span style="color:#7A5C00">enter manually</span>'],
-  ];
-  grid.innerHTML = items.map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
-  card.querySelector('[data-role="parsed-warns"]').innerHTML =
-    (warns || []).map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
-  box.style.display = 'block';
+  PPSReliability.renderParsedBlock(confidence, warns, {
+    bannerId: card.querySelector('[data-role="confidence-banner"]'),
+    gridId: card.querySelector('[data-role="reliability-grid"]'),
+    warnId: card.querySelector('[data-role="parsed-warns"]'),
+    box: box,
+  });
 }
 
 function fmt(v) {
@@ -434,6 +435,7 @@ async function previewPricing(file) {
     if (!r.ok) throw new Error(d.error || 'Could not read pricing file');
     const parts = [`✓ ${d.loaded_count} price${d.loaded_count === 1 ? '' : 's'} loaded`];
     if (d.library_count) parts.push(`${d.library_count} per-sq library row${d.library_count === 1 ? '' : 's'}`);
+    pricingLoadedCount = d.loaded_count || 0;
     status.textContent = parts.join(' · ');
     status.style.color = 'var(--green)';
     if (d.warnings && d.warnings.length) {
@@ -468,6 +470,20 @@ async function generate() {
     date: document.getElementById('estDate').value,
     report_number: document.getElementById('reportNum').value,
   };
+
+  try {
+    lastJobConfidence = await PPSReliability.fetchConfidence('siding', {
+      buildings: buildings.map((b) => ({
+        source: b.source,
+        measurements: b.measurements,
+        label: b.label,
+      })),
+      pricing_loaded: pricingLoadedCount,
+    });
+    document.getElementById('jobConfidenceWrap').style.display = 'block';
+    PPSReliability.renderBanner(lastJobConfidence, 'jobConfidenceBanner');
+  } catch (e) { /* continue */ }
+  if (!PPSReliability.confirmGenerate(lastJobConfidence)) return;
 
   const fd = new FormData();
   fd.append('job', JSON.stringify(job));

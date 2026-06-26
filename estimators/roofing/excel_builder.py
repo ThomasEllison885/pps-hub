@@ -22,7 +22,7 @@ REPORT_LABELS = {
 }
 
 
-def build_estimate_excel(job, measurements, inputs, pricing=None):
+def build_estimate_excel(job, measurements, inputs, pricing=None, confidence=None):
     pricing = pricing or {}
     report_type = measurements.get('report_type', 'premium')
     is_quick = report_type == 'bid_perfect'
@@ -32,10 +32,10 @@ def build_estimate_excel(job, measurements, inputs, pricing=None):
 
     if is_quick:
         summary = calculate_bid_summary(measurements, inputs)
-        _build_quick_bid(wb, job, measurements, inputs, summary, pricing)
+        _build_quick_bid(wb, job, measurements, inputs, summary, pricing, confidence=confidence)
     else:
         qty = calculate_materials(measurements, inputs)
-        _build_full_estimate(wb, job, measurements, inputs, qty, pricing)
+        _build_full_estimate(wb, job, measurements, inputs, qty, pricing, confidence=confidence)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -65,7 +65,19 @@ def _money(ws, row, col):
     ws[f'{col}{row}'].alignment = Alignment(horizontal='right')
 
 
-def _build_full_estimate(wb, job, measurements, inputs, qty, pricing):
+def _write_confidence_line(ws, row, confidence, span=4):
+    if not confidence:
+        return
+    from openpyxl.utils import get_column_letter
+    end = get_column_letter(2 + span - 1)
+    ws.merge_cells(f'B{row}:{end}{row}')
+    ws[f'B{row}'] = (
+        f"Takeoff confidence: {confidence.get('title', '')} — {confidence.get('summary_line', '')}"
+    )
+    ws[f'B{row}'].font = Font(name='Arial', italic=True, size=9, color='666666')
+
+
+def _build_full_estimate(wb, job, measurements, inputs, qty, pricing, confidence=None):
     ws_sum = wb.create_sheet('1 – Job Summary')
     ws_meas = wb.create_sheet('2 – Measurements')
     ws_mat = wb.create_sheet('3 – Materials')
@@ -101,6 +113,7 @@ def _build_full_estimate(wb, job, measurements, inputs, qty, pricing):
         ws_sum[f'C{row}'] = val
         row += 1
 
+    _write_confidence_line(ws_sum, 10, confidence)
     _head(ws_sum, 11, 2, 'ASSUMPTIONS — yellow cells drive formulas', 4)
     assumptions = [
         (12, 'Shingle Product', 'GAF Timberline HDZ', None),
@@ -223,7 +236,7 @@ def _ridge_cap_display(measurements):
     return round(r + h, 1) if (r or h) else ''
 
 
-def _build_quick_bid(wb, job, measurements, inputs, summary, pricing):
+def _build_quick_bid(wb, job, measurements, inputs, summary, pricing, confidence=None):
     ws = wb.create_sheet('Quick Bid')
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['B'].width = 30
@@ -248,7 +261,8 @@ def _build_quick_bid(wb, job, measurements, inputs, summary, pricing):
         ws[f'C{row}'] = val
         row += 1
 
-    row += 1
+    _write_confidence_line(ws, row, confidence, span=3)
+    row += 2
     ws[f'B{row}'] = 'STRUCTURES'
     ws[f'B{row}'].font = Font(bold=True, color=DARK_BLUE)
     row += 1
