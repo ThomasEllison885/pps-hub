@@ -21,6 +21,10 @@ SOURCE_LABELS = {
     'field': 'Field Measurements',
 }
 
+# Fixed cell on Tab 1 — Materials tab formulas reference this for waste %
+SUMMARY_WASTE_ROW = 14
+SUMMARY_WASTE_CELL = f"'1 – Job Summary'!$C${SUMMARY_WASTE_ROW}"
+
 
 def build_estimate_excel(job, buildings, inputs, pricing):
     """
@@ -46,9 +50,9 @@ def build_estimate_excel(job, buildings, inputs, pricing):
     wb = Workbook()
     wb.remove(wb.active)
 
-    mat_subtotal_row = _build_summary(wb, job, building_results, inputs)
+    _build_summary(wb, job, building_results, inputs)
     mat_subtotal_row = _build_materials(wb, building_results, inputs, pricing)
-    labor_subtotal_row = _build_labor(wb)
+    labor_subtotal_row = _build_labor(wb, building_results)
     _build_totals(wb, mat_subtotal_row, labor_subtotal_row)
 
     buf = io.BytesIO()
@@ -106,18 +110,47 @@ def _build_summary(wb, job, building_results, inputs):
         ('Date:', job.get('date', '')),
         ('Buildings:', str(len(building_results))),
     ]
+    s = Side(style='thin', color='D0DCE8')
     row = 5
     for label, val in info:
         ws[f'B{row}'] = label
         ws[f'B{row}'].font = Font(name='Arial', bold=True, size=10, color=DARK_BLUE)
         ws[f'C{row}'] = val
         row += 1
-    row += 1
 
+    # Fixed-row assumptions (Materials tab links to waste % at C14)
+    _section_head(ws, 11, 2, 'JOB ASSUMPTIONS — edit waste % here to update Materials tab', 5)
+    assumptions = [
+        ('Siding Type', inputs.get('siding_type', 'Vinyl Lap'), None),
+        (
+            'Vinyl Exposure',
+            f"{inputs.get('exposure_in', 'N/A')}\"" if 'vinyl' in inputs.get('siding_type', '').lower() else 'N/A',
+            None,
+        ),
+        ('Waste Factor (%)', inputs.get('waste_pct', 10), '0'),
+        ('Corner Post Length', f"{inputs.get('post_length', 12)} ft", None),
+        ('Stories', str(inputs.get('stories', 2)), None),
+        ('House Wrap', 'Yes' if inputs.get('include_housewrap') else 'No', None),
+        ('Fan Fold', 'Yes' if inputs.get('include_fanfold') else 'No', None),
+        ('Soffit', 'Yes' if inputs.get('include_soffit') else 'No', None),
+        ('Fascia Metal Wrap', 'Yes' if inputs.get('include_fascia_wrap') else 'No', None),
+    ]
+    for j, (lbl, val, num_fmt) in enumerate(assumptions):
+        rr = 12 + j
+        ws[f'B{rr}'] = lbl
+        ws[f'C{rr}'] = val
+        for col in ['B', 'C']:
+            ws[f'{col}{rr}'].font = Font(name='Arial', size=10, bold=(col == 'B'))
+            ws[f'{col}{rr}'].fill = PatternFill('solid', start_color=GRAY_HDR if j % 2 == 0 else WHITE)
+            ws[f'{col}{rr}'].border = Border(left=s, right=s, top=s, bottom=s)
+        if num_fmt and lbl.startswith('Waste'):
+            ws[f'C{rr}'].number_format = num_fmt
+            ws[f'C{rr}'].fill = PatternFill('solid', start_color=WARNING)
+
+    row = 22
     _section_head(ws, row, 2, 'BUILDINGS ON THIS JOB', 5)
     row += 1
-    s = Side(style='thin', color='D0DCE8')
-    for col, txt in [('B', 'Building'), ('C', 'Type'), ('D', 'Qty'), ('E', 'Source'), ('F', 'Siding Sq')]:
+    for col, txt in [('B', 'Building'), ('C', 'Type'), ('D', 'Qty'), ('E', 'Source'), ('F', 'Siding Sq (order)')]:
         ws[f'{col}{row}'] = txt
         ws[f'{col}{row}'].font = Font(name='Arial', bold=True, size=9, color=DARK_BLUE)
         ws[f'{col}{row}'].fill = PatternFill('solid', start_color=LIGHT_BLUE)
@@ -140,28 +173,6 @@ def _build_summary(wb, job, building_results, inputs):
         row += 1
 
     row += 1
-    _section_head(ws, row, 2, 'JOB ASSUMPTIONS', 5)
-    row += 1
-    assumptions = [
-        ('Siding Type', inputs.get('siding_type', 'Vinyl Lap')),
-        ('Vinyl Exposure', f"{inputs.get('exposure_in', 'N/A')}\"" if 'vinyl' in inputs.get('siding_type', '').lower() else 'N/A'),
-        ('Waste Factor', f"{inputs.get('waste_pct', 10)}%"),
-        ('Corner Post Length', f"{inputs.get('post_length', 12)} ft"),
-        ('Stories', str(inputs.get('stories', 2))),
-        ('House Wrap', 'Yes' if inputs.get('include_housewrap') else 'No'),
-        ('Fan Fold', 'Yes' if inputs.get('include_fanfold') else 'No'),
-        ('Soffit', 'Yes' if inputs.get('include_soffit') else 'No'),
-        ('Fascia Metal Wrap', 'Yes' if inputs.get('include_fascia_wrap') else 'No'),
-    ]
-    for j, (lbl, val) in enumerate(assumptions):
-        rr = row + j
-        ws[f'B{rr}'] = lbl
-        ws[f'C{rr}'] = val
-        for col in ['B', 'C']:
-            ws[f'{col}{rr}'].font = Font(name='Arial', size=10, bold=(col == 'B'))
-            ws[f'{col}{rr}'].fill = PatternFill('solid', start_color=GRAY_HDR if j % 2 == 0 else WHITE)
-            ws[f'{col}{rr}'].border = Border(left=s, right=s, top=s, bottom=s)
-    row += len(assumptions) + 1
 
     for b in building_results:
         _section_head(ws, row, 2, f"{b['label'].upper()} — MEASUREMENTS", 5)
@@ -226,6 +237,21 @@ def _build_materials(wb, building_results, inputs, pricing):
             ws[f'{col}{r}'].fill = PatternFill('solid', start_color=BLUE)
         ws.row_dimensions[r].height = 18
 
+    def _row_style(r, bg, priced=True):
+        for col in 'BCDEFGH':
+            ws[f'{col}{r}'].font = Font(name='Arial', size=10)
+            ws[f'{col}{r}'].fill = PatternFill('solid', start_color=bg)
+            ws[f'{col}{r}'].border = Border(left=s, right=s, top=s, bottom=s)
+            if col in ('D', 'E'):
+                ws[f'{col}{r}'].alignment = Alignment(horizontal='center')
+            if col == 'G' and priced:
+                if not ws[f'G{r}'].value:
+                    ws[f'G{r}'].fill = PatternFill('solid', start_color=WARNING)
+            if col in ('G', 'H'):
+                ws[f'{col}{r}'].number_format = '_($* #,##0.00_)'
+                ws[f'{col}{r}'].alignment = Alignment(horizontal='right')
+        ws.row_dimensions[r].height = 15
+
     def item_row(r, label, basis, lin_or_sq, pieces, unit, price_key, bg):
         ws[f'B{r}'] = label
         ws[f'C{r}'] = basis
@@ -234,22 +260,45 @@ def _build_materials(wb, building_results, inputs, pricing):
         ws[f'F{r}'] = unit
         unit_price = pricing.get(price_key)
         ws[f'G{r}'] = unit_price if unit_price else ''
-        ws[f'H{r}'] = f'=E{r}*G{r}' if unit_price else ''
-        if unit_price or pieces:
-            price_rows.append(r)
-        for col in 'BCDEFGH':
-            ws[f'{col}{r}'].font = Font(name='Arial', size=10)
-            ws[f'{col}{r}'].fill = PatternFill('solid', start_color=bg)
-            ws[f'{col}{r}'].border = Border(left=s, right=s, top=s, bottom=s)
-            if col in ('D', 'E'):
-                ws[f'{col}{r}'].alignment = Alignment(horizontal='center')
-            if col == 'G' and not unit_price:
-                ws[f'{col}{r}'].fill = PatternFill('solid', start_color=WARNING)
-            if col in ('G', 'H'):
-                ws[f'{col}{r}'].number_format = '_($* #,##0.00_)'
-                ws[f'{col}{r}'].alignment = Alignment(horizontal='right')
-        ws.row_dimensions[r].height = 15
+        ws[f'H{r}'] = f'=IF(OR(E{r}="",G{r}=""),"",E{r}*G{r})'
+        price_rows.append(r)
+        _row_style(r, bg)
         return r
+
+    def siding_block(r, q, stype, exposure_note):
+        """Net wall, waste allowance (linked to Summary), and order qty rows."""
+        net_row = r
+        ws[f'B{net_row}'] = 'Net wall area'
+        ws[f'C{net_row}'] = 'Measured net wall (excl. openings)'
+        ws[f'D{net_row}'] = q['wall_area_net']
+        ws[f'E{net_row}'] = f'=ROUND(D{net_row}/100,2)'
+        ws[f'F{net_row}'] = 'sq (net)'
+        ws[f'G{net_row}'] = ''
+        ws[f'H{net_row}'] = ''
+        _row_style(net_row, GRAY_HDR, priced=False)
+
+        waste_row = r + 1
+        ws[f'B{waste_row}'] = 'Material waste allowance'
+        ws[f'C{waste_row}'] = f'Linked to Waste Factor (%) on Job Summary (cell C{SUMMARY_WASTE_ROW})'
+        ws[f'D{waste_row}'] = f'=D{net_row}*({SUMMARY_WASTE_CELL}/100)'
+        ws[f'E{waste_row}'] = f'=ROUND(D{waste_row}/100,2)'
+        ws[f'F{waste_row}'] = 'sq waste'
+        ws[f'G{waste_row}'] = ''
+        ws[f'H{waste_row}'] = ''
+        _row_style(waste_row, WHITE, priced=False)
+
+        order_row = r + 2
+        ws[f'B{order_row}'] = f'{stype} Siding {exposure_note} — ORDER QTY'
+        ws[f'C{order_row}'] = 'Net wall + waste (Tab 1 waste % drives col D)'
+        ws[f'D{order_row}'] = f'=D{net_row}+D{waste_row}'
+        ws[f'E{order_row}'] = f'=ROUND(D{order_row}/100,2)'
+        ws[f'F{order_row}'] = 'sq'
+        unit_price = pricing.get('siding_sq')
+        ws[f'G{order_row}'] = unit_price if unit_price else ''
+        ws[f'H{order_row}'] = f'=IF(OR(E{order_row}="",G{order_row}=""),"",E{order_row}*G{order_row})'
+        price_rows.append(order_row)
+        _row_style(order_row, GRAY_HDR)
+        return order_row
 
     for bi, b in enumerate(building_results):
         q = b['quantities']
@@ -261,16 +310,7 @@ def _build_materials(wb, building_results, inputs, pricing):
 
         stype = q['siding_type']
         exposure_note = f"Exposure: {q['exposure_in']}\"" if 'vinyl' in stype.lower() else ''
-        row = item_row(
-            row,
-            f'{stype} Siding {exposure_note}',
-            f"Net wall {q['wall_area_net']} sq ft × {q['waste_pct']}% waste × qty {q['qty']}",
-            q['siding_area_with_waste'],
-            round(q['siding_squares'], 2),
-            'sq',
-            'siding_sq',
-            GRAY_HDR,
-        )
+        row = siding_block(row, q, stype, exposure_note)
         row += 1
 
         trim_items = [
@@ -317,11 +357,8 @@ def _build_materials(wb, building_results, inputs, pricing):
     ws[f'B{subtotal_row}'].font = Font(name='Arial', bold=True, size=11, color=WHITE)
     ws[f'B{subtotal_row}'].fill = PatternFill('solid', start_color=DARK_BLUE)
     ws[f'B{subtotal_row}'].alignment = Alignment(horizontal='right', vertical='center', indent=1)
-    if price_rows:
-        refs = ','.join(f'H{r}' for r in price_rows)
-        ws[f'H{subtotal_row}'] = f'=SUM({refs})'
-    else:
-        ws[f'H{subtotal_row}'] = 0
+    refs = ','.join(f'H{r}' for r in price_rows)
+    ws[f'H{subtotal_row}'] = f'=SUM({refs})'
     ws[f'H{subtotal_row}'].font = Font(name='Arial', bold=True, size=11, color=WHITE)
     ws[f'H{subtotal_row}'].fill = PatternFill('solid', start_color=DARK_BLUE)
     ws[f'H{subtotal_row}'].number_format = '_($* #,##0.00_)'
@@ -329,13 +366,16 @@ def _build_materials(wb, building_results, inputs, pricing):
 
     note_row = subtotal_row + 2
     ws.merge_cells(f'B{note_row}:H{note_row}')
-    ws[f'B{note_row}'] = 'Yellow unit price cells are blank — enter pricing to calculate extended costs.'
+    ws[f'B{note_row}'] = (
+        'Yellow unit price cells are blank — enter pricing and Extended $ will calculate automatically. '
+        f'Change Waste Factor (%) on Job Summary (C{SUMMARY_WASTE_ROW}) to update siding order quantities.'
+    )
     ws[f'B{note_row}'].font = Font(name='Arial', size=9, italic=True, color='7A5C00')
     ws[f'B{note_row}'].fill = PatternFill('solid', start_color=WARNING)
     return subtotal_row
 
 
-def _build_labor(wb):
+def _build_labor(wb, building_results):
     ws = wb.create_sheet('3 – Labor')
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['A'].width = 2
@@ -348,6 +388,20 @@ def _build_labor(wb):
     ws['B2'].fill = PatternFill('solid', start_color=DARK_BLUE)
     ws.row_dimensions[2].height = 26
 
+    ws.merge_cells('B3:F3')
+    ws['B3'] = (
+        'Prefilled quantities use net wall squares (actual install area) — '
+        'material waste factor on Tab 2 does NOT apply to labor.'
+    )
+    ws['B3'].font = Font(name='Arial', size=9, italic=True, color='666666')
+    ws.row_dimensions[3].height = 18
+    ws.row_dimensions[4].height = 8
+
+    labor_net_sq = round(
+        sum(b['quantities'].get('siding_squares_net', 0) or 0 for b in building_results),
+        2,
+    )
+
     s = Side(style='thin', color='D0DCE8')
     for col, txt in [('B', 'Labor Item'), ('C', 'Quantity'), ('D', 'Unit'), ('E', 'Unit Price'), ('F', 'Extended $')]:
         ws[f'{col}5'] = txt
@@ -355,27 +409,27 @@ def _build_labor(wb):
         ws[f'{col}5'].fill = PatternFill('solid', start_color=BLUE)
 
     labor_items = [
-        ('Tear off & removal of existing siding', 'sq'),
-        ('Dumpster / haul away', 'allowance'),
-        ('Siding installation', 'sq'),
-        ('House wrap / fan fold installation', 'sq'),
-        ('Window wrap (per opening)', 'each'),
-        ('Door wrap (per opening)', 'each'),
-        ('Fascia wrap – aluminum', 'lin ft'),
-        ('Soffit installation', 'sq ft'),
-        ('Metal corner wrap', 'lin ft'),
-        ('J-channel / trim installation', 'lin ft'),
-        ('Corner post installation', 'each'),
-        ('Caulking / sealants', 'allowance'),
-        ('Miscellaneous / contingency', '%'),
-        ('', ''),
-        ('', ''),
+        ('Tear off & removal of existing siding', 'sq', labor_net_sq),
+        ('Dumpster / haul away', 'allowance', None),
+        ('Siding installation', 'sq', labor_net_sq),
+        ('House wrap / fan fold installation', 'sq', labor_net_sq),
+        ('Window wrap (per opening)', 'each', None),
+        ('Door wrap (per opening)', 'each', None),
+        ('Fascia wrap – aluminum', 'lin ft', None),
+        ('Soffit installation', 'sq ft', None),
+        ('Metal corner wrap', 'lin ft', None),
+        ('J-channel / trim installation', 'lin ft', None),
+        ('Corner post installation', 'each', None),
+        ('Caulking / sealants', 'allowance', None),
+        ('Miscellaneous / contingency', '%', None),
+        ('', '', None),
+        ('', '', None),
     ]
-    for i, (label, unit) in enumerate(labor_items):
+    for i, (label, unit, prefilled_qty) in enumerate(labor_items):
         r = 6 + i
         bg = GRAY_HDR if i % 2 == 0 else WHITE
         ws[f'B{r}'] = label
-        ws[f'C{r}'] = ''
+        ws[f'C{r}'] = prefilled_qty if prefilled_qty is not None else ''
         ws[f'D{r}'] = unit
         ws[f'E{r}'] = ''
         ws[f'F{r}'] = f'=IF(AND(C{r}<>"",E{r}<>""),C{r}*E{r},"")'

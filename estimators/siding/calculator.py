@@ -29,7 +29,8 @@ def calculate_quantities(measurements, inputs, qty=1):
     soffit_ft = _scale(measurements.get('soffit', 0) or 0, qty)
 
     siding_area_with_waste = wall_net * (1 + waste_pct)
-    siding_squares = siding_area_with_waste / 100
+    siding_squares_net = wall_net / 100
+    siding_squares = siding_area_with_waste / 100  # order qty incl. material waste
 
     avg_story_ht = 9
     est_perimeter = wall_gross / (avg_story_ht * stories) if stories else wall_gross / 9
@@ -58,6 +59,7 @@ def calculate_quantities(measurements, inputs, qty=1):
         'wall_area_net': round(wall_net, 1),
         'wall_area_gross': round(wall_gross, 1),
         'siding_area_with_waste': round(siding_area_with_waste, 1),
+        'siding_squares_net': round(siding_squares_net, 2),
         'siding_squares': round(siding_squares, 2),
         'waste_pct': inputs.get('waste_pct', 10),
         'exposure_in': exposure,
@@ -90,6 +92,7 @@ def aggregate_building_quantities(building_results):
         'building_count': len(building_results),
         'total_qty': sum(b.get('qty', 1) for b in building_results),
         'wall_area_net': 0.0,
+        'siding_squares_net': 0.0,
         'siding_squares': 0.0,
         'starter_pieces': 0,
         'jchannel_pieces': 0,
@@ -101,6 +104,7 @@ def aggregate_building_quantities(building_results):
     for item in building_results:
         q = item['quantities']
         totals['wall_area_net'] += q.get('wall_area_net', 0) or 0
+        totals['siding_squares_net'] += q.get('siding_squares_net', 0) or 0
         totals['siding_squares'] += q.get('siding_squares', 0) or 0
         totals['starter_pieces'] += q.get('starter_pieces', 0) or 0
         totals['jchannel_pieces'] += q.get('jchannel_pieces', 0) or 0
@@ -109,5 +113,6 @@ def aggregate_building_quantities(building_results):
         totals['fascia_pieces'] += q.get('fascia_pieces', 0) or 0
         totals['soffit_pieces'] += q.get('soffit_pieces', 0) or 0
     totals['wall_area_net'] = round(totals['wall_area_net'], 1)
+    totals['siding_squares_net'] = round(totals['siding_squares_net'], 2)
     totals['siding_squares'] = round(totals['siding_squares'], 2)
     return totals
