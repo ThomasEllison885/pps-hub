@@ -170,6 +170,7 @@ function rowHtml(label, val) {
 
 function showDetail(idx) {
   const p = proposals[idx];
+  if (!p) return;
   activeLogId = p.logId;
   document.getElementById('mTitle').textContent = p.title;
   document.getElementById('mRows').innerHTML =

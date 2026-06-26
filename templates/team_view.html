@@ -329,7 +329,8 @@ function metaRow(label, val) {
 }
 
 function showProposalMeta(idx, key) {
-  const p = memberData[key].proposals[idx];
+  const p = (memberData[key] && memberData[key].proposals || [])[idx];
+  if (!p) return;
   document.getElementById('metaTitle').textContent = p.property_name || p.client_name || 'Unnamed';
   const rows = metaRow('Proposal #', p.proposal_number) +
     metaRow('Address', p.property_address) +
@@ -348,7 +349,8 @@ function showProposalMeta(idx, key) {
 }
 
 function showPPMMeta(idx, key) {
-  const p = memberData[key].ppms[idx];
+  const p = (memberData[key] && memberData[key].ppms || [])[idx];
+  if (!p) return;
   document.getElementById('metaTitle').textContent = p.property_name || 'Unnamed';
   const details = [p.scale, p.client_type, p.occupied, p.total_value].filter(Boolean).join(' · ');
   const rows = metaRow('Proposal #', p.proposal_number) +
@@ -363,7 +365,8 @@ function showPPMMeta(idx, key) {
 }
 
 function showTPSMeta(idx, key) {
-  const s = memberData[key].tpscopes[idx];
+  const s = (memberData[key] && memberData[key].tpscopes || [])[idx];
+  if (!s) return;
   document.getElementById('metaTitle').textContent = s.property_name || 'Unnamed';
   const mat = s.material_provider === 'tp' ? 'TP materials' : s.material_provider === 'pps' ? 'PPS materials' : (s.material_provider || '—');
   const lang = s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '—';

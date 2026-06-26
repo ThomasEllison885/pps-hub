@@ -161,6 +161,7 @@ function metaRow(label, val) {
 
 function showDetail(i) {
   const r = rows[i];
+  if (!r) return;
   document.getElementById('mTitle').textContent = r.property;
   document.getElementById('mDownload').href = `/site-visit/download/${r.id}`;
 

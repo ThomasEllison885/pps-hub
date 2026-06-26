@@ -114,6 +114,7 @@ const rows = [
 ];
 function showDetail(i) {
   const s = rows[i];
+  if (!s) return;
   document.getElementById('mTitle').textContent = s.title;
   document.getElementById('mPO').textContent = s.po;
   document.getElementById('mAddress').textContent = s.address;

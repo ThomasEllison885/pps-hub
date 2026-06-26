@@ -90,8 +90,10 @@
   .search-input:focus{border-color:var(--blue);}
   .search-hint{font-size:12px;color:#aaa;margin-top:8px;}
   .search-results{margin-top:14px;max-height:360px;overflow-y:auto;}
-  .search-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:7px;background:var(--light-bg);}
+  .search-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;margin-bottom:7px;background:var(--light-bg);cursor:pointer;}
   .search-item:hover{border-color:var(--blue);}
+  .vault-row-clickable{cursor:pointer;}
+  .vault-row-clickable:hover td{background:#fafcff;}
   .type-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-radius:20px;flex-shrink:0;margin-top:2px;}
   .type-proposal{background:#E3F2FD;color:#1565C0;}
   .type-ppm{background:#E8F5E9;color:#2E7D32;}
@@ -273,7 +275,7 @@
       </thead>
       <tbody id="vaultTableBody">
         {% for f in vault.files %}
-        <tr id="vault_row_{{ f.id }}">
+        <tr id="vault_row_{{ f.id }}" class="{% if f.log_id and f.doc_type == 'proposal' %}vault-row-clickable{% endif %}" {% if f.log_id and f.doc_type == 'proposal' %}onclick="openActivityDetail('proposal', {{ f.log_id }})"{% endif %}>
           <td>
             <div style="font-weight:600;color:var(--dark-blue);">{{ f.property_name or f.filename }}</div>
             <div style="font-size:11px;color:#aaa;">{{ f.filename }}</div>
@@ -283,8 +285,8 @@
           <td style="font-size:12px;color:#888;">{{ ((f.size_bytes or 0) / 1024)|round(1) }} KB</td>
           <td style="font-size:12px;color:#aaa;">{{ f.created_at.strftime('%b %d, %Y') if f.created_at else '—' }}</td>
           <td style="white-space:nowrap;">
-            <a href="/api/documents/{{ f.id }}/download" class="download-btn" style="margin-right:6px;">⬇</a>
-            <button class="vault-del" data-id="{{ f.id }}" data-name="{{ (f.property_name or f.filename)|e }}" onclick="deleteVaultFile(Number(this.dataset.id), this.dataset.name)">Delete</button>
+            <a href="/api/documents/{{ f.id }}/download" class="download-btn" style="margin-right:6px;" onclick="event.stopPropagation();">⬇</a>
+            <button class="vault-del" data-id="{{ f.id }}" data-name="{{ (f.property_name or f.filename)|e }}" onclick="event.stopPropagation();deleteVaultFile(Number(this.dataset.id), this.dataset.name)">Delete</button>
           </td>
         </tr>
         {% endfor %}
@@ -360,7 +362,7 @@
       </div>
       {% if all_proposals %}
       {% for p in all_proposals[:20] %}
-      <div class="act-item" id="proposal_{{ p.id }}" style="cursor:pointer;" onclick="showProposalMeta({{ loop.index0 }})">
+      <div class="act-item" id="proposal_{{ p.id }}" style="cursor:pointer;" onclick="openActivityDetail('proposal', {{ p.id }})">
         <div class="act-item-content">
           <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
           <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
@@ -382,7 +384,7 @@
       </div>
       {% if all_ppms %}
       {% for p in all_ppms[:20] %}
-      <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="showPPMMeta({{ loop.index0 }})">
+      <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="openActivityDetail('ppm', {{ p.id }})">
         <div class="act-item-content">
           <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
           <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
@@ -402,7 +404,7 @@
       </div>
       {% if all_subscopes %}
       {% for s in all_subscopes[:20] %}
-      <div class="act-item" style="cursor:pointer;" onclick="showTPSMeta({{ loop.index0 }})">
+      <div class="act-item" style="cursor:pointer;" onclick="openActivityDetail('tps', {{ s.id }})">
         <div class="act-item-content">
           <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
           <div class="act-meta">{{ s.generated_by.replace('_',' ').title() }} · {{ s.consultant_name or '' }} · {{ s.language|title if s.language else '' }}{% if s.po_number %} · PO {{ s.po_number }}{% endif %} · {{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
@@ -442,16 +444,12 @@
       <div id="amTitle" style="font-family:'DM Serif Display',serif;font-size:20px;color:#004C8C;line-height:1.3;flex:1;"></div>
       <button onclick="closeAdminMeta()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;margin-left:12px;">✕</button>
     </div>
-    <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;">
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Proposal #</div><div id="amNum" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Address</div><div id="amAddress" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Consultant</div><div id="amConsultant" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Generated By</div><div id="amBy" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Type</div><div id="amType" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Template / PM</div><div id="amTemplate" style="font-size:14px;color:#444;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Scopes</div><div id="amScopes" style="font-size:13px;color:#444;line-height:1.5;"></div></div>
-      <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Date</div><div id="amDate" style="font-size:14px;color:#444;"></div></div>
+    <div id="amBody" style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;"></div>
+    <div id="amObservationsWrap" style="display:none;margin-bottom:10px;">
+      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Observations</div>
+      <div id="amObservations" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
     </div>
+    <div id="amChecklistWrap" style="display:none;margin-bottom:10px;"></div>
     <div id="amIssueWrap" style="display:none;margin-bottom:10px;">
       <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Existing Issue</div>
       <div id="amIssue" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
@@ -461,11 +459,11 @@
       <div id="amOutcome" style="font-size:13px;color:#666;line-height:1.6;background:#EBF6FC;border-radius:6px;padding:10px 12px;"></div>
     </div>
     <div id="amNotesWrap" style="display:none;margin-top:10px;">
-      <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Special Instructions</div>
+      <div id="amNotesLabel" style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Special Instructions</div>
       <div id="amNotes" style="font-size:13px;color:#666;line-height:1.6;background:#FFF9E6;border-radius:6px;padding:10px 12px;border:1px solid #FFE082;"></div>
     </div>
     <div id="amDownloadWrap" style="display:none;margin-top:18px;padding-top:16px;border-top:1.5px solid #f0f4f8;">
-      <a id="amDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Re-download Proposal</a>
+      <a id="amDownload" href="#" class="pps-btn pps-btn-primary pps-btn-sm" style="text-decoration:none;">⬇ Download</a>
     </div>
   </div>
 </div>
@@ -546,85 +544,72 @@
     }
   }
 
-  // Proposal metadata
-  const adminProposals = [
-    {% for p in all_proposals[:20] %}
-    {
-      title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
-      num: {{ (p.proposal_number or '—')|tojson }},
-      client: {{ (p.client_name or '')|tojson }},
-      address: {{ (p.property_address or '—')|tojson }},
-      consultant: {{ (p.consultant_name or '')|tojson }},
-      by: {{ (p.generated_by or '')|tojson }},
-      type: {{ (p.property_type or '—')|tojson }},
-      template: {{ (p.template_type or '—')|tojson }},
-      scopes: {{ (p.scopes_selected or '—')|tojson }},
-      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
-      issue: {{ (p.existing_issue or '')|tojson }},
-      outcome: {{ (p.intended_outcome or '')|tojson }},
-      notes: {{ (p.scope_notes or '')|tojson }},
-      documentId: {{ (p.document_id or none)|tojson }},
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ];
+  const activityDetailCache = {};
 
-  const adminPPMs = [
-    {% for p in all_ppms[:20] %}
-    {
-      property: {{ (p.property_name or 'Unnamed')|tojson }},
-      pm: {{ (p.pm_name or '—')|tojson }},
-      by: {{ (p.generated_by or '')|tojson }},
-      address: {{ (p.property_address or '—')|tojson }},
-      client: {{ (p.client_name or '—')|tojson }},
-      num: {{ (p.proposal_number or '—')|tojson }},
-      value: {{ (p.total_value or '—')|tojson }},
-      propDate: {{ (p.proposal_date or '—')|tojson }},
-      projType: {{ (p.proj_type or '—')|tojson }},
-      scale: {{ (p.scale or '—')|tojson }},
-      clientType: {{ (p.client_type or '—')|tojson }},
-      occupied: {{ (p.occupied or '—')|tojson }},
-      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ];
+  function renderActivityDetail(data) {
+    if (!data) return;
+    document.getElementById('amTitle').textContent = data.title || 'Details';
+    const body = document.getElementById('amBody');
+    body.innerHTML = (data.rows || []).map(row =>
+      `<div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;">
+        <div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">${row.label}</div>
+        <div style="font-size:14px;color:#444;line-height:1.5;">${row.value || '—'}</div>
+      </div>`
+    ).join('');
 
-  const adminTPS = [
-    {% for s in all_subscopes[:20] %}
-    {
-      property: {{ (s.property_name or 'Unnamed')|tojson }},
-      pm: {{ (s.pm_name or '—')|tojson }},
-      by: {{ (s.generated_by or '')|tojson }},
-      address: {{ (s.property_address or '—')|tojson }},
-      po: {{ (s.po_number or '—')|tojson }},
-      language: {{ (s.language or '—')|tojson }},
-      consultant: {{ (s.consultant_name or '—')|tojson }},
-      material: {{ (s.material_provider or '—')|tojson }},
-      sourceFile: {{ (s.proposal_filename or '—')|tojson }},
-      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ];
-
-  function showProposalMeta(idx) {
-    const p = adminProposals[idx];
-    document.getElementById('amTitle').textContent = p.title;
-    document.getElementById('amNum').textContent = p.num;
-    document.getElementById('amAddress').textContent = p.address;
-    document.getElementById('amConsultant').textContent = p.consultant;
-    document.getElementById('amBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-    document.getElementById('amType').textContent = p.type;
-    document.getElementById('amTemplate').textContent = p.template;
-    document.getElementById('amScopes').textContent = p.scopes;
-    document.getElementById('amDate').textContent = p.date;
     const iw = document.getElementById('amIssueWrap');
     const ow = document.getElementById('amOutcomeWrap');
-    if (p.issue) { document.getElementById('amIssue').textContent = p.issue; iw.style.display='block'; } else { iw.style.display='none'; }
-    if (p.outcome) { document.getElementById('amOutcome').textContent = p.outcome; ow.style.display='block'; } else { ow.style.display='none'; }
     const nw = document.getElementById('amNotesWrap');
-    if (p.notes) { document.getElementById('amNotes').textContent = p.notes; nw.style.display='block'; } else { nw.style.display='none'; }
+    const obs = document.getElementById('amObservationsWrap');
+    const cl = document.getElementById('amChecklistWrap');
+    if (data.issue) {
+      document.getElementById('amIssue').textContent = data.issue;
+      iw.style.display = 'block';
+    } else {
+      iw.style.display = 'none';
+    }
+    if (data.outcome) {
+      document.getElementById('amOutcome').textContent = data.outcome;
+      ow.style.display = 'block';
+    } else {
+      ow.style.display = 'none';
+    }
+    if (data.notes) {
+      document.getElementById('amNotesLabel').textContent = data.type === 'tps' ? 'Source Proposal' : 'Special Instructions';
+      document.getElementById('amNotes').textContent = data.notes;
+      nw.style.display = 'block';
+    } else {
+      nw.style.display = 'none';
+    }
+    if (data.observations) {
+      document.getElementById('amObservations').textContent = data.observations;
+      obs.style.display = 'block';
+    } else {
+      obs.style.display = 'none';
+    }
+    if (data.checklist && data.checklist.length) {
+      let html = '<div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Inspection Checklist</div>';
+      data.checklist.forEach(item => {
+        if (!item || !item.label) return;
+        const sl = item.status === 'yes' ? 'Yes' : item.status === 'no' ? 'No' : item.status === 'na' ? 'N/A' : '—';
+        html += `<div style="font-size:13px;color:#444;padding:6px 0;border-bottom:1px solid #f0f4f8;"><strong>${sl}</strong> · ${item.label}${item.notes ? ' — <em>' + item.notes + '</em>' : ''}</div>`;
+      });
+      cl.innerHTML = html;
+      cl.style.display = 'block';
+    } else {
+      cl.style.display = 'none';
+      cl.innerHTML = '';
+    }
+
     const dlWrap = document.getElementById('amDownloadWrap');
-    if (p.documentId) {
-      document.getElementById('amDownload').href = '/api/documents/' + p.documentId + '/download';
+    const dl = document.getElementById('amDownload');
+    if (data.document_id) {
+      dl.href = '/api/documents/' + data.document_id + '/download';
+      dl.textContent = '⬇ Re-download Proposal';
+      dlWrap.style.display = 'block';
+    } else if (data.download_url) {
+      dl.href = data.download_url;
+      dl.textContent = '⬇ Download Word Report';
       dlWrap.style.display = 'block';
     } else {
       dlWrap.style.display = 'none';
@@ -632,46 +617,22 @@
     document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
 
-  function showPPMMeta(idx) {
-    const p = adminPPMs[idx];
-    document.getElementById('amTitle').textContent = p.property;
-    document.getElementById('amNum').textContent = p.num;
-    document.getElementById('amAddress').textContent = p.address;
-    document.getElementById('amConsultant').textContent = p.client;
-    document.getElementById('amBy').textContent = p.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-    document.getElementById('amType').textContent = p.projType;
-    document.getElementById('amTemplate').textContent = p.pm;
-    document.getElementById('amScopes').textContent = [p.scale, p.clientType, p.occupied, p.value !== '—' ? p.value : ''].filter(x => x && x !== '—').join(' · ') || '—';
-    document.getElementById('amDate').textContent = p.propDate !== '—' ? p.propDate + ' (generated ' + p.date + ')' : p.date;
-    document.getElementById('amIssueWrap').style.display = 'none';
-    document.getElementById('amOutcomeWrap').style.display = 'none';
-    document.getElementById('amNotesWrap').style.display = 'none';
-    document.getElementById('amDownloadWrap').style.display = 'none';
-    document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
-  }
-
-  function showTPSMeta(idx) {
-    const s = adminTPS[idx];
-    document.getElementById('amTitle').textContent = s.property;
-    document.getElementById('amNum').textContent = s.po;
-    document.getElementById('amAddress').textContent = s.address;
-    document.getElementById('amConsultant').textContent = s.consultant;
-    document.getElementById('amBy').textContent = s.by.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-    document.getElementById('amType').textContent = 'Trade Partner Scope';
-    document.getElementById('amTemplate').textContent = s.pm;
-    document.getElementById('amScopes').textContent = [s.language ? s.language.charAt(0).toUpperCase() + s.language.slice(1) : '', s.material === 'tp' ? 'TP materials' : s.material === 'pps' ? 'PPS materials' : ''].filter(Boolean).join(' · ') || '—';
-    document.getElementById('amDate').textContent = s.date;
-    document.getElementById('amIssueWrap').style.display = 'none';
-    document.getElementById('amOutcomeWrap').style.display = 'none';
-    const nw = document.getElementById('amNotesWrap');
-    if (s.sourceFile && s.sourceFile !== '—') {
-      document.getElementById('amNotes').textContent = 'Source proposal: ' + s.sourceFile;
-      nw.style.display = 'block';
-    } else {
-      nw.style.display = 'none';
+  async function openActivityDetail(type, id) {
+    if (!type || !id) return;
+    const cacheKey = type + ':' + id;
+    if (activityDetailCache[cacheKey]) {
+      renderActivityDetail(activityDetailCache[cacheKey]);
+      return;
     }
-    document.getElementById('amDownloadWrap').style.display = 'none';
-    document.getElementById('adminMetaModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
+    try {
+      const resp = await fetch('/api/activity-detail/' + encodeURIComponent(type) + '/' + id, { credentials: 'same-origin' });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Could not load details');
+      activityDetailCache[cacheKey] = data;
+      renderActivityDetail(data);
+    } catch (e) {
+      alert(e.message || 'Could not load activity details.');
+    }
   }
 
   function closeAdminMeta() { document.getElementById('adminMetaModal').style.display='none'; }
@@ -708,17 +669,21 @@
       box.innerHTML = '<div class="search-empty">No results for “' + query.replace(/</g,'') + '”</div>';
       return;
     }
+    const detailTypes = new Set(['proposal', 'ppm', 'tps', 'site_visit']);
     box.innerHTML = results.map(r => {
       const label = TYPE_LABELS[r.type] || r.type;
       const dl = r.document_id ? '<a href="/api/documents/' + r.document_id + '/download" class="download-btn" onclick="event.stopPropagation();">⬇</a>' : '';
-      const link = r.link ? '<a href="' + r.link + '" class="download-btn" style="background:white;">Open →</a>' : '';
-      return `<div class="search-item">
+      const link = r.link ? '<a href="' + r.link + '" class="download-btn" style="background:white;" onclick="event.stopPropagation();">Open →</a>' : '';
+      const click = (detailTypes.has(r.type) && r.id)
+        ? `onclick="openActivityDetail('${r.type}', ${r.id})"`
+        : (r.link ? `onclick="window.location.href='${r.link}'"` : '');
+      return `<div class="search-item" ${click}>
         <span class="type-badge type-${r.type}">${label}</span>
         <div style="flex:1;min-width:0;">
           <div class="search-item-title">${(r.title||'Unnamed').replace(/</g,'')}</div>
           <div class="search-item-meta">${(r.meta||'').replace(/</g,'')} · ${r.date||''}</div>
         </div>
-        <div class="search-item-actions">${dl}${link}</div>
+        <div class="search-item-actions" onclick="event.stopPropagation();">${dl}${link}</div>
       </div>`;
     }).join('');
   }

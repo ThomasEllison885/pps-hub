@@ -143,6 +143,7 @@ function formatBy(key) {
 
 function showDetail(idx) {
   const p = ppms[idx];
+  if (!p) return;
   document.getElementById('mTitle').textContent = p.title;
   const details = [p.scale, p.clientType, p.occupied, p.value !== '—' ? p.value : ''].filter(x => x && x !== '—').join(' · ') || '—';
   document.getElementById('mRows').innerHTML =

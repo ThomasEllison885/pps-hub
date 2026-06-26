@@ -203,6 +203,7 @@ const proposals = [
 
 function showDetail(idx) {
   const p = proposals[idx];
+  if (!p) return;
   document.getElementById('mTitle').textContent = p.title;
   document.getElementById('mNum').textContent = p.num;
   document.getElementById('mClient').textContent = p.client || p.title;
