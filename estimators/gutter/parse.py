@@ -1,8 +1,8 @@
 """Extract gutter-relevant measurements from roof report PDFs."""
-import re
 
-from estimators.siding.pdf_extract import extract_pdf_text
 from estimators.roofing.parse import parse_roof_report
+
+from .calculator import DEFAULTS, _suggest_downspouts
 
 
 def _estimate_gutter_lf_from_sqft(sqft):
@@ -45,6 +45,11 @@ def parse_gutter_measurements(pdf_bytes):
                 f'Bid Perfect has no eaves — rough gutter estimate from {sq} squares × 10 = {gutter_lf} LF.'
             )
 
+    gutter_lf = gutter_lf or 0
+    spacing = DEFAULTS['downspout_spacing_ft']
+    ds_each = DEFAULTS['downspout_lf_each']
+    suggested_ds = _suggest_downspouts(gutter_lf, spacing) if gutter_lf else 2
+
     measurements = {
         'report_type': report_type,
         'report_number': roof.get('report_number', ''),
@@ -54,9 +59,21 @@ def parse_gutter_measurements(pdf_bytes):
         'roof_area_squares': roof.get('roof_area_squares'),
         'eaves_ft': eaves_ft,
         'rakes_ft': roof.get('rakes_ft'),
-        'gutter_lf': gutter_lf or 0,
+        'gutter_lf': gutter_lf,
+        'suggested_downspout_count': suggested_ds,
+        'suggested_downspout_lf': round(suggested_ds * ds_each, 1),
         'structures': roof.get('structures') or [],
     }
+
+    if gutter_lf and not eaves_ft:
+        warnings.append(
+            f'Suggested {suggested_ds} downspouts ({suggested_ds * ds_each} LF vertical) '
+            f'from {gutter_lf} LF gutter run — verify on site.'
+        )
+    elif gutter_lf:
+        warnings.append(
+            f'Suggested {suggested_ds} downspouts at 1 per {spacing:.0f} LF of gutter — editable below.'
+        )
 
     if not measurements['gutter_lf']:
         warnings.append('Could not determine gutter run — enter linear feet manually.')

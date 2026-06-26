@@ -149,8 +149,17 @@
   </div>
 
   <div class="form-section">
-    <div class="form-section-title">4. Material Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(Optional)</span></div>
-    <p class="section-hint">Upload a <strong>CSV or Excel</strong> file with item names and prices (<strong>Item</strong> + <strong>Item Price</strong> columns work — same as the team worksheet). Prices pre-fill Tab 4; add <strong>qty_per_sq</strong> for optional Tab 3 library rows.</p>
+    <div class="form-section-title">4. Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(all editable)</span></div>
+    <p class="section-hint">Set labor, haul, tax, and delivery below — or upload a supplier price file. Yellow cells on Tab 1 and Tab 4 in the workbook can be changed after download too.</p>
+    <div class="field-row-3" style="margin-bottom:14px;">
+      <div class="field"><label>Labor $/sq (net)</label><input type="number" id="laborSq" value="180" step="5" min="0"></div>
+      <div class="field"><label>Haul off $/sq</label><input type="number" id="haulSq" value="25" step="1" min="0"></div>
+      <div class="field"><label>Material tax %</label><input type="number" id="taxPct" value="7" step="0.1" min="0"></div>
+    </div>
+    <div class="field" style="margin-bottom:14px;max-width:200px;">
+      <label>Delivery ($)</label><input type="number" id="delivery" value="15" step="1" min="0">
+    </div>
+    <p class="section-hint" style="margin-bottom:10px;"><strong>Material unit prices (optional):</strong> upload CSV or Excel with <strong>Item</strong> + <strong>Item Price</strong> columns (same as the team worksheet).</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <a href="/siding-estimator/pricing-template" class="pps-btn pps-btn-outline pps-btn-sm">⬇ Pricing Template</a>
       <input type="file" id="pricingFile" accept=".csv,.xlsx,.xls" onchange="previewPricing(this.files[0])" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
@@ -401,6 +410,10 @@ function getInputs() {
     include_fanfold: document.getElementById('incFanfold').checked,
     include_soffit: document.getElementById('incSoffit').checked,
     include_fascia_wrap: document.getElementById('incFasciaWrap').checked,
+    labor_per_sq: parseFloat(document.getElementById('laborSq').value) || 180,
+    haul_per_sq: parseFloat(document.getElementById('haulSq').value) || 25,
+    tax_pct: parseFloat(document.getElementById('taxPct').value) || 7,
+    delivery: parseFloat(document.getElementById('delivery').value) || 15,
   };
 }
 

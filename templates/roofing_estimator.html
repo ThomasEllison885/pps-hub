@@ -66,7 +66,7 @@
   </div>
 
   <div class="form-section">
-    <div class="form-section-title">3. Assumptions</div>
+    <div class="form-section-title">3. Assumptions &amp; Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid);">(all editable)</span></div>
     <div class="field-row-3" style="margin-bottom:12px;">
       <div class="field">
         <label>Waste %</label>
@@ -81,12 +81,16 @@
         <input type="number" id="marginPct" value="25" min="0" max="50">
       </div>
     </div>
-    <div class="field-row-3">
-      <div class="field"><label>Labor $/sq</label><input type="number" id="laborSq" value="60"></div>
-      <div class="field"><label>Material $/sq (quick bid)</label><input type="number" id="matSq" value="65"></div>
-      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1"></div>
+    <div class="field-row-3" style="margin-bottom:12px;">
+      <div class="field"><label>Labor $/sq</label><input type="number" id="laborSq" value="60" step="1" min="0"></div>
+      <div class="field"><label>Material $/sq (quick bid)</label><input type="number" id="matSq" value="65" step="1" min="0"></div>
+      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1" min="0"></div>
     </div>
-    <p class="section-hint" style="margin-top:12px;">Pipe boots are not on EagleView reports — count from site photos. Material $/sq applies to Bid Perfect quick bids only.</p>
+    <div class="field-row-3">
+      <div class="field"><label>Dump: sq per load</label><input type="number" id="dumpDiv" value="45" step="1" min="1"></div>
+      <div class="field"><label>Dump $/load</label><input type="number" id="dumpCost" value="200" step="25" min="0"></div>
+    </div>
+    <p class="section-hint" style="margin-top:12px;">Pipe boots are not on EagleView reports — count from site photos. Quick-bid material $/sq is for Bid Perfect only. Premium/Roofr material unit prices are editable in yellow cells on Tab 3 after download.</p>
   </div>
 
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
@@ -163,8 +167,8 @@ function getInputs() {
     material_per_sq: parseFloat(document.getElementById('matSq').value) || 65,
     tax_pct: parseFloat(document.getElementById('taxPct').value) || 7.5,
     margin_pct: parseFloat(document.getElementById('marginPct').value) || 25,
-    dump_divisor: 45,
-    dump_cost: 200,
+    dump_divisor: parseFloat(document.getElementById('dumpDiv').value) || 45,
+    dump_cost: parseFloat(document.getElementById('dumpCost').value) || 200,
   };
 }
 

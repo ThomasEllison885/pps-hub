@@ -12,14 +12,17 @@
   .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
-  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;background:white;}
+  .upload-zone:hover{border-color:var(--blue);background:#f8fcff;}
   .upload-zone input{display:none;}
   .parsed-box{display:none;margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;}
   .parsed-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
   .parsed-warn{background:#FEF9E7;border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;color:#7A5C00;margin-top:6px;}
+  .report-badge{display:inline-block;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--dark-blue);margin-bottom:8px;}
   .section-hint{font-size:13px;color:var(--gray-mid);margin-bottom:12px;line-height:1.5;}
   .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
   label.chk{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-top:8px;}
+  @media(max-width:700px){.field-row,.field-row-3,.parsed-grid{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -34,28 +37,30 @@
 
 <div class="pps-main-narrow">
   <div class="pps-page-title">Gutter Estimator</div>
-  <p class="pps-page-sub">Upload a roof report to pull <strong>eaves length</strong> as gutter run, or enter LF manually. Defaults from PPS gutter worksheet: <strong>$7/LF</strong> installed, <strong>$2/LF</strong> guards.</p>
+  <p class="pps-page-sub">Upload an <strong>EagleView Premium</strong>, <strong>Bid Perfect</strong>, or <strong>Roofr</strong> PDF to pull gutter run from eaves length and suggest downspouts. All pricing is editable here and in the Excel yellow cells.</p>
 
   <div class="form-section">
-    <div class="form-section-title">1. Measurements</div>
-    <p class="section-hint">EagleView Premium and Roofr include eaves LF. Downspouts are suggested at 1 per 35 LF (editable).</p>
+    <div class="form-section-title">1. EagleView / Roofr PDF</div>
+    <p class="section-hint">Premium and Roofr include eaves LF (gutter run). Bid Perfect estimates from roof squares. Downspout count is suggested at 1 per 35 LF — adjust after upload if needed.</p>
     <div class="upload-zone" onclick="this.querySelector('input').click()">
-      <strong style="color:var(--blue);">Upload roof PDF</strong> (optional — EagleView or Roofr)
-      <input type="file" id="pdfFile" accept=".pdf" onchange="parsePdf(this.files[0])">
-      <div id="fileStatus" style="font-size:12px;margin-top:6px;"></div>
+      <div style="font-size:14px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload roof report PDF</strong></div>
+      <div style="font-size:12px;color:#888;margin-top:4px;">EagleView Premium · Bid Perfect · Roofr</div>
+      <input type="file" id="pdfFile" accept=".pdf,.PDF" onchange="parsePdf(this.files[0])">
+      <div id="fileStatus" style="font-size:12px;margin-top:8px;"></div>
     </div>
     <div class="parsed-box" id="parsedBox">
+      <div id="reportBadge"></div>
       <div class="parsed-grid" id="parsedGrid"></div>
       <div id="parsedWarns"></div>
     </div>
     <div class="field-row" style="margin-top:14px;">
       <div class="field">
         <label>Gutter Run (LF)</label>
-        <input type="number" id="gutterLf" min="0" step="1" placeholder="Eaves length">
+        <input type="number" id="gutterLf" min="0" step="1" placeholder="From eaves or manual">
       </div>
       <div class="field">
         <label>Downspout Count</label>
-        <input type="number" id="downspoutCount" min="0" step="1" placeholder="Auto-suggested if blank">
+        <input type="number" id="downspoutCount" min="0" step="1" placeholder="Auto from EagleView">
       </div>
     </div>
     <div class="field-row" style="margin-top:12px;">
@@ -64,24 +69,41 @@
         <input type="number" id="dsHeight" value="10" min="1" step="0.5">
       </div>
       <div class="field">
+        <label>Downspout spacing (LF)</label>
+        <input type="number" id="dsSpacing" value="35" min="10" step="1" title="1 downspout per this many LF of gutter">
+      </div>
+    </div>
+    <div class="field-row" style="margin-top:12px;">
+      <div class="field">
         <label>Waste / cuts (%)</label>
         <select id="wastePct"><option value="0">0%</option><option value="10" selected>10%</option><option value="15">15%</option></select>
       </div>
+      <div class="field" style="display:flex;align-items:flex-end;">
+        <label class="chk" style="margin:0;"><input type="checkbox" id="incGuards"> Include gutter guards</label>
+      </div>
     </div>
-    <label class="chk"><input type="checkbox" id="incGuards"> Include gutter guards ($2/LF)</label>
   </div>
 
   <div class="form-section">
-    <div class="form-section-title">2. Job &amp; Pricing</div>
+    <div class="form-section-title">2. Job Information</div>
     <div class="field-row" style="margin-bottom:12px;">
       <div class="field"><label>Property Name</label><input type="text" id="propName"></div>
       <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
     </div>
-    <div class="field" style="margin-bottom:12px;"><label>Address</label><input type="text" id="propAddr"></div>
+    <div class="field"><label>Address</label><input type="text" id="propAddr"></div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">3. Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid);">(all editable)</span></div>
+    <p class="section-hint">Rates pre-fill the Excel workbook. Yellow cells on Tab 1 and Tab 3 can be changed after download too.</p>
+    <div class="field-row-3" style="margin-bottom:12px;">
+      <div class="field"><label>Gutter + DS $/LF</label><input type="number" id="gutterRate" value="7" step="0.5" min="0"></div>
+      <div class="field"><label>Guard $/LF</label><input type="number" id="guardRate" value="2" step="0.5" min="0"></div>
+      <div class="field"><label>Extra labor $/LF</label><input type="number" id="laborLf" value="0" step="0.5" min="0"></div>
+    </div>
     <div class="field-row-3">
-      <div class="field"><label>Gutter $/LF</label><input type="number" id="gutterRate" value="7" step="0.5"></div>
-      <div class="field"><label>Guard $/LF</label><input type="number" id="guardRate" value="2" step="0.5"></div>
-      <div class="field"><label>Margin %</label><input type="number" id="marginPct" value="25"></div>
+      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1" min="0"></div>
+      <div class="field"><label>Margin %</label><input type="number" id="marginPct" value="25" min="0" max="50"></div>
     </div>
   </div>
 
@@ -91,23 +113,44 @@
 <script>
 let measurements = {};
 
+const REPORT_NAMES = {
+  bid_perfect: 'EagleView Bid Perfect',
+  premium: 'EagleView Premium',
+  roofr: 'Roofr',
+};
+
 function suggestDownspouts(lf) {
-  if (!lf) return '';
-  return Math.max(2, Math.ceil(lf / 35));
+  const spacing = parseFloat(document.getElementById('dsSpacing').value) || 35;
+  if (!lf) return 2;
+  return Math.max(2, Math.ceil(lf / spacing));
+}
+
+function applyDownspoutSuggestion(lf, explicitCount) {
+  const ds = document.getElementById('downspoutCount');
+  const count = explicitCount != null ? explicitCount : suggestDownspouts(lf);
+  if (lf) {
+    ds.value = count;
+    ds.placeholder = 'Suggested: ' + count;
+  }
 }
 
 function onGutterLfChange() {
   const lf = parseFloat(document.getElementById('gutterLf').value);
   const ds = document.getElementById('downspoutCount');
-  if (!ds.value && lf) ds.placeholder = 'Suggested: ' + suggestDownspouts(lf);
+  if (!ds.dataset.userEdited && lf) applyDownspoutSuggestion(lf);
 }
 
 document.getElementById('gutterLf').addEventListener('input', onGutterLfChange);
+document.getElementById('dsSpacing').addEventListener('input', onGutterLfChange);
+document.getElementById('downspoutCount').addEventListener('input', function() {
+  this.dataset.userEdited = '1';
+});
 
 async function parsePdf(file) {
   if (!file) return;
   const st = document.getElementById('fileStatus');
-  st.textContent = '⏳ Parsing…';
+  st.textContent = '⏳ Parsing EagleView / Roofr report…';
+  st.style.color = '';
   const fd = new FormData();
   fd.append('pdf', file);
   try {
@@ -117,19 +160,34 @@ async function parsePdf(file) {
     measurements = d.measurements || {};
     st.textContent = '✓ ' + file.name;
     st.style.color = 'var(--green)';
+
     if (measurements.property_address) {
       document.getElementById('propAddr').value = measurements.property_address;
       document.getElementById('propName').value = measurements.property_address.split(',')[0].trim();
     }
     if (measurements.gutter_lf) {
       document.getElementById('gutterLf').value = Math.round(measurements.gutter_lf);
-      document.getElementById('downspoutCount').placeholder = 'Suggested: ' + suggestDownspouts(measurements.gutter_lf);
+      const ds = document.getElementById('downspoutCount');
+      delete ds.dataset.userEdited;
+      applyDownspoutSuggestion(
+        measurements.gutter_lf,
+        measurements.suggested_downspout_count
+      );
     }
+
     document.getElementById('parsedBox').style.display = 'block';
+    const rt = measurements.report_type || 'unknown';
+    document.getElementById('reportBadge').innerHTML =
+      '<span class="report-badge">' + (REPORT_NAMES[rt] || rt) + '</span>';
+
+    const dsCount = measurements.suggested_downspout_count || suggestDownspouts(measurements.gutter_lf);
+    const dsLf = measurements.suggested_downspout_lf || (dsCount * (parseFloat(document.getElementById('dsHeight').value) || 10));
+
     document.getElementById('parsedGrid').innerHTML = [
-      ['Eaves / gutter run', (measurements.gutter_lf || '—') + ' ft'],
-      ['Roof area', measurements.roof_area_sqft ? measurements.roof_area_sqft + ' sq ft' : '—'],
-      ['Report', measurements.report_type || '—'],
+      ['Eaves → gutter run', (measurements.gutter_lf || '—') + ' ft'],
+      ['Suggested downspouts', dsCount + ' (' + dsLf + ' ft vertical)'],
+      ['Roof area', measurements.roof_area_sqft ? measurements.roof_area_sqft.toLocaleString() + ' sq ft' : '—'],
+      ['Report #', measurements.report_number || '—'],
     ].map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
     document.getElementById('parsedWarns').innerHTML = (d.warnings||[]).map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
   } catch (e) {
@@ -141,7 +199,7 @@ async function parsePdf(file) {
 async function generate() {
   const gutterLf = parseFloat(document.getElementById('gutterLf').value);
   if (!gutterLf && !measurements.gutter_lf) {
-    alert('Enter gutter run (LF) or upload a report with eaves length.');
+    alert('Upload an EagleView PDF or enter gutter run (LF) manually.');
     return;
   }
   measurements.gutter_lf = gutterLf || measurements.gutter_lf;
@@ -150,11 +208,13 @@ async function generate() {
     waste_pct: parseInt(document.getElementById('wastePct').value, 10),
     downspout_count: dsVal !== '' ? parseInt(dsVal, 10) : null,
     downspout_lf_each: parseFloat(document.getElementById('dsHeight').value) || 10,
+    downspout_spacing_ft: parseFloat(document.getElementById('dsSpacing').value) || 35,
     include_guards: document.getElementById('incGuards').checked,
-    gutter_price_per_lf: parseFloat(document.getElementById('gutterRate').value) || 7,
-    guard_price_per_lf: parseFloat(document.getElementById('guardRate').value) || 2,
+    gutter_price_per_lf: parseFloat(document.getElementById('gutterRate').value) || 0,
+    guard_price_per_lf: parseFloat(document.getElementById('guardRate').value) || 0,
+    labor_per_lf: parseFloat(document.getElementById('laborLf').value) || 0,
     margin_pct: parseFloat(document.getElementById('marginPct').value) || 25,
-    tax_pct: 7.5,
+    tax_pct: parseFloat(document.getElementById('taxPct').value) || 7.5,
   };
   const job = {
     property_name: document.getElementById('propName').value || 'Property',
