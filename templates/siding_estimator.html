@@ -150,10 +150,10 @@
 
   <div class="form-section">
     <div class="form-section-title">4. Material Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(Optional)</span></div>
-    <p class="section-hint">Upload a CSV with <strong>item_name</strong> and <strong>unit_price</strong> to pre-fill Tab 4. Add <strong>qty_per_sq</strong> on a row when you want it in the optional Tab 3 Material Library (per-square detail).</p>
+    <p class="section-hint">Upload a <strong>CSV or Excel</strong> file with item names and prices (<strong>Item</strong> + <strong>Item Price</strong> columns work — same as the team worksheet). Prices pre-fill Tab 4; add <strong>qty_per_sq</strong> for optional Tab 3 library rows.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
       <a href="/siding-estimator/pricing-template" class="pps-btn pps-btn-outline pps-btn-sm">⬇ Pricing Template</a>
-      <input type="file" id="pricingFile" accept=".csv" onchange="previewPricing(this.files[0])" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      <input type="file" id="pricingFile" accept=".csv,.xlsx,.xls" onchange="previewPricing(this.files[0])" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
     </div>
     <div id="pricingStatus" style="font-size:12px;margin-top:8px;display:none;"></div>
   </div>
