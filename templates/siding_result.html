@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estimate Ready — PPS</title>
+<style>
+  .main { max-width: 720px; margin: 0 auto; padding: 48px 24px 60px; }
+  .result-card { background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 36px; text-align: center; }
+  .check { width: 56px; height: 56px; background: #E6F7EC; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px; }
+  h1 { font-family: var(--font-serif); font-size: 26px; color: var(--dark-blue); margin-bottom: 8px; }
+  .sub { color: #666; font-size: 14px; margin-bottom: 24px; }
+  .summary-box { background: var(--light-bg); border: 1.5px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; text-align: left; font-size: 13px; }
+  .summary-box strong { color: var(--dark-blue); }
+  .result-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+  .result-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 8px; border-radius: 12px; border: 1.5px solid var(--border); background: white; cursor: pointer; text-decoration: none; color: inherit; font-family: var(--font-body); }
+  .result-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+  .result-btn-icon { font-size: 24px; }
+  .result-btn-label { font-size: 14px; font-weight: 600; color: var(--dark-blue); }
+  .result-btn-sub { font-size: 11px; color: #aaa; }
+  .email-panel { display: none; margin-top: 16px; background: var(--light-bg); border: 1.5px solid var(--border); border-radius: 10px; padding: 16px; text-align: left; }
+  .email-panel.open { display: block; }
+  .email-row { display: flex; gap: 8px; margin-top: 6px; }
+  .email-row input { flex: 1; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; }
+  .email-row button { background: var(--dark-blue); color: white; border: none; border-radius: 8px; padding: 9px 18px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn-another { display: inline-block; margin-top: 12px; padding: 12px 28px; border-radius: 8px; border: 1.5px solid var(--border); color: var(--dark-blue); font-weight: 600; text-decoration: none; }
+  @media (max-width: 640px) { .result-actions { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Siding Estimator</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="result-card">
+    <div class="check">✓</div>
+    <h1>Estimate Ready</h1>
+    <p class="sub">{{ property_name }} — {{ building_count }} building{{ 's' if building_count != 1 else '' }}</p>
+    <p style="font-size:13px;color:#888;margin-bottom:16px;">{{ filename }}</p>
+
+    <div class="summary-box">
+      <strong>Job totals (all buildings):</strong><br>
+      Net wall area: {{ totals.wall_area_net | default(0) }} sq ft<br>
+      Siding: {{ totals.siding_squares | default(0) }} squares<br>
+      Starter: {{ totals.starter_pieces | default(0) }} pcs · J-channel: {{ totals.jchannel_pieces | default(0) }} pcs<br>
+      Inside corners: {{ totals.inside_corner_pieces | default(0) }} · Outside corners: {{ totals.outside_corner_pieces | default(0) }}
+    </div>
+
+    <div style="background:var(--light-bg);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;text-align:left;font-size:13px;color:#555;line-height:1.55;">
+      Open the Excel file to review <strong>per-building sections</strong>, add labor costs on Tab 3, and apply markup on Tab 4.
+    </div>
+
+    <div class="result-actions">
+      <a class="result-btn" href="{{ url_for('siding_estimator_preview', estimate_id=estimate_id) }}">
+        <span class="result-btn-icon">👁</span>
+        <span class="result-btn-label">Preview</span>
+        <span class="result-btn-sub">Summary in browser</span>
+      </a>
+      <a class="result-btn" href="{{ url_for('siding_estimator_download', estimate_id=estimate_id) }}">
+        <span class="result-btn-icon">⬇</span>
+        <span class="result-btn-label">Download</span>
+        <span class="result-btn-sub">Excel file</span>
+      </a>
+      <button type="button" class="result-btn" onclick="toggleEmail()">
+        <span class="result-btn-icon">✉</span>
+        <span class="result-btn-label">Email</span>
+        <span class="result-btn-sub">Send to inbox</span>
+      </button>
+    </div>
+
+    <div class="email-panel" id="emailPanel">
+      <label style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;">Send to</label>
+      <div class="email-row">
+        <input type="email" id="emailToInput" value="{{ user_email }}">
+        <button type="button" onclick="sendEmail()" id="sendEmailBtn">Send</button>
+      </div>
+      <div id="emailStatus" style="font-size:13px;margin-top:8px;"></div>
+    </div>
+
+    <a href="{{ url_for('siding_estimator') }}" class="btn-another">Start Another Estimate</a>
+  </div>
+</div>
+
+<script>
+function toggleEmail() {
+  document.getElementById('emailPanel').classList.toggle('open');
+}
+async function sendEmail() {
+  const toEmail = document.getElementById('emailToInput').value.trim();
+  const status = document.getElementById('emailStatus');
+  const btn = document.getElementById('sendEmailBtn');
+  if (!toEmail) { status.textContent = 'Enter an email address.'; status.style.color = 'var(--red)'; return; }
+  btn.textContent = 'Sending…'; btn.disabled = true;
+  try {
+    const r = await fetch('{{ url_for("siding_estimator_email", estimate_id=estimate_id) }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to_email: toEmail }),
+      credentials: 'same-origin',
+    });
+    const d = await r.json();
+    if (d.success) {
+      status.innerHTML = '✓ Sent to <strong>' + (d.sent_to || toEmail) + '</strong>';
+      status.style.color = 'var(--green)';
+      btn.textContent = '✓ Sent';
+    } else {
+      status.textContent = d.error || 'Send failed';
+      status.style.color = 'var(--red)';
+      btn.textContent = 'Send'; btn.disabled = false;
+    }
+  } catch (e) {
+    status.textContent = e.message;
+    status.style.color = 'var(--red)';
+    btn.textContent = 'Send'; btn.disabled = false;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estimate Preview — PPS</title>
+<style>
+  .main { max-width: 800px; margin: 0 auto; padding: 32px 24px 60px; }
+  .card { background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 24px; margin-bottom: 16px; }
+  h1 { font-family: var(--font-serif); font-size: 24px; color: var(--dark-blue); margin-bottom: 6px; }
+  .meta { font-size: 13px; color: #888; margin-bottom: 20px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dark-blue); padding: 8px 10px; background: var(--light-bg); border-bottom: 1.5px solid var(--border); }
+  td { padding: 8px 10px; border-bottom: 1px solid #f0f4f8; }
+  .building-head { font-weight: 600; color: var(--dark-blue); margin: 16px 0 8px; font-size: 14px; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Siding Estimator</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="{{ url_for('siding_estimator_result', estimate_id=estimate_id) }}" class="pps-btn-header">← Back</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="card">
+    <h1>{{ job.property_name or 'Siding Estimate' }}</h1>
+    <div class="meta">
+      {{ job.address or '' }}<br>
+      Estimator: {{ job.estimator or '' }} · Date: {{ job.date or '' }}<br>
+      Siding: {{ inputs.siding_type }} · Waste: {{ inputs.waste_pct }}%
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Building</th>
+          <th>Type</th>
+          <th>Qty</th>
+          <th>Source</th>
+          <th>Wall (net)</th>
+          <th>Siding (sq)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for b in building_rows %}
+        <tr>
+          <td>{{ b.label }}</td>
+          <td>{{ b.building_type }}</td>
+          <td>{{ b.qty }}</td>
+          <td>{{ b.source_label }}</td>
+          <td>{{ b.quantities.wall_area_net }}</td>
+          <td>{{ b.quantities.siding_squares }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <div class="building-head">Job totals</div>
+    <table>
+      <tbody>
+        <tr><td>Total net wall area</td><td>{{ totals.wall_area_net }} sq ft</td></tr>
+        <tr><td>Total siding</td><td>{{ totals.siding_squares }} squares</td></tr>
+        <tr><td>Starter strip</td><td>{{ totals.starter_pieces }} pieces</td></tr>
+        <tr><td>J-channel</td><td>{{ totals.jchannel_pieces }} sticks</td></tr>
+        <tr><td>Inside / outside corner posts</td><td>{{ totals.inside_corner_pieces }} / {{ totals.outside_corner_pieces }}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="actions">
+      <a href="{{ url_for('siding_estimator_download', estimate_id=estimate_id) }}" class="pps-btn">⬇ Download Excel</a>
+      <a href="{{ url_for('siding_estimator_result', estimate_id=estimate_id) }}" class="pps-btn pps-btn-outline">Result Page</a>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS · Siding Estimator</title>
+<style>
+  .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
+  .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
+  .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font-body);outline:none;}
+  .field input:focus,.field select:focus{border-color:var(--blue);}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .field-row-4{display:grid;grid-template-columns:1.2fr 1fr 0.6fr 1fr;gap:10px;align-items:end;}
+  .building-card{border:1.5px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;background:var(--light-bg);}
+  .building-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .building-title{font-size:14px;font-weight:600;color:var(--dark-blue);}
+  .remove-btn{background:none;border:none;color:var(--red);font-size:12px;font-weight:600;cursor:pointer;font-family:var(--font-body);}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:20px;text-align:center;cursor:pointer;background:white;}
+  .upload-zone:hover{border-color:var(--blue);background:#f8fcff;}
+  .upload-zone input{display:none;}
+  .parsed-box{background:white;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:10px;display:none;}
+  .parsed-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;}
+  .parsed-warn{background:#FEF9E7;border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;color:#7A5C00;margin-top:4px;}
+  .manual-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+  .manual-grid .field{margin:0;}
+  .access-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .access-grid label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray);cursor:pointer;}
+  .add-building-btn{width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:var(--radius);background:white;color:var(--dark-blue);font-weight:600;cursor:pointer;font-family:var(--font-body);}
+  .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;font-family:var(--font-body);margin-top:8px;}
+  .generate-btn:disabled{background:#bbb;cursor:not-allowed;}
+  .source-panel{display:none;margin-top:10px;}
+  .source-panel.active{display:block;}
+  @media(max-width:700px){.field-row,.field-row-3,.field-row-4,.parsed-grid,.manual-grid,.access-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Siding Estimator</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="pps-main-narrow">
+  <div class="pps-page-title">Siding Estimator</div>
+  <p class="pps-page-sub">Add each building with its type and quantity. Upload an aerial report or enter field measurements, then generate a per-building Excel estimate.</p>
+
+  <div class="form-section">
+    <div class="form-section-title">1. Job Information</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="field-row">
+        <div class="field"><label>Property Name</label><input type="text" id="propName" placeholder="e.g. Westwood Apartments"></div>
+        <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
+      </div>
+      <div class="field"><label>Property Address</label><input type="text" id="propAddr" placeholder="Street, City, State ZIP"></div>
+      <div class="field-row">
+        <div class="field"><label>Date</label><input type="date" id="estDate"></div>
+        <div class="field"><label>Report # (optional)</label><input type="text" id="reportNum" placeholder="From aerial report if applicable"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">2. Buildings</div>
+    <p style="font-size:13px;color:var(--gray-mid);margin-bottom:12px;">For each building: choose type, how many identical units, and how measurements were obtained.</p>
+    <div id="buildingsList"></div>
+    <button type="button" class="add-building-btn" onclick="addBuilding()">+ Add Building</button>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">3. Siding Specifications</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="field-row">
+        <div class="field">
+          <label>Siding Type</label>
+          <select id="sidingType" onchange="onTypeChange()">
+            <option value="Vinyl Lap" selected>Vinyl Lap</option>
+            <option value="Vinyl Vertical / Board & Batten">Vinyl Vertical / Board &amp; Batten</option>
+            <option value="HardiePlank (Fiber Cement Lap)">HardiePlank — Fiber Cement Lap</option>
+            <option value="HardiePanel (Fiber Cement Vertical)">HardiePanel — Fiber Cement Vertical</option>
+            <option value="LP SmartSide Lap">LP SmartSide Lap</option>
+            <option value="LP SmartSide Panel">LP SmartSide Panel</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="field vinyl-only" id="expWrap">
+          <label>Vinyl Exposure</label>
+          <select id="expSelect" onchange="onExpChange()">
+            <option value="4">4"</option>
+            <option value="4.5" selected>4.5"</option>
+            <option value="5">5"</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="field vinyl-only" id="expCustomWrap" style="display:none;">
+        <label>Custom Exposure (inches)</label>
+        <input type="number" id="expCustom" step="0.25" min="3" max="8">
+      </div>
+      <div class="field-row-3">
+        <div class="field">
+          <label>Waste Factor</label>
+          <select id="wastePct">
+            <option value="10" selected>10%</option>
+            <option value="12">12%</option>
+            <option value="15">15%</option>
+            <option value="20">20%</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Corner Post Length</label>
+          <select id="postLen">
+            <option value="10">10 ft</option>
+            <option value="12" selected>12 ft</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Stories</label>
+          <select id="stories">
+            <option value="1">1 Story</option>
+            <option value="2" selected>2 Stories</option>
+            <option value="3">3 Stories</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;display:block;margin-bottom:8px;">Accessories (optional)</label>
+        <div class="access-grid">
+          <label><input type="checkbox" id="incHousewrap"> House wrap</label>
+          <label><input type="checkbox" id="incFanfold"> Fan fold insulation</label>
+          <label><input type="checkbox" id="incSoffit"> Soffit</label>
+          <label><input type="checkbox" id="incFasciaWrap"> Fascia metal wrap</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">4. Material Pricing <span style="font-weight:400;font-size:13px;color:var(--gray-mid)">(Optional)</span></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <a href="/siding-estimator/pricing-template" class="pps-btn pps-btn-outline pps-btn-sm">⬇ Pricing Template</a>
+      <input type="file" id="pricingFile" accept=".csv" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;">
+    </div>
+  </div>
+
+  <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+
+  <div class="pps-footer" style="margin-top:20px;">
+    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
+  </div>
+</div>
+
+<script>
+const BUILDING_TYPES = ['Building', 'Garage', 'Clubhouse', 'Carport / Shed', 'Other'];
+const MANUAL_FIELDS = [
+  ['wall_area_net', 'Net Wall Area (sq ft)'],
+  ['wall_area_gross', 'Gross Wall Area (sq ft)'],
+  ['window_door_perimeter', 'W&D Perimeter (lin ft)'],
+  ['window_door_count', 'W&D Count'],
+  ['inside_corners', 'Inside Corners (lin ft)'],
+  ['outside_corners', 'Outside Corners (lin ft)'],
+  ['fascia', 'Fascia (lin ft)'],
+  ['soffit', 'Soffit (lin ft)'],
+];
+let buildingCount = 0;
+
+function buildingId() {
+  buildingCount += 1;
+  return 'b' + buildingCount;
+}
+
+function addBuilding() {
+  const id = buildingId();
+  const n = document.querySelectorAll('.building-card').length + 1;
+  const typeOpts = BUILDING_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  const manualInputs = MANUAL_FIELDS.map(([k, lbl]) =>
+    `<div class="field"><label>${lbl}</label><input type="number" step="0.1" min="0" data-field="${k}" placeholder="0"></div>`
+  ).join('');
+
+  const html = `
+  <div class="building-card" id="${id}" data-id="${id}">
+    <div class="building-head">
+      <div class="building-title">Building ${n}</div>
+      <button type="button" class="remove-btn" onclick="removeBuilding('${id}')">Remove</button>
+    </div>
+    <div class="field-row-4">
+      <div class="field"><label>Label</label><input type="text" data-role="label" value="Building ${n}"></div>
+      <div class="field"><label>Type</label><select data-role="type">${typeOpts}</select></div>
+      <div class="field"><label>Qty</label><input type="number" data-role="qty" min="1" value="1"></div>
+      <div class="field">
+        <label>Data Source</label>
+        <select data-role="source" onchange="onSourceChange('${id}')">
+          <option value="eagleview">EagleView PDF</option>
+          <option value="aerial_other">Other Aerial Report</option>
+          <option value="field" selected>Field Measurements</option>
+        </select>
+      </div>
+    </div>
+    <div class="source-panel" id="${id}-pdf">
+      <div class="upload-zone" onclick="this.querySelector('input').click()">
+        <div style="font-size:13px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload PDF</strong> — walls / elevation report</div>
+        <input type="file" accept=".pdf,.PDF" onchange="parsePdf('${id}', this.files[0])">
+        <div data-role="file-status" style="font-size:12px;margin-top:6px;"></div>
+      </div>
+      <div class="parsed-box" data-role="parsed-box">
+        <div class="parsed-grid" data-role="parsed-grid"></div>
+        <div data-role="parsed-warns"></div>
+      </div>
+    </div>
+    <div class="source-panel active" id="${id}-field">
+      <div class="manual-grid">${manualInputs}</div>
+    </div>
+  </div>`;
+  document.getElementById('buildingsList').insertAdjacentHTML('beforeend', html);
+  onSourceChange(id);
+}
+
+function removeBuilding(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+  if (!document.querySelector('.building-card')) addBuilding();
+}
+
+function onSourceChange(id) {
+  const card = document.getElementById(id);
+  const source = card.querySelector('[data-role="source"]').value;
+  const pdf = document.getElementById(id + '-pdf');
+  const field = document.getElementById(id + '-field');
+  pdf.classList.toggle('active', source !== 'field');
+  field.classList.toggle('active', source === 'field');
+}
+
+async function parsePdf(id, file) {
+  if (!file) return;
+  const card = document.getElementById(id);
+  const status = card.querySelector('[data-role="file-status"]');
+  const source = card.querySelector('[data-role="source"]').value;
+  status.textContent = '⏳ Parsing…';
+  status.style.color = '';
+
+  const fd = new FormData();
+  fd.append('pdf', file);
+  fd.append('source', source);
+  try {
+    const r = await fetch('/siding-estimator/parse', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    card._measurements = d.measurements || {};
+    card._warnings = d.warnings || [];
+    status.textContent = '✓ ' + file.name;
+    status.style.color = 'var(--green)';
+    if (d.measurements.property_address && !document.getElementById('propAddr').value) {
+      document.getElementById('propAddr').value = d.measurements.property_address;
+    }
+    if (d.measurements.report_number && !document.getElementById('reportNum').value) {
+      document.getElementById('reportNum').value = d.measurements.report_number;
+    }
+    renderParsed(card, d.measurements, d.warnings);
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+function renderParsed(card, m, warns) {
+  const box = card.querySelector('[data-role="parsed-box"]');
+  const grid = card.querySelector('[data-role="parsed-grid"]');
+  const items = [
+    ['Net Wall', fmt(m.wall_area_net) + ' sq ft'],
+    ['Gross Wall', fmt(m.wall_area_gross) + ' sq ft'],
+    ['W&D Perim', fmt(m.window_door_perimeter) + ' lin ft'],
+    ['Inside Corners', fmt(m.inside_corners) + ' lin ft'],
+    ['Outside Corners', fmt(m.outside_corners) + ' lin ft'],
+    ['Fascia', fmt(m.fascia) + ' lin ft'],
+  ];
+  grid.innerHTML = items.map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
+  card.querySelector('[data-role="parsed-warns"]').innerHTML =
+    (warns || []).map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
+  box.style.display = 'block';
+}
+
+function fmt(v) {
+  if (v == null) return '<span style="color:var(--red)">—</span>';
+  return Number(v).toLocaleString('en-US', { maximumFractionDigits: 1 });
+}
+
+function collectManualMeasurements(card) {
+  const m = {};
+  card.querySelectorAll('[data-field]').forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (!isNaN(v)) m[inp.dataset.field] = v;
+  });
+  return m;
+}
+
+function collectBuilding(card) {
+  const source = card.querySelector('[data-role="source"]').value;
+  let measurements = {};
+  if (source === 'field') {
+    measurements = collectManualMeasurements(card);
+  } else {
+    measurements = card._measurements || {};
+  }
+  return {
+    label: card.querySelector('[data-role="label"]').value.trim() || 'Building',
+    building_type: card.querySelector('[data-role="type"]').value,
+    qty: Math.max(1, parseInt(card.querySelector('[data-role="qty"]').value) || 1),
+    source,
+    measurements,
+  };
+}
+
+function onTypeChange() {
+  const isVinyl = document.getElementById('sidingType').value.toLowerCase().includes('vinyl');
+  document.querySelectorAll('.vinyl-only').forEach(el => el.style.display = isVinyl ? '' : 'none');
+}
+function onExpChange() {
+  document.getElementById('expCustomWrap').style.display =
+    document.getElementById('expSelect').value === 'other' ? '' : 'none';
+}
+
+function getInputs() {
+  const expV = document.getElementById('expSelect').value;
+  const exposure = expV === 'other' ? (parseFloat(document.getElementById('expCustom').value) || 4.5) : parseFloat(expV);
+  return {
+    siding_type: document.getElementById('sidingType').value,
+    exposure_in: exposure,
+    waste_pct: parseInt(document.getElementById('wastePct').value),
+    post_length: parseInt(document.getElementById('postLen').value),
+    stories: parseInt(document.getElementById('stories').value),
+    include_housewrap: document.getElementById('incHousewrap').checked,
+    include_fanfold: document.getElementById('incFanfold').checked,
+    include_soffit: document.getElementById('incSoffit').checked,
+    include_fascia_wrap: document.getElementById('incFasciaWrap').checked,
+  };
+}
+
+async function generate() {
+  const cards = [...document.querySelectorAll('.building-card')];
+  if (!cards.length) { alert('Add at least one building.'); return; }
+
+  const buildings = cards.map(collectBuilding);
+  for (const b of buildings) {
+    if (b.source !== 'field' && !Object.keys(b.measurements).length) {
+      alert(`Upload a PDF or switch "${b.label}" to field measurements.`);
+      return;
+    }
+    if (b.source === 'field' && !b.measurements.wall_area_net) {
+      alert(`Enter net wall area for "${b.label}".`);
+      return;
+    }
+  }
+
+  const job = {
+    property_name: document.getElementById('propName').value || document.getElementById('propAddr').value || 'Property',
+    address: document.getElementById('propAddr').value,
+    estimator: document.getElementById('estimator').value,
+    date: document.getElementById('estDate').value,
+    report_number: document.getElementById('reportNum').value,
+  };
+
+  const fd = new FormData();
+  fd.append('job', JSON.stringify(job));
+  fd.append('buildings', JSON.stringify(buildings));
+  fd.append('inputs', JSON.stringify(getInputs()));
+  const pf = document.getElementById('pricingFile').files[0];
+  if (pf) fd.append('pricing', pf);
+
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    const r = await fetch('/siding-estimator/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Generation failed');
+    window.location.href = d.redirect_url;
+  } catch (e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Generate Estimate →';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('estDate').value = new Date().toISOString().split('T')[0];
+  onTypeChange();
+  addBuilding();
+});
+</script>
+</body>
+</html>
