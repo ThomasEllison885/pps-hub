@@ -1817,6 +1817,100 @@ def _update_last_login(user_key):
     _touch_last_active(user_key, force=True)
 
 
+def _build_dashboard_recent_feed(
+    recent_proposals,
+    recent_ppms,
+    recent_tpscopes,
+    recent_siding,
+    recent_roofing,
+    recent_gutter,
+    recent_painting,
+    limit=8,
+):
+    """Merge recent hub activity into one chronological feed for the dashboard."""
+    from datetime import datetime
+
+    items = []
+
+    def _add(dt, payload):
+        items.append({**payload, '_ts': dt or datetime.min})
+
+    for i, p in enumerate(recent_proposals or []):
+        _add(p.get('generated_at'), {
+            'kind': 'proposal',
+            'kind_label': 'Proposal',
+            'title': p.get('property_name') or p.get('client_name') or 'Unnamed',
+            'meta': ' · '.join(x for x in [p.get('consultant_name'), p.get('property_type')] if x),
+            'modal': {'type': 'proposal', 'idx': i},
+        })
+    for i, p in enumerate(recent_ppms or []):
+        _add(p.get('generated_at'), {
+            'kind': 'ppm',
+            'kind_label': 'PPM',
+            'title': p.get('client_name') or p.get('property_name') or 'Unnamed',
+            'meta': p.get('proj_type') or p.get('pm_name') or '',
+            'modal': {'type': 'ppm', 'idx': i},
+        })
+    for i, s in enumerate(recent_tpscopes or []):
+        _add(s.get('generated_at'), {
+            'kind': 'tps',
+            'kind_label': 'TPS',
+            'title': s.get('property_name') or 'Unnamed',
+            'meta': ' · '.join(x for x in [
+                s.get('language', '').title() if s.get('language') else '',
+                s.get('pm_name'),
+            ] if x),
+            'modal': {'type': 'tps', 'idx': i},
+        })
+    for e in recent_siding or []:
+        _add(e.get('generated_at'), {
+            'kind': 'estimate',
+            'kind_label': 'Siding',
+            'title': e.get('property_name') or 'Unnamed',
+            'meta': f"{e.get('building_count') or 1} building{'s' if (e.get('building_count') or 1) != 1 else ''}",
+            'url': f"/siding-estimator/result/{e.get('id')}",
+        })
+    for e in recent_roofing or []:
+        _add(e.get('generated_at'), {
+            'kind': 'estimate',
+            'kind_label': 'Roofing',
+            'title': e.get('property_name') or 'Unnamed',
+            'meta': e.get('report_type') or 'report',
+            'url': f"/roofing-estimator/result/{e.get('id')}",
+        })
+    for e in recent_gutter or []:
+        _add(e.get('generated_at'), {
+            'kind': 'estimate',
+            'kind_label': 'Gutters',
+            'title': e.get('property_name') or 'Unnamed',
+            'meta': f"{float(e.get('gutter_lf') or 0):.0f} LF",
+            'url': f"/gutter-estimator/result/{e.get('id')}",
+        })
+    for e in recent_painting or []:
+        _add(e.get('generated_at'), {
+            'kind': 'estimate',
+            'kind_label': 'Painting',
+            'title': e.get('property_name') or 'Unnamed',
+            'meta': f"{e.get('line_count') or 0} lines",
+            'url': f"/painting-estimator/result/{e.get('id')}",
+        })
+
+    items.sort(key=lambda x: x['_ts'], reverse=True)
+    feed = []
+    for it in items[:limit]:
+        dt = it['_ts']
+        feed.append({
+            'kind': it['kind'],
+            'kind_label': it['kind_label'],
+            'title': it['title'],
+            'meta': it['meta'],
+            'date': dt.strftime('%b %d') if hasattr(dt, 'strftime') and dt != datetime.min else '',
+            'url': it.get('url'),
+            'modal': it.get('modal'),
+        })
+    return feed
+
+
 @app.route('/dashboard')
 @require_login
 def dashboard():
@@ -1833,29 +1927,12 @@ def dashboard():
     recent_painting_estimates = []
     # Recent Trade Partner Scopes
     recent_tpscopes = []
-    all_my_ppms = []
-    all_my_tpscopes = []
     try:
         conn_tps = get_db()
         if conn_tps:
             cur_tps = conn_tps.cursor(cursor_factory=RealDictCursor)
-            # Recent TPS
             cur_tps.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC LIMIT 5', (user_key,))
             recent_tpscopes = cur_tps.fetchall()
-            # Full PPM history — PMs see all PPMs where they are listed as PM
-            user_def = USERS.get(user_key, {})
-            if user_def.get('role') in ('pm', 'admin'):
-                cur_tps.execute(
-                    '''SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s
-                       ORDER BY generated_at DESC''',
-                    (user_key, user_key)
-                )
-            else:
-                cur_tps.execute('SELECT * FROM ppm_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
-            all_my_ppms = cur_tps.fetchall()
-            # Full TPS history
-            cur_tps.execute('SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
-            all_my_tpscopes = cur_tps.fetchall()
             cur_tps.execute(
                 '''SELECT id, property_name, property_address, building_count, siding_type, generated_at
                    FROM siding_estimate_log WHERE generated_by = %s
@@ -1889,20 +1966,19 @@ def dashboard():
     except Exception as e:
         print(f"Recent activity error: {e}")
     is_admin = (user.get('role') == 'admin')
-    # Get date events
+    user_role = user.get('role', '')
     date_events = get_date_events(user_key, is_admin=is_admin)
-    # Get full proposal history for consultants
-    all_my_proposals = []
-    if user.get('role') in ('consultant', 'admin'):
-        try:
-            conn2 = get_db()
-            if conn2:
-                cur2 = conn2.cursor(cursor_factory=RealDictCursor)
-                cur2.execute('SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC', (user_key,))
-                all_my_proposals = cur2.fetchall()
-                cur2.close()
-                conn2.close()
-        except: pass
+    recent_feed = _build_dashboard_recent_feed(
+        recent_proposals,
+        recent_ppms,
+        recent_tpscopes,
+        recent_siding_estimates,
+        recent_roofing_estimates,
+        recent_gutter_estimates,
+        recent_painting_estimates,
+    )
+    sales_lane_open = user_role in ('consultant', 'office_manager', 'admin')
+    production_lane_open = user_role in ('pm', 'office_manager', 'admin')
     team_view = user.get('team_view', False)
     team_view_scope = user.get('team_view_scope')
     psc_training_stats = None
@@ -1910,27 +1986,26 @@ def dashboard():
     if psc_training_enrolled:
         psc_training_stats = compute_psc_training_stats(user_key)
     psc_training_oversight = can_psc_training_oversight(user_key)
-    return render_template('dashboard.html',
-                           user=user,
-                           user_key=user_key,
-                           team_view=team_view,
-                           team_view_scope=team_view_scope,
-                           consultants=accessible_consultants,
-                           recent_proposals=recent_proposals,
-                           recent_ppms=recent_ppms,
-                           recent_tpscopes=recent_tpscopes,
-                           all_my_proposals=all_my_proposals,
-                           all_my_ppms=all_my_ppms,
-                           all_my_tpscopes=all_my_tpscopes,
-                           date_events=date_events,
-                           psc_training_stats=psc_training_stats,
-                           psc_training_enrolled=psc_training_enrolled,
-                           psc_training_oversight=psc_training_oversight,
-                           recent_siding_estimates=recent_siding_estimates,
-                           recent_roofing_estimates=recent_roofing_estimates,
-                           recent_gutter_estimates=recent_gutter_estimates,
-                           recent_painting_estimates=recent_painting_estimates,
-                           proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
+    return render_template(
+        'dashboard.html',
+        user=user,
+        user_key=user_key,
+        user_role=user_role,
+        sales_lane_open=sales_lane_open,
+        production_lane_open=production_lane_open,
+        team_view=team_view,
+        team_view_scope=team_view_scope,
+        consultants=accessible_consultants,
+        recent_proposals=recent_proposals,
+        recent_ppms=recent_ppms,
+        recent_tpscopes=recent_tpscopes,
+        recent_feed=recent_feed,
+        date_events=date_events,
+        psc_training_stats=psc_training_stats,
+        psc_training_enrolled=psc_training_enrolled,
+        psc_training_oversight=psc_training_oversight,
+        proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+    )
 
 
 @app.route('/estimating/property-lookup')

@@ -34,7 +34,34 @@
 
   .section-head { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
 
-  .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px; }
+  .tools-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .dashboard-lanes { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+  .dashboard-lane { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); overflow: hidden; }
+  .dashboard-lane summary { list-style: none; cursor: pointer; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; user-select: none; }
+  .dashboard-lane summary::-webkit-details-marker { display: none; }
+  .dashboard-lane summary::after { content: '▾'; color: var(--blue); font-size: 14px; transition: transform 0.2s; }
+  .dashboard-lane:not([open]) summary::after { transform: rotate(-90deg); }
+  .lane-title { font-size: 12px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; }
+  .lane-sub { font-size: 12px; color: #888; font-weight: 400; text-transform: none; letter-spacing: 0; margin-top: 2px; }
+  .lane-links { display: flex; gap: 8px; flex-wrap: wrap; margin-right: 8px; }
+  .lane-link { font-size: 11px; font-weight: 600; color: var(--blue); text-decoration: none; white-space: nowrap; }
+  .lane-link:hover { text-decoration: underline; }
+  .lane-body { padding: 0 18px 18px; }
+  .dash-role-pm .lane-production { order: 1; }
+  .dash-role-pm .lane-sales { order: 2; }
+  .dash-role-consultant .lane-sales { order: 1; }
+  .dash-role-consultant .lane-production { order: 2; }
+  .recent-feed { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; margin-bottom: 28px; border: 1px solid var(--border); }
+  .recent-feed-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
+  .recent-feed-head h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; }
+  .feed-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 7px; background: var(--light-bg); text-decoration: none; color: inherit; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+  .feed-item:hover { border-color: rgba(0,150,214,0.4); background: #fff; }
+  .feed-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 8px; border-radius: 20px; flex-shrink: 0; margin-top: 2px; background: #E3F2FD; color: #1565C0; }
+  .feed-badge.ppm { background: #E8F5E9; color: #2E7D32; }
+  .feed-badge.tps { background: #FFF3E0; color: #E65100; }
+  .feed-badge.estimate { background: #F3E5F5; color: #6A1B9A; }
+  .feed-main { flex: 1; min-width: 0; }
+  .feed-date { font-size: 11px; color: #aaa; white-space: nowrap; }
   .tool-card, .pps-tool-card {
     background: white; border-radius: 12px; padding: 20px 18px;
     text-decoration: none; color: var(--gray);
@@ -113,7 +140,7 @@
   }
 </style>
 </head>
-<body>
+<body class="dash-role-{{ user_role or 'consultant' }}">
 
 <header class="pps-header">
   <a href="/dashboard" class="pps-header-left">
@@ -135,7 +162,7 @@
   <div class="greeting">
     <div class="greeting-time" id="greetingTime"></div>
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
-    <p>Here's everything you need — all in one place.</p>
+    <p>Sales and production tools — organized for your role.</p>
   </div>
 
   {% if date_events %}
@@ -146,285 +173,172 @@
   {% endfor %}
   {% endif %}
 
-  <div class="pps-section-head">Your Tools</div>
-  <div class="tools-grid">
-    {% if consultants %}
-    <a href="#" onclick="openTool('{{ proposal_url }}/proposal')" class="pps-tool-card">
-      <div class="pps-tool-icon">✍️</div>
-      <div class="pps-tool-name">Proposal Generator</div>
-      <div class="pps-tool-desc">Generate professional client proposals with PPS-standard language and branding.</div>
-      {% if consultants|length == 1 %}
-      <span class="tool-badge">{{ consultants.values()|list|first }}</span>
-      {% else %}
-      <span class="tool-badge">{{ consultants|length }} consultants</span>
-      {% endif %}
-      <div class="tool-meta">Open →</div>
-    </a>
-    {% else %}
-    <div class="tool-card disabled">
-      <div class="pps-tool-icon">✍️</div>
-      <div class="pps-tool-name">Proposal Generator</div>
-      <div class="pps-tool-desc">Not available for your role.</div>
-    </div>
-    {% endif %}
-
-    <a href="#" onclick="openTool('{{ proposal_url }}/ppm')" class="pps-tool-card">
-      <div class="pps-tool-icon">📋</div>
-      <div class="pps-tool-name">Pre-Project Meeting</div>
-      <div class="pps-tool-desc">Generate a Pre-Project Meeting checklist from an approved proposal.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
-
-    {% if consultants %}
-    <a href="#" onclick="openTool('{{ proposal_url }}/subscope')" class="pps-tool-card">
-      <div class="pps-tool-icon">📝</div>
-      <div class="pps-tool-name">Trade Partner Scope</div>
-      <div class="pps-tool-desc">Generate crew-ready scope documents from approved proposals. English & Spanish.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
-    {% else %}
-    <div class="tool-card disabled">
-      <div class="pps-tool-icon">📝</div>
-      <div class="pps-tool-name">Trade Partner Scope</div>
-      <div class="pps-tool-desc">Not available for your role.</div>
-    </div>
-    {% endif %}
-
-    <a href="/site-visit" class="pps-tool-card">
-      <div class="pps-tool-icon">🏗️</div>
-      <div class="pps-tool-name">Site Visit Report</div>
-      <div class="pps-tool-desc">Document site visits, inspect scope compliance, and track project progress.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
-
-    <a href="/estimating" class="pps-tool-card">
-      <div class="pps-tool-icon">📊</div>
-      <div class="pps-tool-name">Estimating</div>
-      <div class="pps-tool-desc">Siding, roofing, and gutter material takeoffs from EagleView, Roofr, and field measurements.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
-
-    <a href="/clients" class="pps-tool-card">
-      <div class="pps-tool-icon">👥</div>
-      <div class="pps-tool-name">Clients</div>
-      <div class="pps-tool-desc">Search and manage client contacts used by the proposal tool and your pipeline.</div>
-      <div class="tool-meta">Open →</div>
-    </a>
-
-    {% if psc_training_enrolled %}
-    <a href="/psc-training" class="pps-tool-card">
-      <div class="pps-tool-icon">🎓</div>
-      <div class="pps-tool-name">PSC Training</div>
-      <div class="pps-tool-desc">12-week onboarding: trades, shadowing, PPS voice, sales, and reading milestones.</div>
-      <span class="tool-badge">{{ psc_training_stats.pct }}% complete</span>
-      <div class="tool-meta">Open →</div>
-    </a>
-    {% endif %}
-
-    {% if psc_training_oversight %}
-    <a href="/psc-training/oversight" class="pps-tool-card">
-      <div class="pps-tool-icon">📊</div>
-      <div class="pps-tool-name">PSC Training Accountability</div>
-      <div class="pps-tool-desc">Track enrolled PSC onboarding progress, feedback, and graduation.</div>
-      <span class="tool-badge">Oversight</span>
-      <div class="tool-meta">Open →</div>
-    </a>
-    {% endif %}
-  </div>
-
-  <div class="pps-section-head">Recent Activity</div>
-  <div class="activity-grid">
-    <div class="activity-card">
-      <h3>Recent Proposals</h3>
-      {% if recent_proposals %}
-      {% for p in recent_proposals %}
-      <div class="act-item" onclick="showRecentProposal({{ loop.index0 }})">
-        <div class="act-top">
-          <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
+  <div class="dashboard-lanes">
+    <details class="dashboard-lane lane-sales" {% if sales_lane_open %}open{% endif %}>
+      <summary>
+        <div>
+          <div class="lane-title">Sales &amp; Consulting</div>
+          <div class="lane-sub">Win work — proposals, clients, and voice</div>
         </div>
-        <div class="act-meta">{{ p.consultant_name }} · {{ p.property_type or '' }}</div>
-      </div>
-      {% endfor %}
-      {% else %}
-      <div class="empty-state">No proposals generated yet</div>
-      {% endif %}
-    </div>
-    <div class="activity-card">
-      <h3>Recent Estimates</h3>
-      {% if recent_siding_estimates or recent_roofing_estimates or recent_gutter_estimates or recent_painting_estimates %}
-      {% for e in recent_siding_estimates[:3] %}
-      <a href="/siding-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
-        <div class="act-top">
-          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
+        <div class="lane-links" onclick="event.stopPropagation()">
+          {% if user_role in ('consultant', 'office_manager', 'admin') %}
+          <a href="/my-proposals" class="lane-link">My Proposals →</a>
+          {% endif %}
         </div>
-        <div class="act-meta">Siding · {{ e.building_count or 1 }} building{{ 's' if (e.building_count or 1) != 1 else '' }}</div>
-      </a>
-      {% endfor %}
-      {% for e in recent_roofing_estimates[:3] %}
-      <a href="/roofing-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
-        <div class="act-top">
-          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
-        </div>
-        <div class="act-meta">Roofing · {{ e.report_type or 'report' }}</div>
-      </a>
-      {% endfor %}
-      {% for e in recent_gutter_estimates[:3] %}
-      <a href="/gutter-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
-        <div class="act-top">
-          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
-        </div>
-        <div class="act-meta">Gutters · {{ '%.0f'|format(e.gutter_lf or 0) }} LF</div>
-      </a>
-      {% endfor %}
-      {% for e in recent_painting_estimates[:3] %}
-      <a href="/painting-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
-        <div class="act-top">
-          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
-          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
-        </div>
-        <div class="act-meta">Painting · {{ e.line_count or 0 }} lines</div>
-      </a>
-      {% endfor %}
-      <a href="/estimating" class="act-item" style="text-decoration:none;color:inherit;display:block;text-align:center;font-size:12px;color:var(--blue);font-weight:600;">View all estimates →</a>
-      {% else %}
-      <div class="empty-state">No estimates yet — <a href="/estimating" style="color:var(--blue);">open Estimating</a></div>
-      {% endif %}
-    </div>
-    <div class="activity-card">
-      <h3>Recent PPMs</h3>
-      {% if recent_ppms %}
-      {% for p in recent_ppms %}
-      <div class="act-item" onclick="showRecentPPM({{ loop.index0 }})">
-        <div class="act-top">
-          <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
-          <div class="act-date">{{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
-        </div>
-      </div>
-      {% endfor %}
-      {% else %}
-      <div class="empty-state">No PPMs generated yet</div>
-      {% endif %}
-    </div>
-  </div>
-  <div class="activity-grid" style="margin-top:0;">
-    <div class="activity-card">
-      <h3>Recent Trade Partner Scopes</h3>
-      {% if recent_tpscopes %}
-      {% for s in recent_tpscopes %}
-      <div class="act-item" onclick="showRecentTPS({{ loop.index0 }})">
-        <div class="act-top">
-          <div class="act-name">{{ s.property_name or 'Unnamed Property' }}</div>
-          <div class="act-date">{{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
-        </div>
-        <div class="act-meta">{{ s.language|title if s.language else '' }} · {{ s.pm_name or '' }}</div>
-      </div>
-      {% endfor %}
-      {% else %}
-      <div class="empty-state">No Trade Partner Scopes yet</div>
-      {% endif %}
-    </div>
-    <div class="activity-card" style="visibility:hidden;"></div>
-  </div>
-
-  {% if user.role in ('consultant', 'admin') %}
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-    <div class="pps-section-head" style="margin-bottom:0;padding-bottom:0;border-bottom:none;">My Proposal History ({{ all_my_proposals|length }})</div>
-    <a href="/my-proposals" class="pps-btn pps-btn-sm" style="text-decoration:none;white-space:nowrap;">View All →</a>
-  </div>
-  {% if all_my_proposals %}
-  <div class="pps-table-card">
-    <table class="pps-table">
-      <thead>
-        <tr>
-          <th>Client / Property</th>
-          <th>Consultant</th>
-          <th>Type</th>
-          <th>Template</th>
-          <th>Date</th>
-          <th>File</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for p in all_my_proposals %}
-        <tr onclick="showProposal({{ loop.index0 }})" style="cursor:pointer;">
-          <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
-            {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
-          </td>
-          <td>{{ p.consultant_name }}</td>
-          <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
-          <td style="font-size:12px;color:#888;">{{ p.template_type or '—' }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
-          <td style="font-size:12px;" onclick="event.stopPropagation();">
-            {% if p.document_id %}
-            <a href="/api/documents/{{ p.document_id }}/download" class="pps-btn pps-btn-sm" style="text-decoration:none;">⬇ Download</a>
+      </summary>
+      <div class="lane-body">
+        <div class="tools-grid">
+          {% if consultants %}
+          <a href="#" onclick="openTool('{{ proposal_url }}/proposal'); return false;" class="pps-tool-card">
+            <div class="pps-tool-icon">✍️</div>
+            <div class="pps-tool-name">Proposal Generator</div>
+            <div class="pps-tool-desc">Client proposals with PPS-standard language and branding.</div>
+            {% if consultants|length == 1 %}
+            <span class="tool-badge">{{ consultants.values()|list|first }}</span>
             {% else %}
-            <span style="color:#bbb;">—</span>
+            <span class="tool-badge">{{ consultants|length }} consultants</span>
             {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-  {% endif %}
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% else %}
+          <div class="tool-card disabled">
+            <div class="pps-tool-icon">✍️</div>
+            <div class="pps-tool-name">Proposal Generator</div>
+            <div class="pps-tool-desc">Not available for your role.</div>
+          </div>
+          {% endif %}
 
-  {% if user.role in ('pm', 'admin') %}
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
-    <div class="pps-section-head" style="margin-bottom:0;padding-bottom:0;border-bottom:none;">My PPM History ({{ all_my_ppms|length }})</div>
-    <a href="/my-ppms" class="pps-btn pps-btn-sm" style="text-decoration:none;white-space:nowrap;">View All →</a>
-  </div>
-  {% if all_my_ppms %}
-  <div class="pps-table-card">
-    <table class="pps-table">
-      <thead><tr><th>Client / Trade</th><th>PM</th><th>Date</th></tr></thead>
-      <tbody>
-        {% for p in all_my_ppms %}
-        <tr onclick="showPPM({{ loop.index0 }})" style="cursor:pointer;">
-          <td class="prop-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proj_type }}</span>{% endif %}</td>
-          <td style="font-size:13px;color:#888;">{{ p.pm_name or '—' }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
-  {% endif %}
+          <a href="/clients" class="pps-tool-card">
+            <div class="pps-tool-icon">👥</div>
+            <div class="pps-tool-name">Clients</div>
+            <div class="pps-tool-desc">Search and manage client contacts for proposals and pipeline.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
 
-  {% if all_my_tpscopes %}
-  <div class="pps-section-head">My Trade Partner Scopes ({{ all_my_tpscopes|length }})</div>
-  <div class="pps-table-card">
-    <table class="pps-table">
-      <thead><tr><th>Property</th><th>PM</th><th>Language</th><th>Date</th></tr></thead>
-      <tbody>
-        {% for s in all_my_tpscopes %}
-        <tr onclick="showTPS({{ loop.index0 }})" style="cursor:pointer;">
-          <td class="prop-name">{{ s.property_name or 'Unnamed' }}</td>
-          <td style="font-size:13px;color:#888;">{{ s.pm_name or '—' }}</td>
-          <td style="font-size:12px;color:#888;">{{ s.language|title if s.language else '—' }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% endif %}
+          {% if consultants %}
+          <a href="/my-diffs" class="pps-tool-card">
+            <div class="pps-tool-icon">🔍</div>
+            <div class="pps-tool-name">Proposal Comparison</div>
+            <div class="pps-tool-desc">Compare generated vs. edited proposals to improve our voice guide.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
 
-  {% if consultants %}
-  <div class="pps-section-head">Proposal Comparison Tool</div>
-  <div class="feedback-card" style="margin-bottom:28px;">
-    <h3>Submit a Before & After</h3>
-    <p style="font-size:14px;color:#888;margin-bottom:14px;line-height:1.6;">Upload your generated proposal and your edited version. Claude will analyze the differences and suggest improvements to our voice guide.</p>
-    <a href="/my-diffs" style="display:inline-block;background:var(--dark-blue);color:white;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:600;text-decoration:none;">Open Comparison Tool →</a>
-  </div>
-  {% endif %}
+          {% if psc_training_enrolled %}
+          <a href="/psc-training" class="pps-tool-card">
+            <div class="pps-tool-icon">🎓</div>
+            <div class="pps-tool-name">PSC Training</div>
+            <div class="pps-tool-desc">12-week onboarding: trades, shadowing, PPS voice, and sales.</div>
+            <span class="tool-badge">{{ psc_training_stats.pct }}% complete</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </details>
 
-  <div class="pps-section-head">Feedback & Suggestions</div>
+    <details class="dashboard-lane lane-production" {% if production_lane_open %}open{% endif %}>
+      <summary>
+        <div>
+          <div class="lane-title">Production &amp; Field</div>
+          <div class="lane-sub">Plan and deliver — estimating, PPMs, scopes, site visits</div>
+        </div>
+        <div class="lane-links" onclick="event.stopPropagation()">
+          <a href="/estimating" class="lane-link">Estimating →</a>
+          {% if user_role in ('pm', 'office_manager', 'admin') %}
+          <a href="/my-ppms" class="lane-link">My PPMs →</a>
+          {% endif %}
+        </div>
+      </summary>
+      <div class="lane-body">
+        <div class="tools-grid">
+          <a href="/estimating" class="pps-tool-card">
+            <div class="pps-tool-icon">📊</div>
+            <div class="pps-tool-name">Estimating</div>
+            <div class="pps-tool-desc">Siding, roofing, gutter, and painting takeoffs and quick bids.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+
+          <a href="#" onclick="openTool('{{ proposal_url }}/ppm'); return false;" class="pps-tool-card">
+            <div class="pps-tool-icon">📋</div>
+            <div class="pps-tool-name">Pre-Project Meeting</div>
+            <div class="pps-tool-desc">PPM checklist from an approved proposal.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+
+          {% if consultants %}
+          <a href="#" onclick="openTool('{{ proposal_url }}/subscope'); return false;" class="pps-tool-card">
+            <div class="pps-tool-icon">📝</div>
+            <div class="pps-tool-name">Trade Partner Scope</div>
+            <div class="pps-tool-desc">Crew-ready scopes from proposals. English &amp; Spanish.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% else %}
+          <div class="tool-card disabled">
+            <div class="pps-tool-icon">📝</div>
+            <div class="pps-tool-name">Trade Partner Scope</div>
+            <div class="pps-tool-desc">Not available for your role.</div>
+          </div>
+          {% endif %}
+
+          <a href="/site-visit" class="pps-tool-card">
+            <div class="pps-tool-icon">🏗️</div>
+            <div class="pps-tool-name">Site Visit Report</div>
+            <div class="pps-tool-desc">Document site visits and scope compliance in the field.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+
+          {% if psc_training_oversight %}
+          <a href="/psc-training/oversight" class="pps-tool-card">
+            <div class="pps-tool-icon">📈</div>
+            <div class="pps-tool-name">PSC Training Accountability</div>
+            <div class="pps-tool-desc">Track PSC onboarding progress and graduation.</div>
+            <span class="tool-badge">Oversight</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <div class="recent-feed">
+    <div class="recent-feed-head">
+      <h3>Recent Activity</h3>
+      <a href="/estimating" class="lane-link">All estimates →</a>
+    </div>
+    {% if recent_feed %}
+    {% for item in recent_feed %}
+      {% if item.url %}
+      <a href="{{ item.url }}" class="feed-item">
+        <span class="feed-badge estimate">{{ item.kind_label }}</span>
+        <div class="feed-main">
+          <div class="act-top">
+            <div class="act-name">{{ item.title }}</div>
+            <div class="feed-date">{{ item.date }}</div>
+          </div>
+          {% if item.meta %}<div class="act-meta">{{ item.meta }}</div>{% endif %}
+        </div>
+      </a>
+      {% else %}
+      <div class="feed-item" onclick="openFeedItem({{ item.modal|tojson }})">
+        <span class="feed-badge {{ item.kind }}">{{ item.kind_label }}</span>
+        <div class="feed-main">
+          <div class="act-top">
+            <div class="act-name">{{ item.title }}</div>
+            <div class="feed-date">{{ item.date }}</div>
+          </div>
+          {% if item.meta %}<div class="act-meta">{{ item.meta }}</div>{% endif %}
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">Nothing yet — open a tool above to get started.</div>
+    {% endif %}
+  </div>
+
+  <div class="pps-section-head">Feedback &amp; Suggestions</div>
   <div class="feedback-card">
     <h3>Share a Suggestion or Idea</h3>
     <textarea id="feedbackText" placeholder="What could be better? Have an idea for a new tool or feature? Let Thomas know…"></textarea>
@@ -444,26 +358,6 @@
 <script>
 const recentProposals = [
   {% for p in recent_proposals %}
-  {
-    logId: {{ p.id }},
-    title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
-    num: {{ (p.proposal_number or '—')|tojson }},
-    address: {{ (p.property_address or '—')|tojson }},
-    consultant: {{ (p.consultant_name or '')|tojson }},
-    type: {{ (p.property_type or '—')|tojson }},
-    template: {{ (p.template_type or '—')|tojson }},
-    scopes: {{ (p.scopes_selected or '—')|tojson }},
-    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
-    issue: {{ (p.existing_issue or '')|tojson }},
-    outcome: {{ (p.intended_outcome or '')|tojson }},
-    notes: {{ (p.scope_notes or '')|tojson }},
-    documentId: {{ (p.document_id or none)|tojson }},
-  }{% if not loop.last %},{% endif %}
-  {% endfor %}
-];
-
-const myProposals = [
-  {% for p in all_my_proposals %}
   {
     logId: {{ p.id }},
     title: {{ (p.property_name or p.client_name or 'Unnamed')|tojson }},
@@ -555,7 +449,6 @@ const myProposals = [
     document.getElementById('pdRegenerate').style.display = activeProposalLogId ? 'inline-block' : 'none';
     document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
-  function showProposal(idx) { openProposalModal(myProposals[idx]); }
   function showRecentProposal(idx) { openProposalModal(recentProposals[idx]); }
   function closePd() { document.getElementById('pdModal').style.display='none'; }
   async function regenerateProposal() {
@@ -595,44 +488,8 @@ const myProposals = [
     {% endfor %}
   ];
 
-  const myPPMs = [
-    {% for p in all_my_ppms %}
-    {
-      property: {{ (p.property_name or 'Unnamed')|tojson }},
-      pm: {{ (p.pm_name or '—')|tojson }},
-      by: {{ (p.generated_by or '')|tojson }},
-      address: {{ (p.property_address or '—')|tojson }},
-      client: {{ (p.client_name or '—')|tojson }},
-      num: {{ (p.proposal_number or '—')|tojson }},
-      value: {{ (p.total_value or '—')|tojson }},
-      projType: {{ (p.proj_type or '—')|tojson }},
-      scale: {{ (p.scale or '—')|tojson }},
-      clientType: {{ (p.client_type or '—')|tojson }},
-      occupied: {{ (p.occupied or '—')|tojson }},
-      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ];
-
   const recentTPS = [
     {% for s in recent_tpscopes %}
-    {
-      property: {{ (s.property_name or 'Unnamed')|tojson }},
-      pm: {{ (s.pm_name or '—')|tojson }},
-      by: {{ (s.generated_by or '')|tojson }},
-      address: {{ (s.property_address or '—')|tojson }},
-      po: {{ (s.po_number or '—')|tojson }},
-      language: {{ (s.language or '—')|tojson }},
-      consultant: {{ (s.consultant_name or '—')|tojson }},
-      material: {{ (s.material_provider or '—')|tojson }},
-      sourceFile: {{ (s.proposal_filename or '—')|tojson }},
-      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
-    }{% if not loop.last %},{% endif %}
-    {% endfor %}
-  ];
-
-  const myTPS = [
-    {% for s in all_my_tpscopes %}
     {
       property: {{ (s.property_name or 'Unnamed')|tojson }},
       pm: {{ (s.pm_name or '—')|tojson }},
@@ -660,7 +517,6 @@ const myProposals = [
     document.getElementById('ppmDate').textContent = p.date;
     document.getElementById('ppmModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
-  function showPPM(idx) { openPPMModal(myPPMs[idx]); }
   function showRecentPPM(idx) { openPPMModal(recentPPMs[idx]); }
   function closePPM() { document.getElementById('ppmModal').style.display='none'; }
 
@@ -685,8 +541,14 @@ const myProposals = [
     }
     document.getElementById('tpsModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
-  function showTPS(idx) { openTPSModal(myTPS[idx]); }
   function showRecentTPS(idx) { openTPSModal(recentTPS[idx]); }
+
+  function openFeedItem(modal) {
+    if (!modal || modal.idx == null) return;
+    if (modal.type === 'proposal') showRecentProposal(modal.idx);
+    else if (modal.type === 'ppm') showRecentPPM(modal.idx);
+    else if (modal.type === 'tps') showRecentTPS(modal.idx);
+  }
   function closeTPS() { document.getElementById('tpsModal').style.display='none'; }
 
   async function openTool(baseUrl, loadProposalId) {
