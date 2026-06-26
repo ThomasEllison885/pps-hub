@@ -27,3 +27,11 @@ services:
         sync: false
       - key: VAULT_STORAGE_LIMIT_MB
         value: "512"
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: HUB_NOTIFY_EMAIL
+        sync: false

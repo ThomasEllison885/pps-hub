@@ -368,7 +368,7 @@ const recentProposals = [
     address: {{ (p.property_address or '—')|tojson }},
     consultant: {{ (p.consultant_name or '')|tojson }},
     type: {{ (p.property_type or '—')|tojson }},
-    template: {{ (p.template_type or '—')|tojson }},
+    template: {{ (p.template_type|template_label)|tojson }},
     scopes: {{ (p.scopes_selected or '—')|tojson }},
     date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
