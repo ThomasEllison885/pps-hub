@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roof Estimate Ready — PPS</title>
+<style>
+  .main{max-width:720px;margin:0 auto;padding:48px 24px 60px;}
+  .result-card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:36px;text-align:center;}
+  .check{width:56px;height:56px;background:#E6F7EC;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;}
+  h1{font-family:var(--font-serif);font-size:26px;color:var(--dark-blue);margin-bottom:8px;}
+  .sub{color:#666;font-size:14px;margin-bottom:20px;}
+  .summary-box{background:var(--light-bg);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;text-align:left;font-size:13px;}
+  .result-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;}
+  .result-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:16px 8px;border-radius:12px;border:1.5px solid var(--border);background:white;cursor:pointer;text-decoration:none;color:inherit;}
+  .btn-another{display:inline-block;margin-top:12px;padding:12px 28px;border-radius:8px;border:1.5px solid var(--border);color:var(--dark-blue);font-weight:600;text-decoration:none;}
+  @media(max-width:640px){.result-actions{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Roofing Estimator</span>
+  </a>
+  <div class="pps-header-right"><a href="/dashboard" class="pps-btn-header">← Dashboard</a></div>
+</header>
+<div class="main">
+  <div class="result-card">
+    <div class="check">✓</div>
+    <h1>Roof Estimate Ready</h1>
+    <p class="sub">{{ property_name }} · {{ report_label }}</p>
+    <p style="font-size:13px;color:#888;margin-bottom:16px;">{{ filename }}</p>
+    <div class="summary-box">
+      <strong>Summary:</strong><br>
+      {% if is_quick_bid %}
+      Order squares: {{ summary.order_squares }} · Bid total: ${{ '%.2f'|format(summary.grand_total) }}
+      {% else %}
+      Order squares: {{ summary.order_squares }} · Timberline bundles: {{ summary.timberline_bundles }}
+      {% endif %}
+    </div>
+    <div class="result-actions">
+      <a class="result-btn" href="{{ url_for('roofing_estimator_preview', estimate_id=estimate_id) }}"><span style="font-size:24px;">👁</span><span style="font-weight:600;color:var(--dark-blue);">Preview</span></a>
+      <a class="result-btn" href="{{ url_for('roofing_estimator_download', estimate_id=estimate_id) }}"><span style="font-size:24px;">⬇</span><span style="font-weight:600;color:var(--dark-blue);">Download</span></a>
+      <button type="button" class="result-btn" onclick="document.getElementById('emailPanel').classList.toggle('open')"><span style="font-size:24px;">✉</span><span style="font-weight:600;color:var(--dark-blue);">Email</span></button>
+    </div>
+    <div id="emailPanel" style="display:none;margin-top:16px;text-align:left;background:var(--light-bg);padding:16px;border-radius:10px;">
+      <input type="email" id="emailTo" value="{{ user_email }}" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;">
+      <button onclick="sendEmail()" style="margin-top:8px;background:var(--dark-blue);color:white;border:none;padding:9px 18px;border-radius:8px;font-weight:600;cursor:pointer;">Send</button>
+      <div id="emailStatus" style="font-size:13px;margin-top:8px;"></div>
+    </div>
+    <style>#emailPanel.open{display:block!important;}</style>
+    <a href="{{ url_for('roofing_estimator') }}" class="btn-another">Start Another Estimate</a>
+  </div>
+</div>
+<script>
+async function sendEmail() {
+  const to = document.getElementById('emailTo').value.trim();
+  const st = document.getElementById('emailStatus');
+  const r = await fetch('{{ url_for("roofing_estimator_email", estimate_id=estimate_id) }}', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({to_email: to}), credentials: 'same-origin'
+  });
+  const d = await r.json();
+  st.textContent = d.success ? '✓ Sent' : (d.error || 'Failed');
+  st.style.color = d.success ? 'var(--green)' : 'var(--red)';
+}
+</script>
+</body>
+</html>

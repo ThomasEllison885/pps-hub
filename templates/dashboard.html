@@ -204,6 +204,13 @@
       <div class="tool-meta">Open →</div>
     </a>
 
+    <a href="/roofing-estimator" class="pps-tool-card">
+      <div class="pps-tool-icon">🏠</div>
+      <div class="pps-tool-name">Roofing Estimator</div>
+      <div class="pps-tool-desc">Quick bid from EagleView Bid Perfect, or full GAF material list from Premium / Roofr reports.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
+
     {% if psc_training_enrolled %}
     <a href="/psc-training" class="pps-tool-card">
       <div class="pps-tool-icon">🎓</div>
@@ -257,6 +264,22 @@
       {% endfor %}
       {% else %}
       <div class="empty-state">No siding estimates yet</div>
+      {% endif %}
+    </div>
+    <div class="activity-card">
+      <h3>Recent Roof Estimates</h3>
+      {% if recent_roofing_estimates %}
+      {% for e in recent_roofing_estimates %}
+      <a href="/roofing-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
+        <div class="act-top">
+          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
+          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
+        </div>
+        <div class="act-meta">{{ e.report_type or 'roof' }} report</div>
+      </a>
+      {% endfor %}
+      {% else %}
+      <div class="empty-state">No roof estimates yet</div>
       {% endif %}
     </div>
     <div class="activity-card">

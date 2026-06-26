@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS · Roofing Estimator</title>
+<style>
+  .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
+  .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
+  .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font-body);outline:none;}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;background:white;}
+  .upload-zone:hover{border-color:var(--blue);background:#f8fcff;}
+  .upload-zone input{display:none;}
+  .parsed-box{background:white;border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:12px;display:none;}
+  .parsed-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;}
+  .parsed-warn{background:#FEF9E7;border:1px solid var(--amber);border-radius:6px;padding:6px 10px;font-size:11px;color:#7A5C00;margin-top:4px;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
+  .section-hint{font-size:13px;color:var(--gray-mid);margin-bottom:12px;line-height:1.5;}
+  .report-badge{display:inline-block;background:var(--light-bg);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-size:12px;font-weight:600;color:var(--dark-blue);margin-top:8px;}
+  .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
+  @media(max-width:700px){.field-row,.field-row-3,.parsed-grid{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Roofing Estimator</span>
+  </a>
+  <div class="pps-header-right"><a href="/dashboard" class="pps-btn-header">← Dashboard</a></div>
+</header>
+
+<div class="pps-main-narrow">
+  <div class="pps-page-title">Roofing Estimator</div>
+  <p class="pps-page-sub">Upload EagleView (Bid Perfect or Premium) or Roofr. Default product line: <strong>GAF Timberline</strong>. Bid Perfect → quick bid; Premium/Roofr → full material list.</p>
+
+  <div class="form-section">
+    <div class="form-section-title">1. EagleView / Roofr PDF</div>
+    <div class="upload-zone" onclick="this.querySelector('input').click()">
+      <div style="font-size:14px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload roof report PDF</strong></div>
+      <input type="file" id="pdfFile" accept=".pdf,.PDF" onchange="parsePdf(this.files[0])">
+      <div id="fileStatus" style="font-size:12px;margin-top:8px;"></div>
+    </div>
+    <div class="parsed-box" id="parsedBox">
+      <div id="reportBadge"></div>
+      <div class="parsed-grid" id="parsedGrid"></div>
+      <div id="parsedWarns"></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">2. Job Information</div>
+    <div class="field-row" style="margin-bottom:12px;">
+      <div class="field"><label>Property Name</label><input type="text" id="propName" placeholder="From report address"></div>
+      <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
+    </div>
+    <div class="field" style="margin-bottom:12px;"><label>Address</label><input type="text" id="propAddr"></div>
+    <div class="field-row">
+      <div class="field"><label>Date</label><input type="date" id="estDate"></div>
+      <div class="field"><label>Report #</label><input type="text" id="reportNum"></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">3. Assumptions</div>
+    <div class="field-row-3" style="margin-bottom:12px;">
+      <div class="field">
+        <label>Waste %</label>
+        <select id="wastePct"><option value="10">10%</option><option value="12" selected>12%</option><option value="13">13%</option><option value="15">15%</option></select>
+      </div>
+      <div class="field">
+        <label>Pipe Boots</label>
+        <input type="number" id="pipeBoots" min="0" step="1" value="0" placeholder="Manual count">
+      </div>
+      <div class="field">
+        <label>Target Margin %</label>
+        <input type="number" id="marginPct" value="25" min="0" max="50">
+      </div>
+    </div>
+    <div class="field-row-3">
+      <div class="field"><label>Labor $/sq</label><input type="number" id="laborSq" value="60"></div>
+      <div class="field"><label>Material $/sq (quick bid)</label><input type="number" id="matSq" value="65"></div>
+      <div class="field"><label>Tax %</label><input type="number" id="taxPct" value="7.5" step="0.1"></div>
+    </div>
+    <p class="section-hint" style="margin-top:12px;">Pipe boots are not on EagleView reports — count from site photos. Material $/sq applies to Bid Perfect quick bids only.</p>
+  </div>
+
+  <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+</div>
+
+<script>
+let measurements = {};
+let reportType = '';
+
+function fmt(v, suffix='') {
+  if (v == null || v === '') return '—';
+  return Number(v).toLocaleString('en-US', {maximumFractionDigits: 1}) + suffix;
+}
+
+const REPORT_NAMES = {
+  bid_perfect: 'EagleView Bid Perfect → Quick Bid',
+  premium: 'EagleView Premium → Full GAF Materials',
+  roofr: 'Roofr → Full GAF Materials',
+};
+
+async function parsePdf(file) {
+  if (!file) return;
+  const status = document.getElementById('fileStatus');
+  status.textContent = '⏳ Parsing…';
+  const fd = new FormData();
+  fd.append('pdf', file);
+  try {
+    const r = await fetch('/roofing-estimator/parse', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    measurements = d.measurements || {};
+    reportType = measurements.report_type || '';
+    status.textContent = '✓ ' + file.name;
+    status.style.color = 'var(--green)';
+    if (measurements.property_address && !document.getElementById('propAddr').value) {
+      document.getElementById('propAddr').value = measurements.property_address;
+      document.getElementById('propName').value = measurements.property_address.split(',')[0].trim();
+    }
+    if (measurements.report_number) document.getElementById('reportNum').value = measurements.report_number;
+    renderParsed(d.measurements, d.warnings || []);
+  } catch (e) {
+    status.textContent = '✗ ' + e.message;
+    status.style.color = 'var(--red)';
+  }
+}
+
+function renderParsed(m, warns) {
+  document.getElementById('parsedBox').style.display = 'block';
+  document.getElementById('reportBadge').innerHTML =
+    '<span class="report-badge">' + (REPORT_NAMES[m.report_type] || m.report_type || 'Unknown') + '</span>';
+
+  const items = [];
+  if (m.structures && m.structures.length) {
+    m.structures.forEach(s => items.push([s.label, fmt(s.squares) + ' sq']));
+    items.push(['Total squares', fmt(m.roof_area_squares)]);
+  } else {
+    items.push(['Roof area', fmt(m.roof_area_sqft) + ' sq ft']);
+    items.push(['Squares', fmt(m.roof_area_squares)]);
+    items.push(['Pitch', m.predominant_pitch || '—']);
+    items.push(['Eaves', fmt(m.eaves_ft) + ' ft']);
+    items.push(['Rakes', fmt(m.rakes_ft) + ' ft']);
+    items.push(['Valleys', fmt(m.valleys_ft) + ' ft']);
+    items.push(['Ridges', fmt(m.ridges_ft) + ' ft']);
+  }
+  document.getElementById('parsedGrid').innerHTML = items.map(([k,v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('');
+  document.getElementById('parsedWarns').innerHTML = warns.map(w => `<div class="parsed-warn">⚠ ${w}</div>`).join('');
+}
+
+function getInputs() {
+  return {
+    waste_pct: parseInt(document.getElementById('wastePct').value, 10),
+    pipe_boots: parseInt(document.getElementById('pipeBoots').value, 10) || 0,
+    labor_per_sq: parseFloat(document.getElementById('laborSq').value) || 60,
+    material_per_sq: parseFloat(document.getElementById('matSq').value) || 65,
+    tax_pct: parseFloat(document.getElementById('taxPct').value) || 7.5,
+    margin_pct: parseFloat(document.getElementById('marginPct').value) || 25,
+    dump_divisor: 45,
+    dump_cost: 200,
+  };
+}
+
+async function generate() {
+  if (!Object.keys(measurements).length) {
+    alert('Upload a roof report PDF first.');
+    return;
+  }
+  const job = {
+    property_name: document.getElementById('propName').value || document.getElementById('propAddr').value || 'Property',
+    address: document.getElementById('propAddr').value,
+    estimator: document.getElementById('estimator').value,
+    date: document.getElementById('estDate').value,
+    report_number: document.getElementById('reportNum').value,
+  };
+  const fd = new FormData();
+  fd.append('job', JSON.stringify(job));
+  fd.append('measurements', JSON.stringify(measurements));
+  fd.append('inputs', JSON.stringify(getInputs()));
+
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  try {
+    const r = await fetch('/roofing-estimator/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Failed');
+    window.location.href = d.redirect_url;
+  } catch (e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false;
+    btn.textContent = 'Generate Estimate →';
+  }
+}
+
+document.getElementById('estDate').value = new Date().toISOString().split('T')[0];
+</script>
+</body>
+</html>

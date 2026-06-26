@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roof Estimate Preview — PPS</title>
+<style>
+  .main{max-width:800px;margin:0 auto;padding:32px 24px 60px;}
+  .card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:24px;margin-bottom:16px;}
+  h1{font-family:var(--font-serif);font-size:24px;color:var(--dark-blue);}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;}
+  th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--dark-blue);padding:8px;background:var(--light-bg);}
+  td{padding:8px;border-bottom:1px solid #f0f4f8;}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <span class="pps-header-title">Roofing Estimator</span>
+  </a>
+  <div class="pps-header-right"><a href="{{ url_for('roofing_estimator_result', estimate_id=estimate_id) }}" class="pps-btn-header">← Back</a></div>
+</header>
+<div class="main">
+  <div class="card">
+    <h1>{{ job.property_name or 'Roof Estimate' }}</h1>
+    <p style="font-size:13px;color:#888;">{{ job.address }} · {{ report_label }} · Waste {{ inputs.waste_pct }}%</p>
+    {% if is_quick_bid %}
+    <table>
+      <tr><th>Item</th><th>Value</th></tr>
+      <tr><td>Order squares</td><td>{{ summary.order_squares }}</td></tr>
+      <tr><td>Material</td><td>${{ '%.2f'|format(summary.material_cost) }}</td></tr>
+      <tr><td>Labor</td><td>${{ '%.2f'|format(summary.labor_cost) }}</td></tr>
+      <tr><td>Bid total (w/ margin)</td><td><strong>${{ '%.2f'|format(summary.grand_total) }}</strong></td></tr>
+    </table>
+    {% else %}
+    <table>
+      <tr><th>Material</th><th>Qty</th></tr>
+      {% for line in material_lines %}
+      <tr><td>{{ line.label }}</td><td>{{ line.qty }}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    <p style="margin-top:16px;"><a href="{{ url_for('roofing_estimator_download', estimate_id=estimate_id) }}" class="pps-btn">⬇ Download Excel</a></p>
+  </div>
+</div>
+</body>
+</html>

@@ -539,6 +539,25 @@ def init_db():
     except Exception:
         pass
 
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS roofing_estimate_log (
+            id SERIAL PRIMARY KEY,
+            generated_by VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255),
+            property_name VARCHAR(255),
+            property_address VARCHAR(255),
+            report_type VARCHAR(50),
+            job_data JSONB NOT NULL,
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    try:
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_roofing_estimate_user ON roofing_estimate_log(generated_by, generated_at DESC)"
+        )
+    except Exception:
+        pass
+
     # Auth support tables
     cur.execute('''
         CREATE TABLE IF NOT EXISTS auth_codes (
@@ -1754,6 +1773,7 @@ def dashboard():
     recent_proposals = get_recent_proposals(user_key)
     recent_ppms = get_recent_ppms(user_key)
     recent_siding_estimates = []
+    recent_roofing_estimates = []
     # Recent Trade Partner Scopes
     recent_tpscopes = []
     all_my_ppms = []
@@ -1786,6 +1806,13 @@ def dashboard():
                 (user_key,),
             )
             recent_siding_estimates = cur_tps.fetchall()
+            cur_tps.execute(
+                '''SELECT id, property_name, property_address, report_type, generated_at
+                   FROM roofing_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_roofing_estimates = cur_tps.fetchall()
             cur_tps.close()
             conn_tps.close()
     except Exception as e:
@@ -1829,6 +1856,7 @@ def dashboard():
                            psc_training_enrolled=psc_training_enrolled,
                            psc_training_oversight=psc_training_oversight,
                            recent_siding_estimates=recent_siding_estimates,
+                           recent_roofing_estimates=recent_roofing_estimates,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
@@ -3650,6 +3678,7 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
         'tps': 'Trade Partner Scope',
         'site_visit': 'Site Visit Report',
         'siding_estimate': 'Siding Estimate',
+        'roofing_estimate': 'Roofing Estimate',
     }
     label = type_labels.get(doc_type, 'Document')
     subject = f'PPS {label} — {property_name}' if property_name else f'PPS {label}'
@@ -4413,6 +4442,229 @@ def siding_pricing_template():
         mimetype='text/csv',
         headers={'Content-Disposition': 'attachment; filename=PPS_Siding_Pricing_Template.csv'},
     )
+
+
+def _roofing_job_data_from_row(row):
+    data = row.get('job_data') or {}
+    if isinstance(data, str):
+        data = json.loads(data)
+    return data
+
+
+def _load_roofing_estimate_row(estimate_id, user_key=None):
+    conn = get_db()
+    if not conn:
+        return None
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM roofing_estimate_log WHERE id = %s', (estimate_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    if user_key and row.get('generated_by') != user_key and session.get('role') != 'admin':
+        return None
+    return row
+
+
+def _roofing_preview_context(row):
+    from estimators.roofing import calculate_materials, calculate_bid_summary
+    from estimators.roofing.excel_builder import REPORT_LABELS
+    from estimators.roofing.material_catalog import MATERIAL_LINES
+
+    data = _roofing_job_data_from_row(row)
+    measurements = data.get('measurements', {})
+    inputs = data.get('inputs', {})
+    report_type = measurements.get('report_type', 'premium')
+    is_quick = report_type == 'bid_perfect'
+    ctx = {
+        'job': data.get('job', {}),
+        'inputs': inputs,
+        'measurements': measurements,
+        'report_label': REPORT_LABELS.get(report_type, report_type),
+        'is_quick_bid': is_quick,
+    }
+    if is_quick:
+        ctx['summary'] = calculate_bid_summary(measurements, inputs)
+    else:
+        qty = calculate_materials(measurements, inputs)
+        ctx['summary'] = qty
+        ctx['material_lines'] = [
+            {'label': label, 'qty': qty.get(qk, 0)}
+            for _k, label, _u, qk in MATERIAL_LINES
+        ]
+    return ctx
+
+
+def _roofing_filename(job):
+    prop = (job.get('property_name') or 'Property').replace(' ', '_')
+    return f'PPS_Roof_Estimate_{prop}.xlsx'
+
+
+@app.route('/roofing-estimator')
+@require_login
+def roofing_estimator():
+    return render_template('roofing_estimator.html', display_name=session.get('display_name', ''))
+
+
+@app.route('/roofing-estimator/parse', methods=['POST'])
+@require_login
+def roofing_estimator_parse():
+    pdf_file = request.files.get('pdf')
+    if not pdf_file:
+        return jsonify({'error': 'No PDF uploaded'}), 400
+    try:
+        from estimators.roofing import parse_roof_report
+        measurements, warnings = parse_roof_report(pdf_file.read())
+        return jsonify({'measurements': measurements, 'warnings': warnings})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/roofing-estimator/generate', methods=['POST'])
+@require_login
+def roofing_estimator_generate():
+    import json as _json
+    try:
+        job = _json.loads(request.form.get('job', '{}'))
+        measurements = _json.loads(request.form.get('measurements', '{}'))
+        inputs = _json.loads(request.form.get('inputs', '{}'))
+
+        if not measurements.get('roof_area_sqft') and not measurements.get('structures'):
+            return jsonify({'error': 'No roof measurements — upload a valid report PDF.'}), 400
+
+        from estimators.roofing import build_estimate_excel
+        buf = build_estimate_excel(job, measurements, inputs, {})
+
+        job_data = {'job': job, 'measurements': measurements, 'inputs': inputs}
+        estimate_id = None
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO roofing_estimate_log (
+                    generated_by, display_name, property_name, property_address,
+                    report_type, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (
+                    session['user_key'],
+                    session.get('display_name', ''),
+                    job.get('property_name'),
+                    job.get('address'),
+                    measurements.get('report_type'),
+                    _json.dumps(job_data),
+                ),
+            )
+            estimate_id = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+            conn.close()
+
+        if not estimate_id:
+            return jsonify({'error': 'Could not save estimate to history'}), 500
+
+        return jsonify({
+            'success': True,
+            'estimate_id': estimate_id,
+            'redirect_url': url_for('roofing_estimator_result', estimate_id=estimate_id),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/roofing-estimator/result/<int:estimate_id>')
+@require_login
+def roofing_estimator_result(estimate_id):
+    row = _load_roofing_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _roofing_preview_context(row)
+    data = _roofing_job_data_from_row(row)
+    return render_template(
+        'roofing_result.html',
+        estimate_id=estimate_id,
+        property_name=row.get('property_name') or 'Property',
+        filename=_roofing_filename(data.get('job', {})),
+        report_label=ctx['report_label'],
+        is_quick_bid=ctx['is_quick_bid'],
+        summary=ctx['summary'],
+        user_email=session.get('user_email', ''),
+    )
+
+
+@app.route('/roofing-estimator/preview/<int:estimate_id>')
+@require_login
+def roofing_estimator_preview(estimate_id):
+    row = _load_roofing_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _roofing_preview_context(row)
+    return render_template('roofing_preview.html', estimate_id=estimate_id, **ctx)
+
+
+@app.route('/roofing-estimator/download/<int:estimate_id>')
+@require_login
+def roofing_estimator_download(estimate_id):
+    row = _load_roofing_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    try:
+        from estimators.roofing import build_estimate_excel
+        data = _roofing_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('measurements', {}),
+            data.get('inputs', {}),
+            data.get('pricing', {}),
+        )
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=_roofing_filename(data.get('job', {})),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return str(e), 500
+
+
+@app.route('/roofing-estimator/email/<int:estimate_id>', methods=['POST'])
+@require_login
+def roofing_estimator_email(estimate_id):
+    row = _load_roofing_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return jsonify({'error': 'Estimate not found'}), 404
+    payload = request.get_json(silent=True) or {}
+    to_email = (payload.get('to_email') or session.get('user_email') or '').strip()
+    if not to_email:
+        return jsonify({'error': 'No email address'}), 400
+    try:
+        from estimators.roofing import build_estimate_excel
+        data = _roofing_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('measurements', {}),
+            data.get('inputs', {}),
+            data.get('pricing', {}),
+        )
+        doc_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+        return _send_resend_document(
+            to_email=to_email,
+            doc_type='roofing_estimate',
+            filename=_roofing_filename(data.get('job', {})),
+            property_name=data.get('job', {}).get('property_name', ''),
+            doc_b64=doc_b64,
+            sender_name=session.get('display_name', 'PPS Hub'),
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/logout')
