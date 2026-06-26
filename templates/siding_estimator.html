@@ -30,9 +30,10 @@
   .access-grid label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--gray);cursor:pointer;}
   .add-building-btn{width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:var(--radius);background:white;color:var(--dark-blue);font-weight:600;cursor:pointer;font-family:var(--font-body);}
   .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;font-family:var(--font-body);margin-top:8px;}
-  .generate-btn:disabled{background:#bbb;cursor:not-allowed;}
   .source-panel{display:none;margin-top:10px;}
   .source-panel.active{display:block;}
+  .section-hint{font-size:13px;color:var(--gray-mid);margin-bottom:12px;line-height:1.5;}
+  .autofill-note{font-size:12px;color:var(--green);margin-top:8px;display:none;}
   @media(max-width:700px){.field-row,.field-row-3,.field-row-4,.parsed-grid,.manual-grid,.access-grid{grid-template-columns:1fr;}}
 </style>
 </head>
@@ -50,28 +51,32 @@
 
 <div class="pps-main-narrow">
   <div class="pps-page-title">Siding Estimator</div>
-  <p class="pps-page-sub">Add each building with its type and quantity. Upload an aerial report or enter field measurements, then generate a per-building Excel estimate.</p>
+  <p class="pps-page-sub">Upload your EagleView report first — property details fill in automatically. Add more buildings or switch to field measurements as needed.</p>
 
+  <!-- 1. Buildings + PDF first -->
   <div class="form-section">
-    <div class="form-section-title">1. Job Information</div>
-    <div style="display:flex;flex-direction:column;gap:12px;">
-      <div class="field-row">
-        <div class="field"><label>Property Name</label><input type="text" id="propName" placeholder="e.g. Westwood Apartments"></div>
-        <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
-      </div>
-      <div class="field"><label>Property Address</label><input type="text" id="propAddr" placeholder="Street, City, State ZIP"></div>
-      <div class="field-row">
-        <div class="field"><label>Date</label><input type="date" id="estDate"></div>
-        <div class="field"><label>Report # (optional)</label><input type="text" id="reportNum" placeholder="From aerial report if applicable"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="form-section">
-    <div class="form-section-title">2. Buildings</div>
-    <p style="font-size:13px;color:var(--gray-mid);margin-bottom:12px;">For each building: choose type, how many identical units, and how measurements were obtained.</p>
+    <div class="form-section-title">1. Buildings &amp; Measurements</div>
+    <p class="section-hint">Each building defaults to <strong>EagleView PDF</strong>. Upload the Walls Only report, then confirm type and quantity below.</p>
     <div id="buildingsList"></div>
     <button type="button" class="add-building-btn" onclick="addBuilding()">+ Add Building</button>
+  </div>
+
+  <!-- 2. Job info after PDF -->
+  <div class="form-section" id="jobInfoSection">
+    <div class="form-section-title">2. Job Information</div>
+    <p class="section-hint">Filled from your report when possible — review and edit before generating.</p>
+    <div class="autofill-note" id="autofillNote">✓ Property details loaded from report</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px;">
+      <div class="field-row">
+        <div class="field"><label>Property Name</label><input type="text" id="propName" placeholder="Auto-filled from report address"></div>
+        <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
+      </div>
+      <div class="field"><label>Property Address</label><input type="text" id="propAddr" placeholder="Auto-filled from EagleView report"></div>
+      <div class="field-row">
+        <div class="field"><label>Date</label><input type="date" id="estDate"></div>
+        <div class="field"><label>Report #</label><input type="text" id="reportNum" placeholder="Auto-filled from EagleView report"></div>
+      </div>
+    </div>
   </div>
 
   <div class="form-section">
@@ -190,22 +195,17 @@ function addBuilding() {
       <div class="building-title">Building ${n}</div>
       <button type="button" class="remove-btn" onclick="removeBuilding('${id}')">Remove</button>
     </div>
-    <div class="field-row-4">
-      <div class="field"><label>Label</label><input type="text" data-role="label" value="Building ${n}"></div>
-      <div class="field"><label>Type</label><select data-role="type">${typeOpts}</select></div>
-      <div class="field"><label>Qty</label><input type="number" data-role="qty" min="1" value="1"></div>
-      <div class="field">
-        <label>Data Source</label>
-        <select data-role="source" onchange="onSourceChange('${id}')">
-          <option value="eagleview">EagleView PDF</option>
-          <option value="aerial_other">Other Aerial Report</option>
-          <option value="field" selected>Field Measurements</option>
-        </select>
-      </div>
+    <div class="field" style="margin-bottom:10px;">
+      <label>Data Source</label>
+      <select data-role="source" onchange="onSourceChange('${id}')">
+        <option value="eagleview" selected>EagleView PDF</option>
+        <option value="aerial_other">Other Aerial Report</option>
+        <option value="field">Field Measurements</option>
+      </select>
     </div>
-    <div class="source-panel" id="${id}-pdf">
+    <div class="source-panel active" id="${id}-pdf">
       <div class="upload-zone" onclick="this.querySelector('input').click()">
-        <div style="font-size:13px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload PDF</strong> — walls / elevation report</div>
+        <div style="font-size:13px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload EagleView PDF</strong> — Walls Only report</div>
         <input type="file" accept=".pdf,.PDF" onchange="parsePdf('${id}', this.files[0])">
         <div data-role="file-status" style="font-size:12px;margin-top:6px;"></div>
       </div>
@@ -214,8 +214,13 @@ function addBuilding() {
         <div data-role="parsed-warns"></div>
       </div>
     </div>
-    <div class="source-panel active" id="${id}-field">
+    <div class="source-panel" id="${id}-field">
       <div class="manual-grid">${manualInputs}</div>
+    </div>
+    <div class="field-row-3" style="margin-top:12px;">
+      <div class="field"><label>Label</label><input type="text" data-role="label" value="Building ${n}"></div>
+      <div class="field"><label>Type</label><select data-role="type">${typeOpts}</select></div>
+      <div class="field"><label>Qty</label><input type="number" data-role="qty" min="1" value="1"></div>
     </div>
   </div>`;
   document.getElementById('buildingsList').insertAdjacentHTML('beforeend', html);
@@ -233,8 +238,57 @@ function onSourceChange(id) {
   const source = card.querySelector('[data-role="source"]').value;
   const pdf = document.getElementById(id + '-pdf');
   const field = document.getElementById(id + '-field');
-  pdf.classList.toggle('active', source !== 'field');
-  field.classList.toggle('active', source === 'field');
+  const isField = source === 'field';
+  pdf.classList.toggle('active', !isField);
+  field.classList.toggle('active', isField);
+  const uploadLabel = pdf.querySelector('.upload-zone div');
+  if (uploadLabel) {
+    uploadLabel.innerHTML = source === 'eagleview'
+      ? '<strong style="color:var(--blue);">Upload EagleView PDF</strong> — Walls Only report'
+      : '<strong style="color:var(--blue);">Upload PDF</strong> — walls / elevation report';
+  }
+}
+
+function parseReportDate(s) {
+  if (!s) return null;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+  return null;
+}
+
+function applyJobFromPdf(m) {
+  let filled = false;
+  if (m.property_address) {
+    const addrEl = document.getElementById('propAddr');
+    if (!addrEl.value.trim()) {
+      addrEl.value = m.property_address;
+      filled = true;
+    }
+    const nameEl = document.getElementById('propName');
+    if (!nameEl.value.trim()) {
+      nameEl.value = m.property_address.split(',')[0].trim();
+      filled = true;
+    }
+  }
+  if (m.report_number) {
+    const repEl = document.getElementById('reportNum');
+    if (!repEl.value.trim()) {
+      repEl.value = m.report_number;
+      filled = true;
+    }
+  }
+  if (m.report_date) {
+    const parsed = parseReportDate(m.report_date);
+    if (parsed) {
+      document.getElementById('estDate').value = parsed;
+      filled = true;
+    }
+  }
+  if (filled) {
+    document.getElementById('autofillNote').style.display = 'block';
+    document.getElementById('jobInfoSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  return filled;
 }
 
 async function parsePdf(id, file) {
@@ -256,12 +310,7 @@ async function parsePdf(id, file) {
     card._warnings = d.warnings || [];
     status.textContent = '✓ ' + file.name;
     status.style.color = 'var(--green)';
-    if (d.measurements.property_address && !document.getElementById('propAddr').value) {
-      document.getElementById('propAddr').value = d.measurements.property_address;
-    }
-    if (d.measurements.report_number && !document.getElementById('reportNum').value) {
-      document.getElementById('reportNum').value = d.measurements.report_number;
-    }
+    applyJobFromPdf(d.measurements || {});
     renderParsed(card, d.measurements, d.warnings);
   } catch (e) {
     status.textContent = '✗ ' + e.message;
