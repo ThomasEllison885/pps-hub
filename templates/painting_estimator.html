@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS · Exterior Painting Estimator</title>
+<style>
+  .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
+  .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
+  .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .field-row-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;background:white;}
+  .upload-zone:hover{border-color:var(--blue);background:#f8fcff;}
+  .upload-zone input{display:none;}
+  .parsed-box{display:none;margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;}
+  .section-hint{font-size:13px;color:var(--gray-mid);margin-bottom:12px;line-height:1.5;}
+  .takeoff-section{margin-bottom:18px;}
+  .takeoff-head{font-size:13px;font-weight:700;color:var(--dark-blue);margin-bottom:6px;}
+  .takeoff-hint{font-size:11px;color:#888;margin-bottom:8px;}
+  .takeoff-table{width:100%;border-collapse:collapse;font-size:13px;}
+  .takeoff-table th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-blue);padding:6px 8px;background:var(--light-bg);border-bottom:1px solid var(--border);}
+  .takeoff-table td{padding:5px 8px;border-bottom:1px solid #f0f4f8;vertical-align:middle;}
+  .takeoff-table input[type=number]{width:90px;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;}
+  .takeoff-table .from-ev{background:#E8F5E9;}
+  .rate-col{font-size:11px;color:#888;}
+  .live-total{background:var(--light-bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-top:12px;font-size:13px;display:none;}
+  .generate-btn{width:100%;padding:14px;background:var(--dark-blue);color:white;border:none;border-radius:var(--radius-lg);font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;}
+  @media(max-width:800px){.field-row,.field-row-4{grid-template-columns:1fr 1fr;}}
+  @media(max-width:500px){.field-row,.field-row-4{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/estimating" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Exterior Painting</span>
+  </a>
+  <div class="pps-header-right"><a href="/estimating" class="pps-btn-header">← Estimating</a></div>
+</header>
+
+<div class="pps-main-narrow">
+  <div class="pps-page-title">Exterior Painting Estimator</div>
+  <p class="pps-page-sub">Production rates from the PPS Exterior Estimating Worksheet. Enter measured quantities by category — hours, labor, and paint calculate automatically. Optional EagleView Walls PDF pre-fills wall/soffit/fascia.</p>
+
+  <div class="form-section">
+    <div class="form-section-title">1. EagleView Walls PDF (optional)</div>
+    <p class="section-hint">Upload a Walls report to pull net wall area, soffit, fascia, and window/door perimeter into the takeoff.</p>
+    <div class="upload-zone" onclick="this.querySelector('input').click()">
+      <div style="font-size:14px;color:var(--gray-mid);"><strong style="color:var(--blue);">Upload EagleView Walls PDF</strong></div>
+      <input type="file" id="pdfFile" accept=".pdf,.PDF" onchange="parsePdf(this.files[0])">
+      <div id="fileStatus" style="font-size:12px;margin-top:8px;"></div>
+    </div>
+    <div class="parsed-box" id="parsedBox">
+      <div id="confidenceBanner"></div>
+      <div id="reliabilityGrid"></div>
+      <div id="parsedWarns"></div>
+    </div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">2. Takeoff by Category</div>
+    <p class="section-hint">Leave blank for categories not on this job. Rates match your Excel Standard table (units/hr, SF per gallon).</p>
+    {% for sec in sections %}
+    <div class="takeoff-section">
+      <div class="takeoff-head">{{ sec.type }}</div>
+      <div class="takeoff-hint">{{ sec.hint }}</div>
+      <table class="takeoff-table">
+        <thead>
+          <tr><th>Category</th><th>Prod rate</th><th>Measured</th><th>Unit</th></tr>
+        </thead>
+        <tbody>
+          {% for cat in sec.categories %}
+          <tr>
+            <td>{{ cat.name }}</td>
+            <td class="rate-col">{{ '%.0f'|format(cat.production_rate) if cat.production_rate >= 1 else '%.2f'|format(cat.production_rate) }}/hr{% if cat.paint_coverage %} · {{ cat.paint_coverage }} SF/gal{% endif %}</td>
+            <td><input type="number" class="meas-input" data-category="{{ cat.name }}" data-type="{{ sec.type }}" min="0" step="any" placeholder="0"></td>
+            <td class="rate-col">{{ cat.unit }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+    <div class="live-total" id="liveTotal"></div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">3. Job Information</div>
+    <div class="field-row" style="margin-bottom:12px;">
+      <div class="field"><label>Property Name</label><input type="text" id="propName"></div>
+      <div class="field"><label>Estimator</label><input type="text" id="estimator" value="{{ display_name }}"></div>
+    </div>
+    <div class="field"><label>Address</label><input type="text" id="propAddr"></div>
+  </div>
+
+  <div class="form-section">
+    <div class="form-section-title">4. Pricing &amp; Margins</div>
+    {% set pd = pricing_defaults.painting %}
+    <div class="field-row-4">
+      <div class="field"><label>Labor $/hour</label><input type="number" id="laborHr" value="{{ pd.labor_per_hour }}" step="1" min="0"></div>
+      <div class="field"><label>One-coat margin %</label><input type="number" id="marginOne" value="{{ pd.margin_one_coat_pct }}" step="1" min="0" max="60"></div>
+      <div class="field"><label>Two-coat margin %</label><input type="number" id="marginTwo" value="{{ pd.margin_two_coat_pct }}" step="1" min="0" max="60"></div>
+      <div class="field"><label>Two-coat multiplier</label><input type="number" id="twoCoatMult" value="{{ pd.two_coat_multiplier }}" step="0.1" min="1" title="Labor+material × this for two coats"></div>
+    </div>
+  </div>
+
+  <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+  <div id="errorMsg" style="color:#C00;font-size:14px;margin-top:10px;display:none;"></div>
+</div>
+
+<script src="/static/estimate-reliability.js"></script>
+<script>
+let measurements = {};
+let lastConfidence = null;
+let fromReport = {};
+
+function collectLineItems() {
+  const items = [];
+  document.querySelectorAll('.meas-input').forEach(inp => {
+    const v = parseFloat(inp.value);
+    if (v > 0) {
+      items.push({
+        category: inp.dataset.category,
+        exterior_type: inp.dataset.type,
+        measured: v,
+        from_report: !!fromReport[inp.dataset.category],
+      });
+    }
+  });
+  return items;
+}
+
+function collectInputs() {
+  return {
+    labor_per_hour: parseFloat(document.getElementById('laborHr').value) || 38,
+    margin_one_coat_pct: parseFloat(document.getElementById('marginOne').value) || 42,
+    margin_two_coat_pct: parseFloat(document.getElementById('marginTwo').value) || 38,
+    two_coat_multiplier: parseFloat(document.getElementById('twoCoatMult').value) || 1.6,
+  };
+}
+
+async function refreshConfidence() {
+  const line_items = collectLineItems();
+  if (!line_items.length && !measurements.report_type) return;
+  try {
+    const r = await fetch('/estimating/confidence', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({ tool: 'painting', measurements, line_items }),
+    });
+    const d = await r.json();
+    if (d.confidence) {
+      lastConfidence = d.confidence;
+      PPSReliability.renderParsedBlock(d.confidence, [], {
+        bannerId: 'confidenceBanner', gridId: 'reliabilityGrid', boxId: 'parsedBox',
+      });
+    }
+  } catch (e) {}
+}
+
+document.querySelectorAll('.meas-input').forEach(inp => {
+  inp.addEventListener('input', () => {
+    delete fromReport[inp.dataset.category];
+    inp.closest('tr')?.classList.remove('from-ev');
+    refreshConfidence();
+  });
+});
+
+async function parsePdf(file) {
+  if (!file) return;
+  document.getElementById('fileStatus').textContent = 'Parsing…';
+  const fd = new FormData();
+  fd.append('pdf', file);
+  try {
+    const r = await fetch('/painting-estimator/parse', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('fileStatus').textContent = '✗ ' + d.error;
+      return;
+    }
+    measurements = d.measurements || {};
+    lastConfidence = d.confidence;
+    if (measurements.property_address) document.getElementById('propAddr').value = measurements.property_address;
+    fromReport = {};
+    Object.entries(d.suggestions || {}).forEach(([cat, s]) => {
+      const inp = document.querySelector(`.meas-input[data-category="${cat}"]`);
+      if (inp && s.measured) {
+        inp.value = s.measured;
+        fromReport[cat] = true;
+        inp.closest('tr')?.classList.add('from-ev');
+      }
+    });
+    PPSReliability.renderParsedBlock(d.confidence, d.warnings, {
+      bannerId: 'confidenceBanner', gridId: 'reliabilityGrid', warnId: 'parsedWarns', boxId: 'parsedBox',
+    });
+    document.getElementById('fileStatus').textContent = '✓ EagleView Walls parsed';
+    refreshConfidence();
+  } catch (e) {
+    document.getElementById('fileStatus').textContent = 'Parse failed';
+  }
+}
+
+async function generate() {
+  const err = document.getElementById('errorMsg');
+  err.style.display = 'none';
+  const line_items = collectLineItems();
+  if (!line_items.length) {
+    err.textContent = 'Enter at least one measured quantity.';
+    err.style.display = 'block';
+    return;
+  }
+  if (lastConfidence && !await PPSReliability.confirmGenerate(lastConfidence)) return;
+
+  const job = {
+    property_name: document.getElementById('propName').value.trim(),
+    address: document.getElementById('propAddr').value.trim(),
+    estimator: document.getElementById('estimator').value.trim(),
+    date: new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }),
+    report_number: measurements.report_number || '',
+  };
+
+  const fd = new FormData();
+  fd.append('job', JSON.stringify(job));
+  fd.append('measurements', JSON.stringify(measurements));
+  fd.append('line_items', JSON.stringify(line_items));
+  fd.append('inputs', JSON.stringify(collectInputs()));
+
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('genBtn').textContent = 'Generating…';
+  try {
+    const r = await fetch('/painting-estimator/generate', { method: 'POST', body: fd, credentials: 'same-origin' });
+    const d = await r.json();
+    if (d.error) {
+      err.textContent = d.error;
+      err.style.display = 'block';
+    } else if (d.redirect_url) {
+      window.location.href = d.redirect_url;
+    }
+  } catch (e) {
+    err.textContent = 'Network error';
+    err.style.display = 'block';
+  } finally {
+    document.getElementById('genBtn').disabled = false;
+    document.getElementById('genBtn').textContent = 'Generate Estimate →';
+  }
+}
+</script>
+</body>
+</html>

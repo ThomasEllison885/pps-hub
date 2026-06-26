@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painting Estimate Ready — PPS</title>
+<style>
+  .main{max-width:720px;margin:0 auto;padding:48px 24px;}
+  .card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);padding:36px;text-align:center;}
+  .summary{background:var(--light-bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin:20px 0;text-align:left;font-size:13px;line-height:1.6;}
+  .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+  .actions a,.actions button{display:flex;flex-direction:column;align-items:center;padding:16px;border:1.5px solid var(--border);border-radius:12px;background:white;text-decoration:none;color:inherit;cursor:pointer;}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/estimating" class="pps-header-left"><img src="/static/logo.png" alt="PPS" class="pps-header-logo"><span class="pps-header-title">Exterior Painting</span></a>
+  <div class="pps-header-right"><a href="/estimating" class="pps-btn-header">← Estimating</a></div>
+</header>
+<div class="main">
+  <div class="card">
+    <div style="font-size:28px;margin-bottom:12px;">✓</div>
+    <h1 style="font-family:var(--font-serif);color:var(--dark-blue);">Painting Estimate Ready</h1>
+    <p style="color:#666;">{{ property_name }}</p>
+    <div class="summary">
+      {% if confidence %}<div style="font-size:12px;color:#666;margin-bottom:8px;">Takeoff: <strong>{{ confidence.title }}</strong> — {{ confidence.summary_line }}</div>{% endif %}
+      <strong>{{ summary.line_count }}</strong> takeoff line{{ 's' if summary.line_count != 1 else '' }} · <strong>{{ '%.1f'|format(summary.total_hours) }}</strong> hours<br>
+      One coat bid: <strong>${{ '%.2f'|format(summary.one_coat_bid) }}</strong><br>
+      Two coat bid: <strong>${{ '%.2f'|format(summary.two_coat_bid) }}</strong>
+    </div>
+    <div class="actions">
+      <a href="{{ url_for('painting_estimator_preview', estimate_id=estimate_id) }}">👁 Preview</a>
+      <a href="{{ url_for('painting_estimator_download', estimate_id=estimate_id) }}">⬇ Download</a>
+      <button type="button" onclick="document.getElementById('ep').style.display='block'">✉ Email</button>
+    </div>
+    <a href="{{ url_for('painting_estimator') }}" style="display:inline-block;margin-top:14px;font-size:13px;color:var(--blue);text-decoration:none;font-weight:600;">+ New estimate</a>
+    <div id="ep" style="display:none;margin-top:16px;text-align:left;">
+      <input type="email" id="emailTo" value="{{ user_email }}" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;">
+      <button onclick="sendEmail()" style="margin-top:8px;background:var(--dark-blue);color:white;border:none;padding:9px 18px;border-radius:8px;">Send</button>
+      <div id="es" style="font-size:13px;margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+<script>
+async function sendEmail() {
+  const r = await fetch('{{ url_for("painting_estimator_email", estimate_id=estimate_id) }}', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({to_email: document.getElementById('emailTo').value}), credentials:'same-origin'
+  });
+  const d = await r.json();
+  document.getElementById('es').textContent = d.success ? '✓ Sent' : (d.error || 'Failed');
+}
+</script>
+</body>
+</html>

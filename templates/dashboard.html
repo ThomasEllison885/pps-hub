@@ -252,7 +252,7 @@
     </div>
     <div class="activity-card">
       <h3>Recent Estimates</h3>
-      {% if recent_siding_estimates or recent_roofing_estimates or recent_gutter_estimates %}
+      {% if recent_siding_estimates or recent_roofing_estimates or recent_gutter_estimates or recent_painting_estimates %}
       {% for e in recent_siding_estimates[:3] %}
       <a href="/siding-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
         <div class="act-top">
@@ -278,6 +278,15 @@
           <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
         </div>
         <div class="act-meta">Gutters · {{ '%.0f'|format(e.gutter_lf or 0) }} LF</div>
+      </a>
+      {% endfor %}
+      {% for e in recent_painting_estimates[:3] %}
+      <a href="/painting-estimator/result/{{ e.id }}" class="act-item" style="text-decoration:none;color:inherit;display:block;">
+        <div class="act-top">
+          <div class="act-name">{{ e.property_name or 'Unnamed' }}</div>
+          <div class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</div>
+        </div>
+        <div class="act-meta">Painting · {{ e.line_count or 0 }} lines</div>
       </a>
       {% endfor %}
       <a href="/estimating" class="act-item" style="text-decoration:none;color:inherit;display:block;text-align:center;font-size:12px;color:var(--blue);font-weight:600;">View all estimates →</a>

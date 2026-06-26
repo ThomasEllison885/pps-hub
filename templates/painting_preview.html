@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painting Estimate Preview — PPS</title>
+<style>
+  .main{max-width:960px;margin:0 auto;padding:36px 24px 60px;}
+  .card{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
+  .card h2{font-size:15px;color:var(--dark-blue);margin-bottom:12px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;font-size:10px;text-transform:uppercase;color:var(--dark-blue);padding:8px;background:var(--light-bg);border-bottom:1px solid var(--border);}
+  td{padding:8px;border-bottom:1px solid #f0f4f8;}
+  .num{text-align:right;}
+  .totals{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .bid-box{background:var(--light-bg);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;}
+  .bid-box .amt{font-family:var(--font-serif);font-size:26px;color:var(--dark-blue);}
+  @media(max-width:700px){.totals{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="{{ url_for('painting_estimator_result', estimate_id=estimate_id) }}" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <span class="pps-header-title">Painting Preview</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="{{ url_for('painting_estimator_download', estimate_id=estimate_id) }}" class="pps-btn-header">⬇ Download</a>
+    <a href="{{ url_for('painting_estimator_result', estimate_id=estimate_id) }}" class="pps-btn-header">← Result</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="pps-page-title">{{ job.property_name or 'Exterior Painting' }}</div>
+  <p class="pps-page-sub">{{ job.address or '' }}{% if job.estimator %} · {{ job.estimator }}{% endif %}</p>
+
+  {% if confidence %}
+  <div class="card" style="font-size:13px;">
+    <strong>{{ confidence.title }}</strong> — {{ confidence.headline }}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Line Items</h2>
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Category</th><th class="num">Measured</th><th class="num">Hours</th><th class="num">Labor</th><th class="num">Paint</th><th class="num">Subtotal</th></tr>
+      </thead>
+      <tbody>
+        {% for line in summary.lines %}
+        <tr>
+          <td>{{ line.exterior_type }}</td>
+          <td>{{ line.category }}</td>
+          <td class="num">{{ '%.1f'|format(line.measured) }} {{ line.unit }}</td>
+          <td class="num">{{ '%.1f'|format(line.hours) }}</td>
+          <td class="num">${{ '%.2f'|format(line.labor_cost) }}</td>
+          <td class="num">${{ '%.2f'|format(line.paint_cost) }}</td>
+          <td class="num">${{ '%.2f'|format(line.subtotal) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>By Exterior Type</h2>
+    <table>
+      <thead><tr><th>Type</th><th class="num">Material</th><th class="num">Labor</th><th class="num">Total</th></tr></thead>
+      <tbody>
+        {% for row in summary.by_type %}
+        <tr>
+          <td>{{ row.exterior_type }}</td>
+          <td class="num">${{ '%.2f'|format(row.material) }}</td>
+          <td class="num">${{ '%.2f'|format(row.labor) }}</td>
+          <td class="num">${{ '%.2f'|format(row.total) }}</td>
+        </tr>
+        {% endfor %}
+        <tr style="font-weight:700;">
+          <td>Grand Total</td>
+          <td class="num">${{ '%.2f'|format(summary.total_material) }}</td>
+          <td class="num">${{ '%.2f'|format(summary.total_labor) }}</td>
+          <td class="num">${{ '%.2f'|format(summary.one_coat_cost) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="totals">
+    <div class="bid-box">
+      <div style="font-size:12px;color:#888;margin-bottom:4px;">One Coat ({{ '%.0f'|format(summary.margin_one_coat_pct) }}% margin)</div>
+      <div class="amt">${{ '%.2f'|format(summary.one_coat_bid) }}</div>
+      <div style="font-size:12px;color:#888;margin-top:6px;">Cost ${{ '%.2f'|format(summary.one_coat_cost) }} · Profit ${{ '%.2f'|format(summary.one_coat_profit) }}</div>
+    </div>
+    <div class="bid-box">
+      <div style="font-size:12px;color:#888;margin-bottom:4px;">Two Coats (×{{ summary.two_coat_multiplier }}, {{ '%.0f'|format(summary.margin_two_coat_pct) }}% margin)</div>
+      <div class="amt">${{ '%.2f'|format(summary.two_coat_bid) }}</div>
+      <div style="font-size:12px;color:#888;margin-top:6px;">Cost ${{ '%.2f'|format(summary.two_coat_cost) }} · Profit ${{ '%.2f'|format(summary.two_coat_profit) }}</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

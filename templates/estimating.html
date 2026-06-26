@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PPS · Estimating</title>
 <style>
-  .tools-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:32px;}
+  .tools-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:32px;}
   @media(max-width:800px){.tools-grid{grid-template-columns:1fr;}}
   .activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
   @media(max-width:700px){.activity-grid{grid-template-columns:1fr;}}
@@ -53,6 +53,12 @@
       <div class="pps-tool-desc">Gutters, downspouts, and guards from eaves measurements or manual takeoff.</div>
       <div class="tool-meta">Open →</div>
     </a>
+    <a href="/painting-estimator" class="pps-tool-card">
+      <div class="pps-tool-icon">🎨</div>
+      <div class="pps-tool-name">Exterior Painting</div>
+      <div class="pps-tool-desc">Labor, paint, and bid totals from production rates — soffit, siding, trim, doors, power wash.</div>
+      <div class="tool-meta">Open →</div>
+    </a>
   </div>
 
   <div class="pps-section-head">Recent Estimates</div>
@@ -86,6 +92,17 @@
       <a href="/gutter-estimator/result/{{ e.id }}" class="act-item">
         <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
         <div class="act-meta">{{ '%.0f'|format(e.gutter_lf or 0) }} LF gutter run</div>
+      </a>
+      {% endfor %}
+      {% else %}<div class="empty-state">None yet</div>{% endif %}
+    </div>
+    <div class="form-section" style="padding:18px;">
+      <h3 style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;margin-bottom:12px;">Painting</h3>
+      {% if recent_painting %}
+      {% for e in recent_painting %}
+      <a href="/painting-estimator/result/{{ e.id }}" class="act-item">
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-meta">{{ e.line_count or 0 }} lines · 2-coat ${{ '%.0f'|format(e.two_coat_bid or 0) }}</div>
       </a>
       {% endfor %}
       {% else %}<div class="empty-state">None yet</div>{% endif %}

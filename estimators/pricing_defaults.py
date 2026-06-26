@@ -29,6 +29,12 @@ SYSTEM_DEFAULTS = {
         'downspout_lf_each': 10,
         'downspout_spacing_ft': 35,
     },
+    'painting': {
+        'labor_per_hour': 38,
+        'margin_one_coat_pct': 42,
+        'margin_two_coat_pct': 38,
+        'two_coat_multiplier': 1.6,
+    },
 }
 
 
@@ -77,6 +83,7 @@ def get_pricing_defaults(get_db_fn):
         'siding': trades['siding'],
         'roofing': trades['roofing'],
         'gutter': trades['gutter'],
+        'painting': trades['painting'],
         **meta,
     }
 
@@ -87,7 +94,7 @@ def save_pricing_defaults(get_db_fn, trades, user_key, display_name=''):
     from datetime import datetime
 
     cleaned = {}
-    for trade in ('siding', 'roofing', 'gutter'):
+    for trade in ('siding', 'roofing', 'gutter', 'painting'):
         src = trades.get(trade) or SYSTEM_DEFAULTS.get(trade, {})
         cleaned[trade] = {}
         for key, default in SYSTEM_DEFAULTS.get(trade, {}).items():

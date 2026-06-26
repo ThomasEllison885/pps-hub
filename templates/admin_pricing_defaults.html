@@ -36,7 +36,7 @@
 
 <div class="main">
   <div class="page-title">Estimating Pricing Defaults</div>
-  <p class="page-sub">These values pre-fill siding, roofing, and gutter estimators for the whole team. Estimators can still override per job. Excel yellow cells remain editable after download.</p>
+  <p class="page-sub">These values pre-fill siding, roofing, gutter, and painting estimators for the whole team. Estimators can still override per job. Excel yellow cells remain editable after download.</p>
 
   {% if message %}<div class="msg-ok">✓ {{ message }}</div>{% endif %}
   {% if error %}<div class="msg-err">✗ {{ error }}</div>{% endif %}
@@ -54,6 +54,7 @@
     {% set sd = defaults.siding %}
     {% set rd = defaults.roofing %}
     {% set gd = defaults.gutter %}
+    {% set pd = defaults.painting %}
 
     <div class="card">
       <h2>Siding</h2>
@@ -90,6 +91,16 @@
         <div class="field"><label>Waste %</label><input type="number" name="gutter_waste_pct" value="{{ gd.waste_pct }}" step="1"></div>
         <div class="field"><label>Downspout height (ft)</label><input type="number" name="gutter_ds_height" value="{{ gd.downspout_lf_each }}" step="0.5"></div>
         <div class="field"><label>Downspout spacing (LF)</label><input type="number" name="gutter_ds_spacing" value="{{ gd.downspout_spacing_ft }}" step="1"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Exterior Painting</h2>
+      <div class="grid">
+        <div class="field"><label>Labor $/hour</label><input type="number" name="painting_labor_per_hour" value="{{ pd.labor_per_hour }}" step="1"></div>
+        <div class="field"><label>One-coat margin %</label><input type="number" name="painting_margin_one_coat_pct" value="{{ pd.margin_one_coat_pct }}" step="1"></div>
+        <div class="field"><label>Two-coat margin %</label><input type="number" name="painting_margin_two_coat_pct" value="{{ pd.margin_two_coat_pct }}" step="1"></div>
+        <div class="field"><label>Two-coat multiplier</label><input type="number" name="painting_two_coat_multiplier" value="{{ pd.two_coat_multiplier }}" step="0.1"></div>
       </div>
     </div>
 

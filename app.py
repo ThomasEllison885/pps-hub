@@ -578,6 +578,27 @@ def init_db():
         pass
 
     cur.execute('''
+        CREATE TABLE IF NOT EXISTS painting_estimate_log (
+            id SERIAL PRIMARY KEY,
+            generated_by VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255),
+            property_name VARCHAR(255),
+            property_address VARCHAR(255),
+            line_count INTEGER,
+            one_coat_bid NUMERIC,
+            two_coat_bid NUMERIC,
+            job_data JSONB NOT NULL,
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    try:
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_painting_estimate_user ON painting_estimate_log(generated_by, generated_at DESC)"
+        )
+    except Exception:
+        pass
+
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS hub_settings (
             key VARCHAR(100) PRIMARY KEY,
             value JSONB NOT NULL,
@@ -1809,6 +1830,7 @@ def dashboard():
     recent_siding_estimates = []
     recent_roofing_estimates = []
     recent_gutter_estimates = []
+    recent_painting_estimates = []
     # Recent Trade Partner Scopes
     recent_tpscopes = []
     all_my_ppms = []
@@ -1855,6 +1877,13 @@ def dashboard():
                 (user_key,),
             )
             recent_gutter_estimates = cur_tps.fetchall()
+            cur_tps.execute(
+                '''SELECT id, property_name, property_address, line_count, one_coat_bid, generated_at
+                   FROM painting_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_painting_estimates = cur_tps.fetchall()
             cur_tps.close()
             conn_tps.close()
     except Exception as e:
@@ -1900,6 +1929,7 @@ def dashboard():
                            recent_siding_estimates=recent_siding_estimates,
                            recent_roofing_estimates=recent_roofing_estimates,
                            recent_gutter_estimates=recent_gutter_estimates,
+                           recent_painting_estimates=recent_painting_estimates,
                            proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'))
 
 
@@ -1912,6 +1942,7 @@ def estimating_confidence():
     try:
         from estimators.reliability import (
             build_gutter_reliability,
+            build_painting_reliability,
             build_roofing_reliability,
             build_siding_job_reliability,
             build_siding_reliability,
@@ -1940,6 +1971,12 @@ def estimating_confidence():
                     data.get('source') or 'eagleview',
                     int(data.get('pricing_loaded') or 0),
                 )
+        elif tool == 'painting':
+            confidence = build_painting_reliability(
+                data.get('measurements') or {},
+                data.get('line_items') or [],
+                data.get('user_overrides') or {},
+            )
         else:
             return jsonify({'error': 'Unknown tool'}), 400
         return jsonify({'confidence': confidence})
@@ -1956,6 +1993,7 @@ def estimating_hub():
     recent_siding = []
     recent_roofing = []
     recent_gutters = []
+    recent_painting = []
     try:
         conn = get_db()
         if conn:
@@ -1981,6 +2019,13 @@ def estimating_hub():
                 (user_key,),
             )
             recent_gutters = cur.fetchall()
+            cur.execute(
+                '''SELECT id, property_name, line_count, one_coat_bid, two_coat_bid, generated_at
+                   FROM painting_estimate_log WHERE generated_by = %s
+                   ORDER BY generated_at DESC LIMIT 5''',
+                (user_key,),
+            )
+            recent_painting = cur.fetchall()
             cur.close()
             conn.close()
     except Exception as e:
@@ -1990,6 +2035,7 @@ def estimating_hub():
         recent_siding=recent_siding,
         recent_roofing=recent_roofing,
         recent_gutters=recent_gutters,
+        recent_painting=recent_painting,
     )
 
 
@@ -2665,6 +2711,12 @@ def admin_pricing_defaults():
                     'waste_pct': request.form.get('gutter_waste_pct'),
                     'downspout_lf_each': request.form.get('gutter_ds_height'),
                     'downspout_spacing_ft': request.form.get('gutter_ds_spacing'),
+                },
+                'painting': {
+                    'labor_per_hour': request.form.get('painting_labor_per_hour'),
+                    'margin_one_coat_pct': request.form.get('painting_margin_one_coat_pct'),
+                    'margin_two_coat_pct': request.form.get('painting_margin_two_coat_pct'),
+                    'two_coat_multiplier': request.form.get('painting_two_coat_multiplier'),
                 },
             }
             defaults = save_pricing_defaults(
@@ -3870,6 +3922,7 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
         'siding_estimate': 'Siding Estimate',
         'roofing_estimate': 'Roofing Estimate',
         'gutter_estimate': 'Gutter Estimate',
+        'painting_estimate': 'Exterior Painting Estimate',
     }
     label = type_labels.get(doc_type, 'Document')
     subject = f'PPS {label} — {property_name}' if property_name else f'PPS {label}'
@@ -5105,6 +5158,252 @@ def gutter_estimator_email(estimate_id):
             to_email=to_email,
             doc_type='gutter_estimate',
             filename=_gutter_filename(data.get('job', {})),
+            property_name=data.get('job', {}).get('property_name', ''),
+            doc_b64=doc_b64,
+            sender_name=session.get('display_name', 'PPS Hub'),
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+def _painting_job_data_from_row(row):
+    data = row.get('job_data') or {}
+    if isinstance(data, str):
+        data = json.loads(data)
+    return data
+
+
+def _load_painting_estimate_row(estimate_id, user_key=None):
+    conn = get_db()
+    if not conn:
+        return None
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute('SELECT * FROM painting_estimate_log WHERE id = %s', (estimate_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    if user_key and row.get('generated_by') != user_key and session.get('role') != 'admin':
+        return None
+    return row
+
+
+def _painting_preview_context(row):
+    from estimators.painting import calculate_painting_estimate
+
+    data = _painting_job_data_from_row(row)
+    summary = calculate_painting_estimate(
+        data.get('line_items', []),
+        data.get('inputs', {}),
+    )
+    return {
+        'job': data.get('job', {}),
+        'inputs': data.get('inputs', {}),
+        'measurements': data.get('measurements', {}),
+        'line_items': data.get('line_items', []),
+        'summary': summary,
+    }
+
+
+def _painting_filename(job):
+    prop = (job.get('property_name') or 'Property').replace(' ', '_')
+    return f'PPS_Painting_Estimate_{prop}.xlsx'
+
+
+@app.route('/painting-estimator')
+@require_login
+def painting_estimator():
+    from estimators.painting import sections_for_ui
+    return render_template(
+        'painting_estimator.html',
+        display_name=session.get('display_name', ''),
+        pricing_defaults=_pricing_defaults(),
+        sections=sections_for_ui(),
+    )
+
+
+@app.route('/painting-estimator/parse', methods=['POST'])
+@require_login
+def painting_estimator_parse():
+    pdf_file = request.files.get('pdf')
+    if not pdf_file:
+        return jsonify({'error': 'No PDF uploaded'}), 400
+    try:
+        from estimators.painting import parse_painting_measurements
+        from estimators.reliability import build_painting_reliability
+        measurements, warnings, suggestions = parse_painting_measurements(pdf_file.read())
+        line_items = [
+            {'category': k, 'measured': v.get('measured'), 'from_report': True}
+            for k, v in suggestions.items()
+        ]
+        confidence = build_painting_reliability(measurements, line_items)
+        return jsonify({
+            'measurements': measurements,
+            'warnings': warnings,
+            'suggestions': suggestions,
+            'confidence': confidence,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/painting-estimator/generate', methods=['POST'])
+@require_login
+def painting_estimator_generate():
+    import json as _json
+    try:
+        job = _json.loads(request.form.get('job', '{}'))
+        measurements = _json.loads(request.form.get('measurements', '{}'))
+        line_items = _json.loads(request.form.get('line_items', '[]'))
+        inputs = _json.loads(request.form.get('inputs', '{}'))
+
+        active = [li for li in line_items if li.get('measured')]
+        if not active:
+            return jsonify({'error': 'Enter at least one measured quantity in the takeoff.'}), 400
+
+        from estimators.painting import build_estimate_excel, calculate_painting_estimate
+        from estimators.reliability import build_painting_reliability
+        user_overrides = inputs.pop('user_overrides', None) or {}
+        calc = calculate_painting_estimate(active, inputs)
+        confidence = build_painting_reliability(measurements, active, user_overrides)
+        buf = build_estimate_excel(job, active, inputs, confidence=confidence)
+
+        job_data = {
+            'job': job,
+            'measurements': measurements,
+            'line_items': active,
+            'inputs': inputs,
+            'confidence': confidence,
+        }
+        estimate_id = None
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute(
+                '''INSERT INTO painting_estimate_log (
+                    generated_by, display_name, property_name, property_address,
+                    line_count, one_coat_bid, two_coat_bid, job_data
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (
+                    session['user_key'],
+                    session.get('display_name', ''),
+                    job.get('property_name'),
+                    job.get('address'),
+                    calc.get('line_count'),
+                    calc.get('one_coat_bid'),
+                    calc.get('two_coat_bid'),
+                    _json.dumps(job_data),
+                ),
+            )
+            estimate_id = cur.fetchone()[0]
+            conn.commit()
+            cur.close()
+            conn.close()
+
+        if not estimate_id:
+            return jsonify({'error': 'Could not save estimate to history'}), 500
+
+        return jsonify({
+            'success': True,
+            'estimate_id': estimate_id,
+            'redirect_url': url_for('painting_estimator_result', estimate_id=estimate_id),
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/painting-estimator/preview/<int:estimate_id>')
+@require_login
+def painting_estimator_preview(estimate_id):
+    row = _load_painting_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _painting_preview_context(row)
+    data = _painting_job_data_from_row(row)
+    return render_template(
+        'painting_preview.html',
+        estimate_id=estimate_id,
+        confidence=data.get('confidence'),
+        **ctx,
+    )
+
+
+@app.route('/painting-estimator/result/<int:estimate_id>')
+@require_login
+def painting_estimator_result(estimate_id):
+    row = _load_painting_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    ctx = _painting_preview_context(row)
+    data = _painting_job_data_from_row(row)
+    return render_template(
+        'painting_result.html',
+        estimate_id=estimate_id,
+        property_name=row.get('property_name') or 'Property',
+        summary=ctx['summary'],
+        confidence=data.get('confidence'),
+        user_email=session.get('user_email', ''),
+    )
+
+
+@app.route('/painting-estimator/download/<int:estimate_id>')
+@require_login
+def painting_estimator_download(estimate_id):
+    row = _load_painting_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return 'Estimate not found', 404
+    try:
+        from estimators.painting import build_estimate_excel
+        data = _painting_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('line_items', []),
+            data.get('inputs', {}),
+            confidence=data.get('confidence'),
+        )
+        return send_file(
+            buf,
+            as_attachment=True,
+            download_name=_painting_filename(data.get('job', {})),
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return str(e), 500
+
+
+@app.route('/painting-estimator/email/<int:estimate_id>', methods=['POST'])
+@require_login
+def painting_estimator_email(estimate_id):
+    row = _load_painting_estimate_row(estimate_id, session['user_key'])
+    if not row:
+        return jsonify({'error': 'Estimate not found'}), 404
+    payload = request.get_json(silent=True) or {}
+    to_email = (payload.get('to_email') or session.get('user_email') or '').strip()
+    if not to_email:
+        return jsonify({'error': 'No email address'}), 400
+    try:
+        from estimators.painting import build_estimate_excel
+        data = _painting_job_data_from_row(row)
+        buf = build_estimate_excel(
+            data.get('job', {}),
+            data.get('line_items', []),
+            data.get('inputs', {}),
+            confidence=data.get('confidence'),
+        )
+        doc_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
+        return _send_resend_document(
+            to_email=to_email,
+            doc_type='painting_estimate',
+            filename=_painting_filename(data.get('job', {})),
             property_name=data.get('job', {}).get('property_name', ''),
             doc_b64=doc_b64,
             sender_name=session.get('display_name', 'PPS Hub'),
