@@ -1534,7 +1534,7 @@ def compute_psc_training_stats(user_key):
 def _internal_api_ok():
     if not INTERNAL_API_KEY:
         return False
-    api_key = request.headers.get('X-API-Key', '')
+    api_key = (request.headers.get('X-API-Key') or '').strip()
     return api_key == INTERNAL_API_KEY
 
 
@@ -1738,16 +1738,21 @@ def cron_daily_digest():
         except ValueError:
             return jsonify({'error': 'Invalid date (use YYYY-MM-DD)'}), 400
 
-    result = run_daily_digest(
-        get_db,
-        USERS,
-        _format_template_label,
-        _send_smtp_email,
-        force=force,
-        date_override=date_override,
-    )
-    status = 200 if result.get('ok') else 500
-    return jsonify(result), status
+    try:
+        result = run_daily_digest(
+            get_db,
+            USERS,
+            _format_template_label,
+            _send_smtp_email,
+            force=force,
+            date_override=date_override,
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        print(f'Daily digest cron error: {e}')
+        import traceback
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 
 @app.route('/')

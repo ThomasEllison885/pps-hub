@@ -553,14 +553,20 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
 
     recipients = digest_recipients()
     if not recipients:
-        return {'ok': False, 'error': 'no_recipients'}
+        return {
+            'ok': True,
+            'skipped': True,
+            'reason': 'no_recipients',
+            'report_date': sent_key,
+        }
 
     subject, text_body, html_body = build_digest_email(report_date, items, counts, users, exclude)
     sent = send_email_fn(subject, text_body, html_body, recipients)
     if sent:
         _mark_sent(get_db, report_date)
-    return {
-        'ok': sent,
+    result = {
+        'ok': True,
+        'skipped': False,
         'sent': sent,
         'report_date': sent_key,
         'item_count': len(items),
@@ -569,3 +575,7 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
         'recipients': recipients,
         'window_utc': [start.isoformat(), end.isoformat()],
     }
+    if not sent:
+        result['email_failed'] = True
+        result['warning'] = 'Digest built but SMTP send failed — check pps-hub logs'
+    return result

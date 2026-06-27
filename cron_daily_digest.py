@@ -23,6 +23,7 @@ def main():
 
     req = urllib.request.Request(
         url,
+        data=b'',
         headers={'X-API-Key': api_key},
         method='POST',
     )
@@ -35,7 +36,14 @@ def main():
                 data = json.loads(body)
             except json.JSONDecodeError:
                 return 0 if 200 <= resp.status < 300 else 1
+            if data.get('skipped'):
+                print(f"OK (skipped): {data.get('reason', 'unknown')}")
+                return 0
             if data.get('ok'):
+                if data.get('email_failed'):
+                    print('WARNING: digest ran but email was not sent — check pps-hub SMTP logs')
+                elif data.get('sent'):
+                    print('OK: digest email sent')
                 return 0
             print('ERROR: digest endpoint returned ok=false')
             return 1
