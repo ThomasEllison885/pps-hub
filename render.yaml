@@ -47,7 +47,7 @@ services:
     runtime: python
     schedule: "0 * * * *"
     buildCommand: pip install -r requirements.txt
-    startCommand: python -c "import os,urllib.request; urllib.request.urlopen(urllib.request.Request((os.environ.get('HUB_PUBLIC_URL','https://hub.purepropsolutions.com').rstrip('/')+'/api/cron/daily-digest'), headers={'X-API-Key': os.environ['INTERNAL_API_KEY']}, method='POST'), timeout=120)"
+    startCommand: python cron_daily_digest.py
     envVars:
       - key: INTERNAL_API_KEY
         sync: false
