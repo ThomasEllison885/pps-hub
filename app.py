@@ -955,7 +955,7 @@ def _send_psc_accountability_email(subject, text_body, html_body=None):
         msg.attach(MIMEText(text_body, 'plain'))
         if html_body:
             msg.attach(MIMEText(html_body, 'html'))
-        with smtplib.SMTP_SSL(smtp_host, 465) as s:
+        with smtplib.SMTP_SSL(smtp_host, 465, timeout=30) as s:
             s.login(smtp_user, smtp_pass)
             s.send_message(msg)
         return True
@@ -3272,7 +3272,7 @@ def _send_smtp_email(subject, text_body, html_body=None, recipients=None):
         msg.attach(MIMEText(text_body, 'plain'))
         if html_body:
             msg.attach(MIMEText(html_body, 'html'))
-        with smtplib.SMTP_SSL(smtp_host, 465) as s:
+        with smtplib.SMTP_SSL(smtp_host, 465, timeout=30) as s:
             s.login(smtp_user, smtp_pass)
             s.send_message(msg)
         return True
