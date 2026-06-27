@@ -1787,6 +1787,46 @@ def _pricing_defaults():
     return get_pricing_defaults(get_db)
 
 
+def _admin_inbox_counts():
+    """Unread feedback and proposal comparison submissions for admin badges."""
+    unread_feedback = 0
+    unread_diffs = 0
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor()
+            cur.execute('SELECT COUNT(*) FROM feedback WHERE read_by_admin = FALSE')
+            unread_feedback = cur.fetchone()[0] or 0
+            cur.execute('SELECT COUNT(*) FROM proposal_diffs WHERE reviewed_by_admin = FALSE')
+            unread_diffs = cur.fetchone()[0] or 0
+            cur.close()
+            conn.close()
+    except Exception as e:
+        print(f'Admin inbox counts error: {e}')
+    return unread_feedback, unread_diffs
+
+
+def _pricing_summary_for_dashboard():
+    """Compact pricing meta for the admin dashboard lane."""
+    d = _pricing_defaults()
+    sd, rd = d.get('siding', {}), d.get('roofing', {})
+    updated = d.get('updated_at')
+    updated_label = ''
+    if updated and hasattr(updated, 'strftime'):
+        updated_label = updated.strftime('%b %d, %Y')
+    elif updated:
+        updated_label = str(updated)[:10]
+    return {
+        'updated_label': updated_label,
+        'updated_by_name': d.get('updated_by_name') or '',
+        'is_custom': bool(updated),
+        'siding_labor': sd.get('labor_per_sq'),
+        'roofing_labor': rd.get('labor_per_sq'),
+        'gutter_lf': d.get('gutter', {}).get('gutter_price_per_lf'),
+        'painting_hour': d.get('painting', {}).get('labor_per_hour'),
+    }
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_key'):
@@ -2058,6 +2098,12 @@ def dashboard():
     if psc_training_enrolled:
         psc_training_stats = compute_psc_training_stats(user_key)
     psc_training_oversight = can_psc_training_oversight(user_key)
+    unread_feedback = 0
+    unread_diffs = 0
+    pricing_summary = None
+    if is_admin:
+        unread_feedback, unread_diffs = _admin_inbox_counts()
+        pricing_summary = _pricing_summary_for_dashboard()
     return render_template(
         'dashboard.html',
         user=user,
@@ -2065,6 +2111,7 @@ def dashboard():
         user_role=user_role,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
+        admin_lane_open=is_admin,
         team_view=team_view,
         team_view_scope=team_view_scope,
         consultants=accessible_consultants,
@@ -2076,6 +2123,9 @@ def dashboard():
         psc_training_stats=psc_training_stats,
         psc_training_enrolled=psc_training_enrolled,
         psc_training_oversight=psc_training_oversight,
+        unread_feedback=unread_feedback,
+        unread_diffs=unread_diffs,
+        pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
     )
 
@@ -2966,7 +3016,7 @@ def admin():
     all_proposals = []
     all_ppms = []
     all_subscopes = []
-    unread_feedback = 0
+    unread_feedback, _ = _admin_inbox_counts()
     client_count = 0
     proposals_30d = ppms_30d = subscopes_30d = 0
     breakdown = {}
@@ -3001,11 +3051,6 @@ def admin():
             subscopes_30d = cur.fetchone()['c'] or 0
             breakdown = _fetch_admin_breakdown(cur)
             vault = _fetch_vault_summary(cur)
-            try:
-                cur.execute('SELECT COUNT(*) as cnt FROM feedback WHERE read_by_admin = FALSE')
-                unread_feedback = cur.fetchone()['cnt']
-            except Exception:
-                pass
             try:
                 cur.execute('SELECT COUNT(*) as cnt FROM clients')
                 client_count = cur.fetchone()['cnt']

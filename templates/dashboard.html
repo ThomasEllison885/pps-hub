@@ -51,6 +51,9 @@
   .dash-role-pm .lane-sales { order: 2; }
   .dash-role-consultant .lane-sales { order: 1; }
   .dash-role-consultant .lane-production { order: 2; }
+  .dash-role-admin .lane-admin { order: 0; }
+  .lane-admin summary { background: linear-gradient(90deg, rgba(184,146,42,0.08), transparent); }
+  .pricing-snippet { font-size: 12px; color: #666; line-height: 1.55; margin-top: 4px; }
   .recent-feed { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; margin-bottom: 28px; border: 1px solid var(--border); }
   .recent-feed-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1.5px solid var(--border); }
   .recent-feed-head h3 { font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; }
@@ -153,7 +156,10 @@
   <div class="pps-header-right">
     <span class="pps-header-user">{{ user.display }}</span>
     {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
-    {% if session.get('role') == 'admin' %}<a href="/admin" class="pps-btn-header primary">Admin</a>{% endif %}
+    {% if session.get('role') == 'admin' %}
+    <a href="/admin/feedback" class="pps-btn-header">Feedback{% if unread_feedback > 0 %}<span class="pps-header-badge">{{ unread_feedback }}</span>{% endif %}</a>
+    <a href="/admin" class="pps-btn-header primary">Admin</a>
+    {% endif %}
     <a href="/logout" class="pps-btn-header">Sign Out</a>
   </div>
 </header>
@@ -293,6 +299,72 @@
         </div>
       </div>
     </details>
+
+    {% if user_role == 'admin' and pricing_summary %}
+    <details class="dashboard-lane lane-admin" {% if admin_lane_open %}open{% endif %}>
+      <summary>
+        <div>
+          <div class="lane-title">Admin &amp; Company Settings</div>
+          <div class="lane-sub">Estimator pricing, feedback inbox, and team oversight</div>
+        </div>
+        <div class="lane-links" onclick="event.stopPropagation()">
+          <a href="/admin/pricing-defaults" class="lane-link">Pricing →</a>
+          {% if unread_feedback > 0 %}<a href="/admin/feedback" class="lane-link">{{ unread_feedback }} feedback →</a>{% endif %}
+        </div>
+      </summary>
+      <div class="lane-body">
+        <div class="tools-grid">
+          <a href="/admin/pricing-defaults" class="pps-tool-card">
+            <div class="pps-tool-icon">💰</div>
+            <div class="pps-tool-name">Estimating Pricing Defaults</div>
+            <div class="pps-tool-desc">Company-wide rates for siding, roofing, gutter, and painting estimators.</div>
+            <span class="tool-badge">{% if pricing_summary.is_custom %}Updated {{ pricing_summary.updated_label or 'recently' }}{% else %}Built-in defaults{% endif %}</span>
+            <div class="pricing-snippet">
+              Siding ${{ pricing_summary.siding_labor }}/sq · Roofing ${{ pricing_summary.roofing_labor }}/sq ·
+              Gutters ${{ pricing_summary.gutter_lf }}/LF · Paint ${{ pricing_summary.painting_hour }}/hr
+            </div>
+            <div class="tool-meta">Edit defaults →</div>
+          </a>
+
+          <a href="/admin/feedback" class="pps-tool-card">
+            <div class="pps-tool-icon">💬</div>
+            <div class="pps-tool-name">Feedback Inbox</div>
+            <div class="pps-tool-desc">Suggestions and ideas from the team.</div>
+            {% if unread_feedback > 0 %}
+            <span class="tool-badge" style="background:#FDEDEC;color:#C0392B;border-color:#F5B7B1;">{{ unread_feedback }} unread</span>
+            {% else %}
+            <span class="tool-badge">All caught up</span>
+            {% endif %}
+            <div class="tool-meta">Open inbox →</div>
+          </a>
+
+          <a href="/admin/diffs" class="pps-tool-card">
+            <div class="pps-tool-icon">🔍</div>
+            <div class="pps-tool-name">Proposal Comparisons</div>
+            <div class="pps-tool-desc">Voice guide submissions — generated vs. edited proposals.</div>
+            {% if unread_diffs > 0 %}
+            <span class="tool-badge" style="background:#FEF9E7;color:#9A7B0A;border-color:#F9E79F;">{{ unread_diffs }} new</span>
+            {% endif %}
+            <div class="tool-meta">Review →</div>
+          </a>
+
+          <a href="/team-view" class="pps-tool-card">
+            <div class="pps-tool-icon">👥</div>
+            <div class="pps-tool-name">Team View</div>
+            <div class="pps-tool-desc">Activity across consultants and project managers.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+
+          <a href="/admin" class="pps-tool-card">
+            <div class="pps-tool-icon">⚙️</div>
+            <div class="pps-tool-name">Admin Hub</div>
+            <div class="pps-tool-desc">Users, vault, proposals, site visits, and system health.</div>
+            <div class="tool-meta">Open →</div>
+          </a>
+        </div>
+      </div>
+    </details>
+    {% endif %}
   </div>
 
   <div class="recent-feed">

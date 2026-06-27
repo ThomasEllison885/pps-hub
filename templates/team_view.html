@@ -64,6 +64,12 @@
   .hub-footer{text-align:center;padding:24px 0 0;border-top:1px solid var(--border);margin-top:24px;}
   .hub-footer img{height:22px;opacity:0.45;}
 
+  .filter-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:20px;padding:14px 16px;background:white;border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);}
+  .filter-bar input,.filter-bar select{padding:8px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;color:var(--gray);}
+  .filter-bar input{flex:1;min-width:180px;}
+  .filter-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;}
+  .member-card.filtered-out{opacity:0.35;pointer-events:none;}
+  .filter-hint{font-size:12px;color:#888;width:100%;}
   @media(max-width:700px){.members-grid{grid-template-columns:1fr 1fr;}.main{padding:24px 14px 40px;}}
 </style>
 </head>
@@ -87,12 +93,34 @@
     {% endif %}
   </p>
 
-  <div class="pps-section-head">
+  <div class="filter-bar">
+    <span class="filter-label">Filter</span>
+    <input type="search" id="tvSearch" placeholder="Search property, client, address…" oninput="applyTeamFilters()">
+    <select id="tvDays" onchange="applyTeamFilters()">
+      <option value="all">All time</option>
+      <option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
+    <select id="tvType" onchange="applyTeamFilters()">
+      {% if scope == 'consultants' %}
+      <option value="all">All templates</option>
+      <option value="short">Standard only</option>
+      <option value="full">Comprehensive only</option>
+      {% else %}
+      <option value="all">All activity</option>
+      <option value="ppm">PPMs only</option>
+      <option value="tps">TPS only</option>
+      {% endif %}
+    </select>
+    <span class="filter-hint" id="tvFilterHint"></span>
+  </div>
+
+  <div class="pps-section-head" id="tvSectionHead">
     {% if scope == 'consultants' %}Consultants ({{ members|length }})
     {% else %}Project Managers ({{ members|length }}){% endif %}
   </div>
 
-  <div class="members-grid">
+  <div class="members-grid" id="membersGrid">
     {% for m in members %}
     {% set mdata = member_data.get(m.key, {}) %}
     <div class="member-card" id="card_{{ m.key }}" onclick="showMember('{{ m.key }}')">
@@ -194,6 +222,103 @@ function formatTemplateLabel(val) {
   return val;
 }
 
+function _tvDaysLimit() {
+  const v = document.getElementById('tvDays')?.value || 'all';
+  if (v === '30') return 30;
+  if (v === '90') return 90;
+  return null;
+}
+
+function _tvWithinDays(isoDate, days) {
+  if (!days || !isoDate) return true;
+  const d = new Date(String(isoDate).substring(0, 10));
+  if (isNaN(d.getTime())) return true;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  return d >= cutoff;
+}
+
+function _tvSearchText() {
+  return (document.getElementById('tvSearch')?.value || '').trim().toLowerCase();
+}
+
+function _tvMatchesSearch(item, fields) {
+  const q = _tvSearchText();
+  if (!q) return true;
+  const hay = fields.filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
+function _filteredProposals(list) {
+  const days = _tvDaysLimit();
+  const tpl = document.getElementById('tvType')?.value || 'all';
+  return (list || []).filter(p => {
+    if (!_tvWithinDays(p.generated_at, days)) return false;
+    if (tpl !== 'all' && (p.template_type || 'short') !== tpl) return false;
+    return _tvMatchesSearch(p, [
+      p.property_name, p.client_name, p.property_address, p.consultant_name,
+      p.property_type, p.scopes_selected, p.proposal_number, p.generated_by,
+    ]);
+  });
+}
+
+function _filteredPpms(list) {
+  const days = _tvDaysLimit();
+  const typ = document.getElementById('tvType')?.value || 'all';
+  if (typ === 'tps') return [];
+  return (list || []).filter(p => {
+    if (!_tvWithinDays(p.generated_at, days)) return false;
+    return _tvMatchesSearch(p, [
+      p.client_name, p.property_name, p.property_address, p.pm_name, p.proj_type,
+    ]);
+  });
+}
+
+function _filteredTps(list) {
+  const days = _tvDaysLimit();
+  const typ = document.getElementById('tvType')?.value || 'all';
+  if (typ === 'ppm') return [];
+  return (list || []).filter(s => {
+    if (!_tvWithinDays(s.generated_at, days)) return false;
+    return _tvMatchesSearch(s, [
+      s.property_name, s.property_address, s.consultant_name, s.pm_name,
+      s.language, s.po_number,
+    ]);
+  });
+}
+
+function _memberVisible(key) {
+  const data = memberData[key] || {};
+  if (scope === 'consultants') {
+    return _filteredProposals(data.proposals).length > 0 || (!_tvSearchText() && !_tvDaysLimit() && (document.getElementById('tvType')?.value || 'all') === 'all');
+  }
+  const ppms = _filteredPpms(data.ppms);
+  const tps = _filteredTps(data.tpscopes);
+  return ppms.length + tps.length > 0 || (!_tvSearchText() && !_tvDaysLimit() && (document.getElementById('tvType')?.value || 'all') === 'all');
+}
+
+function applyTeamFilters() {
+  let visible = 0;
+  members.forEach(m => {
+    const card = document.getElementById('card_' + m.key);
+    if (!card) return;
+    const show = _memberVisible(m.key);
+    card.classList.toggle('filtered-out', !show);
+    if (show) visible++;
+  });
+  const head = document.getElementById('tvSectionHead');
+  const label = scope === 'consultants' ? 'Consultants' : 'Project Managers';
+  head.textContent = `${label} (${visible} of ${members.length})`;
+  const hint = document.getElementById('tvFilterHint');
+  if (_tvSearchText() || _tvDaysLimit() || (document.getElementById('tvType')?.value || 'all') !== 'all') {
+    hint.textContent = visible ? 'Showing members with matching activity.' : 'No matches — try clearing filters.';
+  } else {
+    hint.textContent = '';
+  }
+  if (activeMember && !_memberVisible(activeMember)) closeDetail();
+  else if (activeMember) showMember(activeMember);
+}
+
 function showMember(key) {
   // Highlight card
   document.querySelectorAll('.member-card').forEach(c => c.classList.remove('active'));
@@ -209,43 +334,53 @@ function showMember(key) {
   let html = '';
 
   if (scope === 'consultants') {
-    const proposals = data.proposals || [];
-    html += `<div class="sub-head">Proposals (${proposals.length})</div>`;
+    const allProposals = data.proposals || [];
+    const proposals = _filteredProposals(allProposals);
+    const indexMap = proposals.map(p => allProposals.indexOf(p));
+    html += `<div class="sub-head">Proposals (${proposals.length}${proposals.length !== allProposals.length ? ' of ' + allProposals.length : ''})</div>`;
     if (proposals.length) {
       proposals.forEach((p, i) => {
-        html += `<div class="act-item" onclick="showProposalMeta(${i}, '${key}')">
+        const origIdx = indexMap[i];
+        const tpl = formatTemplateLabel(p.template_type);
+        html += `<div class="act-item" onclick="showProposalMeta(${origIdx}, '${key}')">
           <div class="act-name">${p.property_name || p.client_name || 'Unnamed'}</div>
-          <div class="act-meta">${(p.generated_by||'').replace(/_/g,' ')} · ${p.property_type||''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
+          <div class="act-meta">${tpl} · ${p.property_type||''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
         </div>`;
       });
     } else {
-      html += '<div class="empty">No proposals generated yet</div>';
+      html += '<div class="empty">No proposals match these filters</div>';
     }
   } else {
-    const ppms = data.ppms || [];
-    html += `<div class="sub-head">PPMs (${ppms.length})</div>`;
+    const allPpms = data.ppms || [];
+    const ppms = _filteredPpms(allPpms);
+    const ppmIndexMap = ppms.map(p => allPpms.indexOf(p));
+    html += `<div class="sub-head">PPMs (${ppms.length}${ppms.length !== allPpms.length ? ' of ' + allPpms.length : ''})</div>`;
     if (ppms.length) {
       ppms.forEach((p, i) => {
-        html += `<div class="act-item" onclick="showPPMMeta(${i}, '${key}')">
+        const origIdx = ppmIndexMap[i];
+        html += `<div class="act-item" onclick="showPPMMeta(${origIdx}, '${key}')">
           <div class="act-name">${p.client_name || p.property_name || 'Unnamed'}${p.proj_type ? ' · ' + p.proj_type : ''}</div>
           <div class="act-meta">${p.property_name && p.client_name ? p.property_name + ' · ' : ''}${p.pm_name || ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
         </div>`;
       });
     } else {
-      html += '<div class="empty">No PPMs yet</div>';
+      html += '<div class="empty">No PPMs match these filters</div>';
     }
 
-    const tps = data.tpscopes || [];
-    html += `<div class="sub-head">Trade Partner Scopes (${tps.length})</div>`;
+    const allTps = data.tpscopes || [];
+    const tps = _filteredTps(allTps);
+    const tpsIndexMap = tps.map(s => allTps.indexOf(s));
+    html += `<div class="sub-head">Trade Partner Scopes (${tps.length}${tps.length !== allTps.length ? ' of ' + allTps.length : ''})</div>`;
     if (tps.length) {
       tps.forEach((s, i) => {
-        html += `<div class="act-item" onclick="showTPSMeta(${i}, '${key}')">
+        const origIdx = tpsIndexMap[i];
+        html += `<div class="act-item" onclick="showTPSMeta(${origIdx}, '${key}')">
           <div class="act-name">${s.property_name || 'Unnamed'}</div>
           <div class="act-meta">${s.consultant_name||''} · ${s.language||''}${s.po_number ? ' · PO ' + s.po_number : ''} · ${s.generated_at ? s.generated_at.substring(0,10) : '—'}</div>
         </div>`;
       });
     } else {
-      html += '<div class="empty">No Trade Partner Scopes yet</div>';
+      html += '<div class="empty">No Trade Partner Scopes match these filters</div>';
     }
   }
 

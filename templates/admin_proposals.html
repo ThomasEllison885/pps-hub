@@ -26,6 +26,11 @@
   .filter-btn:hover{border-color:var(--blue);color:var(--blue);}
   .filter-btn.active{background:var(--dark-blue);border-color:var(--dark-blue);color:white;}
   .filter-count{font-size:11px;opacity:0.7;margin-left:4px;}
+  .table-filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;padding:12px 14px;background:white;border-radius:var(--radius);box-shadow:var(--shadow);border:1px solid var(--border);}
+  .table-filters input,.table-filters select{padding:7px 11px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;}
+  .table-filters input{flex:1;min-width:160px;}
+  .table-filters .filter-label{font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;}
+  tr.filtered-out{display:none;}
 
   /* Stats per consultant */
   .consultant-stats{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;}
@@ -111,6 +116,21 @@
   <!-- TABLE -->
   <div class="card">
     {% if rows %}
+    <div class="table-filters" style="margin:16px 16px 0;">
+      <span class="filter-label">Filter</span>
+      <input type="search" id="propSearch" placeholder="Search property, client, scopes…" oninput="applyProposalFilters()">
+      <select id="propDays" onchange="applyProposalFilters()">
+        <option value="all">All time</option>
+        <option value="30">Last 30 days</option>
+        <option value="90">Last 90 days</option>
+      </select>
+      <select id="propTemplate" onchange="applyProposalFilters()">
+        <option value="all">All templates</option>
+        <option value="short">Standard</option>
+        <option value="full">Comprehensive</option>
+      </select>
+      <span id="propFilterCount" style="font-size:12px;color:#888;"></span>
+    </div>
     <table>
       <thead>
         <tr>
@@ -125,7 +145,7 @@
       </thead>
       <tbody>
         {% for p in rows %}
-        <tr onclick="showDetail({{ loop.index0 }})">
+        <tr class="proposal-data-row" data-idx="{{ loop.index0 }}" data-search="{{ ((p.property_name or '') ~ ' ' ~ (p.client_name or '') ~ ' ' ~ (p.property_address or '') ~ ' ' ~ (p.scopes_selected or '') ~ ' ' ~ (p.consultant_name or '') ~ ' ' ~ (p.generated_by or ''))|lower }}" data-template="{{ p.template_type or 'short' }}" data-date="{{ p.generated_at.strftime('%Y-%m-%d') if p.generated_at else '' }}" onclick="showDetail({{ loop.index0 }})">
           <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
             {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
           </td>
@@ -202,6 +222,29 @@ const proposals = [
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];
+
+function applyProposalFilters() {
+  const q = (document.getElementById('propSearch')?.value || '').trim().toLowerCase();
+  const days = document.getElementById('propDays')?.value || 'all';
+  const tpl = document.getElementById('propTemplate')?.value || 'all';
+  let cutoff = null;
+  if (days === '30') { cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30); }
+  if (days === '90') { cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90); }
+  let shown = 0;
+  document.querySelectorAll('.proposal-data-row').forEach(row => {
+    let ok = true;
+    if (q && !(row.dataset.search || '').includes(q)) ok = false;
+    if (tpl !== 'all' && row.dataset.template !== tpl) ok = false;
+    if (cutoff && row.dataset.date) {
+      const d = new Date(row.dataset.date);
+      if (!isNaN(d.getTime()) && d < cutoff) ok = false;
+    }
+    row.classList.toggle('filtered-out', !ok);
+    if (ok) shown++;
+  });
+  const el = document.getElementById('propFilterCount');
+  if (el) el.textContent = shown + ' shown';
+}
 
 function showDetail(idx) {
   const p = proposals[idx];
