@@ -3354,37 +3354,68 @@ def _send_feedback_email(name, message):
     _send_hub_notify_email(subject, text_body, html_body)
 
 
-def _send_proposal_diff_email(name, property_name, user_notes, diff_analysis, voice_recommendations):
+def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendations, user_notes=''):
+    """Persist a proposal comparison submission; returns new row id or None."""
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor()
+        cur.execute(
+            '''INSERT INTO proposal_diffs
+               (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id''',
+            (user_key, display_name, '', diff_analysis, user_notes, voice_recommendations),
+        )
+        diff_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return diff_id
+    except Exception as e:
+        print(f'Save proposal diff error: {e}')
+        return None
+
+
+def _send_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendations):
     from html import escape
 
     admin_url = f"{HUB_PUBLIC_URL.rstrip('/')}/admin/diffs"
-    prop = property_name or 'Unnamed property'
-    subject = f'Proposal Comparison — {name} · {prop}'
+    subject = f'Proposal Comparison — {name}'
+    analysis_text = (diff_analysis or '').strip()
+    voice_text = (voice_recommendations or '').strip()
     notes_block = f"\n\nConsultant notes:\n{user_notes.strip()}" if user_notes else ''
     text_body = (
         f"New proposal comparison from {name}\n"
-        f"Property: {prop}\n"
         f"{notes_block}\n\n"
-        f"Analysis summary:\n{(diff_analysis or '').strip()[:2000]}\n\n"
-        f"Voice recommendations:\n{(voice_recommendations or '').strip()[:2000]}\n\n"
+        f"What Changed:\n{analysis_text}\n\n"
+        f"Voice Guide Recommendations:\n{voice_text}\n\n"
         f"Review in hub: {admin_url}"
     )
+    notes_html = ''
+    if user_notes:
+        notes_html = (
+            '<div style="margin-bottom:14px;">'
+            '<p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Consultant Notes</p>'
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(user_notes.strip())}</div>'
+            '</div>'
+        )
     html_body = f"""
-    <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;">
       <div style="background:#004C8C;padding:18px 22px;border-radius:8px 8px 0 0;">
         <p style="color:white;font-size:17px;font-weight:600;margin:0;">Proposal Comparison</p>
       </div>
       <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
-        <p style="color:#334155;font-size:14px;margin:0 0 8px;"><strong>From:</strong> {escape(name)}</p>
-        <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>Property:</strong> {escape(prop)}</p>
-        {'<div style="margin-bottom:14px;"><p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Consultant Notes</p><div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">' + escape(user_notes.strip()) + '</div></div>' if user_notes else ''}
+        <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>From:</strong> {escape(name)}</p>
+        {notes_html}
         <div style="margin-bottom:14px;">
-          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Analysis</p>
-          <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape((diff_analysis or '').strip()[:4000])}</div>
+          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">What Changed</p>
+          <div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(analysis_text)}</div>
         </div>
         <div style="margin-bottom:14px;">
-          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Voice Recommendations</p>
-          <div style="background:#FFF9E6;border:1px solid #FFE082;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape((voice_recommendations or '').strip()[:4000])}</div>
+          <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Voice Guide Recommendations</p>
+          <div style="background:#FFF9E6;border:1px solid #FFE082;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(voice_text)}</div>
         </div>
         <p style="margin:0;">
           <a href="{admin_url}" style="color:#004C8C;font-weight:600;">Open comparisons in Admin →</a>
@@ -3791,7 +3822,6 @@ def analyze_diff():
 
     original_file = request.files.get('original')
     edited_file = request.files.get('edited')
-    property_name = (request.form.get('property_name') or '').strip()
 
     try:
         original_text = _extract_upload_text(original_file, 'original proposal')
@@ -3804,14 +3834,13 @@ def analyze_diff():
     if not original_text.strip() or not edited_text.strip():
         return jsonify({'success': False, 'error': 'Could not extract text from one or both files.'}), 400
 
-    prop_line = f'Property: {property_name}\n\n' if property_name else ''
     prompt = f"""You are helping improve the PPS (Pure Property Solutions) construction proposal voice guide.
 
 A consultant generated a proposal with AI, then edited it before sending to the client.
 Compare the ORIGINAL and EDITED versions. Focus on meaningful changes to tone, structure,
 wording, scope language, and client-facing phrasing — not trivial formatting.
 
-{prop_line}ORIGINAL (AI-generated):
+ORIGINAL (AI-generated):
 {original_text[:14000]}
 
 EDITED (consultant's final version):
@@ -3842,10 +3871,20 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
         voice_recommendations = (parsed.get('voice_recommendations') or '').strip()
         if not diff_analysis and not voice_recommendations:
             return jsonify({'success': False, 'error': 'Claude returned an empty analysis.'}), 500
+
+        user_key = session['user_key']
+        display_name = session.get('display_name', '')
+        diff_id = _save_proposal_diff(
+            user_key, display_name, diff_analysis, voice_recommendations,
+        )
+        _send_proposal_diff_email(display_name, '', diff_analysis, voice_recommendations)
+
         return jsonify({
             'success': True,
             'diff_analysis': diff_analysis,
             'voice_recommendations': voice_recommendations,
+            'diff_id': diff_id,
+            'shared_with_admin': True,
         })
     except json.JSONDecodeError:
         return jsonify({'success': False, 'error': 'Could not parse Claude response. Try again.'}), 500
@@ -3856,29 +3895,51 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
 
 @app.route('/submit-diff', methods=['POST'])
 def submit_diff():
+    """Optional follow-up: attach consultant notes to an existing comparison."""
     if not session.get('user_key'):
         return jsonify({'error': 'Not authenticated'}), 401
-    property_name = request.form.get('property_name', '').strip()
-    diff_analysis = request.form.get('diff_analysis', '').strip()
+    diff_id = request.form.get('diff_id', '').strip()
     user_notes = request.form.get('user_notes', '').strip()
-    voice_recommendations = request.form.get('voice_recommendations', '').strip()
+    if not user_notes:
+        return jsonify({'success': False, 'error': 'No notes to save.'}), 400
     user_key = session['user_key']
     display_name = session.get('display_name', '')
     try:
         conn = get_db()
-        if conn:
-            cur = conn.cursor()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 500
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if diff_id:
+            cur.execute(
+                '''SELECT id, diff_analysis, voice_recommendations
+                   FROM proposal_diffs WHERE id = %s AND user_key = %s''',
+                (diff_id, user_key),
+            )
+            row = cur.fetchone()
+            if not row:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Comparison not found.'}), 404
+            cur.execute(
+                'UPDATE proposal_diffs SET user_notes = %s WHERE id = %s',
+                (user_notes, diff_id),
+            )
+            diff_analysis = row.get('diff_analysis') or ''
+            voice_recommendations = row.get('voice_recommendations') or ''
+        else:
+            diff_analysis = request.form.get('diff_analysis', '').strip()
+            voice_recommendations = request.form.get('voice_recommendations', '').strip()
             cur.execute(
                 '''INSERT INTO proposal_diffs
                    (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
                    VALUES (%s, %s, %s, %s, %s, %s)''',
-                (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
+                (user_key, display_name, '', diff_analysis, user_notes, voice_recommendations),
             )
-            conn.commit()
-            cur.close()
-            conn.close()
+        conn.commit()
+        cur.close()
+        conn.close()
         _send_proposal_diff_email(
-            display_name, property_name, user_notes, diff_analysis, voice_recommendations
+            display_name, user_notes, diff_analysis, voice_recommendations,
         )
         return jsonify({'success': True})
     except Exception as e:

@@ -52,7 +52,7 @@
   <div class="diff-card">
     <div class="dc-header">
       <div>
-        <div class="dc-name">{{ row.property_name or 'Unnamed Property' }}</div>
+        <div class="dc-name">{{ row.submitted_at.strftime('%B %d, %Y') if row.submitted_at else 'Comparison' }}</div>
         <div class="dc-by">{{ row.display_name }}</div>
       </div>
       <div class="dc-meta">{{ row.submitted_at.strftime('%B %d, %Y at %I:%M %p') if row.submitted_at else '' }}</div>

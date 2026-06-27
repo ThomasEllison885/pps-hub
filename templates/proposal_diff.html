@@ -82,11 +82,6 @@
     <h3>Compare Two Versions</h3>
     <p>Upload the Word doc Claude generated and your edited version. We'll analyze what changed and why it matters.</p>
 
-    <div class="field">
-      <label>Property / Client Name</label>
-      <input type="text" id="propName" placeholder="e.g. Vantage Point West — Roofing">
-    </div>
-
     <div class="upload-grid">
       <div class="upload-box" id="box1" onclick="document.getElementById('file1').click()">
         <div class="icon">📄</div>
@@ -113,6 +108,7 @@
   <!-- RESULTS -->
   <div class="results-card" id="resultsCard">
     <h3>Analysis Results</h3>
+    <div class="success-msg" id="sharedMsg" style="display:none;margin-bottom:16px;">✓ Shared with admin — full analysis sent automatically.</div>
 
     <div class="diff-section">
       <h4>What Changed</h4>
@@ -125,12 +121,12 @@
     </div>
 
     <div class="diff-section notes-field">
-      <h4>Your Notes <span style="font-weight:400;color:#aaa;text-transform:none;font-size:11px;">— add context or edit the recommendations above</span></h4>
-      <textarea id="userNotes" placeholder="Add any context about why you made these changes. For example: 'The client asked for a softer tone' or 'This property manager prefers bullet points over paragraphs.'"></textarea>
+      <h4>Your Notes <span style="font-weight:400;color:#aaa;text-transform:none;font-size:11px;">— optional context for admin</span></h4>
+      <textarea id="userNotes" placeholder="Optional: why you made these changes, client context, etc."></textarea>
     </div>
 
-    <button class="btn-submit" onclick="submitDiff()">Submit to Thomas for Review</button>
-    <div class="success-msg" id="successMsg">✓ Submitted — Thomas will review and update the voice guide.</div>
+    <button class="btn-submit" id="notesBtn" onclick="submitNotes()" style="display:none;">Send Notes to Admin</button>
+    <div class="success-msg" id="notesMsg" style="display:none;">✓ Notes sent.</div>
   </div>
 
   <!-- HISTORY -->
@@ -139,7 +135,7 @@
   {% for row in rows %}
   <div class="history-item" onclick="toggleHistory('hist_{{ row.id }}')">
     <div class="hi-header">
-      <div class="hi-name">{{ row.property_name or 'Unnamed Property' }}</div>
+      <div class="hi-name">{{ row.submitted_at.strftime('%b %d, %Y') if row.submitted_at else 'Comparison' }}</div>
       <div class="hi-date">{{ row.submitted_at.strftime('%b %d, %Y') if row.submitted_at else '' }}</div>
     </div>
     {% if is_admin %}
@@ -166,6 +162,7 @@
 
 <script>
 let analysisData = {};
+let currentDiffId = null;
 
 function fileSelected(num) {
   const file = document.getElementById('file' + num).files[0];
@@ -185,26 +182,34 @@ function checkReady() {
 async function analyze() {
   const f1 = document.getElementById('file1').files[0];
   const f2 = document.getElementById('file2').files[0];
-  const propName = document.getElementById('propName').value.trim();
   if (!f1 || !f2) return;
 
   document.getElementById('analyzeBtn').disabled = true;
   document.getElementById('loading').style.display = 'block';
   document.getElementById('resultsCard').style.display = 'none';
+  document.getElementById('sharedMsg').style.display = 'none';
+  document.getElementById('notesMsg').style.display = 'none';
+  document.getElementById('notesBtn').style.display = 'none';
+  document.getElementById('userNotes').value = '';
+  currentDiffId = null;
 
   const fd = new FormData();
   fd.append('original', f1);
   fd.append('edited', f2);
-  fd.append('property_name', propName);
 
   try {
     const resp = await fetch('/analyze-diff', { method: 'POST', body: fd });
     const data = await resp.json();
     if (data.success) {
       analysisData = data;
+      currentDiffId = data.diff_id || null;
       document.getElementById('diffContent').textContent = data.diff_analysis;
       document.getElementById('voiceRecs').textContent = data.voice_recommendations;
       document.getElementById('resultsCard').style.display = 'block';
+      if (data.shared_with_admin) {
+        document.getElementById('sharedMsg').style.display = 'block';
+      }
+      document.getElementById('notesBtn').style.display = 'inline-block';
     } else {
       alert('Error: ' + (data.error || 'Something went wrong'));
     }
@@ -216,18 +221,27 @@ async function analyze() {
   document.getElementById('analyzeBtn').disabled = false;
 }
 
-async function submitDiff() {
+async function submitNotes() {
+  const notes = document.getElementById('userNotes').value.trim();
+  if (!notes) {
+    alert('Add a note first, or skip — the comparison was already sent to admin.');
+    return;
+  }
   const fd = new FormData();
-  fd.append('property_name', document.getElementById('propName').value.trim());
-  fd.append('diff_analysis', analysisData.diff_analysis || '');
-  fd.append('voice_recommendations', analysisData.voice_recommendations || '');
-  fd.append('user_notes', document.getElementById('userNotes').value.trim());
+  if (currentDiffId) fd.append('diff_id', currentDiffId);
+  fd.append('user_notes', notes);
+  if (!currentDiffId) {
+    fd.append('diff_analysis', analysisData.diff_analysis || '');
+    fd.append('voice_recommendations', analysisData.voice_recommendations || '');
+  }
 
   const resp = await fetch('/submit-diff', { method: 'POST', body: fd });
   const data = await resp.json();
   if (data.success) {
-    document.getElementById('successMsg').style.display = 'block';
-    setTimeout(() => document.getElementById('successMsg').style.display = 'none', 5000);
+    document.getElementById('notesMsg').style.display = 'block';
+    setTimeout(() => document.getElementById('notesMsg').style.display = 'none', 5000);
+  } else {
+    alert('Error: ' + (data.error || 'Could not send notes'));
   }
 }
 
