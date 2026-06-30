@@ -1478,23 +1478,21 @@ def _psc_week_item_ids():
             ids.append(week_data['book_id'])
         return ids
 
-    result[0] = collect(onboarding)
-    for section in core_values['sections']:
-        for act in section.get('activities', []):
-            result[0].append(act['id'])
     ops_by_week = {}
     for module in company_operations['modules']:
         week_num = module.get('assigned_week', 0)
         ops_by_week.setdefault(week_num, []).extend(item['id'] for item in module['items'])
+
+    result[0] = collect(onboarding) + ops_by_week.get(0, [])
+    for section in core_values['sections']:
+        for act in section.get('activities', []):
+            result[0].append(act['id'])
     for module in sales_training['modules']:
         for item in module['items']:
             result[0].append(item['id'])
     for w in weeks:
         week_num = w['week']
         result[week_num] = collect(w) + ops_by_week.get(week_num, [])
-    for week_num, ops_ids in ops_by_week.items():
-        if week_num not in result:
-            result[week_num] = ops_ids
     return result
 
 
