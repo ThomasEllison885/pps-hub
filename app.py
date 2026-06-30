@@ -1461,7 +1461,7 @@ def submit_psc_training_feedback(user_key, display_name, message, week_num=None,
 
 def _psc_week_item_ids():
     """Map week number -> list of trainee item IDs for that week."""
-    onboarding, weeks, core_values, sales_training = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
     result = {0: []}
 
     def collect(week_data):
@@ -1482,6 +1482,11 @@ def _psc_week_item_ids():
     for section in core_values['sections']:
         for act in section.get('activities', []):
             result[0].append(act['id'])
+    for module in company_operations['modules']:
+        week_num = module.get('assigned_week', 0)
+        result.setdefault(week_num, [])
+        for item in module['items']:
+            result[week_num].append(item['id'])
     for module in sales_training['modules']:
         for item in module['items']:
             result[0].append(item['id'])
@@ -4243,7 +4248,7 @@ def psc_training():
     user = USERS.get(user_key, {})
     enrollment = get_psc_enrollment(user_key) or {}
     manager = USERS.get(enrollment.get('manager_key') or PSC_TRAINING_MANAGER, {})
-    onboarding, weeks, core_values, sales_training = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
     progress = get_psc_training_progress(user_key)
     notes = get_psc_training_notes(user_key)
     stats = compute_psc_training_stats(user_key)
@@ -4255,6 +4260,7 @@ def psc_training():
         weeks=weeks,
         core_values=core_values,
         sales_training=sales_training,
+        company_operations=company_operations,
         total_items=count_trackable_items(),
         progress_json=json.dumps(progress),
         notes_json=json.dumps(notes),

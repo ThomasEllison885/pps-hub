@@ -7,7 +7,9 @@ PSC_TRAINING_META = {
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
         'A 12-week program (Weeks 1–12, plus Week 0 foundations) covering PPS culture and voice, '
-        'sales fundamentals, construction trades by property segment, field shadowing, and PPS tools. '
+        'company operations (Monday.com, estimating, Trade Partners, project lifecycle), sales fundamentals, '
+        'construction trades by property segment, field shadowing, and PPS tools. '
+        'Company operations modules run Weeks 0–3 before trade depth ramps up. '
         'The 4 Disciplines of Execution runs all four hospitality/commercial weeks — it is the densest read. '
         'Enrolled when you start — not tied to any specific past hire.'
     ),
@@ -407,6 +409,259 @@ PSC_SALES_TRAINING = {
     ],
 }
 
+# PPS Company Operations — manager-led 1:1 modules (SOP placeholders until ops capture sessions)
+PSC_COMPANY_OPERATIONS = {
+    'title': 'PPS Company Operations',
+    'intro': (
+        'How PPS actually runs — not generic construction knowledge. Work through these modules in Weeks 0–3 '
+        'with your manager before trade training goes deep. Each module has SOP bullets (being filled in from '
+        'leadership capture sessions), a required manager 1:1, and hands-on exercises. '
+        'If it is not written here yet, your 1:1 is where it gets documented.'
+    ),
+    'draft_note': (
+        'SOP sections marked [TO DOCUMENT] are placeholders — complete the manager 1:1 and help fill gaps '
+        'your manager captures after each session.'
+    ),
+    'modules': [
+        {
+            'id': 'ops_monday',
+            'title': 'Monday.com at PPS',
+            'assigned_week': 0,
+            'summary': (
+                'How PPS uses Monday.com for pipeline, projects, contacts, and follow-up — '
+                'not a generic tutorial.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] Which boards we use and what each is for',
+                '[TO DOCUMENT] Column definitions and when to update each field',
+                '[TO DOCUMENT] Naming conventions for properties, contacts, and deals',
+                '[TO DOCUMENT] Who owns what — PSC vs. PM vs. production',
+                '[TO DOCUMENT] Daily and weekly CRM hygiene expectations',
+            ],
+            'manager_1on1': (
+                '60-minute screen share: walk your actual Monday.com boards together. '
+                'Update one real or test item. Confirm where your pipeline lives and your weekly update cadence.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_monday_read',
+                    'title': 'Review Monday.com SOP',
+                    'text': 'Read the SOP bullets above. Write down three questions for your manager 1:1.',
+                },
+                {
+                    'id': 'ops_monday_1on1',
+                    'title': 'Manager 1:1 — Monday.com walkthrough',
+                    'text': 'Complete the screen-share session. Manager confirms boards, columns, and your update cadence.',
+                },
+                {
+                    'id': 'ops_monday_practice',
+                    'title': 'Hands-on — update Monday.com',
+                    'text': 'Add or update one contact, property, or follow-up date. Show your manager before checking off.',
+                },
+            ],
+        },
+        {
+            'id': 'ops_lifecycle',
+            'title': 'Project Lifecycle at PPS',
+            'assigned_week': 0,
+            'summary': (
+                'End-to-end flow from first site visit through close-out — and where the PSC leads vs. supports the PM.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] Site visit → scope capture → proposal → client review',
+                '[TO DOCUMENT] Award → PPM → mobilization → active job',
+                '[TO DOCUMENT] Change orders — when, who approves, how documented',
+                '[TO DOCUMENT] Punch list and close-out handoff',
+                '[TO DOCUMENT] PSC responsibilities vs. PM vs. production at each stage',
+            ],
+            'manager_1on1': (
+                '45-minute session: trace one real job on Monday.com and in Hub history from site visit to '
+                'current status. You narrate the stages; manager corrects gaps.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_lifecycle_read',
+                    'title': 'Review project lifecycle SOP',
+                    'text': 'Read the SOP bullets. Sketch the lifecycle in your own words before the 1:1.',
+                },
+                {
+                    'id': 'ops_lifecycle_1on1',
+                    'title': 'Manager 1:1 — trace a real project',
+                    'text': 'Walk one live or recent job end-to-end with your manager. Note where you would have been stuck alone.',
+                },
+                {
+                    'id': 'ops_lifecycle_map',
+                    'title': 'Draw your lifecycle map',
+                    'text': (
+                        'After the 1:1, write the lifecycle in 8–10 steps. Mark where PSC leads vs. supports. '
+                        'Share with your manager.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_estimating',
+            'title': 'How PPS Estimates',
+            'assigned_week': 1,
+            'summary': (
+                'Site visit inputs, scope decisions, pricing, Hub tools, and when production or Trade Partners weigh in.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] What to capture on a site visit (photos, measurements, failure modes, access, phasing)',
+                '[TO DOCUMENT] Which Hub tools per trade — Proposal Generator, estimate tools, Trade Partner Scope',
+                '[TO DOCUMENT] Who builds pricing — PSC, PM, production, Trade Partner input',
+                '[TO DOCUMENT] When to escalate scope uncertainty before sending a proposal',
+                '[TO DOCUMENT] Quality bar before a proposal leaves PPS',
+            ],
+            'manager_1on1': (
+                '60-minute session: open a recent estimate or proposal in Hub history. Manager narrates every '
+                'decision from site notes to final numbers. You take notes.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_estimating_read',
+                    'title': 'Review estimating SOP',
+                    'text': 'Read the SOP bullets. List which Hub tools you will use first in your role.',
+                },
+                {
+                    'id': 'ops_estimating_1on1',
+                    'title': 'Manager 1:1 — estimate walkthrough',
+                    'text': 'Debrief one real estimate with your manager same week. Identify three inputs you would have missed.',
+                },
+                {
+                    'id': 'ops_estimating_proposal',
+                    'title': 'Hands-on — read a hub proposal',
+                    'text': (
+                        'Find a recent proposal in hub history. Identify scope language, unit counts, '
+                        'investment framing, and warranty terms. Be ready to explain how scope became a proposal.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_trade_partners',
+            'title': 'Trade Partners — Find, Vet & Work With Subs',
+            'assigned_week': 2,
+            'summary': (
+                'How PPS finds subs, vets them, scopes work, schedules crews, and manages QC — '
+                'without over-promising to clients.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] How we find and recruit new Trade Partners',
+                '[TO DOCUMENT] Vetting criteria — insurance, references, trade quality, responsiveness',
+                '[TO DOCUMENT] Trade Partner Scope handoff — crew-ready language',
+                '[TO DOCUMENT] Scheduling, resident notice, and day-one escalation paths',
+                '[TO DOCUMENT] QC expectations and payment triggers',
+                '[TO DOCUMENT] What PSCs never promise without production confirmation',
+            ],
+            'manager_1on1': (
+                '45-minute session: review one Trade Partner Scope document and the Monday.com/production '
+                'record for that job. Discuss how the sub was selected and how scope was confirmed.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_tp_read',
+                    'title': 'Review Trade Partner SOP',
+                    'text': 'Read the SOP bullets. Note what you are allowed to promise clients vs. what requires production sign-off.',
+                },
+                {
+                    'id': 'ops_tp_1on1',
+                    'title': 'Manager 1:1 — Trade Partner handoff',
+                    'text': 'Review a real Trade Partner Scope with your manager. Identify crew-ready vs. client-facing language.',
+                },
+                {
+                    'id': 'ops_tp_shadow',
+                    'title': 'Shadow production/sub coordination',
+                    'text': (
+                        'On a shadow day, note how the consultant and PM/production coordinate Trade Partner '
+                        'arrival, scope questions, and site issues.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_client_comms',
+            'title': 'Client Communication & Escalation',
+            'assigned_week': 3,
+            'summary': (
+                'Who gets copied when, resident-aware communication, 48-hour notice, and escalation paths.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] Standard client touchpoints — site visit follow-up, proposal delivery, award, mobilization',
+                '[TO DOCUMENT] 48-hour notice and resident communication expectations',
+                '[TO DOCUMENT] Who to copy on emails — PM, production, ownership',
+                '[TO DOCUMENT] Escalation paths for complaints, schedule slips, and scope disputes',
+                '[TO DOCUMENT] What never goes to a client without manager or PM review',
+            ],
+            'manager_1on1': (
+                '30-minute role-play: proposal review call, schedule delay conversation, and resident complaint '
+                'escalation. Manager coaches tone and escalation.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_comms_read',
+                    'title': 'Review client communication SOP',
+                    'text': 'Read the SOP bullets. Draft your personal escalation list (who to call for what).',
+                },
+                {
+                    'id': 'ops_comms_1on1',
+                    'title': 'Manager 1:1 — communication role-play',
+                    'text': 'Complete the three role-play scenarios with your manager. Incorporate feedback before checking off.',
+                },
+                {
+                    'id': 'ops_comms_escalation',
+                    'title': 'Build your escalation card',
+                    'text': (
+                        'Write a one-page reference: PM contact, production contact, urgent site issues, '
+                        'after-hours path. Confirm with your manager and save in Monday.com.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_common_mistakes',
+            'title': 'Common PSC Mistakes (Month 1)',
+            'assigned_week': 3,
+            'summary': (
+                'The things new consultants get wrong before tribal knowledge kicks in — '
+                'compiled from leadership and field experience.'
+            ),
+            'sop_placeholders': [
+                '[TO DOCUMENT] Promising schedule or scope production has not confirmed',
+                '[TO DOCUMENT] Under-documenting site visits (photos, access, phasing)',
+                '[TO DOCUMENT] Sending proposals cold without a review conversation',
+                '[TO DOCUMENT] Letting Monday.com hygiene slip in the first 30 days',
+                '[TO DOCUMENT] Bypassing PM on site or client issues',
+                '[TO DOCUMENT] Using generic contractor language instead of PPS voice',
+            ],
+            'manager_1on1': (
+                '30-minute debrief: manager shares top mistakes they have seen from new PSCs. '
+                'You identify which you are most at risk for and one habit to prevent each.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_mistakes_read',
+                    'title': 'Review common mistakes list',
+                    'text': 'Read the SOP bullets. Star the three you are most likely to make in month one.',
+                },
+                {
+                    'id': 'ops_mistakes_1on1',
+                    'title': 'Manager 1:1 — mistake prevention',
+                    'text': 'Discuss your starred items with your manager. Agree on one prevention habit per risk.',
+                },
+                {
+                    'id': 'ops_mistakes_commit',
+                    'title': 'Write your month-1 guardrails',
+                    'text': (
+                        'Three sentences: what you will always do, what you will never do, '
+                        'and who you will ask before committing. Share with your manager.'
+                    ),
+                },
+            ],
+        },
+    ],
+}
+
 # Week 0 — onboarding before trade-specific weeks
 PSC_ONBOARDING = {
     'week': 0,
@@ -436,9 +691,13 @@ PSC_ONBOARDING = {
     'additional': [
         {
             'id': 'w0_add_monday',
-            'type': 'video',
-            'url': 'https://www.youtube.com/watch?v=EKiOeLSxDBA',
-            'title': 'Monday.com Tutorial for Beginners (Step-by-Step)',
+            'type': 'reading',
+            'title': 'Monday.com at PPS — start here',
+            'text': (
+                'Complete the Monday.com at PPS module in PPS Company Operations (reference section above) '
+                'with your manager — not the generic platform alone. Optional supplement: '
+                'Monday.com Tutorial for Beginners on YouTube if you have never used the platform.'
+            ),
         },
         {
             'id': 'w0_add_hub',
@@ -473,6 +732,14 @@ PSC_ONBOARDING = {
     ],
     'pps_focus': [
         {
+            'id': 'w0_focus_ops',
+            'title': 'Company Operations — Monday.com & project lifecycle',
+            'text': (
+                'Priority before trade depth: complete the Monday.com at PPS and Project Lifecycle modules '
+                'in the PPS Company Operations reference section (manager 1:1 required for each).'
+            ),
+        },
+        {
             'id': 'w0_focus_core',
             'title': 'Complete Mission, Values & PPS Voice activities',
             'text': 'Finish every training activity above — not just the mission statement — before Week 1.',
@@ -483,7 +750,10 @@ PSC_ONBOARDING = {
             'text': 'Begin a personal glossary: tuck pointing, EIFS, B&B, mobilization, punch list, change order. Add terms each week.',
         },
     ],
-    'manager_checkin': 'Confirm Week 0 complete before starting trade-specific training.',
+    'manager_checkin': (
+        'Confirm Week 0 complete — especially Company Operations (Monday.com + lifecycle) — '
+        'before starting trade-specific training.'
+    ),
 }
 
 PSC_TRAINING_WEEKS = [
@@ -516,6 +786,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'additional': [],
         'pps_focus': [
+            {
+                'id': 'w1_focus_ops',
+                'title': 'Company Operations — How PPS estimates',
+                'text': (
+                    'Complete the How PPS Estimates module in PPS Company Operations before the trade focus below. '
+                    'Manager 1:1 and hub proposal review are required.'
+                ),
+            },
             {
                 'id': 'w1_focus_proposal',
                 'title': 'Estimating track — Step 1: Read a proposal',
@@ -566,6 +844,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w2_focus_ops',
+                'title': 'Company Operations — Trade Partners',
+                'text': (
+                    'Complete the Trade Partners module in PPS Company Operations this week — '
+                    'manager 1:1, Trade Partner Scope review, and production shadow required.'
+                ),
+            },
+            {
                 'id': 'w2_lifecycle_site',
                 'title': 'Project lifecycle — Site visit',
                 'text': (
@@ -579,7 +865,9 @@ PSC_TRAINING_WEEKS = [
                 'text': 'After shadowing a roof job, review the Trade Partner Scope document for that trade. Note crew-ready language.',
             },
         ],
-        'manager_checkin': 'Can you describe the difference between a repair scope and a full re-roof?',
+        'manager_checkin': (
+            'Trade Partners module complete? Can you describe the difference between a repair scope and a full re-roof?'
+        ),
     },
     {
         'week': 3,
@@ -613,6 +901,14 @@ PSC_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
+                'id': 'w3_focus_ops',
+                'title': 'Company Operations — Client comms & common mistakes',
+                'text': (
+                    'Complete Client Communication & Escalation and Common PSC Mistakes modules '
+                    'in PPS Company Operations. Manager 1:1 role-play required.'
+                ),
+            },
+            {
                 'id': 'w3_lifecycle_proposal',
                 'title': 'Project lifecycle — Site visit to proposal',
                 'text': (
@@ -626,7 +922,10 @@ PSC_TRAINING_WEEKS = [
                 'text': 'Role-play: "Your price is higher than the last vendor." Use the Sales Objections video and PPS Sales Training module.',
             },
         ],
-        'manager_checkin': 'Can you spot failed mortar joints vs. efflorescence on a walkthrough?',
+        'manager_checkin': (
+            'Company Operations modules through Week 3 complete? '
+            'Can you spot failed mortar joints vs. efflorescence on a walkthrough?'
+        ),
     },
     {
         'week': 4,
@@ -1145,18 +1444,36 @@ def _prepare_sales_training():
     return data
 
 
+def _prepare_company_operations():
+    data = dict(PSC_COMPANY_OPERATIONS)
+    modules = []
+    for module in data['modules']:
+        mod = dict(module)
+        items = []
+        for i, item in enumerate(mod.get('items', [])):
+            row = dict(item)
+            if 'id' not in row:
+                row['id'] = f"{mod['id']}_{i}"
+            items.append(row)
+        mod['items'] = items
+        modules.append(mod)
+    data['modules'] = modules
+    return data
+
+
 def get_training_curriculum():
     """Return full curriculum with IDs assigned."""
     onboarding = _assign_ids(dict(PSC_ONBOARDING))
     weeks = [_assign_ids(dict(w)) for w in PSC_TRAINING_WEEKS]
     core_values = _prepare_core_values()
     sales_training = _prepare_sales_training()
-    return onboarding, weeks, core_values, sales_training
+    company_operations = _prepare_company_operations()
+    return onboarding, weeks, core_values, sales_training, company_operations
 
 
 def get_all_item_ids():
     """Flat list of every trackable item ID."""
-    onboarding, weeks, core_values, sales_training = get_training_curriculum()
+    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
     ids = []
 
     def collect(week_data):
@@ -1174,6 +1491,9 @@ def get_all_item_ids():
     for section in core_values['sections']:
         for act in section.get('activities', []):
             ids.append(act['id'])
+    for module in company_operations['modules']:
+        for item in module['items']:
+            ids.append(item['id'])
     for module in sales_training['modules']:
         for item in module['items']:
             ids.append(item['id'])

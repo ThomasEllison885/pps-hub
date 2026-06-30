@@ -44,6 +44,16 @@
 
   .sales-module { margin-bottom:14px; }
   .sales-module-title { font-size:13px; font-weight:700; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; }
+  .ops-module-summary { font-size:13px; color:#666; line-height:1.55; margin-bottom:10px; }
+  .ops-sop-draft { background:#FFFBF0; border:1px solid #FFE9A0; border-radius:8px; padding:12px 14px; margin-bottom:10px; }
+  .ops-sop-label { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#7A5B12; margin-bottom:6px; }
+  .ops-sop-list { list-style:none; font-size:13px; color:#5D4E37; line-height:1.5; }
+  .ops-sop-list li { padding:3px 0 3px 14px; position:relative; }
+  .ops-sop-list li::before { content:'—'; position:absolute; left:0; color:#B8922A; }
+  .ops-1on1 { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:13px; color:#555; line-height:1.55; }
+  .ops-1on1 strong { display:block; font-size:10px; text-transform:uppercase; letter-spacing:0.06em; color:var(--dark-blue); margin-bottom:4px; }
+  .ops-draft-note { font-size:13px; color:#7A5B12; background:var(--gold-light); border:1px solid #E8D5A8; border-radius:8px; padding:12px 14px; margin-bottom:16px; line-height:1.55; }
+  .ops-week-badge { font-size:11px; font-weight:600; color:#888; text-transform:none; letter-spacing:0; margin-left:6px; }
 
   .segment-pills { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
   .segment-pill { font-size:12px; font-weight:600; padding:6px 14px; border-radius:20px; border:1.5px solid var(--border); background:white; cursor:pointer; transition:all 0.15s; }
@@ -225,6 +235,60 @@
     </div>
   </div>
 
+  <!-- Company Operations -->
+  <div class="ref-card expanded" id="ref-ops">
+    <div class="ref-header" onclick="toggleRef('ops')">
+      <div class="ref-icon">🏢</div>
+      <div class="ref-info">
+        <div class="ref-title">{{ company_operations.title }}</div>
+        <div class="ref-meta">{{ company_operations.modules|length }} modules · Weeks 0–3 · manager 1:1 required</div>
+      </div>
+      <div class="ref-chevron">▼</div>
+    </div>
+    <div class="ref-body">
+      <p class="ref-intro">{{ company_operations.intro }}</p>
+      {% if company_operations.draft_note %}
+      <div class="ops-draft-note">{{ company_operations.draft_note }}</div>
+      {% endif %}
+      {% for module in company_operations.modules %}
+      <div class="sales-module" id="ops-{{ module.id }}">
+        <div class="sales-module-title">
+          {{ module.title }}
+          <span class="ops-week-badge">· Week {{ module.assigned_week }}</span>
+        </div>
+        {% if module.summary %}<div class="ops-module-summary">{{ module.summary }}</div>{% endif %}
+        {% if module.sop_placeholders %}
+        <div class="ops-sop-draft">
+          <div class="ops-sop-label">SOP — draft (leadership filling in)</div>
+          <ul class="ops-sop-list">
+            {% for line in module.sop_placeholders %}
+            <li>{{ line }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if module.manager_1on1 %}
+        <div class="ops-1on1">
+          <strong>Manager 1:1</strong>
+          {{ module.manager_1on1 }}
+        </div>
+        {% endif %}
+        <div class="check-list">
+          {% for item in module['items'] %}
+          <div class="check-item" data-id="{{ item.id }}" onclick="toggleItem('{{ item.id }}', event)">
+            <div class="check-box"></div>
+            <div class="check-label">
+              <strong>{{ item.title }}</strong>
+              <div style="font-size:13px;color:#888;margin-top:3px;">{{ item.text }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <!-- Sales Training -->
   <div class="ref-card" id="ref-sales">
     <div class="ref-header" onclick="toggleRef('sales')">
@@ -275,6 +339,18 @@
       <div class="week-chevron">▼</div>
     </div>
     <div class="week-body">
+      {% set week_ops = company_operations.modules | selectattr('assigned_week', 'equalto', 0) | list %}
+      {% if week_ops %}
+      <div class="ops-sop-draft" style="margin-top:14px;">
+        <div class="ops-sop-label">Company Operations this week</div>
+        <ul class="ops-sop-list">
+          {% for mod in week_ops %}
+          <li><a href="#ops-{{ mod.id }}" style="color:var(--dark-blue);font-weight:600;text-decoration:none;" onclick="expandOpsRef()">{{ mod.title }}</a> — complete all checklist items + manager 1:1 in the reference section above.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
       {% if onboarding.book_chapters %}
       <div class="book-milestone" style="margin-top:14px;">
         <div class="section-label" style="margin-top:0;border:none;padding:0;"><span class="icon">📖</span> Reading — {{ onboarding.book_chapters.title }}</div>
@@ -334,7 +410,7 @@
         {% elif ws.trainee_pct == 100 %}
         <div class="checkin-pending ready">All Week 0 items complete — awaiting manager sign-off</div>
         {% else %}
-        <div class="checkin-pending">Manager sign-off after you complete all Week 0 items (including Mission, Values & Sales above)</div>
+        <div class="checkin-pending">Manager sign-off after you complete all Week 0 items (including Company Operations, Mission, Values & Sales above)</div>
         {% endif %}
       </div>
       {% endif %}
@@ -362,6 +438,20 @@
     <div class="week-body">
       {% if w.topic_summary %}
       <p class="topic-summary">{{ w.topic_summary }}</p>
+      {% endif %}
+
+      {% if w.week <= 3 %}
+      {% set week_ops = company_operations.modules | selectattr('assigned_week', 'equalto', w.week) | list %}
+      {% if week_ops %}
+      <div class="ops-sop-draft" style="margin-bottom:12px;">
+        <div class="ops-sop-label">Company Operations this week (before trade depth)</div>
+        <ul class="ops-sop-list">
+          {% for mod in week_ops %}
+          <li><a href="#ops-{{ mod.id }}" style="color:var(--dark-blue);font-weight:600;text-decoration:none;" onclick="expandOpsRef()">{{ mod.title }}</a> — manager 1:1 required.</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
       {% endif %}
 
       {% if w.book_chapters %}
@@ -520,6 +610,12 @@ function applyProgress() {
 
 function toggleRef(id) {
   document.getElementById('ref-' + id).classList.toggle('expanded');
+}
+
+function expandOpsRef() {
+  const card = document.getElementById('ref-ops');
+  if (card) card.classList.add('expanded');
+  setTimeout(() => card?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 }
 
 function toggleWeek(num) {
