@@ -35,8 +35,8 @@ def eastern_now():
 
 
 def should_run_scheduled():
-    """True during the midnight hour in US/Eastern (used with hourly UTC cron)."""
-    return eastern_now().hour == 0
+    """True during midnight–1am US/Eastern (hourly UTC cron; 1am allows one retry)."""
+    return eastern_now().hour in (0, 1)
 
 
 def report_date_for_run(force=False, date_override=None):
@@ -110,6 +110,65 @@ def _load_sent_date(get_db):
         return None
     except Exception:
         return None
+
+
+def _load_last_run(get_db):
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor()
+        cur.execute("SELECT value FROM hub_settings WHERE key = 'daily_digest_last_run'")
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None
+        val = row[0]
+        if isinstance(val, dict):
+            return val
+        if isinstance(val, str):
+            import json
+            try:
+                return json.loads(val)
+            except Exception:
+                return {'raw': val}
+        return None
+    except Exception:
+        return None
+
+
+def _record_last_run(get_db, result):
+    import json
+    try:
+        conn = get_db()
+        if not conn:
+            return
+        cur = conn.cursor()
+        payload = {
+            'at': eastern_now().isoformat(),
+            'report_date': result.get('report_date'),
+            'skipped': result.get('skipped'),
+            'reason': result.get('reason'),
+            'sent': result.get('sent'),
+            'email_failed': result.get('email_failed'),
+            'item_count': result.get('item_count', 0),
+            'recipients': result.get('recipients'),
+            'warning': result.get('warning'),
+            'error': result.get('error'),
+        }
+        cur.execute(
+            '''INSERT INTO hub_settings (key, value, updated_at, updated_by)
+               VALUES ('daily_digest_last_run', %s::jsonb, NOW(), 'cron')
+               ON CONFLICT (key) DO UPDATE
+               SET value = EXCLUDED.value, updated_at = NOW(), updated_by = 'cron' ''',
+            (json.dumps(payload),),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'Daily digest record last run error: {e}')
 
 
 def _mark_sent(get_db, report_date):
@@ -418,19 +477,29 @@ def build_digest_email(report_date, items, counts, users, exclude):
     day_label = report_date.strftime('%A, %b %d, %Y')
     total = len(items)
     person_count = len(people)
-    subject = f'PPS Hub Daily Digest — {day_label} ({total} activit{"y" if total == 1 else "ies"})'
+    if total == 0:
+        subject = f'PPS Hub Daily Digest — {day_label} (no team activity)'
+    else:
+        subject = f'PPS Hub Daily Digest — {day_label} ({total} activit{"y" if total == 1 else "ies"})'
 
     lines = [
         'PPS Hub · Daily Team Activity',
         day_label,
-        f'{total} items from {person_count} people (excluding your activity)',
-        '',
-        'AT A GLANCE',
     ]
-    for label, n in _kind_totals(counts):
-        lines.append(f'  {label}: {n}')
-    lines.append('')
-    lines.append('BY PERSON')
+    if total == 0:
+        lines.append('No team activity recorded yesterday (your own activity is excluded).')
+    else:
+        lines.append(f'{total} items from {person_count} people (excluding your activity)')
+    lines.extend(['', 'AT A GLANCE'])
+    kind_totals = _kind_totals(counts)
+    if kind_totals:
+        for label, n in kind_totals:
+            lines.append(f'  {label}: {n}')
+    else:
+        lines.append('  (none)')
+    lines.extend(['', 'BY PERSON'])
+    if not people:
+        lines.append('  (no activity)')
 
     for name in sorted(people.keys()):
         person_items = people[name]
@@ -505,7 +574,7 @@ def build_digest_email(report_date, items, counts, users, exclude):
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;">
       <div style="background:#004C8C;padding:20px 24px;border-radius:8px 8px 0 0;">
         <p style="color:white;font-size:18px;font-weight:600;margin:0;">PPS Hub · Daily Team Activity</p>
-        <p style="color:rgba(255,255,255,0.85);font-size:13px;margin:6px 0 0;">{escape(day_label)} · {total} items from {person_count} people</p>
+        <p style="color:rgba(255,255,255,0.85);font-size:13px;margin:6px 0 0;">{escape(day_label)} · {"no team activity" if total == 0 else f"{total} items from {person_count} people"}</p>
       </div>
       <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
         <p style="margin:0 0 10px;font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;">At a glance</p>
@@ -527,38 +596,34 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
     send_email_fn(subject, text_body, html_body, recipients) -> bool
     Returns result dict.
     """
+    def _finish(result):
+        _record_last_run(get_db, result)
+        return result
+
     if not _digest_enabled():
-        return {'ok': True, 'skipped': True, 'reason': 'disabled'}
+        return _finish({'ok': True, 'skipped': True, 'reason': 'disabled'})
 
     if not force and not should_run_scheduled():
-        return {'ok': True, 'skipped': True, 'reason': 'not_midnight_eastern'}
+        return _finish({'ok': True, 'skipped': True, 'reason': 'not_midnight_eastern'})
 
     exclude = _digest_exclude_keys()
     report_date = report_date_for_run(force=force, date_override=date_override)
     sent_key = report_date.isoformat()
     if not force and _load_sent_date(get_db) == sent_key:
-        return {'ok': True, 'skipped': True, 'reason': 'already_sent', 'report_date': sent_key}
-
-    items, counts, start, end = collect_digest_items(
-        get_db, users, exclude, report_date, format_template_label,
-    )
-    if not items:
-        return {
-            'ok': True,
-            'skipped': True,
-            'reason': 'no_activity',
-            'report_date': sent_key,
-            'window_utc': [start.isoformat(), end.isoformat()],
-        }
+        return _finish({'ok': True, 'skipped': True, 'reason': 'already_sent', 'report_date': sent_key})
 
     recipients = digest_recipients()
     if not recipients:
-        return {
+        return _finish({
             'ok': True,
             'skipped': True,
             'reason': 'no_recipients',
             'report_date': sent_key,
-        }
+        })
+
+    items, counts, start, end = collect_digest_items(
+        get_db, users, exclude, report_date, format_template_label,
+    )
 
     subject, text_body, html_body = build_digest_email(report_date, items, counts, users, exclude)
     sent = send_email_fn(subject, text_body, html_body, recipients)
@@ -575,7 +640,9 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
         'recipients': recipients,
         'window_utc': [start.isoformat(), end.isoformat()],
     }
+    if not items:
+        result['no_activity'] = True
     if not sent:
         result['email_failed'] = True
         result['warning'] = 'Digest built but SMTP send failed — check pps-hub logs'
-    return result
+    return _finish(result)

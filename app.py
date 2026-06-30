@@ -1689,6 +1689,15 @@ def health():
                 db_ok = True
         except Exception:
             pass
+    digest_recips = []
+    digest_last = None
+    try:
+        from daily_digest import digest_recipients, _load_last_run
+        digest_recips = digest_recipients()
+        if db_ok:
+            digest_last = _load_last_run(get_db)
+    except Exception:
+        pass
     return jsonify({
         'ok': True,
         'service': 'hub',
@@ -1705,6 +1714,8 @@ def health():
             and os.environ.get('SMTP_PASS', '').strip()
         ),
         'daily_digest_enabled': os.environ.get('DAILY_DIGEST_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'),
+        'daily_digest_recipients': digest_recips,
+        'daily_digest_last_run': digest_last,
         'hub_notify_email': _hub_notify_recipients(),
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
         'claude_configured': bool(CLAUDE_API_KEY),
