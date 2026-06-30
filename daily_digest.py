@@ -337,6 +337,23 @@ def collect_digest_items(get_db, users, exclude, report_date, format_template_la
             add(_item(r[0], r[1] or _display_name(users, r[0]), 'painting', 'Painting estimate', r[2], meta, r[6]))
 
         cur.execute(
+            f'''SELECT user_key, ip_address, attempted_at
+               FROM login_attempts
+               WHERE success = TRUE
+                 AND attempted_at >= %s AND attempted_at < %s{user_ex_sql}
+               ORDER BY attempted_at''',
+            (start, end, *ex_args),
+        )
+        for r in cur.fetchall():
+            meta = (r[1] or '').strip()
+            if meta:
+                meta = f'IP {meta}'
+            add(_item(
+                r[0], _display_name(users, r[0]), 'login', 'Hub login',
+                'Signed in', meta, r[2],
+            ))
+
+        cur.execute(
             f'''SELECT user_key, display_name, message, submitted_at
                FROM feedback
                WHERE submitted_at >= %s AND submitted_at < %s{user_ex_sql}
@@ -452,6 +469,7 @@ def _kind_totals(counts):
         ('roofing', 'Roofing estimates'),
         ('gutter', 'Gutter estimates'),
         ('painting', 'Painting estimates'),
+        ('login', 'Hub logins'),
         ('feedback', 'Feedback'),
         ('comparison', 'Comparisons'),
         ('psc_feedback', 'PSC feedback'),
