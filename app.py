@@ -965,7 +965,7 @@ def _send_psc_accountability_email(subject, text_body, html_body=None):
 
 
 def _psc_week_labels():
-    onboarding, weeks, _, _ = get_training_curriculum()
+    onboarding, weeks, _, _, _ = get_training_curriculum()
     labels = {0: onboarding.get('title', 'Week 0 · PPS Foundations')}
     for w in weeks:
         labels[w['week']] = f"Week {w['week']} · {w['topic']}"
@@ -1011,7 +1011,7 @@ def get_psc_manager_signoffs(user_key):
 
 
 def _psc_week_checkin_questions():
-    onboarding, weeks, _, _ = get_training_curriculum()
+    onboarding, weeks, _, _, _ = get_training_curriculum()
     questions = {}
     if onboarding.get('manager_checkin'):
         questions[0] = onboarding['manager_checkin']
@@ -1482,16 +1482,19 @@ def _psc_week_item_ids():
     for section in core_values['sections']:
         for act in section.get('activities', []):
             result[0].append(act['id'])
+    ops_by_week = {}
     for module in company_operations['modules']:
         week_num = module.get('assigned_week', 0)
-        result.setdefault(week_num, [])
-        for item in module['items']:
-            result[week_num].append(item['id'])
+        ops_by_week.setdefault(week_num, []).extend(item['id'] for item in module['items'])
     for module in sales_training['modules']:
         for item in module['items']:
             result[0].append(item['id'])
     for w in weeks:
-        result[w['week']] = collect(w)
+        week_num = w['week']
+        result[week_num] = collect(w) + ops_by_week.get(week_num, [])
+    for week_num, ops_ids in ops_by_week.items():
+        if week_num not in result:
+            result[week_num] = ops_ids
     return result
 
 

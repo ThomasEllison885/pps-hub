@@ -77,9 +77,9 @@ def _week_label(week_num):
     if week_num is None:
         return ''
     if week_num == 0:
-        onboarding, _, _, _ = get_training_curriculum()
+        onboarding, _, _, _, _ = get_training_curriculum()
         return onboarding.get('title', 'Week 0')
-    _, weeks, _, _ = get_training_curriculum()
+    _, weeks, _, _, _ = get_training_curriculum()
     for w in weeks:
         if w.get('week') == week_num:
             return f"Week {week_num} · {w.get('topic', '')}"
