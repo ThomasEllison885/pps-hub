@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PPS Hub · Practice Arena</title>
+<style>
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:860px; margin:0 auto; padding:20px 16px 80px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:26px; color:var(--dark-blue); line-height:1.2; }
+  .page-sub { font-size:14px; color:#888; line-height:1.55; margin-top:6px; margin-bottom:20px; }
+
+  .section-head { font-size:12px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.08em; margin:20px 0 12px; padding-bottom:8px; border-bottom:1.5px solid var(--border); }
+
+  .suggested-banner { background:linear-gradient(135deg,#E8F4FC,#F0F6FB); border:1.5px solid rgba(0,150,214,0.3); border-radius:var(--radius); padding:14px 16px; margin-bottom:16px; font-size:13px; color:#555; line-height:1.5; }
+  .suggested-banner strong { color:var(--dark-blue); }
+
+  .scenario-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:12px; padding:16px 18px; border:1.5px solid transparent; }
+  .scenario-card.suggested { border-color:rgba(0,150,214,0.35); }
+  .scenario-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+  .scenario-title { font-size:15px; font-weight:600; color:var(--dark-blue); }
+  .chip-row { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:3px 9px; border-radius:12px; color:white; }
+  .chip-diff { background:#eef4f9; color:var(--dark-blue); border:1px solid var(--border); }
+  .scenario-brief { font-size:13px; color:#666; line-height:1.55; margin-bottom:10px; }
+  .best-score { font-size:12px; font-weight:600; margin-bottom:10px; }
+  .best-score.pass { color:#27AE60; }
+  .best-score.retry { color:#E67E22; }
+  .btn { background:var(--dark-blue); color:white; border:none; border-radius:8px; padding:10px 18px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn:hover { background:var(--blue); }
+  .btn:disabled { opacity:0.5; cursor:not-allowed; }
+  .btn-outline { background:white; color:var(--dark-blue); border:1.5px solid var(--border); }
+  .btn-outline:hover { border-color:var(--blue); color:var(--blue); }
+  .btn-sm { padding:8px 14px; font-size:12px; }
+
+  /* Conversation view */
+  #viewChat { display:none; }
+  .chat-top { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:14px 16px; margin-bottom:12px; position:sticky; top:0; z-index:10; }
+  .chat-top-row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .chat-scenario-title { font-size:15px; font-weight:600; color:var(--dark-blue); }
+  .turn-counter { font-size:12px; font-weight:600; color:var(--blue); background:var(--light-bg); padding:4px 10px; border-radius:12px; }
+
+  .brief-card { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; margin-top:10px; overflow:hidden; }
+  .brief-toggle { padding:10px 12px; font-size:12px; font-weight:600; color:var(--dark-blue); cursor:pointer; display:flex; justify-content:space-between; align-items:center; }
+  .brief-body { display:none; padding:0 12px 12px; font-size:13px; color:#666; line-height:1.55; }
+  .brief-body.open { display:block; }
+  .brief-body ul { margin:8px 0 0; padding-left:18px; }
+  .brief-body li { margin-bottom:4px; }
+
+  .chat-area { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; min-height:280px; max-height:55vh; overflow-y:auto; margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
+  .bubble { max-width:88%; padding:11px 14px; border-radius:14px; font-size:14px; line-height:1.5; word-wrap:break-word; }
+  .bubble.client { align-self:flex-start; background:var(--light-bg); border:1px solid var(--border); color:#444; border-bottom-left-radius:4px; }
+  .bubble.trainee { align-self:flex-end; background:var(--dark-blue); color:white; border-bottom-right-radius:4px; }
+  .typing { align-self:flex-start; padding:12px 16px; background:var(--light-bg); border-radius:14px; display:none; }
+  .typing span { display:inline-block; width:7px; height:7px; background:#aaa; border-radius:50%; margin:0 2px; animation:blink 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay:0.2s; }
+  .typing span:nth-child(3) { animation-delay:0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0.3} 40%{opacity:1} }
+
+  .input-area { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:12px 14px; position:sticky; bottom:0; }
+  .input-row { display:flex; gap:10px; align-items:flex-end; }
+  .input-row textarea { flex:1; min-height:44px; max-height:120px; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; font-family:'DM Sans',sans-serif; font-size:14px; resize:none; line-height:1.45; }
+  .input-row textarea:focus { outline:none; border-color:var(--blue); }
+  .char-hint { font-size:11px; color:#aaa; text-align:right; margin-top:4px; }
+  .char-hint.warn { color:#E67E22; }
+  .action-row { display:flex; gap:10px; margin-top:10px; flex-wrap:wrap; }
+
+  /* Feedback */
+  #viewFeedback { display:none; }
+  .feedback-card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); padding:20px 18px; margin-bottom:16px; }
+  .result-banner { padding:12px 16px; border-radius:8px; font-size:15px; font-weight:600; margin-bottom:16px; text-align:center; }
+  .result-banner.pass { background:#E8F5E9; color:#1B5E20; }
+  .result-banner.retry { background:#FFF3E0; color:#E65100; }
+  .overall-score { font-family:'DM Serif Display',serif; font-size:36px; color:var(--dark-blue); text-align:center; margin-bottom:4px; }
+  .overall-label { text-align:center; font-size:12px; color:#888; margin-bottom:20px; }
+  .score-row { margin-bottom:14px; }
+  .score-label { display:flex; justify-content:space-between; font-size:13px; font-weight:600; color:var(--dark-blue); margin-bottom:4px; }
+  .bar-track { height:8px; background:#eef4f9; border-radius:4px; overflow:hidden; margin-bottom:4px; }
+  .bar-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:4px; }
+  .score-note { font-size:12px; color:#888; line-height:1.45; }
+  .fb-list { margin:12px 0; padding-left:18px; font-size:13px; line-height:1.55; color:#555; }
+  .key-moment { background:var(--light-bg); border-left:3px solid var(--blue); padding:12px 14px; font-size:13px; color:#555; line-height:1.55; font-style:italic; margin-top:16px; }
+  .loading-state { text-align:center; padding:40px 20px; color:#888; font-size:14px; }
+
+  @media (max-width:480px) {
+    .page-title { font-size:22px; }
+    .chat-area { max-height:50vh; }
+    .bubble { max-width:92%; font-size:13px; }
+    .input-area { padding-bottom:max(12px, env(safe-area-inset-bottom)); }
+  }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/psc-training" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Practice Arena</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/psc-training" class="pps-btn-header">← Training</a>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Scenario picker -->
+  <div id="viewPicker">
+    <div class="page-title">Practice Arena</div>
+    <p class="page-sub">Text conversations with realistic client personas. Work the scenario, then get scored feedback on discovery, PPS voice, integrity, and closing.</p>
+
+    {% set suggested = scenarios | selectattr('suggested') | list %}
+    {% if suggested %}
+    <div class="suggested-banner">
+      <strong>Suggested for you:</strong>
+      {% for sc in suggested %}{{ sc.title }}{% if not loop.last %}, {% endif %}{% endfor %}
+      — based on where you are in the program.
+    </div>
+    {% endif %}
+
+    {% for seg in segments %}
+    {% set seg_scenarios = scenarios | selectattr('segment', 'equalto', seg) | list %}
+    {% if seg_scenarios %}
+    <div class="section-head">{{ seg }}</div>
+    {% for sc in seg_scenarios %}
+    <div class="scenario-card{% if sc.suggested %} suggested{% endif %}" data-scenario-id="{{ sc.id }}">
+      <div class="scenario-top">
+        <div class="scenario-title">{{ sc.title }}</div>
+        <div class="chip-row">
+          <span class="chip" style="background:{{ sc.segment_color }}">{{ sc.segment }}</span>
+          <span class="chip chip-diff">{{ sc.difficulty }}</span>
+        </div>
+      </div>
+      <p class="scenario-brief">{{ sc.trainee_brief }}</p>
+      {% if sc.best_overall is not none %}
+      <div class="best-score {% if sc.best_result == 'pass' %}pass{% else %}retry{% endif %}">
+        Best: {{ sc.best_overall }} — {% if sc.best_result == 'pass' %}Passed{% else %}Practice again{% endif %}
+        {% if sc.attempts %} · {{ sc.attempts }} attempt{{ 's' if sc.attempts != 1 else '' }}{% endif %}
+      </div>
+      {% elif sc.attempts %}
+      <div class="best-score" style="color:#888;">{{ sc.attempts }} attempt{{ 's' if sc.attempts != 1 else '' }} — no score yet</div>
+      {% endif %}
+      <button class="btn btn-sm" onclick="startScenario('{{ sc.id }}')">Start</button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Conversation -->
+  <div id="viewChat">
+    <div class="chat-top">
+      <div class="chat-top-row">
+        <div class="chat-scenario-title" id="chatTitle"></div>
+        <div class="turn-counter" id="turnCounter"></div>
+      </div>
+      <div class="brief-card">
+        <div class="brief-toggle" onclick="toggleBrief()">Your brief <span id="briefChevron">▼</span></div>
+        <div class="brief-body" id="briefBody"></div>
+      </div>
+    </div>
+    <div class="chat-area" id="chatArea">
+      <div class="typing" id="typingIndicator"><span></span><span></span><span></span></div>
+    </div>
+    <div class="input-area">
+      <div class="input-row">
+        <textarea id="msgInput" rows="2" maxlength="2000" placeholder="Type your response…" onkeydown="handleKey(event)"></textarea>
+        <button class="btn" id="sendBtn" onclick="sendMessage()">Send</button>
+      </div>
+      <div class="char-hint" id="charHint"></div>
+      <div class="action-row">
+        <button class="btn btn-outline" onclick="backToPicker()">← Scenarios</button>
+        <button class="btn" id="finishBtn" onclick="finishSession()">End &amp; Get Feedback</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback -->
+  <div id="viewFeedback">
+    <div id="feedbackLoading" class="loading-state" style="display:none;">Reviewing your conversation…</div>
+    <div id="feedbackContent"></div>
+  </div>
+</div>
+
+<script>
+const SCENARIOS = {{ scenarios_json | safe }};
+const scenarioMap = Object.fromEntries(SCENARIOS.map(s => [s.id, s]));
+
+let activeScenario = null;
+let messages = [];
+let inFlight = false;
+let conversationActive = false;
+
+const msgInput = document.getElementById('msgInput');
+const charHint = document.getElementById('charHint');
+
+msgInput.addEventListener('input', () => {
+  const len = msgInput.value.length;
+  charHint.textContent = len > 1500 ? `${len} / 2000` : '';
+  charHint.classList.toggle('warn', len > 1500);
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (conversationActive && messages.some(m => m.role === 'user')) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+function showView(name) {
+  document.getElementById('viewPicker').style.display = name === 'picker' ? 'block' : 'none';
+  document.getElementById('viewChat').style.display = name === 'chat' ? 'block' : 'none';
+  document.getElementById('viewFeedback').style.display = name === 'feedback' ? 'block' : 'none';
+}
+
+function startScenario(id) {
+  activeScenario = scenarioMap[id];
+  if (!activeScenario) return;
+  messages = [{ role: 'assistant', content: activeScenario.opening_line }];
+  conversationActive = true;
+  document.getElementById('chatTitle').textContent = activeScenario.title;
+  updateTurnCounter();
+  const brief = document.getElementById('briefBody');
+  brief.innerHTML = `<p>${escapeHtml(activeScenario.trainee_brief)}</p><ul>${activeScenario.objectives.map(o => `<li>${escapeHtml(o)}</li>`).join('')}</ul>`;
+  brief.classList.remove('open');
+  renderMessages();
+  msgInput.value = '';
+  charHint.textContent = '';
+  showView('chat');
+  msgInput.focus();
+}
+
+function toggleBrief() {
+  const body = document.getElementById('briefBody');
+  body.classList.toggle('open');
+  document.getElementById('briefChevron').textContent = body.classList.contains('open') ? '▲' : '▼';
+}
+
+function traineeTurns() {
+  return messages.filter(m => m.role === 'user').length;
+}
+
+function updateTurnCounter() {
+  const max = activeScenario.max_turns || 12;
+  const used = traineeTurns();
+  document.getElementById('turnCounter').textContent = `Turn ${used} of ${max}`;
+}
+
+function renderMessages() {
+  const area = document.getElementById('chatArea');
+  const typing = document.getElementById('typingIndicator');
+  area.innerHTML = '';
+  messages.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'bubble ' + (m.role === 'user' ? 'trainee' : 'client');
+    div.textContent = m.content;
+    area.appendChild(div);
+  });
+  area.appendChild(typing);
+  area.scrollTop = area.scrollHeight;
+}
+
+function setLoading(on) {
+  inFlight = on;
+  document.getElementById('sendBtn').disabled = on;
+  document.getElementById('finishBtn').disabled = on;
+  msgInput.disabled = on;
+  document.getElementById('typingIndicator').style.display = on ? 'block' : 'none';
+  if (on) document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+async function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text || inFlight || !activeScenario) return;
+  const max = activeScenario.max_turns || 12;
+  if (traineeTurns() >= max) {
+    alert("You're out of turns — end the session for feedback.");
+    return;
+  }
+  messages.push({ role: 'user', content: text });
+  msgInput.value = '';
+  charHint.textContent = '';
+  updateTurnCounter();
+  renderMessages();
+  setLoading(true);
+  try {
+    const resp = await fetch('/api/psc-training/roleplay/turn', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: activeScenario.id, messages }),
+    });
+    const data = await resp.json();
+    if (!data.success) {
+      messages.pop();
+      updateTurnCounter();
+      renderMessages();
+      alert(data.error || 'Could not send message');
+      return;
+    }
+    messages.push({ role: 'assistant', content: data.reply });
+    renderMessages();
+    if (data.turns_left === 0) {
+      setTimeout(() => alert("You're out of turns — end the session for feedback."), 300);
+    }
+  } catch (err) {
+    messages.pop();
+    updateTurnCounter();
+    renderMessages();
+    alert('Network error — try again.');
+  } finally {
+    setLoading(false);
+    msgInput.focus();
+  }
+}
+
+function backToPicker() {
+  if (conversationActive && messages.some(m => m.role === 'user')) {
+    if (!confirm('Leave this conversation? Your progress will be lost.')) return;
+  }
+  conversationActive = false;
+  activeScenario = null;
+  messages = [];
+  showView('picker');
+}
+
+async function finishSession() {
+  if (!activeScenario || inFlight) return;
+  if (traineeTurns() < 3) {
+    alert('Have a real conversation first — at least three messages before feedback.');
+    return;
+  }
+  if (!confirm('End this session and get scored feedback?')) return;
+  conversationActive = false;
+  showView('feedback');
+  document.getElementById('feedbackLoading').style.display = 'block';
+  document.getElementById('feedbackContent').innerHTML = '';
+  setLoading(true);
+  try {
+    const resp = await fetch('/api/psc-training/roleplay/finish', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenario_id: activeScenario.id, messages }),
+    });
+    const data = await resp.json();
+    document.getElementById('feedbackLoading').style.display = 'none';
+    if (!data.success) {
+      document.getElementById('feedbackContent').innerHTML =
+        `<div class="feedback-card"><p style="color:#c0392b;">${escapeHtml(data.error || 'Feedback failed')}</p>
+         <button class="btn" onclick="showView('chat'); conversationActive=true;">Back to conversation</button></div>`;
+      return;
+    }
+    renderFeedback(data);
+  } catch (err) {
+    document.getElementById('feedbackLoading').style.display = 'none';
+    document.getElementById('feedbackContent').innerHTML =
+      '<div class="feedback-card"><p>Network error — try again.</p></div>';
+  } finally {
+    setLoading(false);
+  }
+}
+
+const SCORE_LABELS = {
+  discovery: 'Discovery',
+  value_communication: 'Value communication',
+  pps_voice: 'PPS voice',
+  integrity: 'Integrity',
+  next_step_close: 'Next step / close',
+};
+
+function renderFeedback(data) {
+  const passed = data.result === 'pass';
+  let scoresHtml = '';
+  const scores = data.scores || {};
+  for (const [key, label] of Object.entries(SCORE_LABELS)) {
+    const s = scores[key] || { score: 0, note: '' };
+    const pct = Math.round((s.score / 5) * 100);
+    scoresHtml += `<div class="score-row">
+      <div class="score-label"><span>${label}</span><span>${s.score}/5</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="score-note">${escapeHtml(s.note || '')}</div>
+    </div>`;
+  }
+  const strengths = (data.strengths || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  const improvements = (data.improvements || []).map(s => `<li>${escapeHtml(s)}</li>`).join('');
+  document.getElementById('feedbackContent').innerHTML = `
+    <div class="feedback-card">
+      <div class="result-banner ${passed ? 'pass' : 'retry'}">${passed ? '✓ Passed' : 'Practice again'}</div>
+      <div class="overall-score">${data.overall}</div>
+      <div class="overall-label">Overall score (1–5)</div>
+      ${scoresHtml}
+      ${strengths ? `<div class="section-head" style="margin-top:8px;">Strengths</div><ul class="fb-list">${strengths}</ul>` : ''}
+      ${improvements ? `<div class="section-head">Improvements</div><ul class="fb-list">${improvements}</ul>` : ''}
+      ${data.key_moment ? `<div class="key-moment">${escapeHtml(data.key_moment)}</div>` : ''}
+      <div class="action-row" style="margin-top:20px;">
+        <button class="btn" onclick="startScenario('${activeScenario.id}')">Try Again</button>
+        <button class="btn btn-outline" onclick="backToPickerAfterFeedback()">Back to Scenarios</button>
+      </div>
+    </div>`;
+}
+
+function backToPickerAfterFeedback() {
+  activeScenario = null;
+  messages = [];
+  showView('picker');
+  location.reload();
+}
+
+function escapeHtml(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+</script>
+</body>
+</html>

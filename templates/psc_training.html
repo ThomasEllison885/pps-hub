@@ -317,6 +317,31 @@
         </div>
       </div>
       {% endfor %}
+      {% if roleplay_sales_links %}
+      <p style="font-size:13px;color:#666;margin-top:12px;line-height:1.55;">
+        🎭 <strong>Practice:</strong>
+        {% for rp in roleplay_sales_links %}
+        <a href="/psc-training/roleplay" style="color:var(--blue);font-weight:600;">{{ rp.title }}</a>{% if not loop.last %} · {% endif %}
+        {% endfor %}
+        →
+      </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Practice Arena -->
+  <div class="ref-card" id="ref-roleplay">
+    <div class="ref-header" onclick="toggleRef('roleplay')">
+      <div class="ref-icon">🎭</div>
+      <div class="ref-info">
+        <div class="ref-title">Practice Arena</div>
+        <div class="ref-meta">AI role-play · client conversations with scored feedback</div>
+      </div>
+      <div class="ref-chevron">▼</div>
+    </div>
+    <div class="ref-body">
+      <p class="ref-intro">Practice real client conversations — skeptical property managers, board members, hotel GMs, and more. Claude plays the client; you work the scenario, then get structured feedback graded on discovery, PPS voice, integrity, and closing.</p>
+      <a href="/psc-training/roleplay" class="pps-btn-primary" style="display:inline-block;text-decoration:none;margin-top:8px;">Open Practice Arena →</a>
     </div>
   </div>
 
@@ -438,6 +463,16 @@
     <div class="week-body">
       {% if w.topic_summary %}
       <p class="topic-summary">{{ w.topic_summary }}</p>
+      {% endif %}
+
+      {% if roleplay_by_week.get(w.week) %}
+      <p style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.55;">
+        🎭 <strong>Practice:</strong>
+        {% for rp in roleplay_by_week[w.week] %}
+        <a href="/psc-training/roleplay" style="color:var(--blue);font-weight:600;">{{ rp.title }}</a>{% if not loop.last %} · {% endif %}
+        {% endfor %}
+        →
+      </p>
       {% endif %}
 
       {% if w.week <= 3 %}

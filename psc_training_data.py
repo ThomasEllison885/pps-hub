@@ -1505,3 +1505,288 @@ def get_all_item_ids():
 
 def count_trackable_items():
     return len(get_all_item_ids())
+
+
+# ── Role-play practice (PSC Training → Practice Arena) ─────────────────────────
+
+PSC_ROLEPLAY_GRADER_RULES = """
+PPS UNIVERSAL LANGUAGE (grade strictly):
+- "residents" not "tenants" | "apartment community" not "complex"
+- "ownership" or "ownership/management" not "the owner"
+- "Trade Partners" not "subcontractors" or "subs"
+- "homeowners" not "tenants" in condo/HOA context
+- "concealed conditions" not "hidden damage"
+- Active voice; lead with "PPS will…"
+- Never: "is committed to" / "strives to" / "is pleased to present" / "looks forward to" /
+  "we are excited to" / "it is important to note" / "please be advised"
+
+CONDO vs APARTMENT TONE:
+- Apartments: clinical, efficient, operationally precise
+- Condos/HOA: warm, explanatory, connect scope to homeowner value — board-meeting ready language
+- Hospitality: guests (not residents), business continuity, brand standards, minimal guest disruption
+"""
+
+PSC_ROLEPLAY_SCENARIOS = [
+    {
+        'id': 'rp_skeptical_pm',
+        'title': 'The Cheaper Bid',
+        'week_link': 4,
+        'segment': 'Apartments',
+        'difficulty': 'Core',
+        'grader_focus': (
+            'Weight discovery and value_communication highest. Trainee must uncover what the cheaper bid '
+            'includes before defending PPS scope. Discounting or trashing the competitor should tank integrity.'
+        ),
+        'persona': (
+            'You are Dana Whitfield, property manager of a 240-unit apartment community. '
+            'You are busy, direct, and under budget pressure from your regional. You have a bid '
+            'from another contractor that is 18% cheaper than the PPS proposal for exterior painting. '
+            'You like PPS but need to justify the difference to ownership. Invent plausible details '
+            'when asked — never reference real companies or people.'
+        ),
+        'opening_line': (
+            "Thanks for coming by. I'll be straight with you — I've got another bid on my desk "
+            "and it's a lot cheaper. Why shouldn't I just go with them?"
+        ),
+        'trainee_brief': (
+            'Dana has a competing bid 18% below ours on the exterior painting project. '
+            'Your objective: defend the PPS value without trashing the competitor or discounting on the spot. '
+            'Uncover what the cheaper bid includes, connect scope differences to resident and ownership outcomes, '
+            'and land a concrete next step.'
+        ),
+        'objectives': [
+            'Ask discovery questions about what the competing bid actually covers',
+            'Tie PPS scope/warranty/process to outcomes for residents and ownership',
+            'Never bad-mouth the competitor or invent a discount',
+            'Close on a specific next step (side-by-side scope review, ownership call, site walk)',
+        ],
+        'max_turns': 12,
+    },
+    {
+        'id': 'rp_concealed_conditions',
+        'title': 'Concealed Conditions Call',
+        'week_link': 2,
+        'segment': 'Apartments',
+        'difficulty': 'Core',
+        'grader_focus': (
+            'Integrity is the hard gate. Any promise of extra work, pricing, or proceeding without written '
+            'approval must score integrity ≤ 2. Weight clear documentation and stop-work protocol.'
+        ),
+        'persona': (
+            'You are Marcus Reed, property manager of a 180-unit garden-style apartment community. '
+            'PPS crews are on site for siding repair. Your phone rang — the superintendent says they '
+            'found rot behind siding that was not in scope. You are concerned about cost, resident '
+            'perception, and timeline. You want answers now. Invent plausible details when asked.'
+        ),
+        'opening_line': (
+            "Hey — my superintendent just called. Your crew found rot behind the siding that wasn't "
+            "in the proposal. What's going on, and what am I looking at here?"
+        ),
+        'trainee_brief': (
+            'You are on site (by phone). Crew found concealed rot not in scope. '
+            'Explain what was found, what PPS will and will not do before written approval, '
+            'photos/documentation, and that no additional work proceeds without sign-off.'
+        ),
+        'objectives': [
+            'Explain what was discovered in plain language',
+            'State clearly that work stops until written approval',
+            'Describe photo documentation and next steps for scope change',
+            'Never quote a price or promise extra work on the spot',
+        ],
+        'max_turns': 12,
+    },
+    {
+        'id': 'rp_board_meeting',
+        'title': 'The Board Meeting',
+        'week_link': 6,
+        'segment': 'Condos',
+        'difficulty': 'Advanced',
+        'grader_focus': (
+            'Weight pps_voice highest — condo board tone (warm, explanatory, homeowner-value framing). '
+            'Patience under detailed questions matters. Pitch-dumping or apartment-style clinical tone fails voice.'
+        ),
+        'persona': (
+            'You are Carol Jennings, a detail-oriented HOA board member at a 42-unit condo association. '
+            'You are at a special board meeting about a deck replacement project. You have reviewed the '
+            'reserve study and the PPS proposal — the numbers do not match. You ask hard questions about '
+            'special assessments, homeowner disruption, and why repair is not enough. Invent plausible details.'
+        ),
+        'opening_line': (
+            "Thanks for joining us. I've got the reserve study and your proposal side by side — "
+            "the numbers don't line up. Can you walk the board through why full replacement is necessary "
+            "and what this means for homeowners?"
+        ),
+        'trainee_brief': (
+            'Carol is a board member at a special meeting on deck replacement. '
+            'Explain in plain language, connect scope to homeowner value, stay patient, '
+            'and offer follow-up materials. Condo tone — not apartment clinical.'
+        ),
+        'objectives': [
+            'Explain scope in homeowner-friendly language',
+            'Address reserve study vs proposal gap honestly',
+            'Connect work to long-term homeowner investment protection',
+            'Offer follow-up (attend next meeting, written FAQ, phased options) without overpromising',
+        ],
+        'max_turns': 12,
+    },
+    {
+        'id': 'rp_nervous_gm',
+        'title': 'The Nervous GM',
+        'week_link': 10,
+        'segment': 'Hospitality / Commercial',
+        'difficulty': 'Core',
+        'grader_focus': (
+            'Weight value_communication and next_step_close. Lead with business continuity — phasing, '
+            'hours, guest experience. "Guests" not "residents." Scaffolding and brand-standard language expected.'
+        ),
+        'persona': (
+            'You are Priya Nair, General Manager of a 140-key select-service hotel. PPS is proposing '
+            'EIFS repair near the main entrance and pool deck. You are worried about guest experience, '
+            'noise, scaffolding near the lobby, and passing brand-standard inspections. Invent plausible details.'
+        ),
+        'opening_line': (
+            "I appreciate the proposal, but I'll be honest — I'm nervous. We've got peak season coming "
+            "and your work is right by our main entrance. How do I know guests won't be walking through "
+            "a construction zone?"
+        ),
+        'trainee_brief': (
+            'Priya needs EIFS repair but fears guest disruption and brand inspection risk. '
+            'Lead with business continuity: phasing, work hours, after-hours options, communication plan.'
+        ),
+        'objectives': [
+            'Lead with guest experience and operational continuity',
+            'Propose phasing, work hours, and communication to property leadership',
+            'Address brand-standard / inspection concerns concretely',
+            'Close on a site walk or phased plan review with GM and engineering',
+        ],
+        'max_turns': 12,
+    },
+    {
+        'id': 'rp_schedule_slip',
+        'title': 'Schedule Slip',
+        'week_link': 3,
+        'segment': 'Any',
+        'difficulty': 'Advanced',
+        'grader_focus': (
+            'Weight integrity and value_communication. Owning the communication gap without blaming weather '
+            'or production excuses. Concrete recovery plan and cadence required for next_step_close.'
+        ),
+        'persona': (
+            'You are Tom Brooks, property manager overseeing a 320-unit apartment community. '
+            'Weather pushed the roofing start twice and residents are complaining in the portal. '
+            'You feel out of the loop and frustrated. You liked PPS until now. Invent plausible details.'
+        ),
+        'opening_line': (
+            "I need to talk about the roof schedule. We've been pushed twice and I've got residents "
+            "asking me what's going on. I didn't even know about the second delay until someone posted "
+            "in the community Facebook group. Where are we?"
+        ),
+        'trainee_brief': (
+            'Tom is frustrated: weather delays, poor communication, resident complaints. '
+            'Own the gap without blaming production or weather excuses. Give a concrete recovery plan '
+            'and communication cadence. Keep the relationship.'
+        ),
+        'objectives': [
+            'Acknowledge the communication failure directly',
+            'Provide a specific updated schedule or recovery plan',
+            'Commit to a resident/management communication cadence',
+            'Avoid blaming Trade Partners, weather, or other excuses',
+        ],
+        'max_turns': 12,
+    },
+    {
+        'id': 'rp_cold_call',
+        'title': 'Cold Call — Regional Manager',
+        'week_link': None,
+        'link_ref': 'sales',
+        'segment': 'Any',
+        'difficulty': 'Advanced',
+        'grader_focus': (
+            'Weight discovery and next_step_close highest. Three-minute attention span — pitch-dumping fails. '
+            'Must ask about portfolio pain points before earning a site walk.'
+        ),
+        'persona': (
+            'You are Alexis Grant, regional manager over nine multifamily properties in the metro. '
+            'You do not know the caller well. You picked up but you have about three minutes before '
+            'your next call. You are skeptical of cold outreach but open if they are relevant. '
+            'Invent property names and portfolio details when asked — all fictional.'
+        ),
+        'opening_line': (
+            "You've got about three minutes — I'm between calls. What do you need?"
+        ),
+        'trainee_brief': (
+            'Alexis manages nine properties and gives you three minutes. '
+            "Earn a site walk at one property. Ask about her portfolio's pain points — do not pitch-dump."
+        ),
+        'objectives': [
+            'Open with relevance, not a company monologue',
+            'Ask discovery questions about portfolio challenges',
+            'Connect PPS capabilities to a specific pain point she names',
+            'Close on a concrete site walk at one property',
+        ],
+        'max_turns': 12,
+    },
+]
+
+_ROLEPLAY_BY_ID = {s['id']: s for s in PSC_ROLEPLAY_SCENARIOS}
+
+ROLEPLAY_DAILY_GRADE_LIMIT = 10
+ROLEPLAY_DAILY_TURN_LIMIT = 150
+
+ROLEPLAY_SEGMENTS = ['Apartments', 'Condos', 'Hospitality / Commercial', 'Any']
+
+
+def get_roleplay_scenario(scenario_id):
+    return _ROLEPLAY_BY_ID.get(scenario_id)
+
+
+def get_roleplay_week_links():
+    """Map week_num -> [{id, title}, ...] for training page links."""
+    by_week = {}
+    for sc in PSC_ROLEPLAY_SCENARIOS:
+        wl = sc.get('week_link')
+        if wl is not None:
+            by_week.setdefault(wl, []).append({'id': sc['id'], 'title': sc['title']})
+    return by_week
+
+
+def get_roleplay_sales_links():
+    """Scenarios linked from the Sales Training ref-card."""
+    return [
+        {'id': sc['id'], 'title': sc['title']}
+        for sc in PSC_ROLEPLAY_SCENARIOS
+        if sc.get('link_ref') == 'sales'
+    ]
+
+
+def get_suggested_roleplay_ids(week_pcts):
+    """Suggest 1–3 scenarios based on trainee's current week progress."""
+    current = 0
+    for w in week_pcts or []:
+        if w.get('trainee_pct', 0) < 100:
+            current = w['week']
+            break
+    else:
+        if week_pcts:
+            current = week_pcts[-1]['week']
+    suggested = []
+    for sc in PSC_ROLEPLAY_SCENARIOS:
+        wl = sc.get('week_link')
+        if wl is not None and abs(wl - current) <= 1:
+            suggested.append(sc['id'])
+    if not suggested:
+        for sc in PSC_ROLEPLAY_SCENARIOS:
+            if sc.get('difficulty') == 'Core':
+                suggested.append(sc['id'])
+                if len(suggested) >= 2:
+                    break
+    return suggested[:3]
+
+
+def segment_color(segment_name):
+    for seg in PSC_TRAINING_META['segments']:
+        if seg['name'] == segment_name:
+            return seg['color']
+    if segment_name == 'Any':
+        return '#004C8C'
+    return '#004C8C'

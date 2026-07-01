@@ -46,6 +46,11 @@
   .feedback-msg { font-size:14px; color:#444; line-height:1.55; }
   .empty { color:#bbb; font-size:13px; padding:20px; text-align:center; }
   .accountability-note { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:14px 16px; font-size:13px; color:#666; line-height:1.55; margin-bottom:24px; }
+  .roleplay-meta { font-size:12px; color:#666; line-height:1.45; margin-top:6px; }
+  .roleplay-meta strong { color:var(--dark-blue); }
+  .key-moment-snippet { font-size:12px; color:#888; font-style:italic; margin-top:4px; line-height:1.4; max-width:280px; }
+  .rp-pass { color:#27AE60; font-weight:600; }
+  .rp-retry { color:#E67E22; font-weight:600; }
 </style>
 </head>
 <body>
@@ -115,6 +120,7 @@
           <th>Trainee</th>
           <th>Progress</th>
           <th>Weeks 0–12</th>
+          <th>Role-Play</th>
           <th>Activity</th>
           {% if is_admin %}<th></th>{% endif %}
         </tr>
@@ -153,6 +159,27 @@
               {% endfor %}
             </div>
             {% endif %}
+            {% endif %}
+          </td>
+          <td>
+            {% set rp = row.roleplay %}
+            {% if rp.total_attempts %}
+            <div class="roleplay-meta">
+              <strong>{{ rp.total_attempts }}</strong> attempt{{ 's' if rp.total_attempts != 1 else '' }}
+              · <span class="rp-pass">{{ rp.pass_count }} passed</span>
+            </div>
+            {% if rp.scenarios %}
+            <div class="roleplay-meta" style="margin-top:4px;">
+              {% for sid, info in rp.scenarios.items() %}
+              <span title="{{ info.title }}">{{ info.title[:18] }}{% if info.title|length > 18 %}…{% endif %}: {{ info.best_overall or '—' }}{% if info.ever_passed %} ✓{% endif %}</span>{% if not loop.last %}<br>{% endif %}
+              {% endfor %}
+            </div>
+            {% endif %}
+            {% if rp.latest_key_moment %}
+            <div class="key-moment-snippet" title="{{ rp.latest_key_moment }}">"{{ rp.latest_key_moment[:80] }}{% if rp.latest_key_moment|length > 80 %}…{% endif %}"</div>
+            {% endif %}
+            {% else %}
+            <span class="meta-sm" style="margin:0;">No practice yet</span>
             {% endif %}
           </td>
           <td>

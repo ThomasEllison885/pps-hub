@@ -7,6 +7,10 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
     get_all_item_ids, count_trackable_items,
+    PSC_ROLEPLAY_SCENARIOS, PSC_ROLEPLAY_GRADER_RULES,
+    get_roleplay_scenario, get_roleplay_week_links, get_roleplay_sales_links,
+    get_suggested_roleplay_ids, segment_color,
+    ROLEPLAY_DAILY_GRADE_LIMIT, ROLEPLAY_DAILY_TURN_LIMIT,
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
@@ -715,7 +719,31 @@ def init_db():
             PRIMARY KEY (user_key, week_num)
         )
     ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_roleplay_sessions (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            scenario_id VARCHAR(100) NOT NULL,
+            transcript TEXT NOT NULL,
+            feedback TEXT NOT NULL,
+            overall REAL NOT NULL,
+            result VARCHAR(32) NOT NULL,
+            turn_count INTEGER NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS psc_roleplay_daily_usage (
+            user_key VARCHAR(100) NOT NULL,
+            usage_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            grade_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (user_key, usage_date)
+        )
+    ''')
     try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_roleplay_sessions_user ON psc_roleplay_sessions(user_key)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_roleplay_sessions_created ON psc_roleplay_sessions(created_at DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_notes_user ON psc_training_notes(user_key)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_feedback_time ON psc_training_feedback(submitted_at DESC)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_enrollment_active ON psc_training_enrollment(active)")
@@ -1535,6 +1563,376 @@ def compute_psc_training_stats(user_key):
         'signed_weeks': signed_weeks,
         'total_weeks': len(week_map),
     }
+
+
+def can_access_psc_roleplay(user_key):
+    """Enrolled trainees and oversight managers (VP Sales / admin) may use Practice Arena."""
+    return is_psc_training_enrolled(user_key) or can_psc_training_oversight(user_key)
+
+
+_ROLEPLAY_PERSONA_SYSTEM = """You are playing a role in a sales training simulation for Pure Property Solutions (PPS),
+a multi-family and commercial property contractor. Stay in character at all times.
+
+CHARACTER: {persona}
+
+RULES:
+- Speak only as this character. Never mention being an AI, a simulation, or training.
+- Reply in 2–4 sentences, conversational and realistic. One point or question at a time.
+- Be realistic, not a pushover: raise natural objections, ask follow-up questions,
+  and push back on vague or salesy answers.
+- Reward good behavior realistically: if the trainee asks smart discovery questions,
+  explains value concretely, or proposes a clear next step, warm up gradually.
+- If the trainee makes a promise a contractor shouldn't make on the spot (pricing changes,
+  schedule guarantees, scope additions without approval), react the way a real client would —
+  take them up on it or press for it in writing. Do not correct or coach them mid-conversation.
+- If the trainee is unprofessional or gives up, respond in character and let the
+  conversation land where it naturally would.
+- Never discuss topics outside the scenario. If the trainee goes off-topic, steer back
+  in character ("Let's stay on the project — ...").
+"""
+
+
+def _strip_json_fences(raw):
+    text = (raw or '').strip()
+    if text.startswith('```'):
+        text = text.split('\n', 1)[-1]
+        if text.endswith('```'):
+            text = text.rsplit('```', 1)[0]
+        text = text.strip()
+        if text.lower().startswith('json'):
+            text = text[4:].strip()
+    return text
+
+
+def _claude_roleplay_call(system_prompt, messages, max_tokens, timeout=60.0):
+    import time
+    import anthropic
+    cl = anthropic.Anthropic(api_key=CLAUDE_API_KEY, timeout=timeout)
+    last_err = None
+    for attempt in range(2):
+        try:
+            msg = cl.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=messages,
+            )
+            return msg.content[0].text.strip()
+        except Exception as e:
+            last_err = e
+            err_name = type(e).__name__
+            transient = err_name in (
+                'APITimeoutError', 'APIConnectionError', 'RateLimitError', 'InternalServerError',
+            ) or 'timeout' in str(e).lower() or 'overloaded' in str(e).lower()
+            if attempt == 0 and transient:
+                time.sleep(1.5)
+                continue
+            print(f"Roleplay Claude error ({err_name}): {e}")
+            raise last_err
+
+
+def _validate_roleplay_messages(messages, max_turns):
+    if not isinstance(messages, list):
+        return None, 'Invalid messages format'
+    if len(messages) > max_turns * 2:
+        return None, f'Too many messages (max {max_turns * 2})'
+    total_chars = 0
+    cleaned = []
+    for m in messages:
+        if not isinstance(m, dict):
+            return None, 'Invalid message entry'
+        role = m.get('role')
+        content = m.get('content')
+        if role not in ('user', 'assistant'):
+            return None, 'Invalid message role'
+        if not isinstance(content, str):
+            return None, 'Invalid message content'
+        if len(content) > 2000:
+            return None, 'Each message must be 2,000 characters or fewer'
+        total_chars += len(content)
+        cleaned.append({'role': role, 'content': content})
+    if total_chars > 50000:
+        return None, 'Conversation payload too large'
+    return cleaned, None
+
+
+def _count_trainee_turns(messages):
+    return sum(1 for m in messages if m.get('role') == 'user')
+
+
+def _roleplay_usage_today(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return 0, 0
+        cur = conn.cursor()
+        cur.execute(
+            '''SELECT turn_count, grade_count FROM psc_roleplay_daily_usage
+               WHERE user_key = %s AND usage_date = CURRENT_DATE''',
+            (user_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if row:
+            return row[0] or 0, row[1] or 0
+        return 0, 0
+    except Exception as e:
+        print(f"Roleplay usage read error: {e}")
+        return 0, 0
+
+
+def _increment_roleplay_usage(user_key, turn_delta=0, grade_delta=0):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            '''
+            INSERT INTO psc_roleplay_daily_usage (user_key, usage_date, turn_count, grade_count)
+            VALUES (%s, CURRENT_DATE, %s, %s)
+            ON CONFLICT (user_key, usage_date) DO UPDATE SET
+                turn_count = psc_roleplay_daily_usage.turn_count + EXCLUDED.turn_count,
+                grade_count = psc_roleplay_daily_usage.grade_count + EXCLUDED.grade_count
+            ''',
+            (user_key, turn_delta, grade_delta),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Roleplay usage increment error: {e}")
+        return False
+
+
+def get_roleplay_user_stats(user_key):
+    """Best score and attempt count per scenario for picker display."""
+    stats = {}
+    for sc in PSC_ROLEPLAY_SCENARIOS:
+        stats[sc['id']] = {'attempts': 0, 'best_overall': None, 'best_result': None}
+    try:
+        conn = get_db()
+        if not conn:
+            return stats
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT scenario_id, COUNT(*) AS attempts, MAX(overall) AS best_overall
+               FROM psc_roleplay_sessions WHERE user_key = %s GROUP BY scenario_id''',
+            (user_key,),
+        )
+        agg = {r['scenario_id']: r for r in cur.fetchall()}
+        cur.execute(
+            '''SELECT DISTINCT ON (scenario_id) scenario_id, overall, result
+               FROM psc_roleplay_sessions
+               WHERE user_key = %s
+               ORDER BY scenario_id, overall DESC, created_at DESC''',
+            (user_key,),
+        )
+        best_rows = {r['scenario_id']: r for r in cur.fetchall()}
+        cur.close()
+        conn.close()
+        for sid, row in agg.items():
+            if sid in stats:
+                stats[sid]['attempts'] = row['attempts']
+                best = best_rows.get(sid)
+                if best:
+                    stats[sid]['best_overall'] = round(float(best['overall']), 1)
+                    stats[sid]['best_result'] = best['result']
+    except Exception as e:
+        print(f"Roleplay user stats error: {e}")
+    return stats
+
+
+def get_roleplay_summary_for_oversight(user_key):
+    """Aggregate role-play data for accountability page."""
+    summary = {
+        'total_attempts': 0,
+        'pass_count': 0,
+        'scenarios': {},
+        'latest_key_moment': None,
+        'latest_at': None,
+        'latest_scenario_title': None,
+    }
+    try:
+        conn = get_db()
+        if not conn:
+            return summary
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT COUNT(*) AS cnt FROM psc_roleplay_sessions WHERE user_key = %s',
+            (user_key,),
+        )
+        summary['total_attempts'] = cur.fetchone()['cnt'] or 0
+        cur.execute(
+            '''SELECT COUNT(*) AS cnt FROM psc_roleplay_sessions
+               WHERE user_key = %s AND result = %s''',
+            (user_key, 'pass'),
+        )
+        summary['pass_count'] = cur.fetchone()['cnt'] or 0
+        cur.execute(
+            '''SELECT scenario_id, COUNT(*) AS attempts, MAX(overall) AS best_overall,
+                      BOOL_OR(result = 'pass') AS ever_passed
+               FROM psc_roleplay_sessions WHERE user_key = %s GROUP BY scenario_id''',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            sc = get_roleplay_scenario(row['scenario_id'])
+            summary['scenarios'][row['scenario_id']] = {
+                'title': sc['title'] if sc else row['scenario_id'],
+                'attempts': row['attempts'],
+                'best_overall': round(float(row['best_overall']), 1) if row['best_overall'] is not None else None,
+                'ever_passed': bool(row['ever_passed']),
+            }
+        cur.execute(
+            '''SELECT scenario_id, feedback, created_at FROM psc_roleplay_sessions
+               WHERE user_key = %s ORDER BY created_at DESC LIMIT 1''',
+            (user_key,),
+        )
+        latest = cur.fetchone()
+        cur.close()
+        conn.close()
+        if latest:
+            summary['latest_at'] = latest['created_at']
+            sc = get_roleplay_scenario(latest['scenario_id'])
+            summary['latest_scenario_title'] = sc['title'] if sc else latest['scenario_id']
+            try:
+                fb = json.loads(latest['feedback'])
+                summary['latest_key_moment'] = (fb.get('key_moment') or '').strip() or None
+            except (json.JSONDecodeError, TypeError):
+                pass
+    except Exception as e:
+        print(f"Roleplay oversight summary error: {e}")
+    return summary
+
+
+def get_roleplay_history_rows(user_key):
+    rows = []
+    try:
+        conn = get_db()
+        if not conn:
+            return rows
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT scenario_id, overall, result, created_at
+               FROM psc_roleplay_sessions WHERE user_key = %s
+               ORDER BY created_at DESC LIMIT 100''',
+            (user_key,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Roleplay history error: {e}")
+    return rows
+
+
+def _grade_roleplay_session(scenario, messages):
+    objectives = '\n'.join(f'- {o}' for o in scenario.get('objectives', []))
+    transcript = '\n'.join(
+        f"{'TRAINEE' if m['role'] == 'user' else 'CLIENT'}: {m['content']}"
+        for m in messages
+    )
+    grader_focus = scenario.get('grader_focus', '')
+    system = f"""You are grading a PSC sales training role-play for Pure Property Solutions (PPS).
+
+SCENARIO: {scenario['title']}
+TRAINEE BRIEF: {scenario['trainee_brief']}
+OBJECTIVES:
+{objectives}
+
+SCENARIO-SPECIFIC GRADING EMPHASIS:
+{grader_focus}
+
+PPS VOICE RULES:
+{PSC_ROLEPLAY_GRADER_RULES}
+
+Score each category 1–5 (5 = excellent). Integrity measures whether the trainee made promises a contractor
+should not make on the spot (pricing, scope additions without approval, schedule guarantees).
+
+PASS CRITERIA (you must apply): result is "pass" only if overall >= 3.5 AND integrity score >= 4.
+Otherwise result is "practice_again". Integrity is a hard gate.
+
+Respond with ONLY valid JSON (no markdown fences) in exactly this shape:
+{{
+  "scores": {{
+    "discovery": {{"score": 4, "note": "..."}},
+    "value_communication": {{"score": 3, "note": "..."}},
+    "pps_voice": {{"score": 5, "note": "..."}},
+    "integrity": {{"score": 5, "note": "..."}},
+    "next_step_close": {{"score": 2, "note": "..."}}
+  }},
+  "overall": 3.8,
+  "result": "pass",
+  "strengths": ["...", "..."],
+  "improvements": ["...", "..."],
+  "key_moment": "Short quote of the trainee's best or most costly line and why it mattered."
+}}
+
+Recalculate overall as the average of the five category scores. Set result from the pass criteria above."""
+
+    user_content = f"TRANSCRIPT:\n{transcript[:30000]}"
+    raw = None
+    for attempt in range(2):
+        try:
+            raw = _claude_roleplay_call(
+                system,
+                [{'role': 'user', 'content': user_content}],
+                max_tokens=1200,
+            )
+            parsed = json.loads(_strip_json_fences(raw))
+            scores = parsed.get('scores') or {}
+            required = ('discovery', 'value_communication', 'pps_voice', 'integrity', 'next_step_close')
+            for key in required:
+                if key not in scores or 'score' not in scores[key]:
+                    raise ValueError(f'Missing score: {key}')
+            vals = [float(scores[k]['score']) for k in required]
+            overall = round(sum(vals) / len(vals), 1)
+            parsed['overall'] = overall
+            integrity = float(scores['integrity']['score'])
+            parsed['result'] = 'pass' if overall >= 3.5 and integrity >= 4 else 'practice_again'
+            return parsed, None
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as e:
+            print(f"Roleplay grade parse error (attempt {attempt + 1}): {e}")
+            if attempt == 1:
+                return None, 'Could not parse feedback — please try ending the session again.'
+        except Exception:
+            return None, 'The practice partner is unavailable — try again in a minute.'
+    return None, 'Could not parse feedback — please try ending the session again.'
+
+
+def _save_roleplay_session(user_key, scenario_id, messages, feedback, turn_count):
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor()
+        cur.execute(
+            '''
+            INSERT INTO psc_roleplay_sessions
+            (user_key, scenario_id, transcript, feedback, overall, result, turn_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+            ''',
+            (
+                user_key,
+                scenario_id,
+                json.dumps(messages),
+                json.dumps(feedback),
+                float(feedback['overall']),
+                feedback['result'],
+                turn_count,
+            ),
+        )
+        session_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return session_id
+    except Exception as e:
+        print(f"Roleplay session save error: {e}")
+        return None
 
 
 def _internal_api_ok():
@@ -4281,6 +4679,8 @@ def psc_training():
         stats=stats,
         week_status=week_status,
         user=user,
+        roleplay_by_week=get_roleplay_week_links(),
+        roleplay_sales_links=get_roleplay_sales_links(),
     )
 
 
@@ -4353,6 +4753,159 @@ def psc_training_feedback_api():
     return jsonify({'success': True})
 
 
+@app.route('/psc-training/roleplay')
+@require_login
+def psc_roleplay_page():
+    user_key = session['user_key']
+    if not can_access_psc_roleplay(user_key):
+        return redirect(url_for('dashboard'))
+    user = USERS.get(user_key, {})
+    stats = compute_psc_training_stats(user_key) if is_psc_training_enrolled(user_key) else None
+    week_pcts = stats['week_pcts'] if stats else []
+    suggested_ids = get_suggested_roleplay_ids(week_pcts)
+    user_stats = get_roleplay_user_stats(user_key)
+    scenarios = []
+    for sc in PSC_ROLEPLAY_SCENARIOS:
+        st = user_stats.get(sc['id'], {})
+        scenarios.append({
+            'id': sc['id'],
+            'title': sc['title'],
+            'segment': sc['segment'],
+            'difficulty': sc['difficulty'],
+            'trainee_brief': sc['trainee_brief'],
+            'objectives': sc['objectives'],
+            'opening_line': sc['opening_line'],
+            'max_turns': sc.get('max_turns', 12),
+            'segment_color': segment_color(sc['segment']),
+            'attempts': st.get('attempts', 0),
+            'best_overall': st.get('best_overall'),
+            'best_result': st.get('best_result'),
+            'suggested': sc['id'] in suggested_ids,
+        })
+    return render_template(
+        'psc_roleplay.html',
+        meta=PSC_TRAINING_META,
+        scenarios=scenarios,
+        scenarios_json=json.dumps(scenarios),
+        suggested_ids=suggested_ids,
+        display_name=user.get('display', user_key),
+        segments=['Apartments', 'Condos', 'Hospitality / Commercial', 'Any'],
+    )
+
+
+@app.route('/api/psc-training/roleplay/turn', methods=['POST'])
+@require_login
+def psc_roleplay_turn_api():
+    user_key = session['user_key']
+    if not can_access_psc_roleplay(user_key):
+        return jsonify({'error': 'Not authorized for role-play practice'}), 403
+    if not CLAUDE_API_KEY:
+        return jsonify({'error': 'Practice partner unavailable — try again later.'}), 503
+
+    data = request.get_json(silent=True) or {}
+    scenario_id = (data.get('scenario_id') or '').strip()
+    scenario = get_roleplay_scenario(scenario_id)
+    if not scenario:
+        return jsonify({'error': 'Unknown scenario'}), 400
+
+    max_turns = scenario.get('max_turns', 12)
+    messages, err = _validate_roleplay_messages(data.get('messages'), max_turns)
+    if err:
+        return jsonify({'error': err}), 400
+
+    trainee_turns = _count_trainee_turns(messages)
+    if trainee_turns > max_turns:
+        return jsonify({'error': f'Turn limit reached ({max_turns} trainee messages)'}), 400
+
+    turn_count, grade_count = _roleplay_usage_today(user_key)
+    if turn_count >= ROLEPLAY_DAILY_TURN_LIMIT:
+        return jsonify({
+            'error': f'Daily practice limit reached ({ROLEPLAY_DAILY_TURN_LIMIT} turns). Try again tomorrow.',
+        }), 429
+
+    if not messages or messages[-1].get('role') != 'user':
+        return jsonify({'error': 'Last message must be from the trainee'}), 400
+
+    system = _ROLEPLAY_PERSONA_SYSTEM.format(persona=scenario['persona'])
+    api_messages = [{'role': m['role'], 'content': m['content']} for m in messages]
+
+    try:
+        reply = _claude_roleplay_call(system, api_messages, max_tokens=400)
+    except Exception:
+        return jsonify({'error': 'The practice partner is unavailable — try again in a minute.'}), 503
+
+    _increment_roleplay_usage(user_key, turn_delta=1)
+    turns_left = max(0, max_turns - trainee_turns)
+    return jsonify({'success': True, 'reply': reply, 'turns_left': turns_left})
+
+
+@app.route('/api/psc-training/roleplay/finish', methods=['POST'])
+@require_login
+def psc_roleplay_finish_api():
+    user_key = session['user_key']
+    if not can_access_psc_roleplay(user_key):
+        return jsonify({'error': 'Not authorized for role-play practice'}), 403
+    if not CLAUDE_API_KEY:
+        return jsonify({'error': 'Practice partner unavailable — try again later.'}), 503
+
+    data = request.get_json(silent=True) or {}
+    scenario_id = (data.get('scenario_id') or '').strip()
+    scenario = get_roleplay_scenario(scenario_id)
+    if not scenario:
+        return jsonify({'error': 'Unknown scenario'}), 400
+
+    max_turns = scenario.get('max_turns', 12)
+    messages, err = _validate_roleplay_messages(data.get('messages'), max_turns)
+    if err:
+        return jsonify({'error': err}), 400
+
+    trainee_turns = _count_trainee_turns(messages)
+    if trainee_turns < 3:
+        return jsonify({
+            'error': 'Have a real conversation first — send at least three messages before requesting feedback.',
+        }), 400
+
+    turn_count, grade_count = _roleplay_usage_today(user_key)
+    if grade_count >= ROLEPLAY_DAILY_GRADE_LIMIT:
+        return jsonify({
+            'error': f'Daily feedback limit reached ({ROLEPLAY_DAILY_GRADE_LIMIT} sessions). Try again tomorrow.',
+        }), 429
+
+    feedback, err = _grade_roleplay_session(scenario, messages)
+    if err:
+        return jsonify({'error': err}), 500
+
+    session_id = _save_roleplay_session(user_key, scenario_id, messages, feedback, trainee_turns)
+    if not session_id:
+        return jsonify({'error': 'Could not save session — try again.'}), 500
+
+    _increment_roleplay_usage(user_key, grade_delta=1)
+    return jsonify({'success': True, 'session_id': session_id, **feedback})
+
+
+@app.route('/api/psc-training/roleplay/history')
+@require_login
+def psc_roleplay_history_api():
+    user_key = session['user_key']
+    target_key = (request.args.get('user_key') or '').strip() or user_key
+    if target_key != user_key:
+        if not can_psc_training_oversight(user_key):
+            return jsonify({'error': 'Unauthorized'}), 403
+    elif not can_access_psc_roleplay(user_key):
+        return jsonify({'error': 'Not authorized'}), 403
+
+    rows = get_roleplay_history_rows(target_key)
+    history = []
+    for row in rows:
+        history.append({
+            'scenario_id': row['scenario_id'],
+            'overall': float(row['overall']) if row['overall'] is not None else None,
+            'result': row['result'],
+            'created_at': row['created_at'].isoformat() if row.get('created_at') else None,
+        })
+    return jsonify({'history': history, 'summary': get_roleplay_summary_for_oversight(target_key)})
+
+
 def _psc_training_oversight_data(mark_read=True):
     enrolled = list_psc_enrolled_trainees()
     trainees = []
@@ -4369,6 +4922,7 @@ def _psc_training_oversight_data(mark_read=True):
             'done': stats['done'],
             'pct': stats['pct'],
             'week_pcts': stats['week_pcts'],
+            'roleplay': get_roleplay_summary_for_oversight(key),
         })
     trainees.sort(key=lambda t: (-t['pct'], t['display']))
     all_consultants = []
