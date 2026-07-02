@@ -7,7 +7,7 @@
 {% include '_pwa_head.html' %}
 <title>PPS Hub · Ask PPS</title>
 <style>
-  .main { max-width: 640px; margin: 0 auto; padding: 24px 18px 60px; }
+  .main { max-width: 720px; margin: 0 auto; padding: 24px 18px 60px; }
   .page-title { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark-blue); margin-bottom: 4px; }
   .page-sub { font-size: 14px; color: #888; margin-bottom: 20px; line-height: 1.5; }
   .ask-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 18px; margin-bottom: 16px; }
@@ -43,6 +43,16 @@
   .prompt-q { font-size: 16px; font-weight: 600; color: var(--dark-blue); line-height: 1.45; margin-bottom: 12px; }
   .prompt-answer { width: 100%; min-height: 110px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; resize: vertical; margin-bottom: 10px; }
   .lookup-head { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 10px; }
+  .gap-browse { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 20px; }
+  .gap-browse > p { font-size: 13px; color: #666; line-height: 1.5; margin: 0 0 14px; }
+  .gap-module { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
+  .gap-module summary { cursor: pointer; padding: 12px 14px; font-size: 14px; font-weight: 600; color: var(--dark-blue); background: var(--light-bg); list-style: none; }
+  .gap-module summary::-webkit-details-marker { display: none; }
+  .gap-module ul { margin: 0; padding: 10px 14px 12px 32px; font-size: 14px; color: var(--gray); line-height: 1.55; }
+  .gap-module li { margin-bottom: 6px; }
+  .gap-module .hint { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+  .gap-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .gap-actions a { font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; }
 </style>
 </head>
 <body>
@@ -59,9 +69,46 @@
 
 <div class="main">
   <h1 class="page-title">Ask PPS</h1>
-  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.{% if psc_gap_preview %} <span style="color:#888;">({{ psc_gap_preview }} PSC Training topics still need documenting.)</span>{% endif %}</p>
+  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.</p>
+
+  {% if is_curator and (psc_gap_modules or audit_gaps) %}
+  <div class="section-head">Identified gaps</div>
+  <div class="gap-browse">
+    <p>
+      <strong>{{ psc_gap_preview }}</strong> PSC Training topics and <strong>{{ audit_gap_preview }}</strong> cross-cutting
+      questions are missing from the knowledge base. Expand each module to read them. Answer cards below are loaded
+      into your queue automatically — assign any to the field in <a href="/admin/ask-pps">Ask PPS Admin</a>.
+    </p>
+    {% for mod in psc_gap_modules %}
+    <details class="gap-module" open>
+      <summary>{{ mod.module_title }} <span class="hint">· {{ mod.items|length }} gaps · suggest {{ mod.field_role or 'any' }}</span></summary>
+      <ul>
+        {% for item in mod.items %}
+        <li>{{ item.topic }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endfor %}
+    {% if audit_gaps %}
+    <details class="gap-module">
+      <summary>Cross-cutting knowledge <span class="hint">· {{ audit_gaps|length }} gaps</span></summary>
+      <ul>
+        {% for g in audit_gaps %}
+        <li>{{ g.question|replace('Knowledge gap: ', '') }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
+    <div class="gap-actions">
+      <button type="button" class="ask-btn" id="reloadGapsBtn">Refresh my answer queue</button>
+      <a href="/admin/ask-pps">Assign or manage prompts →</a>
+    </div>
+    <div class="msg" id="reloadGapsMsg"></div>
+  </div>
+  {% endif %}
 
   {% if prompts %}
+  <div class="section-head">Your answer queue{% if prompts|length > 1 %} ({{ prompts|length }} waiting){% endif %}</div>
   {% for p in prompts %}
   <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}">
     <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}{% if p.field_role_hint %} · suggest {{ p.field_role_hint }}{% endif %}</span>
@@ -71,9 +118,13 @@
     <div class="msg prompt-msg"></div>
   </div>
   {% endfor %}
+  {% elif is_curator %}
+  <div class="ask-card">
+    <p style="font-size:14px;color:#888;margin:0;">Your answer queue is empty — you may have answered everything above, or topics are already documented. Use <strong>Refresh my answer queue</strong> if you expected more.</p>
+  </div>
   {% else %}
   <div class="ask-card">
-    <p style="font-size:14px;color:#888;margin:0;">No prompts waiting for you — check back after more gaps are logged.</p>
+    <p style="font-size:14px;color:#888;margin:0;">No prompts waiting for you right now.</p>
   </div>
   {% endif %}
 
@@ -120,6 +171,33 @@
 
 <script>
 (function() {
+  const reloadBtn = document.getElementById('reloadGapsBtn');
+  if (reloadBtn) {
+    reloadBtn.addEventListener('click', async function() {
+      const msg = document.getElementById('reloadGapsMsg');
+      reloadBtn.disabled = true;
+      msg.textContent = 'Loading…';
+      msg.className = 'msg';
+      try {
+        const res = await fetch('/api/ask-pps/load-identified-gaps', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          msg.textContent = data.error || 'Could not load.';
+          msg.className = 'msg err';
+          reloadBtn.disabled = false;
+          return;
+        }
+        msg.textContent = 'Added ' + (data.created || 0) + ' — reloading…';
+        msg.className = 'msg ok';
+        setTimeout(function() { window.location.reload(); }, 600);
+      } catch (e) {
+        msg.textContent = 'Network error.';
+        msg.className = 'msg err';
+        reloadBtn.disabled = false;
+      }
+    });
+  }
+
   const qInput = document.getElementById('questionInput');
   const askBtn = document.getElementById('askBtn');
   const askMsg = document.getElementById('askMsg');

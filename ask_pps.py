@@ -737,6 +737,51 @@ def discover_psc_training_gaps(get_db_fn):
     return gaps
 
 
+def group_psc_gaps_for_display(gaps):
+    """Group PSC gap dicts by module_title for curator browse UI."""
+    modules = []
+    by_module = {}
+    order = []
+    for gap in gaps:
+        title = gap.get('module_title') or 'Company Operations'
+        if title not in by_module:
+            by_module[title] = {
+                'module_title': title,
+                'field_role': gap.get('field_role'),
+                'items': [],
+            }
+            order.append(title)
+        by_module[title]['items'].append({
+            'topic': gap.get('topic', ''),
+            'field_role': gap.get('field_role'),
+            'source_ref': gap.get('source_ref'),
+        })
+    for title in order:
+        modules.append(by_module[title])
+    return modules
+
+
+def count_open_assigned_prompts(get_db_fn, user_key):
+    conn = get_db_fn()
+    if not conn:
+        return 0
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''SELECT COUNT(*) FROM knowledge_prompts
+               WHERE status = 'open' AND target_user_key = %s''',
+            (user_key,),
+        )
+        n = cur.fetchone()[0]
+        cur.close()
+        return n or 0
+    except Exception as e:
+        print(f'Ask PPS assigned prompt count error: {e}')
+        return 0
+    finally:
+        conn.close()
+
+
 def discover_knowledge_audit_gaps(get_db_fn):
     """Cross-cutting operations questions when the KB has no matching entry."""
     conn = get_db_fn()
@@ -1497,11 +1542,18 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         q = (request.args.get('q') or '').strip()
         recent = get_recent_questions(get_db_fn, user_key)
         prompts = get_prompts_for_user(get_db_fn, user_key, user_role)
-        psc_gap_preview = 0
-        audit_gap_preview = 0
-        if is_curator(user_key):
-            psc_gap_preview = len(discover_psc_training_gaps(get_db_fn))
-            audit_gap_preview = len(discover_knowledge_audit_gaps(get_db_fn))
+        psc_gaps = []
+        audit_gaps = []
+        psc_gap_modules = []
+        curator = is_curator(user_key)
+        if curator:
+            psc_gaps = discover_psc_training_gaps(get_db_fn)
+            audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
+            psc_gap_modules = group_psc_gaps_for_display(psc_gaps)
+            if not prompts and not count_open_assigned_prompts(get_db_fn, user_key):
+                if psc_gaps or audit_gaps:
+                    sync_identified_gap_prompts(get_db_fn, user_key, assign_to=user_key)
+                    prompts = get_prompts_for_user(get_db_fn, user_key, user_role)
         return render_template(
             'ask_pps.html',
             initial_question=q,
@@ -1510,8 +1562,11 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             prompts=prompts,
             prompt_target_roles=PROMPT_TARGET_ROLES,
             prompt_perspectives=PROMPT_PERSPECTIVES,
-            psc_gap_preview=psc_gap_preview,
-            audit_gap_preview=audit_gap_preview,
+            is_curator=curator,
+            psc_gap_preview=len(psc_gaps),
+            audit_gap_preview=len(audit_gaps),
+            psc_gap_modules=psc_gap_modules,
+            audit_gaps=audit_gaps,
         )
 
     @app.route('/api/ask-pps/ask', methods=['POST'])
@@ -1557,6 +1612,17 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         finally:
             conn.close()
         return jsonify({'success': True})
+
+    @app.route('/api/ask-pps/load-identified-gaps', methods=['POST'])
+    @require_login
+    def api_ask_pps_load_identified_gaps():
+        user_key = session['user_key']
+        if not is_curator(user_key):
+            return jsonify({'success': False, 'error': 'Curators only.'}), 403
+        result = sync_identified_gap_prompts(get_db_fn, user_key, assign_to=user_key)
+        if not result.get('ok'):
+            return jsonify({'success': False, 'error': result.get('error', 'Failed.')}), 500
+        return jsonify({'success': True, **result})
 
     @app.route('/api/ask-pps/prompt-answer', methods=['POST'])
     @require_login
