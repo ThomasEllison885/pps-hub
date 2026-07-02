@@ -71,14 +71,13 @@ HARD RULES:
   Cumella (VP of Sales, Tony@purepropsolutions.com). Production, scheduling, Trade
   Partners, field questions → Trey Hollmeyer (Production Manager, trey@purepropsolutions.com).
   Everything else → Thomas Ellison (President, thomas@purepropsolutions.com).
-- Use PPS language in your own words: "residents" not "tenants", "apartment
-  community" not "complex", "Trade Partners" not "subcontractors" or "subs".
-- TERMINOLOGY CORRECTION: When the question uses non-PPS words, answer with the
-  correct PPS term woven in naturally — do not scold. Model the right phrasing once.
-  Examples: "subs" or "subcontractors" → answer with "Trade Partners"; "tenants" →
-  "residents" (or "homeowners" in condo context). If they ask who schedules "subs",
-  answer who schedules Trade Partners, e.g. "The PM typically schedules the project
-  with the Trade Partner" — then add routing or detail from the knowledge entries.
+- PPS VOICE: Use the terminology below in every answer — naturally, in your own words.
+  Just use the right PPS word (apartment community, Trade Partners, residents, etc.).
+  Do not lecture about wording or call out what the asker said wrong; answer normally
+  with the correct term and move on.
+
+PPS TERMINOLOGY:
+{voice_terminology}
 
 Respond ONLY with JSON, no markdown fences:
 {
@@ -188,6 +187,65 @@ def _entry_exists(cur, title):
         (title,),
     )
     return cur.fetchone() is not None
+
+
+_VOICE_TERMINOLOGY_CACHE = None
+
+_VOICE_TERMINOLOGY_FALLBACK = (
+    'ALWAYS / NEVER:\n'
+    '"residents" not "tenants" | "apartment community" not "complex"\n'
+    '"ownership" or "ownership/management" not "the owner"\n'
+    '"Trade Partners" not "subcontractors" or "subs"\n'
+    '"investment" not "cost/price" for totals\n'
+    '"homeowners" not "tenants" in condo/HOA context\n'
+    '"T&M" not "hourly" | "concealed conditions" not "hidden damage"\n'
+    '"Trade Partner Scope" not "sub scope" | "punch list" not "final items"\n'
+    'Property context: apartments → residents; condos/HOAs → homeowners; '
+    'hospitality → guests; commercial → tenants OK.'
+)
+
+
+def _load_voice_terminology():
+    """Always-on PPS word choices from proposal voice guide (SECTION 1 + property context)."""
+    global _VOICE_TERMINOLOGY_CACHE
+    if _VOICE_TERMINOLOGY_CACHE is not None:
+        return _VOICE_TERMINOLOGY_CACHE
+
+    if not os.path.exists(PROPOSAL_VOICE_PATH):
+        _VOICE_TERMINOLOGY_CACHE = _VOICE_TERMINOLOGY_FALLBACK
+        return _VOICE_TERMINOLOGY_CACHE
+
+    with open(PROPOSAL_VOICE_PATH, encoding='utf-8') as f:
+        text = f.read()
+
+    section1 = ''
+    m1 = re.search(
+        r'SECTION\s+1\s*[—–-]\s*UNIVERSAL LANGUAGE RULES\s*\n━+\s*\n'
+        r'(.*?)(?=\n━+\s*\nSECTION\s+2)',
+        text,
+        re.DOTALL | re.I,
+    )
+    if m1:
+        section1 = m1.group(1).strip()
+
+    property_lines = []
+    m3 = re.search(
+        r'SECTION\s+3\s*[—–-]\s*PROPERTY TYPE GUIDANCE\s*\n━+\s*\n'
+        r'(.*?)(?=\n━+\s*\nSECTION\s+4)',
+        text,
+        re.DOTALL | re.I,
+    )
+    if m3:
+        for line in m3.group(1).split('\n'):
+            line = line.strip()
+            if line.startswith('LANGUAGE:'):
+                property_lines.append(line.replace('LANGUAGE:', 'Property language:').strip())
+            elif '"guests"' in line.lower() or 'acceptable in commercial' in line.lower():
+                property_lines.append(line)
+
+    parts = [p for p in (section1, '\n'.join(property_lines)) if p]
+    _VOICE_TERMINOLOGY_CACHE = '\n\n'.join(parts) if parts else _VOICE_TERMINOLOGY_FALLBACK
+    return _VOICE_TERMINOLOGY_CACHE
 
 
 def _parse_voice_sections(path):
@@ -475,8 +533,7 @@ def _retrieve_entries(get_db_fn, question):
             '''SELECT id, category, title, content
                FROM knowledge_entries
                WHERE status = 'active' AND category = 'voice_language'
-               ORDER BY id
-               LIMIT 5'''
+               ORDER BY id'''
         )
         voice = cur.fetchall()
         cur.close()
@@ -579,8 +636,10 @@ def ask_question(get_db_fn, user_key, user_role, question, api_key, model):
     entries = _retrieve_entries(get_db_fn, question)
     prompt_entries = _format_entries_for_prompt(entries)
     # Use replace, not str.format — prompt contains literal { } in the JSON example.
-    system = SYSTEM_PROMPT.replace(
-        '{entries}', prompt_entries or '(no entries retrieved)',
+    system = (
+        SYSTEM_PROMPT
+        .replace('{voice_terminology}', _load_voice_terminology())
+        .replace('{entries}', prompt_entries or '(no entries retrieved)')
     )
     role_hint = ''
     if user_role == 'pm':
