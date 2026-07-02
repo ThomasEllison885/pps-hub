@@ -435,7 +435,7 @@
   <div class="ask-pps-widget" id="askPpsWidget">
     <h2>Help document PPS</h2>
     {% if ask_pps_prompt %}
-    <p>Ask PPS is learning how we operate. Share how you actually handle this — field answers matter most.</p>
+    <p>Ask PPS is learning how we operate. Share how you actually handle this — field answers matter most.{% if ask_pps_prompt_queue > 1 %} <strong>{{ ask_pps_prompt_queue }} waiting for you</strong> at Ask PPS.{% endif %}</p>
     <span class="ask-pps-prompt-tag">{{ 'Field team' if ask_pps_prompt.perspective == 'field' else 'Leadership intent' }}</span>
     <div class="ask-pps-prompt-q">{{ ask_pps_prompt.question }}</div>
     <textarea class="ask-pps-answer" id="dashPromptAnswer" placeholder="How does this really work on your jobs?"></textarea>

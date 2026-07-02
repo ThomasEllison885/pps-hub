@@ -64,12 +64,19 @@
         how work actually gets done. <strong>Policy prompts</strong> (optional) capture leadership intent — not gospel
         until field confirms.
       </p>
-      <div class="btn-row" style="margin-bottom:16px;">
-        <button type="button" class="btn btn-primary" id="syncGapPromptsBtn">Prompt field from open gaps</button>
+      <div class="btn-row" style="margin-bottom:10px;">
+        <button type="button" class="btn btn-primary" id="syncIdentifiedBtn">Generate identified gaps → my queue</button>
+        <button type="button" class="btn btn-muted" id="syncGapPromptsBtn">Prompt field from open gaps</button>
         <button type="button" class="btn btn-muted" id="syncGapPolicyBtn">Also ask leadership (policy)</button>
         <button type="button" class="btn btn-muted" id="syncThinBtn">Prompt thin categories</button>
         <span id="syncPromptMsg" style="font-size:13px;align-self:center;"></span>
       </div>
+      <p style="font-size:12px;color:#888;margin:0 0 14px;">
+        Identified now:
+        <strong>{{ psc_gap_preview or 0 }}</strong> PSC Training [TO DOCUMENT] blanks,
+        <strong>{{ audit_gap_preview or 0 }}</strong> cross-cutting knowledge gaps
+        (skips topics already in the knowledge base).
+      </p>
       {% if category_coverage %}
       <p style="font-size:12px;color:#888;margin:0 0 12px;">
         Coverage:
@@ -102,17 +109,52 @@
             </select>
           </div>
         </div>
+        <div style="margin-top:8px;">
+          <label>Assign to person (optional)</label>
+          <select name="target_user_key">
+            <option value="">— by role above —</option>
+            {% for u in assignable_users %}
+            <option value="{{ u.key }}">{{ u.display }}{% if u.title %} ({{ u.title }}){% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
         <button type="submit" class="btn btn-primary" style="margin-top:10px;">Add prompt</button>
       </form>
       {% if prompts %}
       {% for pr in prompts %}
       <div class="gap">
         <div class="meta">
-          {{ pr.perspective }} · ask {{ pr.target_role }}
-          {% if pr.source_type == 'gap' %} · from gap{% elif pr.source_type == 'thin_category' %} · thin category{% endif %}
+          {{ pr.perspective }} · role {{ pr.target_role }}
+          {% if pr.target_user_display %} · assigned {{ pr.target_user_display }}{% endif %}
+          {% if pr.source_type == 'gap' %} · from Q&amp;A gap
+          {% elif pr.source_type == 'thin_category' %} · thin category
+          {% elif pr.source_type == 'psc_gap' %} · PSC Training blank
+          {% elif pr.source_type == 'audit_gap' %} · knowledge audit{% endif %}
+          {% if pr.field_role_hint %} · suggest field: {{ pr.field_role_hint }}{% endif %}
           · {{ pr.answer_count or 0 }} answer{% if pr.answer_count != 1 %}s{% endif %}
         </div>
         <div class="q">{{ pr.question }}</div>
+        <form method="post" action="{{ url_for('admin_ask_pps_assign_prompt', prompt_id=pr.id) }}" style="margin-bottom:10px;padding:10px;background:var(--light-bg);border-radius:6px;">
+          <label>Reassign</label>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
+            <select name="target_user_key">
+              <option value="">— role only —</option>
+              {% for u in assignable_users %}
+              <option value="{{ u.key }}" {% if pr.target_user_key == u.key %}selected{% endif %}>{{ u.display }}</option>
+              {% endfor %}
+            </select>
+            <select name="target_role">
+              {% for r in prompt_target_roles %}
+              <option value="{{ r }}" {% if pr.target_role == r %}selected{% endif %}>{{ r }}</option>
+              {% endfor %}
+            </select>
+            <select name="perspective">
+              <option value="field" {% if pr.perspective == 'field' %}selected{% endif %}>Field</option>
+              <option value="policy" {% if pr.perspective == 'policy' %}selected{% endif %}>Policy</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Assign</button>
+          </div>
+        </form>
         <form method="post" action="{{ url_for('admin_ask_pps_dismiss_prompt', prompt_id=pr.id) }}">
           <button type="submit" class="btn btn-muted">Close prompt</button>
         </form>
@@ -280,6 +322,17 @@ async function syncPrompts(includePolicy) {
     msg.textContent = data.error || 'Sync failed.';
   }
 }
+document.getElementById('syncIdentifiedBtn').addEventListener('click', async function() {
+  const msg = document.getElementById('syncPromptMsg');
+  msg.textContent = 'Scanning PSC Training + knowledge gaps…';
+  const res = await fetch('/admin/ask-pps/prompts/sync-identified', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    msg.textContent = 'Added ' + (data.created || 0) + ' to your queue (' + (data.psc_candidates || 0) + ' PSC, ' + (data.audit_candidates || 0) + ' audit). Reload page.';
+  } else {
+    msg.textContent = data.error || 'Sync failed.';
+  }
+});
 document.getElementById('syncGapPromptsBtn').addEventListener('click', function() { syncPrompts(false); });
 document.getElementById('syncGapPolicyBtn').addEventListener('click', function() { syncPrompts(true); });
 document.getElementById('syncThinBtn').addEventListener('click', async function() {

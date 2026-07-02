@@ -197,6 +197,12 @@ def init_tables(cur):
         cur.execute(
             'CREATE INDEX IF NOT EXISTS idx_knowledge_prompts_gap ON knowledge_prompts(source_gap_id)'
         )
+        cur.execute(
+            "ALTER TABLE knowledge_prompts ADD COLUMN IF NOT EXISTS source_ref TEXT"
+        )
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS idx_knowledge_prompts_ref ON knowledge_prompts(source_ref)'
+        )
     except Exception:
         pass
 
@@ -540,6 +546,62 @@ PROMPT_PERSPECTIVES = ('field', 'policy')
 THIN_CATEGORY_THRESHOLD = 3
 THIN_CATEGORY_SKIP = frozenset({'team_directory', 'voice_language'})
 
+PSC_MODULE_CATEGORY = {
+    'ops_monday': 'company_operations',
+    'ops_lifecycle': 'production_process',
+    'ops_estimating': 'sales_process',
+    'ops_trade_partners': 'production_process',
+    'ops_client_comms': 'sales_process',
+    'ops_common_mistakes': 'training_core_values',
+}
+
+PSC_MODULE_FIELD_ROLE = {
+    'ops_monday': 'consultant',
+    'ops_lifecycle': 'pm',
+    'ops_estimating': 'consultant',
+    'ops_trade_partners': 'pm',
+    'ops_client_comms': 'consultant',
+    'ops_common_mistakes': 'consultant',
+}
+
+KNOWLEDGE_AUDIT_GAPS = [
+    (
+        'audit:ppm',
+        'production_process',
+        'pm',
+        'How does the Pre-Project Meeting (PPM) actually run — who attends, the agenda, '
+        'and what must be confirmed before mobilization?',
+    ),
+    (
+        'audit:change_orders',
+        'production_process',
+        'pm',
+        'Walk through a change order from discovery to approval — who documents it, '
+        'who signs off, and how the client hears about it?',
+    ),
+    (
+        'audit:closeout',
+        'production_process',
+        'pm',
+        'What is the punch list and close-out handoff — who walks with whom, and what '
+        'must be documented before the job is done?',
+    ),
+    (
+        'audit:proposal_review',
+        'sales_process',
+        'consultant',
+        'Before a proposal goes to a client, what review steps happen — who reads it, '
+        'what gets checked, and what is never sent cold?',
+    ),
+    (
+        'audit:warranty',
+        'trades',
+        'consultant',
+        'How do we explain roofing (or trade) warranty language to clients — PPS labor vs '
+        'manufacturer, and what qualifies?',
+    ),
+]
+
 
 def _gap_topic_to_category(gap_topic):
     return {
@@ -591,18 +653,205 @@ def _prompt_exists_for_gap(cur, gap_id, perspective):
     return cur.fetchone() is not None
 
 
+def _prompt_exists_by_ref(cur, source_ref):
+    if not source_ref:
+        return False
+    cur.execute(
+        '''SELECT id FROM knowledge_prompts
+           WHERE source_ref = %s AND status != 'dismissed' LIMIT 1''',
+        (source_ref,),
+    )
+    return cur.fetchone() is not None
+
+
+def _topic_documented(cur, topic):
+    """True if active/pending knowledge already covers this topic (FTS or keyword)."""
+    topic = (topic or '').strip()
+    if len(topic) < 4:
+        return False
+    try:
+        cur.execute(
+            '''SELECT id FROM knowledge_entries
+               WHERE status IN ('active', 'pending')
+                 AND search_tsv @@ plainto_tsquery('english', %s)
+               LIMIT 1''',
+            (topic,),
+        )
+        if cur.fetchone():
+            return True
+    except Exception:
+        pass
+    words = [w for w in re.findall(r'[a-zA-Z]{4,}', topic.lower()) if w not in ('document', 'with', 'what', 'when', 'who', 'how')]
+    if len(words) < 2:
+        words = re.findall(r'[a-zA-Z]{3,}', topic.lower())[:4]
+    if not words:
+        return False
+    pattern = '%' + '%'.join(words[:3]) + '%'
+    cur.execute(
+        '''SELECT id FROM knowledge_entries
+           WHERE status IN ('active', 'pending')
+             AND lower(title || ' ' || content) LIKE %s
+           LIMIT 1''',
+        (pattern,),
+    )
+    return cur.fetchone() is not None
+
+
+def discover_psc_training_gaps(get_db_fn):
+    """PSC Company Operations [TO DOCUMENT] bullets not yet in the knowledge base."""
+    _, _, _, _, company_operations = get_training_curriculum()
+    conn = get_db_fn()
+    if not conn:
+        return []
+    gaps = []
+    try:
+        cur = conn.cursor()
+        for module in company_operations.get('modules', []):
+            module_id = module.get('id', '')
+            module_title = module.get('title', 'Company Operations')
+            category = PSC_MODULE_CATEGORY.get(module_id, 'company_operations')
+            field_role = PSC_MODULE_FIELD_ROLE.get(module_id, 'any')
+            for i, sop in enumerate(module.get('sop_placeholders', [])):
+                if '[TO DOCUMENT]' not in sop:
+                    continue
+                topic = re.sub(r'^\[TO DOCUMENT\]\s*', '', sop).strip()
+                if _topic_documented(cur, topic):
+                    continue
+                ref = f'psc:{module_id}:{i}'
+                gaps.append({
+                    'source_ref': ref,
+                    'question': (
+                        f'PSC Training gap — {module_title}: {topic}? '
+                        f'(Document for onboarding; field reality may differ from leadership intent.)'
+                    ),
+                    'category': category,
+                    'field_role': field_role,
+                    'module_title': module_title,
+                    'topic': topic,
+                })
+        cur.close()
+    except Exception as e:
+        print(f'Ask PPS discover PSC gaps error: {e}')
+    finally:
+        conn.close()
+    return gaps
+
+
+def discover_knowledge_audit_gaps(get_db_fn):
+    """Cross-cutting operations questions when the KB has no matching entry."""
+    conn = get_db_fn()
+    if not conn:
+        return []
+    gaps = []
+    try:
+        cur = conn.cursor()
+        for ref, category, field_role, question in KNOWLEDGE_AUDIT_GAPS:
+            if _topic_documented(cur, question):
+                continue
+            gaps.append({
+                'source_ref': ref,
+                'question': f'Knowledge gap: {question}',
+                'category': category,
+                'field_role': field_role,
+            })
+        cur.close()
+    except Exception as e:
+        print(f'Ask PPS discover audit gaps error: {e}')
+    finally:
+        conn.close()
+    return gaps
+
+
 def _create_prompt(cur, question, category, target_role, perspective, source_type,
-                   created_by, source_gap_id=None, target_user_key=None, priority=0):
+                   created_by, source_gap_id=None, target_user_key=None, priority=0,
+                   source_ref=None):
     cur.execute(
         '''INSERT INTO knowledge_prompts
            (question, category, target_role, target_user_key, perspective,
-            source_type, source_gap_id, created_by, priority)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+            source_type, source_gap_id, source_ref, created_by, priority)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)''',
         (
             question.strip(), category, target_role, target_user_key, perspective,
-            source_type, source_gap_id, created_by, priority,
+            source_type, source_gap_id, source_ref, created_by, priority,
         ),
     )
+
+
+def sync_identified_gap_prompts(get_db_fn, created_by, assign_to='thomas_ellison'):
+    """Create prompts for PSC training blanks + knowledge audit gaps — assigned to Thomas by default."""
+    conn = get_db_fn()
+    if not conn:
+        return {'ok': False, 'error': 'Database unavailable'}
+    psc_gaps = discover_psc_training_gaps(get_db_fn)
+    audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
+    created = 0
+    skipped = 0
+    try:
+        cur = conn.cursor()
+        for gap in psc_gaps + audit_gaps:
+            ref = gap['source_ref']
+            if _prompt_exists_by_ref(cur, ref):
+                skipped += 1
+                continue
+            _create_prompt(
+                cur,
+                gap['question'],
+                gap['category'],
+                gap.get('field_role', 'any'),
+                'policy',
+                'psc_gap' if ref.startswith('psc:') else 'audit_gap',
+                created_by,
+                target_user_key=assign_to,
+                priority=12 if ref.startswith('psc:') else 9,
+                source_ref=ref,
+            )
+            created += 1
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print(f'Ask PPS sync identified gaps error: {e}')
+        return {'ok': False, 'error': str(e)}
+    finally:
+        conn.close()
+    return {
+        'ok': True,
+        'created': created,
+        'skipped': skipped,
+        'psc_candidates': len(psc_gaps),
+        'audit_candidates': len(audit_gaps),
+    }
+
+
+def assign_prompt(get_db_fn, prompt_id, target_role, target_user_key=None, perspective=None):
+    if target_role not in PROMPT_TARGET_ROLES:
+        return {'ok': False, 'error': 'Invalid role.'}
+    if perspective and perspective not in PROMPT_PERSPECTIVES:
+        return {'ok': False, 'error': 'Invalid perspective.'}
+    conn = get_db_fn()
+    if not conn:
+        return {'ok': False, 'error': 'Database unavailable'}
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''UPDATE knowledge_prompts
+               SET target_role = %s,
+                   target_user_key = %s,
+                   perspective = COALESCE(%s, perspective),
+                   updated_at = NOW()
+               WHERE id = %s AND status = 'open' ''',
+            (target_role, target_user_key or None, perspective, prompt_id),
+        )
+        if cur.rowcount == 0:
+            return {'ok': False, 'error': 'Prompt not found or not open.'}
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f'Ask PPS assign prompt error: {e}')
+        return {'ok': False, 'error': str(e)}
+    finally:
+        conn.close()
+    return {'ok': True}
 
 
 def sync_prompts_from_gaps(get_db_fn, created_by, include_policy=False):
@@ -722,7 +971,18 @@ def sync_thin_category_prompts(get_db_fn, created_by):
     return {'ok': True, 'created': created}
 
 
-def get_prompts_for_user(get_db_fn, user_key, user_role, limit=3):
+def _field_role_hint_from_ref(source_ref):
+    if not source_ref or not source_ref.startswith('psc:'):
+        return None
+    parts = source_ref.split(':')
+    if len(parts) >= 2:
+        return PSC_MODULE_FIELD_ROLE.get(parts[1])
+    return None
+
+
+def get_prompts_for_user(get_db_fn, user_key, user_role, limit=None):
+    if limit is None:
+        limit = 12 if is_curator(user_key) else 5
     conn = get_db_fn()
     if not conn:
         return []
@@ -738,8 +998,12 @@ def get_prompts_for_user(get_db_fn, user_key, user_role, limit=3):
                       ) AS answered_by_me
                FROM knowledge_prompts p
                WHERE p.status = 'open'
-               ORDER BY p.priority DESC, p.created_at ASC'''
-        , (user_key,))
+               ORDER BY
+                 CASE WHEN p.target_user_key = %s THEN 0 ELSE 1 END,
+                 p.priority DESC,
+                 p.created_at ASC''',
+            (user_key, user_key),
+        )
         rows = cur.fetchall()
         cur.close()
         matched = []
@@ -748,6 +1012,7 @@ def get_prompts_for_user(get_db_fn, user_key, user_role, limit=3):
                 continue
             if row.get('answered_by_me'):
                 continue
+            row['field_role_hint'] = _field_role_hint_from_ref(row.get('source_ref'))
             matched.append(row)
             if len(matched) >= limit:
                 break
@@ -847,6 +1112,8 @@ def get_open_prompts_admin(get_db_fn, users):
         cur.close()
         for r in rows:
             r['created_by_display'] = _display(users, r.get('created_by'))
+            r['target_user_display'] = _display(users, r.get('target_user_key'))
+            r['field_role_hint'] = _field_role_hint_from_ref(r.get('source_ref'))
         return rows
     except Exception as e:
         print(f'Ask PPS open prompts error: {e}')
@@ -1179,6 +1446,8 @@ def get_admin_data(get_db_fn, users):
             'open_prompts': open_prompts,
             'prompts': get_open_prompts_admin(get_db_fn, users),
             'category_coverage': get_category_coverage(get_db_fn),
+            'psc_gap_preview': len(discover_psc_training_gaps(get_db_fn)),
+            'audit_gap_preview': len(discover_knowledge_audit_gaps(get_db_fn)),
         }
     except Exception as e:
         print(f'Ask PPS admin data error: {e}')
@@ -1227,7 +1496,12 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         user_role = session.get('role', '')
         q = (request.args.get('q') or '').strip()
         recent = get_recent_questions(get_db_fn, user_key)
-        prompts = get_prompts_for_user(get_db_fn, user_key, user_role, limit=5)
+        prompts = get_prompts_for_user(get_db_fn, user_key, user_role)
+        psc_gap_preview = 0
+        audit_gap_preview = 0
+        if is_curator(user_key):
+            psc_gap_preview = len(discover_psc_training_gaps(get_db_fn))
+            audit_gap_preview = len(discover_knowledge_audit_gaps(get_db_fn))
         return render_template(
             'ask_pps.html',
             initial_question=q,
@@ -1236,6 +1510,8 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             prompts=prompts,
             prompt_target_roles=PROMPT_TARGET_ROLES,
             prompt_perspectives=PROMPT_PERSPECTIVES,
+            psc_gap_preview=psc_gap_preview,
+            audit_gap_preview=audit_gap_preview,
         )
 
     @app.route('/api/ask-pps/ask', methods=['POST'])
@@ -1322,6 +1598,31 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             return jsonify(result), 500
         return jsonify(result)
 
+    @app.route('/admin/ask-pps/prompts/sync-identified', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_sync_identified_prompts():
+        data = request.get_json(silent=True) or {}
+        assign_to = (data.get('assign_to') or session['user_key'] or 'thomas_ellison').strip()
+        result = sync_identified_gap_prompts(get_db_fn, session['user_key'], assign_to=assign_to)
+        if not result.get('ok'):
+            return jsonify(result), 500
+        return jsonify(result)
+
+    @app.route('/admin/ask-pps/prompts/<int:prompt_id>/assign', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_assign_prompt(prompt_id):
+        target_role = (request.form.get('target_role') or 'any').strip()
+        target_user_key = (request.form.get('target_user_key') or '').strip() or None
+        perspective = (request.form.get('perspective') or '').strip() or None
+        result = assign_prompt(get_db_fn, prompt_id, target_role, target_user_key, perspective)
+        if not result.get('ok'):
+            return jsonify(result), 400
+        if request.headers.get('Accept', '').find('application/json') >= 0:
+            return jsonify(result)
+        return redirect(url_for('admin_ask_pps'))
+
     @app.route('/admin/ask-pps/prompts/create', methods=['POST'])
     @require_login
     @require_ask_pps_curator
@@ -1330,6 +1631,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         question = (request.form.get('question') or '').strip()
         target_role = (request.form.get('target_role') or 'any').strip()
         perspective = (request.form.get('perspective') or 'field').strip()
+        target_user_key = (request.form.get('target_user_key') or '').strip() or None
         if category not in CATEGORIES or target_role not in PROMPT_TARGET_ROLES:
             return redirect(url_for('admin_ask_pps'))
         if perspective not in PROMPT_PERSPECTIVES or len(question) < 8:
@@ -1340,7 +1642,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 cur = conn.cursor()
                 _create_prompt(
                     cur, question, category, target_role, perspective, 'curator',
-                    session['user_key'],
+                    session['user_key'], target_user_key=target_user_key,
                 )
                 conn.commit()
                 cur.close()
@@ -1376,10 +1678,24 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_ask_pps_curator
     def admin_ask_pps():
         data = get_admin_data(get_db_fn, users)
+        assignable_users = sorted(
+            [
+                {
+                    'key': k,
+                    'display': v.get('display', k),
+                    'role': v.get('role', ''),
+                    'title': v.get('title', ''),
+                }
+                for k, v in users.items()
+            ],
+            key=lambda u: u['display'],
+        )
         return render_template(
             'admin_ask_pps.html',
             categories=CATEGORIES,
             curators=CURATORS,
+            assignable_users=assignable_users,
+            prompt_target_roles=PROMPT_TARGET_ROLES,
             **data,
         )
 

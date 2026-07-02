@@ -59,12 +59,12 @@
 
 <div class="main">
   <h1 class="page-title">Ask PPS</h1>
-  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.</p>
+  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.{% if psc_gap_preview %} <span style="color:#888;">({{ psc_gap_preview }} PSC Training topics still need documenting.)</span>{% endif %}</p>
 
   {% if prompts %}
   {% for p in prompts %}
   <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}">
-    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}</span>
+    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}{% if p.field_role_hint %} · suggest {{ p.field_role_hint }}{% endif %}</span>
     <div class="prompt-q">{{ p.question }}</div>
     <textarea class="prompt-answer" placeholder="How does this actually work on your jobs?"></textarea>
     <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>

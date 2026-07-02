@@ -2799,6 +2799,7 @@ def dashboard():
         except Exception as e:
             print(f'Ask PPS dashboard count error: {e}')
     ask_pps_prompt = ask_pps.get_next_prompt_for_user(get_db, user_key, user_role)
+    ask_pps_prompt_queue = len(ask_pps.get_prompts_for_user(get_db, user_key, user_role))
     return render_template(
         'dashboard.html',
         user=user,
@@ -2807,6 +2808,7 @@ def dashboard():
         is_ask_pps_curator=is_ask_pps_curator,
         ask_pps_open_gaps=ask_pps_open_gaps,
         ask_pps_prompt=ask_pps_prompt,
+        ask_pps_prompt_queue=ask_pps_prompt_queue,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
         admin_lane_open=is_admin,
