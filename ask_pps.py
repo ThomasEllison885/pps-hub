@@ -42,8 +42,8 @@ PROPOSAL_VOICE_PATH = os.path.join(
 )
 
 PRODUCTION_KEYWORDS = re.compile(
-    r'\b(schedul|trade partner|crew|mobiliz|field|production|ppm|site visit|'
-    r'punch list|close-?out|pm\b|building access|48.hour)\b',
+    r'\b(schedul|trade partner|subcontractor|subs?\b|crew|mobiliz|field|production|'
+    r'ppm|site visit|punch list|close-?out|pm\b|building access|48.hour)\b',
     re.I,
 )
 SALES_KEYWORDS = re.compile(
@@ -72,7 +72,13 @@ HARD RULES:
   Partners, field questions → Trey Hollmeyer (Production Manager, trey@purepropsolutions.com).
   Everything else → Thomas Ellison (President, thomas@purepropsolutions.com).
 - Use PPS language in your own words: "residents" not "tenants", "apartment
-  community" not "complex", "Trade Partners" not "subcontractors".
+  community" not "complex", "Trade Partners" not "subcontractors" or "subs".
+- TERMINOLOGY CORRECTION: When the question uses non-PPS words, answer with the
+  correct PPS term woven in naturally — do not scold. Model the right phrasing once.
+  Examples: "subs" or "subcontractors" → answer with "Trade Partners"; "tenants" →
+  "residents" (or "homeowners" in condo context). If they ask who schedules "subs",
+  answer who schedules Trade Partners, e.g. "The PM typically schedules the project
+  with the Trade Partner" — then add routing or detail from the knowledge entries.
 
 Respond ONLY with JSON, no markdown fences:
 {
@@ -341,6 +347,16 @@ def build_seed_entries(users, get_db_fn):
             'begins at any building or area. Photo documentation at key milestones. Daily cleanup '
             'on every job. All scope changes documented and approved before work proceeds. '
             'Walkthrough close-out at project end.'
+        ),
+    })
+    entries.append({
+        'category': 'production_process',
+        'title': 'Scheduling work with Trade Partners',
+        'content': (
+            'We say Trade Partners — not subs or subcontractors. The PM typically schedules '
+            'the project with the Trade Partner. Production oversight and field scheduling '
+            'questions go to Trey Hollmeyer (Production Manager). Consultants do not promise '
+            'crew dates without PM or production sign-off.'
         ),
     })
     entries.extend(_team_directory_entries(users))
