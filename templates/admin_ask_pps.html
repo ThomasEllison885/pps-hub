@@ -49,10 +49,79 @@
   <h1 class="page-title">Ask PPS — Knowledge Curation</h1>
   <div class="stats">
     <div class="stat"><div class="n">{{ open_gaps or 0 }}</div><div class="l">Open gaps</div></div>
+    <div class="stat"><div class="n">{{ open_prompts or 0 }}</div><div class="l">Open prompts</div></div>
     <div class="stat"><div class="n">{{ pending_cnt or 0 }}</div><div class="l">Pending</div></div>
     {% for w in week_counts or [] %}
     <div class="stat"><div class="n">{{ w.cnt }}</div><div class="l">{{ w.display_name }} this week</div></div>
     {% endfor %}
+  </div>
+
+  <div class="section">
+    <h2>Prompt engine — learn from the team</h2>
+    <div class="section-body">
+      <p style="font-size:13px;color:#666;margin:0 0 14px;line-height:1.5;">
+        Turn gaps into questions for the right people. <strong>Field prompts</strong> go to PMs and consultants —
+        how work actually gets done. <strong>Policy prompts</strong> (optional) capture leadership intent — not gospel
+        until field confirms.
+      </p>
+      <div class="btn-row" style="margin-bottom:16px;">
+        <button type="button" class="btn btn-primary" id="syncGapPromptsBtn">Prompt field from open gaps</button>
+        <button type="button" class="btn btn-muted" id="syncGapPolicyBtn">Also ask leadership (policy)</button>
+        <button type="button" class="btn btn-muted" id="syncThinBtn">Prompt thin categories</button>
+        <span id="syncPromptMsg" style="font-size:13px;align-self:center;"></span>
+      </div>
+      {% if category_coverage %}
+      <p style="font-size:12px;color:#888;margin:0 0 12px;">
+        Coverage:
+        {% for c in category_coverage %}{{ c.category }} ({{ c.cnt }}){% if not loop.last %} · {% endif %}{% endfor %}
+      </p>
+      {% endif %}
+      <form method="post" action="{{ url_for('admin_ask_pps_create_prompt') }}" style="margin-bottom:18px;padding:12px;border:1px dashed var(--border);border-radius:8px;">
+        <label>New prompt</label>
+        <textarea name="question" placeholder="What do you want the team to document?" required></textarea>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:8px;">
+          <div>
+            <label>Category</label>
+            <select name="category">{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+          </div>
+          <div>
+            <label>Ask who</label>
+            <select name="target_role">
+              <option value="pm">PMs / production</option>
+              <option value="consultant">Consultants / sales</option>
+              <option value="office_manager">Office</option>
+              <option value="curator">Leadership (Thomas, Tony, Trey)</option>
+              <option value="any">Anyone</option>
+            </select>
+          </div>
+          <div>
+            <label>Perspective</label>
+            <select name="perspective">
+              <option value="field">Field — how it's actually done</option>
+              <option value="policy">Policy — leadership intent</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:10px;">Add prompt</button>
+      </form>
+      {% if prompts %}
+      {% for pr in prompts %}
+      <div class="gap">
+        <div class="meta">
+          {{ pr.perspective }} · ask {{ pr.target_role }}
+          {% if pr.source_type == 'gap' %} · from gap{% elif pr.source_type == 'thin_category' %} · thin category{% endif %}
+          · {{ pr.answer_count or 0 }} answer{% if pr.answer_count != 1 %}s{% endif %}
+        </div>
+        <div class="q">{{ pr.question }}</div>
+        <form method="post" action="{{ url_for('admin_ask_pps_dismiss_prompt', prompt_id=pr.id) }}">
+          <button type="submit" class="btn btn-muted">Close prompt</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p style="color:#aaa;font-size:14px;">No open prompts. Sync from gaps or add one above.</p>
+      {% endif %}
+    </div>
   </div>
 
   <div class="section seed-row">
@@ -194,6 +263,33 @@ document.getElementById('seedBtn').addEventListener('click', async function() {
   } else {
     msg.textContent = data.error || 'Seed failed.';
   }
+});
+
+async function syncPrompts(includePolicy) {
+  const msg = document.getElementById('syncPromptMsg');
+  msg.textContent = 'Working…';
+  const res = await fetch('/admin/ask-pps/prompts/sync-gaps', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ include_policy: includePolicy }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    msg.textContent = 'Field +' + (data.field_created || 0) + ', policy +' + (data.policy_created || 0) + '. Reload page.';
+  } else {
+    msg.textContent = data.error || 'Sync failed.';
+  }
+}
+document.getElementById('syncGapPromptsBtn').addEventListener('click', function() { syncPrompts(false); });
+document.getElementById('syncGapPolicyBtn').addEventListener('click', function() { syncPrompts(true); });
+document.getElementById('syncThinBtn').addEventListener('click', async function() {
+  const msg = document.getElementById('syncPromptMsg');
+  msg.textContent = 'Working…';
+  const res = await fetch('/admin/ask-pps/prompts/sync-thin', { method: 'POST' });
+  const data = await res.json();
+  msg.textContent = data.ok
+    ? 'Thin-category prompts +' + (data.created || 0) + '. Reload page.'
+    : (data.error || 'Sync failed.');
 });
 </script>
 </body>

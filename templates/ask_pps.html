@@ -38,6 +38,11 @@
   .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .msg.err { color: #c00; }
   .msg.ok { color: #2e7d32; }
+  .prompt-card { border-left: 4px solid var(--blue); }
+  .prompt-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #666; background: var(--light-bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; margin-bottom: 8px; }
+  .prompt-q { font-size: 16px; font-weight: 600; color: var(--dark-blue); line-height: 1.45; margin-bottom: 12px; }
+  .prompt-answer { width: 100%; min-height: 110px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; resize: vertical; margin-bottom: 10px; }
+  .lookup-head { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 10px; }
 </style>
 </head>
 <body>
@@ -54,11 +59,28 @@
 
 <div class="main">
   <h1 class="page-title">Ask PPS</h1>
-  <p class="page-sub">Documented company knowledge only — voice, process, pricing baselines, and who owns what. If it is not documented yet, we log the gap.</p>
+  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.</p>
 
+  {% if prompts %}
+  {% for p in prompts %}
+  <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}">
+    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}</span>
+    <div class="prompt-q">{{ p.question }}</div>
+    <textarea class="prompt-answer" placeholder="How does this actually work on your jobs?"></textarea>
+    <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>
+    <div class="msg prompt-msg"></div>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="ask-card">
+    <p style="font-size:14px;color:#888;margin:0;">No prompts waiting for you — check back after more gaps are logged.</p>
+  </div>
+  {% endif %}
+
+  <div class="lookup-head">Look something up</div>
   <div class="ask-card">
     <div class="ask-row">
-      <input type="text" id="questionInput" class="ask-input" placeholder="What's our warranty language for roofing?" maxlength="500" value="{{ initial_question|e }}">
+      <input type="text" id="questionInput" class="ask-input" placeholder="Search documented knowledge…" maxlength="500" value="{{ initial_question|e }}">
       <button type="button" class="ask-btn" id="askBtn">Ask</button>
     </div>
     <div class="msg" id="askMsg"></div>
@@ -145,6 +167,46 @@
   askBtn.addEventListener('click', doAsk);
   qInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); doAsk(); }
+  });
+
+  document.querySelectorAll('.prompt-submit-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      const card = btn.closest('.prompt-card');
+      const answer = (card.querySelector('.prompt-answer')?.value || '').trim();
+      const msgEl = card.querySelector('.prompt-msg');
+      if (answer.length < 10) {
+        msgEl.textContent = 'Please share at least a sentence or two.';
+        msgEl.className = 'msg err';
+        return;
+      }
+      btn.disabled = true;
+      msgEl.textContent = 'Saving…';
+      msgEl.className = 'msg';
+      try {
+        const res = await fetch('/api/ask-pps/prompt-answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt_id: parseInt(card.dataset.promptId, 10),
+            answer,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          msgEl.textContent = data.error || 'Could not save.';
+          msgEl.className = 'msg err';
+          btn.disabled = false;
+          return;
+        }
+        msgEl.textContent = data.message || 'Thanks — sent for review.';
+        msgEl.className = 'msg ok';
+        card.querySelector('.prompt-answer').disabled = true;
+      } catch (e) {
+        msgEl.textContent = 'Network error. Try again.';
+        msgEl.className = 'msg err';
+        btn.disabled = false;
+      }
+    });
   });
 
   document.getElementById('suggestToggle').addEventListener('click', function() {

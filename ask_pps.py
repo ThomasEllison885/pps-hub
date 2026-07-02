@@ -163,6 +163,40 @@ def init_tables(cur):
         cur.execute(
             "ALTER TABLE ask_pps_questions ADD COLUMN IF NOT EXISTS gap_summary TEXT"
         )
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_prompts (
+                id SERIAL PRIMARY KEY,
+                question TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'general',
+                target_role TEXT NOT NULL DEFAULT 'any',
+                target_user_key TEXT,
+                perspective TEXT NOT NULL DEFAULT 'field',
+                source_type TEXT NOT NULL DEFAULT 'curator',
+                source_gap_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'open',
+                priority INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS knowledge_prompt_answers (
+                id SERIAL PRIMARY KEY,
+                prompt_id INTEGER NOT NULL REFERENCES knowledge_prompts(id),
+                user_key TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                entry_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(prompt_id, user_key)
+            )
+        ''')
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS idx_knowledge_prompts_status ON knowledge_prompts(status)'
+        )
+        cur.execute(
+            'CREATE INDEX IF NOT EXISTS idx_knowledge_prompts_gap ON knowledge_prompts(source_gap_id)'
+        )
     except Exception:
         pass
 
@@ -501,6 +535,347 @@ def _infer_gap_topic(question, user_role):
     return 'general'
 
 
+PROMPT_TARGET_ROLES = ('any', 'pm', 'consultant', 'office_manager', 'curator')
+PROMPT_PERSPECTIVES = ('field', 'policy')
+THIN_CATEGORY_THRESHOLD = 3
+THIN_CATEGORY_SKIP = frozenset({'team_directory', 'voice_language'})
+
+
+def _gap_topic_to_category(gap_topic):
+    return {
+        'production': 'production_process',
+        'sales': 'sales_process',
+    }.get(gap_topic, 'general')
+
+
+def _gap_topic_to_field_role(gap_topic):
+    return {
+        'production': 'pm',
+        'sales': 'consultant',
+    }.get(gap_topic, 'any')
+
+
+def _user_matches_prompt(user_key, user_role, prompt):
+    if prompt.get('target_user_key'):
+        return user_key == prompt['target_user_key']
+    target = prompt.get('target_role') or 'any'
+    if target == 'any':
+        return True
+    if target == 'curator':
+        return is_curator(user_key)
+    return user_role == target
+
+
+def _perspective_label(perspective):
+    return 'How we actually do it (field)' if perspective == 'field' else 'Leadership intent (policy)'
+
+
+def _format_prompt_entry_content(question, answer, perspective, display_name, hub_role):
+    header = _perspective_label(perspective)
+    role_note = f'{display_name}'
+    if hub_role:
+        role_note += f', {hub_role}'
+    return (
+        f'{header} — {role_note}:\n{answer.strip()}\n\n'
+        f'Prompt: {question.strip()}'
+    )
+
+
+def _prompt_exists_for_gap(cur, gap_id, perspective):
+    cur.execute(
+        '''SELECT id FROM knowledge_prompts
+           WHERE source_gap_id = %s AND perspective = %s AND status != 'dismissed'
+           LIMIT 1''',
+        (gap_id, perspective),
+    )
+    return cur.fetchone() is not None
+
+
+def _create_prompt(cur, question, category, target_role, perspective, source_type,
+                   created_by, source_gap_id=None, target_user_key=None, priority=0):
+    cur.execute(
+        '''INSERT INTO knowledge_prompts
+           (question, category, target_role, target_user_key, perspective,
+            source_type, source_gap_id, created_by, priority)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
+        (
+            question.strip(), category, target_role, target_user_key, perspective,
+            source_type, source_gap_id, created_by, priority,
+        ),
+    )
+
+
+def sync_prompts_from_gaps(get_db_fn, created_by, include_policy=False):
+    """Turn open Q&A gaps into prompts — field team first, leadership optional."""
+    conn = get_db_fn()
+    if not conn:
+        return {'ok': False, 'error': 'Database unavailable'}
+    field_created = 0
+    policy_created = 0
+    skipped = 0
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT id, question, gap_topic, gap_summary
+               FROM ask_pps_questions WHERE gap_status = 'open' ORDER BY created_at DESC'''
+        )
+        gaps = cur.fetchall()
+        for gap in gaps:
+            topic = gap.get('gap_topic') or 'general'
+            category = _gap_topic_to_category(topic)
+            field_role = _gap_topic_to_field_role(topic)
+            if not _prompt_exists_for_gap(cur, gap['id'], 'field'):
+                _create_prompt(
+                    cur, gap['question'], category, field_role, 'field', 'gap',
+                    created_by, source_gap_id=gap['id'], priority=10,
+                )
+                field_created += 1
+            else:
+                skipped += 1
+            if include_policy and not _prompt_exists_for_gap(cur, gap['id'], 'policy'):
+                _create_prompt(
+                    cur, gap['question'], category, 'curator', 'policy', 'gap',
+                    created_by, source_gap_id=gap['id'], priority=5,
+                )
+                policy_created += 1
+            elif include_policy:
+                skipped += 1
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print(f'Ask PPS sync prompts error: {e}')
+        return {'ok': False, 'error': str(e)}
+    finally:
+        conn.close()
+    return {
+        'ok': True,
+        'field_created': field_created,
+        'policy_created': policy_created,
+        'skipped': skipped,
+    }
+
+
+def sync_thin_category_prompts(get_db_fn, created_by):
+    """Prompt the field when a knowledge category has few documented entries."""
+    conn = get_db_fn()
+    if not conn:
+        return {'ok': False, 'error': 'Database unavailable'}
+    created = 0
+    prompts_by_category = {
+        'production_process': (
+            'Walk us through a typical mobilization — who does what from PPM through '
+            'first day on site?',
+            'pm',
+        ),
+        'sales_process': (
+            'From first client contact to awarded proposal — what are the real steps '
+            'you follow today?',
+            'consultant',
+        ),
+        'company_operations': (
+            'What is one operations habit or handoff that keeps jobs from slipping?',
+            'any',
+        ),
+        'trades': (
+            'For your main trade focus — what do new PMs or consultants get wrong most often?',
+            'any',
+        ),
+    }
+    try:
+        cur = conn.cursor()
+        for category in CATEGORIES:
+            if category in THIN_CATEGORY_SKIP:
+                continue
+            cur.execute(
+                '''SELECT COUNT(*) FROM knowledge_entries
+                   WHERE category = %s AND status = 'active' ''',
+                (category,),
+            )
+            count = cur.fetchone()[0]
+            if count >= THIN_CATEGORY_THRESHOLD:
+                continue
+            if category not in prompts_by_category:
+                continue
+            question, target_role = prompts_by_category[category]
+            cur.execute(
+                '''SELECT id FROM knowledge_prompts
+                   WHERE source_type = 'thin_category' AND category = %s
+                     AND status = 'open' LIMIT 1''',
+                (category,),
+            )
+            if cur.fetchone():
+                continue
+            _create_prompt(
+                cur, question, category, target_role, 'field', 'thin_category',
+                created_by, priority=3,
+            )
+            created += 1
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print(f'Ask PPS thin category prompts error: {e}')
+        return {'ok': False, 'error': str(e)}
+    finally:
+        conn.close()
+    return {'ok': True, 'created': created}
+
+
+def get_prompts_for_user(get_db_fn, user_key, user_role, limit=3):
+    conn = get_db_fn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT p.*,
+                      (SELECT COUNT(*) FROM knowledge_prompt_answers a
+                       WHERE a.prompt_id = p.id) AS answer_count,
+                      EXISTS (
+                        SELECT 1 FROM knowledge_prompt_answers a2
+                        WHERE a2.prompt_id = p.id AND a2.user_key = %s
+                      ) AS answered_by_me
+               FROM knowledge_prompts p
+               WHERE p.status = 'open'
+               ORDER BY p.priority DESC, p.created_at ASC'''
+        , (user_key,))
+        rows = cur.fetchall()
+        cur.close()
+        matched = []
+        for row in rows:
+            if not _user_matches_prompt(user_key, user_role, row):
+                continue
+            if row.get('answered_by_me'):
+                continue
+            matched.append(row)
+            if len(matched) >= limit:
+                break
+        return matched
+    except Exception as e:
+        print(f'Ask PPS user prompts error: {e}')
+        return []
+    finally:
+        conn.close()
+
+
+def get_next_prompt_for_user(get_db_fn, user_key, user_role):
+    prompts = get_prompts_for_user(get_db_fn, user_key, user_role, limit=1)
+    return prompts[0] if prompts else None
+
+
+def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answer):
+    answer = (answer or '').strip()
+    if len(answer) < 10:
+        return {'success': False, 'error': 'Please share at least a sentence or two.'}, 400
+    if len(answer) > MAX_SUGGEST_LEN:
+        return {'success': False, 'error': 'Answer is too long.'}, 400
+
+    conn = get_db_fn()
+    if not conn:
+        return {'success': False, 'error': 'Database unavailable.'}, 500
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT * FROM knowledge_prompts WHERE id = %s AND status = %s',
+            (prompt_id, 'open'),
+        )
+        prompt = cur.fetchone()
+        if not prompt:
+            return {'success': False, 'error': 'Prompt not found or already closed.'}, 404
+        if not _user_matches_prompt(user_key, user_role, prompt):
+            return {'success': False, 'error': 'This prompt is not assigned to you.'}, 403
+
+        display = _display(users, user_key)
+        hub_role = users.get(user_key, {}).get('title', user_role)
+        title = prompt['question'][:120]
+        if len(prompt['question']) > 120:
+            title += '…'
+        content = _format_prompt_entry_content(
+            prompt['question'], answer, prompt['perspective'], display, hub_role,
+        )
+        _insert_entry(
+            cur, prompt['category'], title, content, 'prompt_response',
+            author_key=user_key, status='pending',
+        )
+        cur.execute('SELECT id FROM knowledge_entries ORDER BY id DESC LIMIT 1')
+        entry_id = cur.fetchone()['id']
+        cur.execute(
+            '''INSERT INTO knowledge_prompt_answers (prompt_id, user_key, answer, entry_id)
+               VALUES (%s, %s, %s, %s)
+               ON CONFLICT (prompt_id, user_key) DO UPDATE
+               SET answer = EXCLUDED.answer, entry_id = EXCLUDED.entry_id''',
+            (prompt_id, user_key, answer, entry_id),
+        )
+        perspective = prompt['perspective']
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        conn.rollback()
+        print(f'Ask PPS prompt answer error: {e}')
+        return {'success': False, 'error': 'Could not save your answer.'}, 500
+    finally:
+        conn.close()
+
+    perspective_note = (
+        'Field answers help us document how work really gets done.'
+        if perspective == 'field'
+        else 'Policy note saved — curators may still want field confirmation.'
+    )
+    return {
+        'success': True,
+        'message': f'Thanks — sent for curator review. {perspective_note}',
+    }, 200
+
+
+def get_open_prompts_admin(get_db_fn, users):
+    conn = get_db_fn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT p.*,
+                      (SELECT COUNT(*) FROM knowledge_prompt_answers a
+                       WHERE a.prompt_id = p.id) AS answer_count
+               FROM knowledge_prompts p
+               WHERE p.status = 'open'
+               ORDER BY p.priority DESC, p.created_at DESC
+               LIMIT 100'''
+        )
+        rows = cur.fetchall()
+        cur.close()
+        for r in rows:
+            r['created_by_display'] = _display(users, r.get('created_by'))
+        return rows
+    except Exception as e:
+        print(f'Ask PPS open prompts error: {e}')
+        return []
+    finally:
+        conn.close()
+
+
+def get_category_coverage(get_db_fn):
+    conn = get_db_fn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT category, COUNT(*) AS cnt
+               FROM knowledge_entries WHERE status = 'active'
+               GROUP BY category ORDER BY cnt ASC, category'''
+        )
+        rows = cur.fetchall()
+        cur.close()
+        return rows
+    except Exception as e:
+        print(f'Ask PPS category coverage error: {e}')
+        return []
+    finally:
+        conn.close()
+
+
 def _retrieve_entries(get_db_fn, question):
     conn = get_db_fn()
     if not conn:
@@ -789,6 +1164,8 @@ def get_admin_data(get_db_fn, users):
         open_gaps = cur.fetchone()['cnt']
         cur.execute("SELECT COUNT(*) AS cnt FROM knowledge_entries WHERE status = 'pending'")
         pending_cnt = cur.fetchone()['cnt']
+        cur.execute("SELECT COUNT(*) AS cnt FROM knowledge_prompts WHERE status = 'open'")
+        open_prompts = cur.fetchone()['cnt']
 
         cur.close()
         return {
@@ -799,6 +1176,9 @@ def get_admin_data(get_db_fn, users):
             'week_counts': week_counts,
             'open_gaps': open_gaps,
             'pending_cnt': pending_cnt,
+            'open_prompts': open_prompts,
+            'prompts': get_open_prompts_admin(get_db_fn, users),
+            'category_coverage': get_category_coverage(get_db_fn),
         }
     except Exception as e:
         print(f'Ask PPS admin data error: {e}')
@@ -821,10 +1201,17 @@ def get_digest_line(get_db_fn, start, end):
         questions = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM ask_pps_questions WHERE gap_status = 'open'")
         open_gaps = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM knowledge_prompts WHERE status = 'open'")
+        open_prompts = cur.fetchone()[0]
         cur.close()
-        if questions == 0 and open_gaps == 0:
+        if questions == 0 and open_gaps == 0 and open_prompts == 0:
             return None
-        return f'Ask PPS: {questions} question{"s" if questions != 1 else ""} yesterday, {open_gaps} open gap{"s" if open_gaps != 1 else ""}.'
+        parts = [f'{questions} question{"s" if questions != 1 else ""} yesterday']
+        if open_gaps:
+            parts.append(f'{open_gaps} open gap{"s" if open_gaps != 1 else ""}')
+        if open_prompts:
+            parts.append(f'{open_prompts} open prompt{"s" if open_prompts != 1 else ""}')
+        return 'Ask PPS: ' + ', '.join(parts) + '.'
     except Exception as e:
         print(f'Ask PPS digest error: {e}')
         return None
@@ -837,13 +1224,18 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_login
     def ask_pps_page():
         user_key = session['user_key']
+        user_role = session.get('role', '')
         q = (request.args.get('q') or '').strip()
         recent = get_recent_questions(get_db_fn, user_key)
+        prompts = get_prompts_for_user(get_db_fn, user_key, user_role, limit=5)
         return render_template(
             'ask_pps.html',
             initial_question=q,
             recent=recent,
             categories=CATEGORIES,
+            prompts=prompts,
+            prompt_target_roles=PROMPT_TARGET_ROLES,
+            prompt_perspectives=PROMPT_PERSPECTIVES,
         )
 
     @app.route('/api/ask-pps/ask', methods=['POST'])
@@ -889,6 +1281,95 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         finally:
             conn.close()
         return jsonify({'success': True})
+
+    @app.route('/api/ask-pps/prompt-answer', methods=['POST'])
+    @require_login
+    def api_ask_pps_prompt_answer():
+        user_key = session['user_key']
+        user_role = session.get('role', '')
+        data = request.get_json(silent=True) or {}
+        prompt_id = data.get('prompt_id')
+        answer = (data.get('answer') or '').strip()
+        try:
+            prompt_id = int(prompt_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': 'Invalid prompt.'}), 400
+        payload, status = submit_prompt_answer(
+            get_db_fn, users, user_key, user_role, prompt_id, answer,
+        )
+        return jsonify(payload), status
+
+    @app.route('/admin/ask-pps/prompts/sync-gaps', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_sync_gap_prompts():
+        include_policy = request.form.get('include_policy') == '1' or (
+            (request.get_json(silent=True) or {}).get('include_policy')
+        )
+        result = sync_prompts_from_gaps(
+            get_db_fn, session['user_key'], include_policy=bool(include_policy),
+        )
+        if not result.get('ok'):
+            return jsonify(result), 500
+        return jsonify(result)
+
+    @app.route('/admin/ask-pps/prompts/sync-thin', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_sync_thin_prompts():
+        result = sync_thin_category_prompts(get_db_fn, session['user_key'])
+        if not result.get('ok'):
+            return jsonify(result), 500
+        return jsonify(result)
+
+    @app.route('/admin/ask-pps/prompts/create', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_create_prompt():
+        category = (request.form.get('category') or 'general').strip()
+        question = (request.form.get('question') or '').strip()
+        target_role = (request.form.get('target_role') or 'any').strip()
+        perspective = (request.form.get('perspective') or 'field').strip()
+        if category not in CATEGORIES or target_role not in PROMPT_TARGET_ROLES:
+            return redirect(url_for('admin_ask_pps'))
+        if perspective not in PROMPT_PERSPECTIVES or len(question) < 8:
+            return redirect(url_for('admin_ask_pps'))
+        conn = get_db_fn()
+        if conn:
+            try:
+                cur = conn.cursor()
+                _create_prompt(
+                    cur, question, category, target_role, perspective, 'curator',
+                    session['user_key'],
+                )
+                conn.commit()
+                cur.close()
+            except Exception as e:
+                print(f'Ask PPS create prompt error: {e}')
+            finally:
+                conn.close()
+        return redirect(url_for('admin_ask_pps'))
+
+    @app.route('/admin/ask-pps/prompts/<int:prompt_id>/dismiss', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_dismiss_prompt(prompt_id):
+        conn = get_db_fn()
+        if conn:
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    '''UPDATE knowledge_prompts SET status = 'dismissed', updated_at = NOW()
+                       WHERE id = %s''',
+                    (prompt_id,),
+                )
+                conn.commit()
+                cur.close()
+            except Exception as e:
+                print(f'Ask PPS dismiss prompt error: {e}')
+            finally:
+                conn.close()
+        return redirect(url_for('admin_ask_pps'))
 
     @app.route('/admin/ask-pps')
     @require_login

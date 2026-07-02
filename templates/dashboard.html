@@ -135,12 +135,21 @@
     border: 1px solid var(--border); padding: 16px 18px; margin: 28px 0 20px;
   }
   .ask-pps-widget h2 { font-size: 13px; font-weight: 700; color: var(--dark-blue); margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.06em; }
-  .ask-pps-widget p { font-size: 13px; color: #888; margin: 0 0 12px; }
-  .ask-pps-row { display: flex; gap: 8px; }
-  .ask-pps-input { flex: 1; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; }
+  .ask-pps-widget p { font-size: 13px; color: #888; margin: 0 0 12px; line-height: 1.45; }
+  .ask-pps-prompt-q { font-size: 15px; font-weight: 600; color: var(--dark-blue); margin: 0 0 10px; line-height: 1.45; }
+  .ask-pps-prompt-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #666; background: var(--light-bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; margin-bottom: 8px; }
+  .ask-pps-answer { width: 100%; min-height: 88px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif; resize: vertical; margin-bottom: 10px; }
+  .ask-pps-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .ask-pps-input { flex: 1; min-width: 180px; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; }
   .ask-pps-btn { background: var(--dark-blue); color: white; border: none; border-radius: 8px; padding: 11px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-  .ask-pps-meta { margin-top: 10px; font-size: 12px; }
+  .ask-pps-btn:disabled { opacity: 0.6; cursor: wait; }
+  .ask-pps-meta { margin-top: 10px; font-size: 12px; color: #888; }
   .ask-pps-meta a { color: var(--blue); font-weight: 600; text-decoration: none; }
+  .ask-pps-msg { font-size: 13px; margin-top: 8px; min-height: 18px; }
+  .ask-pps-msg.ok { color: #2e7d32; }
+  .ask-pps-msg.err { color: #c00; }
+  .ask-pps-lookup { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .ask-pps-lookup summary { font-size: 13px; font-weight: 600; color: var(--blue); cursor: pointer; }
 
   /* Proposal history */
   .proposal-history-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden; }
@@ -423,14 +432,29 @@
     {% endif %}
   </div>
 
-  <div class="ask-pps-widget">
-    <h2>Ask PPS</h2>
-    <p>Documented company knowledge — voice, process, pricing baselines, who owns what.</p>
-    <form class="ask-pps-row" action="/ask-pps" method="get">
-      <input type="text" name="q" class="ask-pps-input" placeholder="Ask a question…" maxlength="500" autocomplete="off">
-      <button type="submit" class="ask-pps-btn">Ask</button>
-    </form>
+  <div class="ask-pps-widget" id="askPpsWidget">
+    <h2>Help document PPS</h2>
+    {% if ask_pps_prompt %}
+    <p>Ask PPS is learning how we operate. Share how you actually handle this — field answers matter most.</p>
+    <span class="ask-pps-prompt-tag">{{ 'Field team' if ask_pps_prompt.perspective == 'field' else 'Leadership intent' }}</span>
+    <div class="ask-pps-prompt-q">{{ ask_pps_prompt.question }}</div>
+    <textarea class="ask-pps-answer" id="dashPromptAnswer" placeholder="How does this really work on your jobs?"></textarea>
+    <div class="ask-pps-row">
+      <button type="button" class="ask-pps-btn" id="dashPromptSubmit" data-prompt-id="{{ ask_pps_prompt.id }}">Submit answer</button>
+      <a href="/ask-pps" class="ask-pps-meta" style="margin:0;">More prompts →</a>
+    </div>
+    <div class="ask-pps-msg" id="dashPromptMsg"></div>
+    {% else %}
+    <p>No prompts for you right now — thanks for helping build the knowledge base.</p>
     <div class="ask-pps-meta"><a href="/ask-pps">Open Ask PPS →</a></div>
+    {% endif %}
+    <details class="ask-pps-lookup">
+      <summary>Look something up instead</summary>
+      <form class="ask-pps-row" action="/ask-pps" method="get" style="margin-top:10px;">
+        <input type="text" name="q" class="ask-pps-input" placeholder="Search documented knowledge…" maxlength="500" autocomplete="off">
+        <button type="submit" class="ask-pps-btn">Ask</button>
+      </form>
+    </details>
   </div>
 
   <div class="pps-section-head">Feedback &amp; Voice</div>
@@ -757,6 +781,43 @@ const recentProposals = [
     }
   }
   function closeTPS() { document.getElementById('tpsModal').style.display='none'; }
+
+  (function() {
+    const btn = document.getElementById('dashPromptSubmit');
+    if (!btn) return;
+    btn.addEventListener('click', async function() {
+      const answer = (document.getElementById('dashPromptAnswer')?.value || '').trim();
+      const msgEl = document.getElementById('dashPromptMsg');
+      if (answer.length < 10) {
+        msgEl.textContent = 'Please share at least a sentence or two.';
+        msgEl.className = 'ask-pps-msg err';
+        return;
+      }
+      btn.disabled = true;
+      msgEl.textContent = 'Saving…';
+      msgEl.className = 'ask-pps-msg';
+      try {
+        const res = await fetch('/api/ask-pps/prompt-answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt_id: btn.dataset.promptId, answer }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          msgEl.textContent = data.error || 'Could not save.';
+          msgEl.className = 'ask-pps-msg err';
+          btn.disabled = false;
+          return;
+        }
+        msgEl.textContent = data.message || 'Thanks — sent for review.';
+        msgEl.className = 'ask-pps-msg ok';
+      } catch (e) {
+        msgEl.textContent = 'Network error. Try again.';
+        msgEl.className = 'ask-pps-msg err';
+        btn.disabled = false;
+      }
+    });
+  })();
 
   async function submitFeedback() {
     const msg = document.getElementById('feedbackText').value.trim();
