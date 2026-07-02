@@ -269,10 +269,11 @@ def _max_proposal_seq_from_log(cur, consultant_key, prefix):
     return max_seq
 
 
-def allocate_proposal_number(consultant_key, year=None):
+def peek_next_proposal_number(consultant_key, year=None):
     """
-    Return next hub proposal number for a consultant: INITIALS + 2-digit year + 4-digit seq.
-    Increments atomically per consultant per calendar year.
+    Suggest the next proposal number (INITIALS + 2-digit year + 4-digit seq) without
+    reserving it. The sequence counter advances only on save via
+    sync_proposal_number_sequence(), so edits before generate are respected.
     """
     key = _normalize_consultant_key(consultant_key)
     if key not in PROPOSAL_NUMBER_INITIALS and key not in USERS:
@@ -305,10 +306,8 @@ def allocate_proposal_number(consultant_key, year=None):
             )
         cur.execute(
             '''
-            UPDATE proposal_number_sequence
-            SET last_seq = last_seq + 1
+            SELECT last_seq FROM proposal_number_sequence
             WHERE consultant_key = %s AND seq_year = %s
-            RETURNING last_seq
             ''',
             (key, yr),
         )
@@ -317,17 +316,16 @@ def allocate_proposal_number(consultant_key, year=None):
         cur.close()
         conn.close()
         if not row:
-            return None, 'Could not allocate proposal number'
-        seq = row[0]
-        number = f"{prefix}{seq:04d}"
+            return None, 'Could not read proposal number sequence'
+        number = f"{prefix}{row[0] + 1:04d}"
         return number, None
     except Exception as e:
-        print(f"Proposal number allocate error: {e}")
-        return None, 'Could not allocate proposal number'
+        print(f"Proposal number peek error: {e}")
+        return None, 'Could not read next proposal number'
 
 
 def sync_proposal_number_sequence(consultant_key, proposal_number, year=None):
-    """If a saved proposal uses a higher sequence than our counter, advance the counter."""
+    """Advance the per-consultant sequence to the saved proposal number (never backward)."""
     import re
     key = _normalize_consultant_key(consultant_key)
     raw = re.sub(r'[^A-Z0-9]', '', (proposal_number or '').upper())
@@ -2924,13 +2922,13 @@ def _user_can_access_proposal_log(user_key, role, row):
 
 @app.route('/api/proposals/next-number')
 def proposal_next_number():
-    """Allocate the next proposal number for a consultant (INITIALS + YY + NNNN)."""
+    """Suggest the next proposal number for a consultant (INITIALS + YY + NNNN); does not reserve."""
     if not _internal_api_ok():
         return jsonify({'error': 'Unauthorized'}), 401
     consultant_key = _normalize_consultant_key(request.args.get('consultant_key', ''))
     if not consultant_key:
         return jsonify({'error': 'consultant_key required'}), 400
-    number, err = allocate_proposal_number(consultant_key)
+    number, err = peek_next_proposal_number(consultant_key)
     if err:
         return jsonify({'error': err}), 400
     return jsonify({
