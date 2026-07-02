@@ -40,6 +40,22 @@ def _post_digest(url, api_key):
         return resp.status, body
 
 
+def _post_digest_with_retries(url, api_key, attempts=3):
+    last_err = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _post_digest(url, api_key)
+        except (urllib.error.HTTPError, TimeoutError, OSError) as e:
+            last_err = e
+            if attempt < attempts:
+                wait = 5 * attempt
+                print(f'Attempt {attempt} failed ({e}); retrying in {wait}s...')
+                time.sleep(wait)
+            else:
+                raise last_err
+    raise last_err
+
+
 def main():
     api_key = (os.environ.get('INTERNAL_API_KEY') or '').strip()
     if not api_key:
@@ -54,10 +70,10 @@ def main():
         url += '?force=1'
 
     _wake_hub(base)
-    time.sleep(2)
+    time.sleep(3)
 
     try:
-        status, body = _post_digest(url, api_key)
+        status, body = _post_digest_with_retries(url, api_key)
         try:
             data = json.loads(body)
         except json.JSONDecodeError:

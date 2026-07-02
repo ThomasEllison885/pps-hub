@@ -682,6 +682,69 @@ body {
 }
 .pps-empty-icon { font-size: 32px; margin-bottom: 10px; opacity: 0.4; }
 
+/* ── PWA INSTALL BANNER ──────────────────────────────────────────── */
+.pps-install-banner {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 250;
+  animation: pps-install-in 0.28s ease;
+}
+@keyframes pps-install-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.pps-install-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--white);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 14px;
+}
+.pps-install-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pps-install-text strong {
+  font-size: 14px;
+  color: var(--dark-blue);
+}
+.pps-install-text span {
+  font-size: 12px;
+  color: var(--gray-mid);
+  line-height: 1.4;
+}
+.pps-install-action {
+  flex-shrink: 0;
+  background: var(--dark-blue);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.pps-install-action:hover { background: var(--blue); }
+.pps-install-dismiss {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: var(--gray-light);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
 /* ── RESPONSIVE ──────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   :root { --header-h: 52px; }

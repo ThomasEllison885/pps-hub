@@ -35,8 +35,8 @@ def eastern_now():
 
 
 def should_run_scheduled():
-    """True during midnight–1am US/Eastern (hourly UTC cron; 1am allows one retry)."""
-    return eastern_now().hour in (0, 1)
+    """True during midnight–3am US/Eastern (UTC cron retries; 3am is last attempt)."""
+    return eastern_now().hour in (0, 1, 2, 3)
 
 
 def report_date_for_run(force=False, date_override=None):
@@ -615,7 +615,10 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
     Returns result dict.
     """
     def _finish(result):
-        _record_last_run(get_db, result)
+        # Hourly cron calls outside the send window — do not overwrite last_run
+        # (otherwise /health hides whether midnight delivery succeeded).
+        if result.get('reason') != 'not_midnight_eastern':
+            _record_last_run(get_db, result)
         return result
 
     if not _digest_enabled():

@@ -2282,6 +2282,53 @@ def _run_system_health_checks():
         except Exception as e:
             add(label, False, error=str(e))
 
+    try:
+        from daily_digest import (
+            digest_recipients,
+            _load_last_run,
+            _load_sent_date,
+            report_date_for_run,
+        )
+        recips = digest_recipients()
+        add(
+            'daily_digest_recipients',
+            bool(recips),
+            detail=', '.join(recips) if recips else '',
+            error='' if recips else 'Set DAILY_DIGEST_EMAIL or HUB_NOTIFY_EMAIL',
+        )
+        enabled = os.environ.get('DAILY_DIGEST_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes')
+        add('daily_digest_enabled', enabled)
+        if DATABASE_URL:
+            last_run = _load_last_run(get_db)
+            last_sent = _load_sent_date(get_db)
+            expected = report_date_for_run().isoformat()
+            if last_run:
+                lr_detail = []
+                if last_run.get('skipped'):
+                    lr_detail.append(f"skipped: {last_run.get('reason', '?')}")
+                elif last_run.get('sent'):
+                    lr_detail.append(f"sent {last_run.get('report_date', '?')} ({last_run.get('item_count', 0)} items)")
+                elif last_run.get('email_failed'):
+                    lr_detail.append('email failed')
+                if last_run.get('at'):
+                    lr_detail.append(f"at {last_run['at']}")
+                add(
+                    'daily_digest_last_run',
+                    bool(last_run.get('sent')) or not last_run.get('email_failed'),
+                    detail=' · '.join(lr_detail) if lr_detail else 'no runs recorded',
+                    error=last_run.get('warning') or '',
+                )
+            else:
+                add('daily_digest_last_run', False, error='No digest run logged yet')
+            add(
+                'daily_digest_last_sent',
+                last_sent == expected,
+                detail=f'last sent for {last_sent or "never"}; expect {expected}',
+                error='' if last_sent == expected else 'Yesterday digest may not have been delivered',
+            )
+    except Exception as e:
+        add('daily_digest_status', False, error=str(e))
+
     ok = all(c['ok'] or c.get('transient') for c in checks)
     return {'ok': ok, 'checks': checks}
 
@@ -2302,11 +2349,13 @@ def health():
             pass
     digest_recips = []
     digest_last = None
+    digest_last_sent = None
     try:
-        from daily_digest import digest_recipients, _load_last_run
+        from daily_digest import digest_recipients, _load_last_run, _load_sent_date
         digest_recips = digest_recipients()
         if db_ok:
             digest_last = _load_last_run(get_db)
+            digest_last_sent = _load_sent_date(get_db)
     except Exception:
         pass
     return jsonify({
@@ -2327,6 +2376,7 @@ def health():
         'daily_digest_enabled': os.environ.get('DAILY_DIGEST_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'),
         'daily_digest_recipients': digest_recips,
         'daily_digest_last_run': digest_last,
+        'daily_digest_last_sent_date': digest_last_sent,
         'hub_notify_email': _hub_notify_recipients(),
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
         'claude_configured': bool(CLAUDE_API_KEY),
@@ -2371,7 +2421,7 @@ def cron_daily_digest():
             get_db,
             USERS,
             _format_template_label,
-            _send_smtp_email,
+            _send_digest_email,
             force=force,
             date_override=date_override,
         )
@@ -3802,6 +3852,27 @@ def admin_system_health():
         })
 
 
+@app.route('/admin/daily-digest-test', methods=['POST'])
+@require_admin
+def admin_daily_digest_test():
+    """Send yesterday's digest now (admin smoke test)."""
+    from daily_digest import run_daily_digest
+
+    try:
+        result = run_daily_digest(
+            get_db,
+            USERS,
+            _format_template_label,
+            _send_digest_email,
+            force=True,
+        )
+        status = 200 if result.get('ok') else 500
+        return jsonify(result), status
+    except Exception as e:
+        print(f'Admin digest test error: {e}')
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
 @app.route('/admin/search')
 @require_admin
 def admin_search():
@@ -3979,6 +4050,28 @@ def _send_smtp_email(subject, text_body, html_body=None, recipients=None):
     except Exception as e:
         print(f"SMTP email failed: {e}")
         return False
+
+
+def _send_digest_email(subject, text_body, html_body, recipients):
+    """Nightly digest — SMTP first, Resend fallback (password reset uses Resend)."""
+    if not recipients:
+        return False
+    if _send_smtp_email(subject, text_body, html_body, recipients):
+        print(f'Daily digest sent via SMTP to {", ".join(recipients)}')
+        return True
+    if not os.environ.get('RESEND_API_KEY', '').strip():
+        print('Daily digest: SMTP failed and Resend is not configured')
+        return False
+    print(f'Daily digest: SMTP failed, trying Resend for {", ".join(recipients)}')
+    ok_all = True
+    for addr in recipients:
+        ok, detail = _send_resend_email(addr, subject, html_body or '', text_body)
+        if ok:
+            print(f'Daily digest sent via Resend to {addr} ({detail})')
+        else:
+            print(f'Daily digest Resend failed for {addr}: {detail}')
+            ok_all = False
+    return ok_all
 
 
 def _send_hub_notify_email(subject, text_body, html_body=None):

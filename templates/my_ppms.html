@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<script src="/static/pps-tools.js"></script>
 <title>PPS Hub · My PPMs</title>
 <style>
   :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
@@ -162,20 +164,9 @@ function closeDetail() {
   document.getElementById('detailModal').classList.remove('active');
 }
 
-async function openTool(baseUrl) {
-  try {
-    const resp = await fetch('/generate-code', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
-    if (!resp.ok) throw new Error('SSO failed');
-    const data = await resp.json();
-    const code = data.code || data.token;
-    if (!code) throw new Error('No code');
-    window.open(`${baseUrl}?code=${encodeURIComponent(code)}`, '_blank');
-  } catch (e) {
-    alert('Could not open PPM Generator. Try again from the dashboard.');
-  }
+function openGenerator() {
+  openTool('{{ proposal_url }}/ppm', null, 'Could not open PPM Generator. Try again from the dashboard.');
 }
-
-function openGenerator() { openTool('{{ proposal_url }}/ppm'); }
 
 const searchEl = document.getElementById('ppmSearch');
 if (searchEl) {

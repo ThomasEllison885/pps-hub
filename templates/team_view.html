@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<script src="/static/pps-tools.js"></script>
 <title>PPS Hub · Team View</title>
 <style>
   :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
@@ -445,21 +447,6 @@ function showMeta(rows, issue, outcome, notes, opts) {
 function closeMeta() {
   document.getElementById('metaModal').classList.remove('active');
   resetMetaExtras();
-}
-
-async function openTool(baseUrl, loadId) {
-  try {
-    const resp = await fetch('/generate-code', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } });
-    if (!resp.ok) throw new Error('SSO failed');
-    const data = await resp.json();
-    const code = data.code || data.token;
-    if (!code) throw new Error('No code');
-    let url = `${baseUrl}?code=${encodeURIComponent(code)}`;
-    if (loadId) url += `&load=${loadId}`;
-    window.open(url, '_blank');
-  } catch (e) {
-    alert('Could not open Proposal Generator.');
-  }
 }
 
 async function regenerateFromTeamView() {

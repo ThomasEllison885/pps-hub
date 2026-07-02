@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<script src="/static/pps-tools.js"></script>
 <title>PPS Hub · Dashboard</title>
 <style>
   :root {
@@ -138,10 +140,13 @@
   .prop-name { font-weight: 600; color: var(--dark-blue); }
 
   @media (max-width: 700px) {
-    
     .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .activity-grid { grid-template-columns: 1fr; }
     .main { padding: 24px 14px 40px; }
+  }
+  @media (max-width: 480px) {
+    .tools-grid { grid-template-columns: 1fr; }
+    .lane-links { flex-direction: column; align-items: flex-end; }
   }
 </style>
 </head>
@@ -728,31 +733,6 @@ const recentProposals = [
   }
   function closeTPS() { document.getElementById('tpsModal').style.display='none'; }
 
-  async function openTool(baseUrl, loadProposalId) {
-    try {
-      const resp = await fetch('/generate-code', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        const code = data.code || data.token;
-        if (code) {
-          let url = `${baseUrl}?code=${encodeURIComponent(code)}`;
-          if (loadProposalId) url += `&load=${loadProposalId}`;
-          window.open(url, '_blank');
-          return;
-        }
-      }
-      const err = await resp.json().catch(() => ({}));
-      alert(err.error || 'Could not open tool. Please try again or contact Thomas.');
-    } catch (e) {
-      console.log('SSO code fetch error:', e);
-      alert('Could not open tool. Check your connection and try again.');
-    }
-  }
-
   async function submitFeedback() {
     const msg = document.getElementById('feedbackText').value.trim();
     if (!msg) return;
@@ -817,5 +797,6 @@ const recentProposals = [
   </div>
 </div>
 
+<script src="/static/pps-pwa.js"></script>
 </body>
 </html>

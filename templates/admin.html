@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
 <title>PPS Hub · Admin</title>
 <style>
   :root { --blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px; }
@@ -244,6 +245,14 @@
     <p style="font-size:13px;color:#888;margin-bottom:4px;">Cross-service env alignment — loads in the background so this page opens immediately.</p>
     <div class="health-grid" id="healthGrid">
       <div class="health-item" style="grid-column:1/-1;color:#888;font-size:13px;">Checking services…</div>
+    </div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1.5px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
+      <div style="flex:1;min-width:200px;">
+        <p style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Midnight activity digest</p>
+        <p style="font-size:13px;color:#888;line-height:1.5;">Sends yesterday’s team activity to <code>DAILY_DIGEST_EMAIL</code>. Use this if you did not receive the nightly email.</p>
+      </div>
+      <button type="button" class="reset-btn" id="digestTestBtn" onclick="sendDigestTest()">Send test digest now</button>
+      <span id="digestTestMsg" style="font-size:13px;color:#666;"></span>
     </div>
   </div>
 
@@ -498,6 +507,34 @@
       grid.innerHTML = '<div class="health-item bad" style="grid-column:1/-1;"><span class="health-dot"></span><span>Could not load system health</span></div>';
     }
   }
+  async function sendDigestTest() {
+    const btn = document.getElementById('digestTestBtn');
+    const msg = document.getElementById('digestTestMsg');
+    if (!btn || !msg) return;
+    btn.disabled = true;
+    msg.textContent = 'Sending…';
+    msg.style.color = '#666';
+    try {
+      const resp = await fetch('/admin/daily-digest-test', { method: 'POST', credentials: 'same-origin' });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data.sent) {
+        msg.textContent = `Sent (${data.item_count || 0} items for ${data.report_date || 'yesterday'}). Check your inbox.`;
+        msg.style.color = '#1E8449';
+        loadSystemHealth();
+      } else if (data.skipped) {
+        msg.textContent = 'Skipped: ' + (data.reason || 'unknown');
+        msg.style.color = '#E6A817';
+      } else {
+        msg.textContent = data.warning || data.error || 'Send failed — see System Health above.';
+        msg.style.color = '#C00000';
+      }
+    } catch (e) {
+      msg.textContent = 'Request failed. Try again.';
+      msg.style.color = '#C00000';
+    }
+    btn.disabled = false;
+  }
+
   loadSystemHealth();
 
   let activeUserKey = null;
