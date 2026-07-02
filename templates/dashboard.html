@@ -132,7 +132,7 @@
 
   .ask-pps-widget {
     background: white; border-radius: var(--radius); box-shadow: var(--shadow);
-    border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 20px;
+    border: 1px solid var(--border); padding: 16px 18px; margin: 28px 0 20px;
   }
   .ask-pps-widget h2 { font-size: 13px; font-weight: 700; color: var(--dark-blue); margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.06em; }
   .ask-pps-widget p { font-size: 13px; color: #888; margin: 0 0 12px; }
@@ -200,16 +200,6 @@
   </div>
   {% endfor %}
   {% endif %}
-
-  <div class="ask-pps-widget">
-    <h2>Ask PPS</h2>
-    <p>Documented company knowledge — voice, process, pricing baselines, who owns what.</p>
-    <form class="ask-pps-row" action="/ask-pps" method="get">
-      <input type="text" name="q" class="ask-pps-input" placeholder="Ask a question…" maxlength="500" autocomplete="off">
-      <button type="submit" class="ask-pps-btn">Ask</button>
-    </form>
-    <div class="ask-pps-meta"><a href="/ask-pps">Open Ask PPS →</a></div>
-  </div>
 
   <div class="dashboard-lanes">
     <details class="dashboard-lane lane-sales" {% if sales_lane_open %}open{% endif %}>
@@ -431,6 +421,16 @@
     {% else %}
     <div class="empty-state">Nothing yet — open a tool above to get started.</div>
     {% endif %}
+  </div>
+
+  <div class="ask-pps-widget">
+    <h2>Ask PPS</h2>
+    <p>Documented company knowledge — voice, process, pricing baselines, who owns what.</p>
+    <form class="ask-pps-row" action="/ask-pps" method="get">
+      <input type="text" name="q" class="ask-pps-input" placeholder="Ask a question…" maxlength="500" autocomplete="off">
+      <button type="submit" class="ask-pps-btn">Ask</button>
+    </form>
+    <div class="ask-pps-meta"><a href="/ask-pps">Open Ask PPS →</a></div>
   </div>
 
   <div class="pps-section-head">Feedback &amp; Voice</div>
