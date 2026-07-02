@@ -748,10 +748,10 @@ def group_psc_gaps_for_display(gaps):
             by_module[title] = {
                 'module_title': title,
                 'field_role': gap.get('field_role'),
-                'items': [],
+                'topics': [],
             }
             order.append(title)
-        by_module[title]['items'].append({
+        by_module[title]['topics'].append({
             'topic': gap.get('topic', ''),
             'field_role': gap.get('field_role'),
             'source_ref': gap.get('source_ref'),
@@ -1547,13 +1547,16 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         psc_gap_modules = []
         curator = is_curator(user_key)
         if curator:
-            psc_gaps = discover_psc_training_gaps(get_db_fn)
-            audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
-            psc_gap_modules = group_psc_gaps_for_display(psc_gaps)
-            if not prompts and not count_open_assigned_prompts(get_db_fn, user_key):
-                if psc_gaps or audit_gaps:
-                    sync_identified_gap_prompts(get_db_fn, user_key, assign_to=user_key)
-                    prompts = get_prompts_for_user(get_db_fn, user_key, user_role)
+            try:
+                psc_gaps = discover_psc_training_gaps(get_db_fn)
+                audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
+                psc_gap_modules = group_psc_gaps_for_display(psc_gaps)
+                if not prompts and not count_open_assigned_prompts(get_db_fn, user_key):
+                    if psc_gaps or audit_gaps:
+                        sync_identified_gap_prompts(get_db_fn, user_key, assign_to=user_key)
+                        prompts = get_prompts_for_user(get_db_fn, user_key, user_role)
+            except Exception as e:
+                print(f'Ask PPS page curator setup error: {e}')
         return render_template(
             'ask_pps.html',
             initial_question=q,

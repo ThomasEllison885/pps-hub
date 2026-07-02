@@ -81,9 +81,9 @@
     </p>
     {% for mod in psc_gap_modules %}
     <details class="gap-module" open>
-      <summary>{{ mod.module_title }} <span class="hint">· {{ mod.items|length }} gaps · suggest {{ mod.field_role or 'any' }}</span></summary>
+      <summary>{{ mod.module_title }} <span class="hint">· {{ mod.topics|length }} gaps · suggest {{ mod.field_role or 'any' }}</span></summary>
       <ul>
-        {% for item in mod.items %}
+        {% for item in mod.topics %}
         <li>{{ item.topic }}</li>
         {% endfor %}
       </ul>
