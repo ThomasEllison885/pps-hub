@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import base64
 from io import BytesIO
@@ -210,7 +211,8 @@ USERS = {
     },
 }
 
-# Proposal numbers: {INITIALS}{YY}{NNNN} — e.g. TE260001 (Thomas Ellison, 2026, #1)
+# Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
+PROPOSAL_NUMBER_SEQ_DIGITS = 3
 PROPOSAL_NUMBER_INITIALS = {
     'thomas_ellison': 'TE',
     'tony_cumella': 'TC',
@@ -248,8 +250,26 @@ def _proposal_initials(consultant_key):
     return 'PP'
 
 
+def _proposal_seq_suffix_len_ok(suffix_len):
+    """Current format uses 3 digits; legacy hub entries may use 4."""
+    return suffix_len in (PROPOSAL_NUMBER_SEQ_DIGITS, PROPOSAL_NUMBER_SEQ_DIGITS + 1)
+
+
+def _parse_proposal_seq(raw, prefix):
+    if not raw.startswith(prefix):
+        return None
+    suffix = raw[len(prefix):]
+    if not suffix.isdigit() or not _proposal_seq_suffix_len_ok(len(suffix)):
+        return None
+    return int(suffix)
+
+
+def _format_proposal_number(prefix, seq):
+    return f"{prefix}{seq:0{PROPOSAL_NUMBER_SEQ_DIGITS}d}"
+
+
 def _max_proposal_seq_from_log(cur, consultant_key, prefix):
-    """Highest 4-digit suffix already used in proposal_log for this consultant/year."""
+    """Highest sequence suffix already used in proposal_log for this consultant/year."""
     cur.execute(
         '''
         SELECT proposal_number FROM proposal_log
@@ -260,18 +280,16 @@ def _max_proposal_seq_from_log(cur, consultant_key, prefix):
     )
     max_seq = 0
     for row in cur.fetchall():
-        num = (row[0] or '').strip().upper()
-        if len(num) == len(prefix) + 4 and num.startswith(prefix):
-            try:
-                max_seq = max(max_seq, int(num[len(prefix):]))
-            except ValueError:
-                pass
+        num = re.sub(r'[^A-Z0-9]', '', (row[0] or '').strip().upper())
+        seq = _parse_proposal_seq(num, prefix)
+        if seq is not None:
+            max_seq = max(max_seq, seq)
     return max_seq
 
 
 def peek_next_proposal_number(consultant_key, year=None):
     """
-    Suggest the next proposal number (INITIALS + 2-digit year + 4-digit seq) without
+    Suggest the next proposal number (INITIALS + 2-digit year + 3-digit seq) without
     reserving it. The sequence counter advances only on save via
     sync_proposal_number_sequence(), so edits before generate are respected.
     """
@@ -317,7 +335,7 @@ def peek_next_proposal_number(consultant_key, year=None):
         conn.close()
         if not row:
             return None, 'Could not read proposal number sequence'
-        number = f"{prefix}{row[0] + 1:04d}"
+        number = _format_proposal_number(prefix, row[0] + 1)
         return number, None
     except Exception as e:
         print(f"Proposal number peek error: {e}")
@@ -326,20 +344,16 @@ def peek_next_proposal_number(consultant_key, year=None):
 
 def sync_proposal_number_sequence(consultant_key, proposal_number, year=None):
     """Advance the per-consultant sequence to the saved proposal number (never backward)."""
-    import re
     key = _normalize_consultant_key(consultant_key)
     raw = re.sub(r'[^A-Z0-9]', '', (proposal_number or '').upper())
-    if not raw or len(raw) < 5:
+    if not raw:
         return
     yr = year or datetime.now().year
     yy = yr % 100
     expected_initials = _proposal_initials(key)
     prefix = f"{expected_initials}{yy:02d}"
-    if not raw.startswith(prefix) or len(raw) != len(prefix) + 4:
-        return
-    try:
-        seq = int(raw[len(prefix):])
-    except ValueError:
+    seq = _parse_proposal_seq(raw, prefix)
+    if seq is None:
         return
     try:
         conn = get_db()
@@ -2922,7 +2936,7 @@ def _user_can_access_proposal_log(user_key, role, row):
 
 @app.route('/api/proposals/next-number')
 def proposal_next_number():
-    """Suggest the next proposal number for a consultant (INITIALS + YY + NNNN); does not reserve."""
+    """Suggest the next proposal number for a consultant (INITIALS + YY + XXX); does not reserve."""
     if not _internal_api_ok():
         return jsonify({'error': 'Unauthorized'}), 401
     consultant_key = _normalize_consultant_key(request.args.get('consultant_key', ''))
@@ -2935,7 +2949,7 @@ def proposal_next_number():
         'success': True,
         'proposal_number': number,
         'consultant_key': consultant_key,
-        'format': 'INITIALS + 2-digit year + 4-digit sequence (e.g. TE260001)',
+        'format': 'INITIALS + 2-digit year + 3-digit sequence (e.g. TE26001)',
     })
 
 
