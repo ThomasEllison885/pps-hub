@@ -2,29 +2,25 @@
 PPS Site Visit Report — python-docx builder
 Called from hub app.py with a data dict, returns BytesIO
 """
-import io, os
+import io
 from datetime import datetime
 from docx import Document
-from docx.shared import Pt, Inches, RGBColor
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 from docx.enum.table import WD_ROW_HEIGHT_RULE
 
-DARK_BLUE = RGBColor(0x00, 0x4C, 0x8C)
-BLUE      = RGBColor(0x00, 0x96, 0xD6)
-LIGHT_BG  = RGBColor(0xEB, 0xF6, 0xFC)
-GRAY      = RGBColor(0x44, 0x44, 0x44)
-MID_GRAY  = RGBColor(0x88, 0x88, 0x88)
-WHITE     = RGBColor(0xFF, 0xFF, 0xFF)
-BORDER_C  = 'D0DCE8'
+from pps_brand import (
+    DARK_BLUE, BLUE, LIGHT_BG, GRAY, MID_GRAY, WHITE,
+    DARK_BLUE_HEX, BLUE_HEX, BORDER_HEX,
+    LOGO_PATH, TAGLINE_PATH,
+)
 
-STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
-LOGO_PATH    = os.path.join(STATIC_DIR, 'logo.png')
-TAGLINE_PATH = os.path.join(STATIC_DIR, 'PPS_statement1_MED.jpg')
+BORDER_C = BORDER_HEX
 
 
-def _border(para, side='bottom', color='004C8C', size=8, space=2):
+def _border(para, side='bottom', color=DARK_BLUE_HEX, size=8, space=2):
     pPr = para._p.get_or_add_pPr()
     pBdr = OxmlElement('w:pBdr')
     b = OxmlElement(f'w:{side}')

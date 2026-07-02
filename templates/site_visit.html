@@ -94,6 +94,17 @@
   .toast.success { background:var(--green); }
   .toast.error { background:var(--red); }
 
+  .email-overlay { display:none; position:fixed; inset:0; background:rgba(0,40,80,0.45); z-index:300; align-items:center; justify-content:center; padding:20px; }
+  .email-overlay.open { display:flex; }
+  .email-panel-sv { background:white; border-radius:var(--radius); max-width:400px; width:100%; padding:20px; box-shadow:0 8px 32px rgba(0,0,0,0.15); }
+  .email-panel-sv h3 { font-size:16px; color:var(--dark-blue); margin-bottom:12px; }
+  .email-warning-sv { background:#FFFBF0; border:1px solid #FFE082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#5c4200; line-height:1.5; }
+  .email-panel-sv input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:15px; margin-bottom:12px; }
+  .email-panel-actions { display:flex; gap:8px; justify-content:flex-end; }
+  .email-panel-actions button { padding:10px 16px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; border:none; font-family:'DM Sans',sans-serif; }
+  .email-cancel { background:white; border:1.5px solid var(--border)!important; color:#666; }
+  .email-send { background:var(--dark-blue); color:white; }
+
   /* FOOTER */
   .hub-footer { text-align:center; padding:20px 0 8px; }
   .hub-footer img { height:18px; opacity:0.45; }
@@ -296,7 +307,22 @@
 
 <div class="toast" id="toast"></div>
 
+<div class="email-overlay" id="emailOverlay">
+  <div class="email-panel-sv">
+    <h3>Email report</h3>
+    <div class="email-warning-sv">
+      <strong>Internal use only.</strong> Send to yourself (great on mobile) or a coworker — review before any client delivery.
+    </div>
+    <input type="email" id="svEmailTo" value="{{ user_email }}" placeholder="email@company.com">
+    <div class="email-panel-actions">
+      <button type="button" class="email-cancel" onclick="cancelEmail()">Cancel</button>
+      <button type="button" class="email-send" onclick="confirmEmail()">Send</button>
+    </div>
+  </div>
+</div>
+
 <script>
+let _pendingEmailData = null;
 // ── CHECKLIST ──────────────────────────────────────────────────────────
 const CHECKLIST_ITEMS = [
   'Scope being followed as approved',
@@ -397,6 +423,41 @@ function blobToBase64(blob) {
   });
 }
 
+function cancelEmail() {
+  document.getElementById('emailOverlay').classList.remove('open');
+  _pendingEmailData = null;
+}
+
+async function confirmEmail() {
+  const emailAddr = document.getElementById('svEmailTo').value.trim();
+  if (!emailAddr) { showToast('Enter an email address', 'error'); return; }
+  const data = _pendingEmailData;
+  if (!data) return;
+  document.getElementById('emailOverlay').classList.remove('open');
+  showToast('Generating & sending…');
+  try {
+    const dlData = {...data, action:'download'};
+    const dlResp = await fetch('/site-visit/generate', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(dlData), credentials:'same-origin'
+    });
+    if (!dlResp.ok) { showToast('Failed to generate', 'error'); return; }
+    const blob = await dlResp.blob();
+    const b64 = await blobToBase64(blob);
+    const fd = new FormData();
+    fd.append('to_email', emailAddr);
+    fd.append('doc_type', 'site_visit');
+    fd.append('doc_base64', b64.split(',')[1]);
+    fd.append('property_name', data.property_name || '');
+    fd.append('filename', `PPS_Site_Visit_${(data.property_name||'').replace(/\s+/g,'_')}.docx`);
+    const emailResp = await fetch('/email-doc', {method:'POST', body:fd, credentials:'same-origin'});
+    const result = await emailResp.json();
+    if (result.success) showToast(`Sent to ${result.sent_to} ✓`, 'success');
+    else showToast('Email failed: ' + (result.error || 'Try again'), 'error');
+  } catch(e) { showToast('Error sending email', 'error'); }
+  _pendingEmailData = null;
+}
+
 async function submitSV(action) {
   const data = {
     action,
@@ -470,29 +531,8 @@ async function submitSV(action) {
   }
 
   if (action === 'email') {
-    const emailAddr = prompt('Send to:', '');
-    if (!emailAddr) return;
-    showToast('Generating & sending…');
-    try {
-      const dlData = {...data, action:'download'};
-      const dlResp = await fetch('/site-visit/generate', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(dlData), credentials:'same-origin'
-      });
-      if (!dlResp.ok) { showToast('Failed to generate', 'error'); return; }
-      const blob = await dlResp.blob();
-      const b64 = await blobToBase64(blob);
-      const fd = new FormData();
-      fd.append('to_email', emailAddr);
-      fd.append('doc_type', 'site_visit');
-      fd.append('doc_base64', b64.split(',')[1]);
-      fd.append('property_name', data.property_name || '');
-      fd.append('filename', `PPS_Site_Visit_${(data.property_name||'').replace(/\s+/g,'_')}.docx`);
-      const emailResp = await fetch('/email-doc', {method:'POST', body:fd, credentials:'same-origin'});
-      const result = await emailResp.json();
-      if (result.success) showToast(`Sent to ${result.sent_to} ✓`, 'success');
-      else showToast('Email failed: ' + result.error, 'error');
-    } catch(e) { showToast('Error: ' + e.message, 'error'); }
+    _pendingEmailData = data;
+    document.getElementById('emailOverlay').classList.add('open');
     return;
   }
 

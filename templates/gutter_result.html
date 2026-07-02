@@ -36,6 +36,9 @@
     </div>
     <a href="{{ url_for('gutter_estimator') }}" style="display:inline-block;margin-top:14px;font-size:13px;color:var(--blue);text-decoration:none;font-weight:600;">+ New estimate</a>
     <div id="ep" style="display:none;margin-top:16px;text-align:left;">
+      <div style="background:#FFFBF0;border:1px solid #FFE082;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#5c4200;line-height:1.5;">
+        <strong>Internal use only.</strong> Email to yourself (great on mobile) or a coworker — not for direct client delivery.
+      </div>
       <input type="email" id="emailTo" value="{{ user_email }}" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;">
       <button onclick="sendEmail()" style="margin-top:8px;background:var(--dark-blue);color:white;border:none;padding:9px 18px;border-radius:8px;">Send</button>
       <div id="es" style="font-size:13px;margin-top:8px;"></div>

@@ -6,13 +6,14 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from .calculator import calculate_materials, calculate_bid_summary
 from .material_catalog import MATERIAL_LINES, GAF_DEFAULTS
+from pps_brand import DARK_BLUE_HEX, BLUE_HEX, LIGHT_BG_HEX, WHITE_HEX, GRAY_HDR_HEX, WARNING_HEX
 
-DARK_BLUE = '004C8C'
-BLUE = '0096D6'
-LIGHT_BLUE = 'EBF6FC'
-WHITE = 'FFFFFF'
-GRAY_HDR = 'F2F7FB'
-WARNING = 'FFF3CD'
+DARK_BLUE = DARK_BLUE_HEX
+BLUE = BLUE_HEX
+LIGHT_BLUE = LIGHT_BG_HEX
+WHITE = WHITE_HEX
+GRAY_HDR = GRAY_HDR_HEX
+WARNING = WARNING_HEX
 
 REPORT_LABELS = {
     'bid_perfect': 'EagleView Bid Perfect',

@@ -5,12 +5,13 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from .calculator import calculate_gutter_estimate
+from pps_brand import DARK_BLUE_HEX, BLUE_HEX, LIGHT_BG_HEX, WHITE_HEX, GRAY_HDR_HEX, WARNING_HEX
 
-DARK_BLUE = '004C8C'
-BLUE = '0096D6'
-WARNING = 'FFF3CD'
-WHITE = 'FFFFFF'
-GRAY = 'F2F7FB'
+DARK_BLUE = DARK_BLUE_HEX
+BLUE = BLUE_HEX
+WARNING = WARNING_HEX
+WHITE = WHITE_HEX
+GRAY = GRAY_HDR_HEX
 
 
 def build_estimate_excel(job, measurements, inputs, confidence=None):

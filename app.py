@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
+from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
     get_all_item_ids, count_trackable_items,
@@ -55,6 +56,24 @@ app.config.update(
     SESSION_COOKIE_SAMESITE='Lax',
     PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
 )
+
+GENERIC_API_ERROR = 'Something went wrong. Please try again or contact Thomas.'
+GENERIC_DOWNLOAD_ERROR = 'Could not generate the file. Please try again or contact Thomas.'
+
+
+def _log_exception(exc, context=''):
+    import traceback
+    label = f' ({context})' if context else ''
+    print(f'Error{label}: {exc}')
+    traceback.print_exc()
+
+
+def _api_error(exc, status=500, **extra):
+    _log_exception(exc)
+    payload = {'error': GENERIC_API_ERROR}
+    payload.update(extra)
+    return jsonify(payload), status
+
 
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
 
@@ -2167,7 +2186,7 @@ def cron_daily_digest():
         print(f'Daily digest cron error: {e}')
         import traceback
         traceback.print_exc()
-        return jsonify({'ok': False, 'error': str(e)}), 500
+        return _api_error(e, ok=False)
 
 
 @app.route('/')
@@ -2556,7 +2575,7 @@ def estimating_property_lookup():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e), 'results': []}), 500
+        return _api_error(e, results=[])
 
 
 @app.route('/estimating/confidence', methods=['POST'])
@@ -2609,7 +2628,7 @@ def estimating_confidence():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/estimating')
@@ -2704,7 +2723,7 @@ def log_proposal():
         return jsonify({'success': True})
     except Exception as e:
         print(f"Log proposal error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 def _get_proposal_log_for_document(cur, document_id):
@@ -2813,7 +2832,7 @@ def proposal_prefill(log_id):
         })
     except Exception as e:
         print(f"Proposal prefill error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/api/vault/proposals', methods=['POST'])
@@ -2904,7 +2923,7 @@ def vault_store_proposal():
         return jsonify({'success': True, 'log_id': log_id, 'document_id': document_id})
     except Exception as e:
         print(f"Vault store error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/api/documents/<int:document_id>/download')
@@ -2953,7 +2972,7 @@ def document_download(document_id):
         )
     except Exception as e:
         print(f"Document download error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/log-ppm', methods=['POST'])
@@ -2995,7 +3014,7 @@ def log_ppm():
             _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/session-info')
@@ -3283,7 +3302,7 @@ def activity_detail(activity_type, record_id):
         return jsonify(payload)
     except Exception as e:
         print(f"Activity detail error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 def _admin_search(cur, query, limit=50):
@@ -3576,7 +3595,7 @@ def admin_search():
             conn.close()
     except Exception as e:
         print(f"Admin search error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
     return jsonify({'query': q, 'results': results, 'count': len(results)})
 
 
@@ -3608,7 +3627,7 @@ def admin_vault_delete():
         return jsonify({'success': True, 'deleted_id': doc_id})
     except Exception as e:
         print(f"Vault delete error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/admin/reset-password', methods=['POST'])
@@ -3632,7 +3651,7 @@ def admin_reset_password():
             conn.close()
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/log-subscope', methods=['POST'])
@@ -3671,7 +3690,7 @@ def log_subscope():
             _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/feedback', methods=['POST'])
@@ -3698,7 +3717,7 @@ def submit_feedback():
         _send_feedback_email(display_name, message)
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 def _hub_notify_recipients():
@@ -3868,7 +3887,7 @@ def delete_activity():
             conn.close()
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/admin/clear-my-data', methods=['POST'])
@@ -3886,7 +3905,7 @@ def clear_my_data():
             conn.close()
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/admin/clear-my-profile', methods=['POST'])
@@ -3903,7 +3922,7 @@ def clear_my_profile():
             conn.close()
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/admin/member/<user_key>')
@@ -4244,7 +4263,8 @@ def analyze_diff():
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
-        return jsonify({'success': False, 'error': f'Could not read files: {e}'}), 400
+        _log_exception(e, 'analyze-diff')
+        return jsonify({'success': False, 'error': 'Could not read one or both files.'}), 400
 
     if not original_text.strip() or not edited_text.strip():
         return jsonify({'success': False, 'error': 'Could not extract text from one or both files.'}), 400
@@ -4304,8 +4324,8 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
     except json.JSONDecodeError:
         return jsonify({'success': False, 'error': 'Could not parse Claude response. Try again.'}), 500
     except Exception as e:
-        print(f"Analyze diff error: {e}")
-        return jsonify({'success': False, 'error': f'Analysis failed: {e}'}), 500
+        _log_exception(e, 'analyze-diff')
+        return jsonify({'success': False, 'error': 'Analysis failed. Please try again.'}), 500
 
 
 @app.route('/submit-diff', methods=['POST'])
@@ -4358,7 +4378,7 @@ def submit_diff():
         )
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/admin/diffs')
@@ -4513,9 +4533,13 @@ def reset_team_view():
 def site_visit():
     if not session.get('user_key'):
         return redirect(url_for('login'))
-    return render_template('site_visit.html',
-                           user_key=session['user_key'],
-                           display_name=session.get('display_name', ''))
+    user_key = session['user_key']
+    return render_template(
+        'site_visit.html',
+        user_key=user_key,
+        display_name=session.get('display_name', ''),
+        user_email=USERS.get(user_key, {}).get('email', session.get('user_email', '')),
+    )
 
 
 @app.route('/site-visit/generate', methods=['POST'])
@@ -4595,7 +4619,7 @@ def site_visit_generate():
         )
     except Exception as e:
         import traceback; traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/site-visit/download/<int:visit_id>')
@@ -4629,7 +4653,8 @@ def site_visit_download(visit_id):
         return send_file(buf, as_attachment=True, download_name=filename,
                         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     except Exception as e:
-        return str(e), 500
+        _log_exception(e)
+        return GENERIC_DOWNLOAD_ERROR, 500
 
 
 @app.route('/admin/site-visits')
@@ -5026,10 +5051,11 @@ def psc_training_enroll_api():
 
 
 def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, sender_name):
-    """Send a document attachment via Resend."""
+    """Send a document attachment via Resend (internal — self or coworker, not client delivery)."""
     import urllib.request as _ur
     import urllib.error as _ur_err
     import json as _json
+    from pps_brand import EMAIL_INTERNAL_NOTICE
 
     resend_key = os.environ.get('RESEND_API_KEY', '')
     from_email = os.environ.get('RESEND_FROM', 'noreply@purepropsolutions.com')
@@ -5052,7 +5078,8 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
     subject = f'PPS {label} — {property_name}' if property_name else f'PPS {label}'
     prop_line = f'Property: {property_name}' if property_name else ''
     text_body = (
-        f'Please find your PPS {label} attached.\n\n'
+        f'PPS {label} attached — internal use.\n\n'
+        f'{EMAIL_INTERNAL_NOTICE}\n\n'
         f'{prop_line + chr(10) if prop_line else ""}'
         f'Generated by: {sender_name}\n\n'
         'The Pure Way: Trust. Quality. Results.'
@@ -5063,7 +5090,10 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
         <p style="color:white;font-size:18px;font-weight:600;margin:0;">Pure Property Solutions</p>
       </div>
       <div style="background:#f8fafc;padding:24px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
-        <p style="color:#334155;font-size:15px;">Please find your <strong>PPS {label}</strong> attached.</p>
+        <p style="color:#334155;font-size:15px;"><strong>PPS {label}</strong> attached — <em>internal use only</em>.</p>
+        <p style="color:#7c5e10;font-size:13px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 12px;">
+          {EMAIL_INTERNAL_NOTICE}
+        </p>
         {'<p style="color:#64748b;font-size:14px;">Property: ' + property_name + '</p>' if property_name else ''}
         <p style="color:#64748b;font-size:14px;">Generated by: {sender_name}</p>
         <hr style="border:none;border-top:1px solid #e2e8f0;margin:20px 0;">
@@ -5111,7 +5141,7 @@ def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, 
             msg = body.strip() or str(e)
         return jsonify({'error': msg}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/email-doc', methods=['POST'])
@@ -5195,7 +5225,8 @@ def clients_search():
             resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
             return resp
     except Exception as e:
-        resp = jsonify({'error': str(e)})
+        _log_exception(e, 'clients/search')
+        resp = jsonify({'error': GENERIC_API_ERROR})
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp, 500
     resp = jsonify([])
@@ -5274,7 +5305,8 @@ def clients_save():
             resp.headers['Access-Control-Allow-Origin'] = '*'
             return resp
     except Exception as e:
-        resp = jsonify({'error': str(e)})
+        _log_exception(e, 'clients/save')
+        resp = jsonify({'error': GENERIC_API_ERROR})
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp, 500
 
@@ -5306,7 +5338,7 @@ def clients_seed():
             conn.commit(); cur.close(); conn.close()
         return jsonify({'success': True, 'inserted': inserted})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/clients')
@@ -5610,7 +5642,7 @@ def siding_estimator_parse():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/siding-estimator/generate', methods=['POST'])
@@ -5692,7 +5724,7 @@ def siding_estimator_generate():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/siding-estimator/result/<int:estimate_id>')
@@ -5745,9 +5777,8 @@ def siding_estimator_download(estimate_id):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return str(e), 500
+        _log_exception(e)
+        return GENERIC_DOWNLOAD_ERROR, 500
 
 
 @app.route('/siding-estimator/email/<int:estimate_id>', methods=['POST'])
@@ -5775,7 +5806,7 @@ def siding_estimator_email(estimate_id):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/siding-estimator/pricing-preview', methods=['POST'])
@@ -5910,7 +5941,7 @@ def roofing_estimator_parse():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/roofing-estimator/generate', methods=['POST'])
@@ -5974,7 +6005,7 @@ def roofing_estimator_generate():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/roofing-estimator/result/<int:estimate_id>')
@@ -6031,9 +6062,8 @@ def roofing_estimator_download(estimate_id):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return str(e), 500
+        _log_exception(e)
+        return GENERIC_DOWNLOAD_ERROR, 500
 
 
 @app.route('/roofing-estimator/email/<int:estimate_id>', methods=['POST'])
@@ -6068,7 +6098,7 @@ def roofing_estimator_email(estimate_id):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 def _gutter_job_data_from_row(row):
@@ -6140,7 +6170,7 @@ def gutter_estimator_parse():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/gutter-estimator/generate', methods=['POST'])
@@ -6205,7 +6235,7 @@ def gutter_estimator_generate():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/gutter-estimator/preview/<int:estimate_id>')
@@ -6264,9 +6294,8 @@ def gutter_estimator_download(estimate_id):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return str(e), 500
+        _log_exception(e)
+        return GENERIC_DOWNLOAD_ERROR, 500
 
 
 @app.route('/gutter-estimator/email/<int:estimate_id>', methods=['POST'])
@@ -6300,7 +6329,7 @@ def gutter_estimator_email(estimate_id):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 def _painting_job_data_from_row(row):
@@ -6431,7 +6460,7 @@ def painting_estimator_generate():
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
 
 
 @app.route('/painting-estimator/preview/<int:estimate_id>')
@@ -6490,9 +6519,8 @@ def painting_estimator_download(estimate_id):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return str(e), 500
+        _log_exception(e)
+        return GENERIC_DOWNLOAD_ERROR, 500
 
 
 @app.route('/painting-estimator/email/<int:estimate_id>', methods=['POST'])
@@ -6526,7 +6554,17 @@ def painting_estimator_email(estimate_id):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return _api_error(e)
+
+
+@app.errorhandler(Exception)
+def _handle_uncaught_exception(e):
+    if isinstance(e, HTTPException):
+        return e
+    _log_exception(e, request.path)
+    if request.path.startswith('/api/') or request.is_json:
+        return jsonify({'error': GENERIC_API_ERROR}), 500
+    return GENERIC_API_ERROR, 500
 
 
 @app.route('/logout')

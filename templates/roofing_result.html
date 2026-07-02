@@ -50,6 +50,9 @@
       <button type="button" class="result-btn" onclick="document.getElementById('emailPanel').classList.toggle('open')"><span style="font-size:24px;">✉</span><span style="font-weight:600;color:var(--dark-blue);">Email</span></button>
     </div>
     <div id="emailPanel" style="display:none;margin-top:16px;text-align:left;background:var(--light-bg);padding:16px;border-radius:10px;">
+      <div style="background:#FFFBF0;border:1px solid #FFE082;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#5c4200;line-height:1.5;">
+        <strong>Internal use only.</strong> Email to yourself (great on mobile) or a coworker — not for direct client delivery.
+      </div>
       <input type="email" id="emailTo" value="{{ user_email }}" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;">
       <button onclick="sendEmail()" style="margin-top:8px;background:var(--dark-blue);color:white;border:none;padding:9px 18px;border-radius:8px;font-weight:600;cursor:pointer;">Send</button>
       <div id="emailStatus" style="font-size:13px;margin-top:8px;"></div>

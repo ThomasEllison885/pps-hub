@@ -5,11 +5,12 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from .calculator import calculate_painting_estimate
+from pps_brand import DARK_BLUE_HEX, BLUE_HEX, WHITE_HEX, WARNING_HEX
 
-DARK_BLUE = '004C8C'
-BLUE = '0096D6'
-WARNING = 'FFF3CD'
-WHITE = 'FFFFFF'
+DARK_BLUE = DARK_BLUE_HEX
+BLUE = BLUE_HEX
+WARNING = WARNING_HEX
+WHITE = WHITE_HEX
 
 
 def build_estimate_excel(job, line_items, inputs, confidence=None):
