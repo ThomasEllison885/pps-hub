@@ -210,6 +210,160 @@ USERS = {
     },
 }
 
+# Proposal numbers: {INITIALS}{YY}{NNNN} — e.g. TE260001 (Thomas Ellison, 2026, #1)
+PROPOSAL_NUMBER_INITIALS = {
+    'thomas_ellison': 'TE',
+    'tony_cumella': 'TC',
+    'adam_cupito': 'AC',
+    'rachel_farler': 'RF',
+    'andy_potts': 'AP',
+}
+
+_CONSULTANT_KEY_ALIASES = {
+    'thomas': 'thomas_ellison',
+    'tony': 'tony_cumella',
+    'adam': 'adam_cupito',
+    'rachel': 'rachel_farler',
+    'andy': 'andy_potts',
+}
+
+
+def _normalize_consultant_key(consultant_key):
+    key = (consultant_key or '').strip()
+    return _CONSULTANT_KEY_ALIASES.get(key, key)
+
+
+def _proposal_initials(consultant_key):
+    key = _normalize_consultant_key(consultant_key)
+    initials = PROPOSAL_NUMBER_INITIALS.get(key)
+    if initials:
+        return initials
+    user = USERS.get(key, {})
+    display = user.get('display', '')
+    parts = display.split()
+    if len(parts) >= 2:
+        return (parts[0][0] + parts[-1][0]).upper()
+    if display:
+        return display[:2].upper()
+    return 'PP'
+
+
+def _max_proposal_seq_from_log(cur, consultant_key, prefix):
+    """Highest 4-digit suffix already used in proposal_log for this consultant/year."""
+    cur.execute(
+        '''
+        SELECT proposal_number FROM proposal_log
+        WHERE consultant_key = %s AND proposal_number IS NOT NULL
+          AND UPPER(proposal_number) LIKE %s
+        ''',
+        (consultant_key, prefix + '%'),
+    )
+    max_seq = 0
+    for row in cur.fetchall():
+        num = (row[0] or '').strip().upper()
+        if len(num) == len(prefix) + 4 and num.startswith(prefix):
+            try:
+                max_seq = max(max_seq, int(num[len(prefix):]))
+            except ValueError:
+                pass
+    return max_seq
+
+
+def allocate_proposal_number(consultant_key, year=None):
+    """
+    Return next hub proposal number for a consultant: INITIALS + 2-digit year + 4-digit seq.
+    Increments atomically per consultant per calendar year.
+    """
+    key = _normalize_consultant_key(consultant_key)
+    if key not in PROPOSAL_NUMBER_INITIALS and key not in USERS:
+        return None, 'Unknown consultant'
+    yr = year or datetime.now().year
+    yy = yr % 100
+    prefix = f"{_proposal_initials(key)}{yy:02d}"
+    try:
+        conn = get_db()
+        if not conn:
+            return None, 'Database unavailable'
+        cur = conn.cursor()
+        cur.execute(
+            '''
+            INSERT INTO proposal_number_sequence (consultant_key, seq_year, last_seq)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (consultant_key, seq_year) DO NOTHING
+            ''',
+            (key, yr),
+        )
+        max_log = _max_proposal_seq_from_log(cur, key, prefix)
+        if max_log:
+            cur.execute(
+                '''
+                UPDATE proposal_number_sequence
+                SET last_seq = GREATEST(last_seq, %s)
+                WHERE consultant_key = %s AND seq_year = %s AND last_seq < %s
+                ''',
+                (max_log, key, yr, max_log),
+            )
+        cur.execute(
+            '''
+            UPDATE proposal_number_sequence
+            SET last_seq = last_seq + 1
+            WHERE consultant_key = %s AND seq_year = %s
+            RETURNING last_seq
+            ''',
+            (key, yr),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        if not row:
+            return None, 'Could not allocate proposal number'
+        seq = row[0]
+        number = f"{prefix}{seq:04d}"
+        return number, None
+    except Exception as e:
+        print(f"Proposal number allocate error: {e}")
+        return None, 'Could not allocate proposal number'
+
+
+def sync_proposal_number_sequence(consultant_key, proposal_number, year=None):
+    """If a saved proposal uses a higher sequence than our counter, advance the counter."""
+    import re
+    key = _normalize_consultant_key(consultant_key)
+    raw = re.sub(r'[^A-Z0-9]', '', (proposal_number or '').upper())
+    if not raw or len(raw) < 5:
+        return
+    yr = year or datetime.now().year
+    yy = yr % 100
+    expected_initials = _proposal_initials(key)
+    prefix = f"{expected_initials}{yy:02d}"
+    if not raw.startswith(prefix) or len(raw) != len(prefix) + 4:
+        return
+    try:
+        seq = int(raw[len(prefix):])
+    except ValueError:
+        return
+    try:
+        conn = get_db()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute(
+            '''
+            INSERT INTO proposal_number_sequence (consultant_key, seq_year, last_seq)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (consultant_key, seq_year) DO UPDATE SET
+                last_seq = GREATEST(proposal_number_sequence.last_seq, EXCLUDED.last_seq)
+            ''',
+            (key, yr, seq),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Proposal number sync error: {e}")
+
+
 # ── BIRTHDAYS & HIRE DATES ──────────────────────────────────────────────────
 TEAM_DATES = {
     'thomas_ellison': {'birthday': (10, 8),  'hire': (5, 21, 2017)},
@@ -333,6 +487,15 @@ def init_db():
             role VARCHAR(50) NOT NULL,
             created_at TIMESTAMP DEFAULT NOW(),
             last_login TIMESTAMP
+        )
+    ''')
+
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS proposal_number_sequence (
+            consultant_key VARCHAR(100) NOT NULL,
+            seq_year INTEGER NOT NULL,
+            last_seq INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (consultant_key, seq_year)
         )
     ''')
 
@@ -2719,6 +2882,10 @@ def log_proposal():
             conn.commit()
             cur.close()
             conn.close()
+            sync_proposal_number_sequence(
+                data.get('consultant_key') or '',
+                data.get('proposal_number') or '',
+            )
             _touch_last_active(data.get('generated_by'))
         return jsonify({'success': True})
     except Exception as e:
@@ -2753,6 +2920,25 @@ def _user_can_access_proposal_log(user_key, role, row):
     if role == 'admin':
         return True
     return row.get('generated_by') == user_key
+
+
+@app.route('/api/proposals/next-number')
+def proposal_next_number():
+    """Allocate the next proposal number for a consultant (INITIALS + YY + NNNN)."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    consultant_key = _normalize_consultant_key(request.args.get('consultant_key', ''))
+    if not consultant_key:
+        return jsonify({'error': 'consultant_key required'}), 400
+    number, err = allocate_proposal_number(consultant_key)
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({
+        'success': True,
+        'proposal_number': number,
+        'consultant_key': consultant_key,
+        'format': 'INITIALS + 2-digit year + 4-digit sequence (e.g. TE260001)',
+    })
 
 
 @app.route('/api/proposals/<int:log_id>/prefill')
@@ -2919,6 +3105,10 @@ def vault_store_proposal():
         conn.commit()
         cur.close()
         conn.close()
+        sync_proposal_number_sequence(
+            data.get('consultant_key') or '',
+            data.get('proposal_number') or '',
+        )
         _touch_last_active(data.get('generated_by') or user_key)
         return jsonify({'success': True, 'log_id': log_id, 'document_id': document_id})
     except Exception as e:
