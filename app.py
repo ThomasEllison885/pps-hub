@@ -76,6 +76,21 @@ def _api_error(exc, status=500, **extra):
     return jsonify(payload), status
 
 
+_JSON_API_PATHS = frozenset({
+    '/analyze-diff',
+    '/submit-diff',
+})
+
+
+def _wants_json_response():
+    if request.path.startswith('/api/') or request.path in _JSON_API_PATHS:
+        return True
+    if request.is_json:
+        return True
+    accept = request.accept_mimetypes.best_match(['application/json', 'text/html'])
+    return accept == 'application/json'
+
+
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
 
 USERS = {
@@ -4021,6 +4036,23 @@ def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendat
         return None
 
 
+def _notify_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendations,
+                                comparison_prompt=''):
+    """Send comparison notification without blocking the HTTP response."""
+    import threading
+
+    def _send():
+        try:
+            _send_proposal_diff_email(
+                name, user_notes, diff_analysis, voice_recommendations,
+                comparison_prompt=comparison_prompt,
+            )
+        except Exception as e:
+            _log_exception(e, 'proposal-diff-email')
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _send_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendations,
                               comparison_prompt=''):
     from html import escape
@@ -4425,10 +4457,22 @@ def validate_token():
     return jsonify({'valid': False, 'reason': 'Token invalid or expired'})
 
 
+def _upload_size_bytes(file_storage):
+    pos = file_storage.tell()
+    file_storage.seek(0, os.SEEK_END)
+    size = file_storage.tell()
+    file_storage.seek(pos)
+    return size
+
+
 def _extract_upload_text(file_storage, label='file'):
     """Extract plain text from an uploaded proposal (.docx, .txt; .pdf if pdftotext available)."""
     if not file_storage or not file_storage.filename:
         raise ValueError(f'Missing {label}')
+    size = _upload_size_bytes(file_storage)
+    if size > MAX_DOCUMENT_BYTES:
+        limit_mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
+        raise ValueError(f'{label} exceeds {limit_mb} MB — use a smaller file.')
     filename = file_storage.filename.lower()
     if filename.endswith('.docx'):
         from docx import Document as DocxDoc
@@ -4519,14 +4563,12 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
 }}"""
 
     try:
-        import anthropic
-        cl = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-        msg = cl.messages.create(
-            model=CLAUDE_MODEL,
+        raw = _claude_roleplay_call(
+            'You compare proposal drafts and return strict JSON only.',
+            [{'role': 'user', 'content': prompt}],
             max_tokens=2500,
-            messages=[{'role': 'user', 'content': prompt}],
+            timeout=90.0,
         )
-        raw = msg.content[0].text.strip()
         if raw.startswith('```'):
             raw = raw.split('\n', 1)[-1]
             if raw.endswith('```'):
@@ -4544,7 +4586,7 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
             user_key, display_name, diff_analysis, voice_recommendations,
             comparison_prompt=comparison_prompt,
         )
-        _send_proposal_diff_email(
+        _notify_proposal_diff_email(
             display_name, '', diff_analysis, voice_recommendations,
             comparison_prompt=comparison_prompt,
         )
@@ -4554,12 +4596,18 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
             'diff_analysis': diff_analysis,
             'voice_recommendations': voice_recommendations,
             'diff_id': diff_id,
-            'shared_with_admin': True,
+            'shared_with_admin': bool(diff_id),
         })
     except json.JSONDecodeError:
         return jsonify({'success': False, 'error': 'Could not parse Claude response. Try again.'}), 500
     except Exception as e:
         _log_exception(e, 'analyze-diff')
+        err_name = type(e).__name__
+        if err_name in ('APITimeoutError', 'TimeoutError') or 'timeout' in str(e).lower():
+            return jsonify({
+                'success': False,
+                'error': 'Analysis timed out. Try again with smaller files or a shorter comparison prompt.',
+            }), 504
         return jsonify({'success': False, 'error': 'Analysis failed. Please try again.'}), 500
 
 
@@ -4610,7 +4658,7 @@ def submit_diff():
         conn.commit()
         cur.close()
         conn.close()
-        _send_proposal_diff_email(
+        _notify_proposal_diff_email(
             display_name, user_notes, diff_analysis, voice_recommendations,
             comparison_prompt=comparison_prompt,
         )
@@ -6795,13 +6843,27 @@ def painting_estimator_email(estimate_id):
         return _api_error(e)
 
 
+@app.errorhandler(HTTPException)
+def _handle_http_exception(e):
+    if _wants_json_response():
+        message = e.description or GENERIC_API_ERROR
+        payload = {'success': False, 'error': message}
+        if request.path.startswith('/api/'):
+            payload = {'error': message}
+        return jsonify(payload), e.code
+    return e
+
+
 @app.errorhandler(Exception)
 def _handle_uncaught_exception(e):
     if isinstance(e, HTTPException):
         return e
     _log_exception(e, request.path)
-    if request.path.startswith('/api/') or request.is_json:
-        return jsonify({'error': GENERIC_API_ERROR}), 500
+    if _wants_json_response():
+        payload = {'success': False, 'error': GENERIC_API_ERROR}
+        if request.path.startswith('/api/'):
+            payload = {'error': GENERIC_API_ERROR}
+        return jsonify(payload), 500
     return GENERIC_API_ERROR, 500
 
 

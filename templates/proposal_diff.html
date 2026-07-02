@@ -110,7 +110,7 @@
 
   <div class="loading" id="loading">
     <span class="spinner">⚙️</span>
-    Claude is reading both proposals and identifying what changed…
+    Claude is reading both proposals and identifying what changed… This can take up to a minute.
   </div>
 
   <!-- RESULTS -->
@@ -176,6 +176,29 @@
 let analysisData = {};
 let currentDiffId = null;
 
+async function parseHubJson(resp) {
+  const contentType = (resp.headers.get('content-type') || '').toLowerCase();
+  const text = await resp.text();
+  if (contentType.includes('application/json')) {
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      throw new Error('Server returned invalid JSON. Please try again.');
+    }
+  }
+  const trimmed = text.trim();
+  if (trimmed.startsWith('<!DOCTYPE') || trimmed.startsWith('<html')) {
+    if (resp.status === 502 || resp.status === 504) {
+      throw new Error('The server timed out while analyzing. Wait a moment and try again, or use smaller Word files.');
+    }
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error('Your session may have expired. Refresh the page and log in again.');
+    }
+    throw new Error('Server returned an unexpected page (HTTP ' + resp.status + '). Refresh and try again.');
+  }
+  throw new Error(text.slice(0, 240) || ('Request failed (HTTP ' + resp.status + ')'));
+}
+
 function fileSelected(num) {
   const file = document.getElementById('file' + num).files[0];
   if (file) {
@@ -212,8 +235,13 @@ async function analyze() {
   if (comparisonPrompt) fd.append('comparison_prompt', comparisonPrompt);
 
   try {
-    const resp = await fetch('/analyze-diff', { method: 'POST', body: fd });
-    const data = await resp.json();
+    const resp = await fetch('/analyze-diff', {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+    });
+    const data = await parseHubJson(resp);
     if (data.success) {
       analysisData = data;
       currentDiffId = data.diff_id || null;
@@ -249,8 +277,13 @@ async function submitNotes() {
     fd.append('voice_recommendations', analysisData.voice_recommendations || '');
   }
 
-  const resp = await fetch('/submit-diff', { method: 'POST', body: fd });
-  const data = await resp.json();
+  const resp = await fetch('/submit-diff', {
+    method: 'POST',
+    body: fd,
+    credentials: 'same-origin',
+    headers: { 'Accept': 'application/json' },
+  });
+  const data = await parseHubJson(resp);
   if (data.success) {
     document.getElementById('notesMsg').style.display = 'block';
     setTimeout(() => document.getElementById('notesMsg').style.display = 'none', 5000);
