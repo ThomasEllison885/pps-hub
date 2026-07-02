@@ -6960,7 +6960,7 @@ def _handle_http_exception(e):
         message = e.description or GENERIC_API_ERROR
         payload = {'success': False, 'error': message}
         if request.path.startswith('/api/'):
-            payload = {'error': message}
+            payload = {'success': False, 'error': message}
         return jsonify(payload), e.code
     return e
 
@@ -6973,7 +6973,7 @@ def _handle_uncaught_exception(e):
     if _wants_json_response():
         payload = {'success': False, 'error': GENERIC_API_ERROR}
         if request.path.startswith('/api/'):
-            payload = {'error': GENERIC_API_ERROR}
+            payload = {'success': False, 'error': GENERIC_API_ERROR}
         return jsonify(payload), 500
     return GENERIC_API_ERROR, 500
 

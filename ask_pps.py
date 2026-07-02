@@ -562,7 +562,10 @@ def ask_question(get_db_fn, user_key, user_role, question, api_key, model):
 
     entries = _retrieve_entries(get_db_fn, question)
     prompt_entries = _format_entries_for_prompt(entries)
-    system = SYSTEM_PROMPT.format(entries=prompt_entries or '(no entries retrieved)')
+    # Use replace, not str.format — prompt contains literal { } in the JSON example.
+    system = SYSTEM_PROMPT.replace(
+        '{entries}', prompt_entries or '(no entries retrieved)',
+    )
     role_hint = ''
     if user_role == 'pm':
         role_hint = ' The asker is production/PM — bias routing to Trey for undocumented production topics.'

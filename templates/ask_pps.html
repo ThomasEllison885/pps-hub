@@ -122,8 +122,8 @@
         body: JSON.stringify({ question }),
       });
       const data = await res.json();
-      if (!data.success) {
-        askMsg.textContent = data.error || 'Something went wrong.';
+      if (!res.ok || data.success === false) {
+        askMsg.textContent = data.error || 'Something went wrong. Please try again or contact Thomas.';
         askMsg.className = 'msg err';
         return;
       }
