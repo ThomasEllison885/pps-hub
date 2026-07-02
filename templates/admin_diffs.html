@@ -65,6 +65,10 @@
     <div class="section-label">Voice Guide Recommendations</div>
     <div class="diff-text">{{ row.voice_recommendations }}</div>
     {% endif %}
+    {% if row.comparison_prompt %}
+    <div class="section-label">Comparison Prompt</div>
+    <div class="notes-text">{{ row.comparison_prompt }}</div>
+    {% endif %}
     {% if row.user_notes %}
     <div class="section-label">Consultant Notes</div>
     <div class="notes-text">{{ row.user_notes }}</div>

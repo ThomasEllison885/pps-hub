@@ -645,6 +645,10 @@ def init_db():
         )
     ''')
 
+    cur.execute(
+        'ALTER TABLE proposal_diffs ADD COLUMN IF NOT EXISTS comparison_prompt TEXT'
+    )
+
     # Migrate ppm_log / subscope_log metadata columns
     for col in [
         "ALTER TABLE ppm_log ADD COLUMN IF NOT EXISTS pm_key VARCHAR(100)",
@@ -3990,7 +3994,8 @@ def _send_feedback_email(name, message):
     _send_hub_notify_email(subject, text_body, html_body)
 
 
-def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendations, user_notes=''):
+def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendations,
+                        user_notes='', comparison_prompt=''):
     """Persist a proposal comparison submission; returns new row id or None."""
     try:
         conn = get_db()
@@ -3999,10 +4004,12 @@ def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendat
         cur = conn.cursor()
         cur.execute(
             '''INSERT INTO proposal_diffs
-               (user_key, display_name, property_name, diff_analysis, user_notes, voice_recommendations)
-               VALUES (%s, %s, %s, %s, %s, %s)
+               (user_key, display_name, property_name, diff_analysis, user_notes,
+                voice_recommendations, comparison_prompt)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
                RETURNING id''',
-            (user_key, display_name, '', diff_analysis, user_notes, voice_recommendations),
+            (user_key, display_name, '', diff_analysis, user_notes,
+             voice_recommendations, comparison_prompt),
         )
         diff_id = cur.fetchone()[0]
         conn.commit()
@@ -4014,21 +4021,32 @@ def _save_proposal_diff(user_key, display_name, diff_analysis, voice_recommendat
         return None
 
 
-def _send_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendations):
+def _send_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendations,
+                              comparison_prompt=''):
     from html import escape
 
     admin_url = f"{HUB_PUBLIC_URL.rstrip('/')}/admin/diffs"
     subject = f'Proposal Comparison — {name}'
     analysis_text = (diff_analysis or '').strip()
     voice_text = (voice_recommendations or '').strip()
+    prompt_text = (comparison_prompt or '').strip()
+    prompt_block = f"\n\nComparison prompt:\n{prompt_text}" if prompt_text else ''
     notes_block = f"\n\nConsultant notes:\n{user_notes.strip()}" if user_notes else ''
     text_body = (
         f"New proposal comparison from {name}\n"
-        f"{notes_block}\n\n"
+        f"{prompt_block}{notes_block}\n\n"
         f"What Changed:\n{analysis_text}\n\n"
         f"Voice Guide Recommendations:\n{voice_text}\n\n"
         f"Review in hub: {admin_url}"
     )
+    prompt_html = ''
+    if prompt_text:
+        prompt_html = (
+            '<div style="margin-bottom:14px;">'
+            '<p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">Comparison Prompt</p>'
+            f'<div style="background:#FFF9E6;border:1px solid #FFE082;border-radius:8px;padding:14px;color:#334155;font-size:14px;line-height:1.55;white-space:pre-wrap;">{escape(prompt_text)}</div>'
+            '</div>'
+        )
     notes_html = ''
     if user_notes:
         notes_html = (
@@ -4044,6 +4062,7 @@ def _send_proposal_diff_email(name, user_notes, diff_analysis, voice_recommendat
       </div>
       <div style="background:#f8fafc;padding:22px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;">
         <p style="color:#334155;font-size:14px;margin:0 0 16px;"><strong>From:</strong> {escape(name)}</p>
+        {prompt_html}
         {notes_html}
         <div style="margin-bottom:14px;">
           <p style="font-size:12px;font-weight:600;color:#004C8C;text-transform:uppercase;margin:0 0 6px;">What Changed</p>
@@ -4471,11 +4490,21 @@ def analyze_diff():
     if not original_text.strip() or not edited_text.strip():
         return jsonify({'success': False, 'error': 'Could not extract text from one or both files.'}), 400
 
+    comparison_prompt = (request.form.get('comparison_prompt') or '').strip()[:2000]
+
     prompt = f"""You are helping improve the PPS (Pure Property Solutions) construction proposal voice guide.
 
 A consultant generated a proposal with AI, then edited it before sending to the client.
 Compare the ORIGINAL and EDITED versions. Focus on meaningful changes to tone, structure,
-wording, scope language, and client-facing phrasing — not trivial formatting.
+wording, scope language, and client-facing phrasing — not trivial formatting."""
+
+    if comparison_prompt:
+        prompt += f"""
+
+ADDITIONAL INSTRUCTIONS FROM THE CONSULTANT (apply on top of the standard comparison above — do not ignore the base task):
+{comparison_prompt}"""
+
+    prompt += f"""
 
 ORIGINAL (AI-generated):
 {original_text[:14000]}
@@ -4513,8 +4542,12 @@ Respond with ONLY valid JSON (no markdown fences) using exactly these keys:
         display_name = session.get('display_name', '')
         diff_id = _save_proposal_diff(
             user_key, display_name, diff_analysis, voice_recommendations,
+            comparison_prompt=comparison_prompt,
         )
-        _send_proposal_diff_email(display_name, '', diff_analysis, voice_recommendations)
+        _send_proposal_diff_email(
+            display_name, '', diff_analysis, voice_recommendations,
+            comparison_prompt=comparison_prompt,
+        )
 
         return jsonify({
             'success': True,
@@ -4546,9 +4579,10 @@ def submit_diff():
         if not conn:
             return jsonify({'error': 'Database unavailable'}), 500
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        comparison_prompt = ''
         if diff_id:
             cur.execute(
-                '''SELECT id, diff_analysis, voice_recommendations
+                '''SELECT id, diff_analysis, voice_recommendations, comparison_prompt
                    FROM proposal_diffs WHERE id = %s AND user_key = %s''',
                 (diff_id, user_key),
             )
@@ -4563,6 +4597,7 @@ def submit_diff():
             )
             diff_analysis = row.get('diff_analysis') or ''
             voice_recommendations = row.get('voice_recommendations') or ''
+            comparison_prompt = row.get('comparison_prompt') or ''
         else:
             diff_analysis = request.form.get('diff_analysis', '').strip()
             voice_recommendations = request.form.get('voice_recommendations', '').strip()
@@ -4577,6 +4612,7 @@ def submit_diff():
         conn.close()
         _send_proposal_diff_email(
             display_name, user_notes, diff_analysis, voice_recommendations,
+            comparison_prompt=comparison_prompt,
         )
         return jsonify({'success': True})
     except Exception as e:

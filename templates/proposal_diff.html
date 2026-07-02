@@ -97,6 +97,14 @@
       </div>
     </div>
 
+    <div class="field notes-field">
+      <label>Additional Instructions <span style="font-weight:400;color:#aaa;text-transform:none;font-size:11px;">— optional</span></label>
+      <textarea id="comparisonPrompt" placeholder="e.g. Focus on how I adjusted scope language for a condo board, or only compare the warranty section…"></textarea>
+      <div style="font-size:12px;color:#aaa;margin-top:6px;line-height:1.5;">
+        Adds to our standard comparison direction — does not replace it. Leave blank for the usual voice-guide analysis.
+      </div>
+    </div>
+
     <button class="btn-analyze" id="analyzeBtn" onclick="analyze()" disabled>Analyze Differences</button>
   </div>
 
@@ -150,6 +158,10 @@
       <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;">Voice Recommendations</div>
       <div class="hi-preview">{{ row.voice_recommendations }}</div>
       {% endif %}
+      {% if row.comparison_prompt %}
+      <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;">Comparison Prompt</div>
+      <div class="hi-preview">{{ row.comparison_prompt }}</div>
+      {% endif %}
       {% if row.user_notes %}
       <div style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin:10px 0 6px;">Notes</div>
       <div class="hi-preview">{{ row.user_notes }}</div>
@@ -196,6 +208,8 @@ async function analyze() {
   const fd = new FormData();
   fd.append('original', f1);
   fd.append('edited', f2);
+  const comparisonPrompt = document.getElementById('comparisonPrompt').value.trim();
+  if (comparisonPrompt) fd.append('comparison_prompt', comparisonPrompt);
 
   try {
     const resp = await fetch('/analyze-diff', { method: 'POST', body: fd });
