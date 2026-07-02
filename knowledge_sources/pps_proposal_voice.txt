@@ -1,0 +1,158 @@
+PPS VOICE & LANGUAGE GUIDE
+===========================
+SECTION 1 — UNIVERSAL LANGUAGE RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ALWAYS / NEVER:
+"residents" not "tenants" | "apartment community" not "complex"
+"ownership" or "ownership/management" not "the owner"
+"Trade Partners" not "subcontractors" or "subs"
+"investment" not "cost/price" for totals
+"homeowners" not "tenants" in condo/HOA context
+"T&M" not "hourly" | "concealed conditions" not "hidden damage"
+"Trade Partner Scope" not "sub scope"
+"punch list" not "final items"
+Work hours: 8am–7pm M–F unless specified
+
+COMPANY:
+First mention: "Pure Property Solutions (PPS)" — then "PPS"
+Never: "Pure Prop" / "Pure" alone / residential references
+Tagline: "Trust. Quality. Results.™" — footer and formal closings only; never a Project Notes bullet
+Brand: "Improving People. Improving Property." — credentials only
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — VOICE & TONE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PPS VOICE: Confident, direct, contractor-fluent, outcome-focused.
+NOT: bureaucratic, passive, filler-heavy.
+
+ACTIVE VOICE ALWAYS. Lead with PPS:
+RIGHT: "PPS will remove and dispose of all existing roofing material."
+WRONG: "Existing roofing material will be removed and disposed of."
+
+UNIVERSAL OPENING:
+"Pure Property Solutions (PPS) will provide all labor, materials, equipment, and supervision necessary to complete [scope] as outlined below."
+
+NEVER USE: "is committed to" / "strives to" / "is pleased to present" / "looks forward to" / "we are excited to" / "it is important to note" / "please be advised" / "we aim to"
+
+KEY PHRASES (use these):
+"PPS will coordinate with property management and onsite staff to minimize disruption to residents."
+"If work extends beyond scope, PPS will cease work, document with photos, and reach out for written approval before proceeding."
+"Colors to be selected by ownership prior to project start."
+"After work is finished, each section will receive a meticulous inspection."
+
+MATERIALS: Stay neutral until confirmed. PPS supplies → scope names brand/model/finish/qty ("one (1) [product]…"). Owner supplies → labor/install focus; no procurement disclaimers if PPS supplies.
+
+GOALS: Intended Outcome = end result only — no who-supplies-materials (that is Scope).
+
+TITLES: project_title = work type/location — never billing model ("Labor Only").
+
+PRICING:
+Fixed: one award, one total OK
+Multi-option: never sum options — total blank or "per selected option below"
+T&M/diagnostic: separate service-call line + hourly line; name crew size; no fixed total
+Multi-scope: "Pricing is contingent upon all scopes being awarded." Add a discount line (negative amount) e.g. Multi-Scope Discount (5%) shown as ($X,XXX.XX).
+Towne Condo/HOA ONLY: 10% Towne Property Preferred Discount as a negative pricing line — e.g. Towne Property Preferred Discount (10%) at ($X,XXX.XX).
+Tariff: adjust with prompt written notice if market/tariff shifts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — PROPERTY TYPE GUIDANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+APARTMENT COMMUNITIES
+AUDIENCE: Property manager day-to-day; ownership/regional approves.
+TONE: Clinical, efficient, operationally precise. They want facts and confidence.
+PRIORITIES: Resident disruption, phasing by building, communication protocols, daily cleanup, single point of contact.
+LANGUAGE: "apartment community" / "residents" / "building X" / "phase X"
+EXAMPLE: "PPS will establish a phasing schedule with property management to minimize disruption to residents. Work hours are 8am–7pm M–F. PPS will provide 48 hours' notice before work begins at any building."
+
+CONDOS / HOAs
+THIS IS THE MOST CRITICAL TONAL DISTINCTION. A condo proposal that reads like an apartment proposal has failed.
+AUDIENCE: Board of Directors (homeowners voting on reserve funds). Property manager presents it.
+TONE: Warm, trust-building, explanatory. This is a relationship document presented at a board meeting.
+WRITE FOR THE BOARD — explain WHY, connect scope to homeowner value, protect-the-investment framing.
+
+TECHNIQUES:
+- Open with why work matters — protect long-term homeowner investment
+- Connect scope to benefit (product longevity, structural protection), not task lists
+- Acknowledge board presentation; offer to attend pre-award meeting
+- Address deferred risk: acting now avoids higher future costs
+- Use "your community" / "homeowners" / "community reserves" — not "tenants" / "the budget"
+Towne condo: Apply 10% Towne Preferred Customer Discount.
+
+HOSPITALITY
+TONE: Operationally precise — guest experience and brand standards above all.
+KEY: Address noise/dust during guest hours, brand compliance, phased approach, work hour restrictions.
+CONTACTS: General Manager / Director of Engineering. Say "guests" not "residents."
+
+COMMERCIAL
+TONE: Business continuity first. ADA/code compliance. After-hours work if needed.
+CONTACTS: Facility manager / building ownership. "Tenants" acceptable in commercial context.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — TRADE-SPECIFIC LANGUAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ROOFING: Name shingle brand (GAF Timberline HD, Owens Corning Duration). "Complete, watertight roofing system." Ice/water shield at eaves, valleys, penetrations. Drip edge all eaves/rakes. Synthetic underlayment. Ridge vent, cap shingles, starter strips. Seal all penetrations. Magnetic sweep cleanup. Decking T&M with photo approval. Warranty: PPS labor + manufacturer (qualifying accessory package).
+
+PAINTING (Exterior): Pressure wash first. Scrape loose paint. Spot prime bare wood/metal. Caulk all joints. Sherwin-Williams Duration Exterior (preferred) or Super Paint. Brush/roll/spray masked appropriately. Colors by ownership before start. One coat vs two coat — present both options. New cedar: oil primer first to prevent tannin bleed.
+
+SIDING: "James Hardie fiber cement" — moisture-resistant, 30+ year longevity. House wrap/WRB on all replacement areas. Tape seams. Z-flashing at window heads. Aluminum coil-wrapped fascia. Bear-Skin cement flashing at transitions. Seal all seams. Hardie requires 1¼" sheeting per manufacturer specs for warranty. 30-Year Hardie warranty + PPS workmanship.
+
+DECKS / CARPENTRY: Pressure-treated lumber. Simpson post base anchors. Temporary shoring during replacement. Match existing configuration. Board spacing for drainage. Stain/paint after 60–90 day cure. Concealed rot: T&M with written approval. Footers: 12" sonotube, 24" below grade, 6–8" above.
+
+EIFS / STUCCO: Name system (Sto, Dryvit, Parex). WRB required. 4.5oz mesh in basecoat. EPS board per specs. Backwrap all EIFS terminations. Sealant at all transitions. Finish coat color TBD.
+
+MASONRY / TUCKPOINTING: Remove deteriorated mortar to ¾" depth minimum. Repoint Type S mortar, match joint profile. Lintel inspection T&M. Structural block: rebar OC, cells grouted. Brick veneer: galvanized ties 24" OC horizontal, 16" vertical. Exterior block below grade: tar waterproofed.
+
+FLOORING: Self-leveling underlayment for subfloor prep. Gypsum/lightweight concrete for elevated restoration. Subfloor inspection before install. Moisture/vapor barrier where required.
+
+CONCRETE: Reinforced rebar/wire mesh. Sloped for positive drainage away from structure. Control joints at intervals. Self-leveler for patching. Broom finish exterior.
+
+COPPER / METALS: Name cleaning/sealing system (Everbrite). Two finish coats. Neutralizer before clear coat. Tribuilt solvent caulk at transitions. Drop cloths required.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5 — STANDARD NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ALWAYS INCLUDE:
+- 48-hour notice before work begins at any building/area
+- Pricing valid through expiration date; adjustments documented in writing
+- Tariff/market conditions clause
+
+INCLUDE WHEN RELEVANT:
+- T&M for scope additions (cease work, photo, written approval first)
+- Concealed/troubleshooting: document findings with photos before repair; notify management
+- Permits: secured by PPS, billed at cost
+- Daily cleanup; debris removed at completion
+- Resident communication through property management
+- Underground utilities: state 811 / utility locate notification before excavation (use project state from address — Ohio 811, Kentucky KY811, Indiana 811, etc.)
+- Above-ground utilities: coordinate disconnections, T&M
+- Multi-scope contingency if not all scopes awarded
+- Restroom/lunch area for crew (long projects)
+- Dumpster placement coordinated with property
+- Water access required; trailer available if needed
+
+NOTE STYLE:
+- One assumption per bullet; discrete notes[] items, not one paragraph
+- No PPM default note (internal process — consultant adds manually if needed)
+- No placeholders, instructional text, or taglines in notes
+- Drop exclusion notes that contradict scope (e.g. matching disclaimers when PPS supplies product)
+- Photo documentation in concealed-condition/troubleshooting scopes only — not universal default
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — PPS CREDENTIALS (Comprehensive only)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PPS = capital expenditure partner, not just a contractor. Planning through close-out. One point of contact.
+"Improving People. Improving Property." | "Trust. Quality. Results.™"
+
+DRAW FROM: 12+ years | $60M+ across 6 states | multi-family/commercial only | Morgan, Connor, Hills, Neyer, Towne relationships | long-term Trade Partners | PPM on every project
+
+WHY PPS: Multi-family expertise | Experience & stability | Comprehensive single-point-of-contact services
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — CONSULTANT NOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Add consultant-specific phrases or client notes below. Date entries.]

@@ -24,6 +24,7 @@ from auth_helpers import (
     create_password_reset_token, peek_password_reset_token,
     consume_password_reset_token, reset_url_for_token,
 )
+import ask_pps
 
 
 app = Flask(__name__)
@@ -962,6 +963,8 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_psc_training_enrollment_active ON psc_training_enrollment(active)")
     except Exception:
         pass
+
+    ask_pps.init_tables(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
@@ -2782,11 +2785,26 @@ def dashboard():
     if is_admin:
         unread_feedback, unread_diffs = _admin_inbox_counts()
         pricing_summary = _pricing_summary_for_dashboard()
+    is_ask_pps_curator = ask_pps.is_curator(user_key)
+    ask_pps_open_gaps = 0
+    if is_ask_pps_curator:
+        try:
+            conn_ask = get_db()
+            if conn_ask:
+                cur_ask = conn_ask.cursor()
+                cur_ask.execute("SELECT COUNT(*) FROM ask_pps_questions WHERE gap_status = 'open'")
+                ask_pps_open_gaps = cur_ask.fetchone()[0]
+                cur_ask.close()
+                conn_ask.close()
+        except Exception as e:
+            print(f'Ask PPS dashboard count error: {e}')
     return render_template(
         'dashboard.html',
         user=user,
         user_key=user_key,
         user_role=user_role,
+        is_ask_pps_curator=is_ask_pps_curator,
+        ask_pps_open_gaps=ask_pps_open_gaps,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
         admin_lane_open=is_admin,
@@ -6969,6 +6987,9 @@ def logout():
         nxt = urllib.parse.quote(final, safe='')
         return redirect(f'{PROPOSAL_URL}/logout?next={nxt}')
     return redirect(url_for('login'))
+
+
+ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
 
 
 if __name__ == '__main__':

@@ -486,7 +486,7 @@ def _kind_totals(counts):
     return lines
 
 
-def build_digest_email(report_date, items, counts, users, exclude):
+def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=None):
     """Return (subject, text_body, html_body)."""
     people = defaultdict(list)
     for it in items:
@@ -543,6 +543,9 @@ def build_digest_email(report_date, items, counts, users, exclude):
         lines.append(', '.join(quiet))
         lines.append('')
 
+    if ask_pps_line:
+        lines.extend(['', ask_pps_line])
+    lines.append('')
     lines.append('Sent automatically at midnight US/Eastern. Reply not monitored.')
 
     text_body = '\n'.join(lines)
@@ -600,6 +603,7 @@ def build_digest_email(report_date, items, counts, users, exclude):
         <p style="margin:0 0 12px;font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;">By person</p>
         {"".join(person_blocks)}
         {quiet_html}
+        {f'<p style="margin:16px 0 0;font-size:13px;color:#334155;">{escape(ask_pps_line)}</p>' if ask_pps_line else ''}
         <p style="margin:20px 0 0;color:#94a3b8;font-size:11px;">Sent automatically at midnight US/Eastern.</p>
       </div>
     </div>
@@ -646,7 +650,16 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
         get_db, users, exclude, report_date, format_template_label,
     )
 
-    subject, text_body, html_body = build_digest_email(report_date, items, counts, users, exclude)
+    ask_pps_line = None
+    try:
+        import ask_pps
+        ask_pps_line = ask_pps.get_digest_line(get_db, start, end)
+    except Exception as e:
+        print(f'Ask PPS digest line error: {e}')
+
+    subject, text_body, html_body = build_digest_email(
+        report_date, items, counts, users, exclude, ask_pps_line=ask_pps_line,
+    )
     sent = send_email_fn(subject, text_body, html_body, recipients)
     if sent:
         _mark_sent(get_db, report_date)

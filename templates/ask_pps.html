@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Ask PPS</title>
+<style>
+  .main { max-width: 640px; margin: 0 auto; padding: 24px 18px 60px; }
+  .page-title { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark-blue); margin-bottom: 4px; }
+  .page-sub { font-size: 14px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .ask-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 18px; margin-bottom: 16px; }
+  .ask-row { display: flex; gap: 8px; }
+  .ask-input { flex: 1; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 16px; font-family: 'DM Sans', sans-serif; }
+  .ask-input:focus { outline: none; border-color: var(--blue); }
+  .ask-btn { background: var(--dark-blue); color: white; border: none; border-radius: 8px; padding: 12px 18px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .ask-btn:disabled { opacity: 0.6; cursor: wait; }
+  .answer-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 18px; margin-bottom: 20px; display: none; }
+  .answer-card.visible { display: block; }
+  .answer-card.info { border-left: 4px solid var(--blue); background: var(--light-bg); }
+  .answer-text { font-size: 15px; line-height: 1.6; color: var(--gray); }
+  .sources { font-size: 12px; color: #888; margin-top: 12px; }
+  .section-head { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin: 24px 0 10px; }
+  .hist-item { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+  .hist-q { font-size: 14px; font-weight: 600; color: var(--dark-blue); }
+  .hist-a { font-size: 13px; color: #666; margin-top: 6px; line-height: 1.5; }
+  .hist-meta { font-size: 11px; color: #aaa; margin-top: 6px; }
+  .link-btn { background: none; border: none; color: var(--blue); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-top: 12px; }
+  .suggest-panel { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .suggest-panel.open { display: block; }
+  .suggest-panel label { display: block; font-size: 12px; font-weight: 600; color: var(--dark-blue); margin: 10px 0 4px; }
+  .suggest-panel input, .suggest-panel select, .suggest-panel textarea {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+    font-size: 14px; font-family: 'DM Sans', sans-serif;
+  }
+  .suggest-panel textarea { min-height: 100px; resize: vertical; }
+  .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .msg.err { color: #c00; }
+  .msg.ok { color: #2e7d32; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Ask PPS</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <h1 class="page-title">Ask PPS</h1>
+  <p class="page-sub">Documented company knowledge only — voice, process, pricing baselines, and who owns what. If it is not documented yet, we log the gap.</p>
+
+  <div class="ask-card">
+    <div class="ask-row">
+      <input type="text" id="questionInput" class="ask-input" placeholder="What's our warranty language for roofing?" maxlength="500" value="{{ initial_question|e }}">
+      <button type="button" class="ask-btn" id="askBtn">Ask</button>
+    </div>
+    <div class="msg" id="askMsg"></div>
+    <button type="button" class="link-btn" id="suggestToggle">Suggest knowledge →</button>
+    <div class="suggest-panel" id="suggestPanel">
+      <label>Category</label>
+      <select id="suggestCat">
+        {% for c in categories %}
+        <option value="{{ c }}">{{ c.replace('_', ' ').title() }}</option>
+        {% endfor %}
+      </select>
+      <label>Title</label>
+      <input type="text" id="suggestTitle" maxlength="200" placeholder="Short, specific title">
+      <label>Content</label>
+      <textarea id="suggestContent" maxlength="5000" placeholder="What should the team know?"></textarea>
+      <button type="button" class="ask-btn" id="suggestBtn" style="margin-top:12px;">Send for review</button>
+      <div class="msg" id="suggestMsg"></div>
+    </div>
+  </div>
+
+  <div class="answer-card" id="answerCard">
+    <div class="answer-text" id="answerText"></div>
+    <div class="sources" id="sourcesLine"></div>
+  </div>
+
+  {% if recent %}
+  <div class="section-head">Your recent questions</div>
+  {% for r in recent %}
+  <div class="hist-item">
+    <div class="hist-q">{{ r.question }}</div>
+    <div class="hist-a">{{ r.answer or '—' }}</div>
+    <div class="hist-meta">{{ r.created_at.strftime('%b %d, %Y %I:%M %p') if r.created_at else '' }}{% if r.sources %} · Sources: {{ r.sources|join(', ') }}{% endif %}</div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+
+<script>
+(function() {
+  const qInput = document.getElementById('questionInput');
+  const askBtn = document.getElementById('askBtn');
+  const askMsg = document.getElementById('askMsg');
+  const answerCard = document.getElementById('answerCard');
+  const answerText = document.getElementById('answerText');
+  const sourcesLine = document.getElementById('sourcesLine');
+
+  async function doAsk() {
+    const question = (qInput.value || '').trim();
+    if (question.length < 3) {
+      askMsg.textContent = 'Enter a question (at least 3 characters).';
+      askMsg.className = 'msg err';
+      return;
+    }
+    askBtn.disabled = true;
+    askMsg.textContent = 'Thinking…';
+    askMsg.className = 'msg';
+    try {
+      const res = await fetch('/api/ask-pps/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        askMsg.textContent = data.error || 'Something went wrong.';
+        askMsg.className = 'msg err';
+        return;
+      }
+      askMsg.textContent = '';
+      answerCard.classList.add('visible');
+      answerCard.classList.toggle('info', !data.answered);
+      answerText.textContent = data.answer || '';
+      sourcesLine.textContent = data.sources && data.sources.length
+        ? 'Sources: ' + data.sources.join(', ')
+        : (data.answered ? '' : 'Gap logged — a curator will add this to the knowledge base.');
+    } catch (e) {
+      askMsg.textContent = 'Network error. Try again.';
+      askMsg.className = 'msg err';
+    } finally {
+      askBtn.disabled = false;
+    }
+  }
+
+  askBtn.addEventListener('click', doAsk);
+  qInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); doAsk(); }
+  });
+
+  document.getElementById('suggestToggle').addEventListener('click', function() {
+    document.getElementById('suggestPanel').classList.toggle('open');
+  });
+
+  document.getElementById('suggestBtn').addEventListener('click', async function() {
+    const msg = document.getElementById('suggestMsg');
+    const body = {
+      category: document.getElementById('suggestCat').value,
+      title: document.getElementById('suggestTitle').value.trim(),
+      content: document.getElementById('suggestContent').value.trim(),
+    };
+    const res = await fetch('/api/ask-pps/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.success) {
+      msg.textContent = 'Sent for curator review.';
+      msg.className = 'msg ok';
+      document.getElementById('suggestTitle').value = '';
+      document.getElementById('suggestContent').value = '';
+    } else {
+      msg.textContent = data.error || 'Could not send.';
+      msg.className = 'msg err';
+    }
+  });
+
+  {% if initial_question %}
+  doAsk();
+  {% endif %}
+})();
+</script>
+</body>
+</html>

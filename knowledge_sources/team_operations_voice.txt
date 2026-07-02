@@ -1,0 +1,12 @@
+PPS TEAM OPERATIONS VOICE (placeholder)
+========================================
+
+This file is reserved for internal team communication guidance — how PPS talks in
+emails, Slack, site coordination, and manager escalations. It is separate from
+pps_proposal_voice.txt, which governs client-facing proposals.
+
+Not seeded in Ask PPS v1. Thomas will add entries here over time and compare the
+two voice guides periodically.
+
+When populated, re-run /admin/ask-pps/seed or add entries through the knowledge
+manager (category: company_operations or general).

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Ask PPS Admin</title>
+<style>
+  .main { max-width: 1100px; margin: 0 auto; padding: 28px 20px 60px; }
+  .page-title { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--dark-blue); }
+  .stats { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 28px; }
+  .stat { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; min-width: 120px; }
+  .stat .n { font-size: 24px; font-weight: 700; color: var(--dark-blue); }
+  .stat .l { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+  .section { background: white; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; overflow: hidden; }
+  .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dark-blue); padding: 14px 18px; background: var(--light-bg); border-bottom: 1px solid var(--border); margin: 0; }
+  .section-body { padding: 16px 18px; }
+  .gap, .pending, .log-row { border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+  .meta { font-size: 12px; color: #888; margin-bottom: 8px; }
+  .q { font-weight: 600; color: var(--dark-blue); margin-bottom: 8px; }
+  label { display: block; font-size: 11px; font-weight: 600; color: var(--dark-blue); margin: 8px 0 4px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: 'DM Sans', sans-serif; }
+  textarea { min-height: 80px; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .btn { padding: 8px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; }
+  .btn-primary { background: var(--dark-blue); color: white; }
+  .btn-muted { background: #eee; color: #555; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #f0f4f8; vertical-align: top; }
+  th { font-size: 10px; text-transform: uppercase; color: var(--dark-blue); background: var(--light-bg); }
+  .seed-row { margin-bottom: 16px; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Ask PPS · Curate</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">Admin</a>
+    <a href="/ask-pps" class="pps-btn-header">Ask PPS</a>
+  </div>
+</header>
+
+<div class="main">
+  <h1 class="page-title">Ask PPS — Knowledge Curation</h1>
+  <div class="stats">
+    <div class="stat"><div class="n">{{ open_gaps or 0 }}</div><div class="l">Open gaps</div></div>
+    <div class="stat"><div class="n">{{ pending_cnt or 0 }}</div><div class="l">Pending</div></div>
+    {% for w in week_counts or [] %}
+    <div class="stat"><div class="n">{{ w.cnt }}</div><div class="l">{{ w.display_name }} this week</div></div>
+    {% endfor %}
+  </div>
+
+  <div class="section seed-row">
+    <h2>Seed knowledge (idempotent)</h2>
+    <div class="section-body">
+      <p style="font-size:13px;color:#666;margin-bottom:12px;">Loads proposal voice, training chunks, team directory, pricing defaults, and process bullets. Skips existing titles.</p>
+      <button type="button" class="btn btn-primary" id="seedBtn">Run seed</button>
+      <span id="seedMsg" style="font-size:13px;margin-left:10px;"></span>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Gap inbox</h2>
+    <div class="section-body">
+      {% if gaps %}
+      {% for g in gaps %}
+      <div class="gap">
+        <div class="meta">{{ g.display_name }} · {{ g.created_at.strftime('%b %d %Y') if g.created_at else '' }}{% if g.gap_topic %} · {{ g.gap_topic }}{% endif %}</div>
+        <div class="q">{{ g.question }}</div>
+        {% if g.gap_summary %}<div style="font-size:13px;color:#666;margin-bottom:8px;">{{ g.gap_summary }}</div>{% endif %}
+        <form method="post" action="{{ url_for('admin_ask_pps_resolve_gap', gap_id=g.id) }}">
+          <label>Category</label>
+          <select name="category">{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+          <label>Title</label>
+          <input name="title" value="{{ g.question[:120] }}">
+          <label>Answer content</label>
+          <textarea name="content" placeholder="Canonical answer for the knowledge base…"></textarea>
+          <div class="btn-row">
+            <button type="submit" class="btn btn-primary">Publish & resolve</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('admin_ask_pps_dismiss_gap', gap_id=g.id) }}" style="margin-top:8px;">
+          <button type="submit" class="btn btn-muted">Dismiss</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p style="color:#aaa;font-size:14px;">No open gaps.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Pending contributions</h2>
+    <div class="section-body">
+      {% if pending %}
+      {% for p in pending %}
+      <div class="pending">
+        <div class="meta">{{ p.author_display or p.author_key }} · {{ p.category }}</div>
+        <div class="q">{{ p.title }}</div>
+        <div style="font-size:13px;white-space:pre-wrap;margin-bottom:10px;">{{ p.content }}</div>
+        <form method="post" action="{{ url_for('admin_ask_pps_edit_approve', entry_id=p.id) }}">
+          <label>Category</label>
+          <select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+          <label>Title</label>
+          <input name="title" value="{{ p.title }}">
+          <label>Content</label>
+          <textarea name="content">{{ p.content }}</textarea>
+          <div class="btn-row">
+            <button type="submit" class="btn btn-primary">Edit & approve</button>
+          </div>
+        </form>
+        <div class="btn-row">
+          <form method="post" action="{{ url_for('admin_ask_pps_approve', entry_id=p.id) }}"><button class="btn btn-muted">Approve as-is</button></form>
+          <form method="post" action="{{ url_for('admin_ask_pps_reject', entry_id=p.id) }}"><button class="btn btn-muted">Reject</button></form>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <p style="color:#aaa;font-size:14px;">No pending contributions.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Add knowledge</h2>
+    <div class="section-body">
+      <form method="post" action="{{ url_for('admin_ask_pps_add_entry') }}">
+        <label>Category</label>
+        <select name="category">{% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}</select>
+        <label>Title</label>
+        <input name="title" required>
+        <label>Content</label>
+        <textarea name="content" required></textarea>
+        <button type="submit" class="btn btn-primary" style="margin-top:10px;">Add entry</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Q&A log</h2>
+    <div class="section-body" style="overflow-x:auto;">
+      <table>
+        <tr><th>Who</th><th>Question</th><th>Answered</th><th>Flag</th></tr>
+        {% for row in log or [] %}
+        <tr>
+          <td>{{ row.display_name }}</td>
+          <td>{{ row.question[:80] }}{% if row.question|length > 80 %}…{% endif %}</td>
+          <td>{{ 'Yes' if row.answered else 'Gap' }}</td>
+          <td>
+            {% if not row.flagged %}
+            <form method="post" action="{{ url_for('admin_ask_pps_flag', q_id=row.id) }}"><button class="btn btn-muted">Flag</button></form>
+            {% else %}Flagged{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Knowledge manager</h2>
+    <div class="section-body" style="overflow-x:auto;">
+      <table>
+        <tr><th>Category</th><th>Title</th><th>Status</th><th>Actions</th></tr>
+        {% for k in knowledge or [] %}
+        <tr>
+          <td>{{ k.category }}</td>
+          <td>{{ k.title }}</td>
+          <td>{{ k.status }}</td>
+          <td>
+            <form method="post" action="{{ url_for('admin_ask_pps_archive_entry', entry_id=k.id) }}"><button class="btn btn-muted">Archive</button></form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('seedBtn').addEventListener('click', async function() {
+  const msg = document.getElementById('seedMsg');
+  msg.textContent = 'Seeding…';
+  const res = await fetch('/admin/ask-pps/seed', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    msg.textContent = 'Created ' + data.created + ', skipped ' + data.skipped + '. Reload to see entries.';
+  } else {
+    msg.textContent = data.error || 'Seed failed.';
+  }
+});
+</script>
+</body>
+</html>

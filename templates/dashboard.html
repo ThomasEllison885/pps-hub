@@ -130,6 +130,18 @@
   .event-banner.birthday { background: #FFF8E1; border: 1.5px solid #FFD54F; color: #E65100; }
   .event-banner.anniversary { background: #E8F5E9; border: 1.5px solid #81C784; color: #1B5E20; }
 
+  .ask-pps-widget {
+    background: white; border-radius: var(--radius); box-shadow: var(--shadow);
+    border: 1px solid var(--border); padding: 16px 18px; margin-bottom: 20px;
+  }
+  .ask-pps-widget h2 { font-size: 13px; font-weight: 700; color: var(--dark-blue); margin: 0 0 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .ask-pps-widget p { font-size: 13px; color: #888; margin: 0 0 12px; }
+  .ask-pps-row { display: flex; gap: 8px; }
+  .ask-pps-input { flex: 1; padding: 11px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; }
+  .ask-pps-btn { background: var(--dark-blue); color: white; border: none; border-radius: 8px; padding: 11px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .ask-pps-meta { margin-top: 10px; font-size: 12px; }
+  .ask-pps-meta a { color: var(--blue); font-weight: 600; text-decoration: none; }
+
   /* Proposal history */
   .proposal-history-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 28px; overflow: hidden; }
   .history-table { width: 100%; border-collapse: collapse; }
@@ -161,6 +173,9 @@
   <div class="pps-header-right">
     <span class="pps-header-user">{{ user.display }}</span>
     {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
+    {% if is_ask_pps_curator %}
+    <a href="/admin/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_open_gaps > 0 %}<span class="pps-header-badge">{{ ask_pps_open_gaps }}</span>{% endif %}</a>
+    {% endif %}
     {% if session.get('role') == 'admin' %}
     <a href="/admin/feedback" class="pps-btn-header">Feedback{% if unread_feedback > 0 %}<span class="pps-header-badge">{{ unread_feedback }}</span>{% endif %}</a>
     <a href="/admin" class="pps-btn-header primary">Admin</a>
@@ -185,6 +200,16 @@
   </div>
   {% endfor %}
   {% endif %}
+
+  <div class="ask-pps-widget">
+    <h2>Ask PPS</h2>
+    <p>Documented company knowledge — voice, process, pricing baselines, who owns what.</p>
+    <form class="ask-pps-row" action="/ask-pps" method="get">
+      <input type="text" name="q" class="ask-pps-input" placeholder="Ask a question…" maxlength="500" autocomplete="off">
+      <button type="submit" class="ask-pps-btn">Ask</button>
+    </form>
+    <div class="ask-pps-meta"><a href="/ask-pps">Open Ask PPS →</a></div>
+  </div>
 
   <div class="dashboard-lanes">
     <details class="dashboard-lane lane-sales" {% if sales_lane_open %}open{% endif %}>
