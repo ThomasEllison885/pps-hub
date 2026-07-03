@@ -53,6 +53,11 @@
   .gap-module .hint { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
   .gap-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
   .gap-actions a { font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; }
+  .prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .btn-skip { background: #eee; color: #555; }
+  .prompt-assign { margin-top: 10px; padding: 10px; background: var(--light-bg); border-radius: 8px; font-size: 13px; }
+  .prompt-assign select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; margin-right: 8px; }
+  .prompt-readonly { font-size: 13px; color: #888; margin: 0; }
 </style>
 </head>
 <body>
@@ -71,13 +76,15 @@
   <h1 class="page-title">Ask PPS</h1>
   <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.</p>
 
-  {% if is_curator and (psc_gap_modules or audit_gaps) %}
-  <div class="section-head">Identified gaps</div>
+  {% if is_curator and (psc_gap_modules or feedback_gaps or audit_gaps) %}
+  <div class="section-head">Identified gaps ({{ identified_gap_total }})</div>
   <div class="gap-browse">
     <p>
-      <strong>{{ psc_gap_preview }}</strong> PSC Training topics and <strong>{{ audit_gap_preview }}</strong> cross-cutting
-      questions are missing from the knowledge base. Expand each module to read them. Answer cards below are loaded
-      into your queue automatically — assign any to the field in <a href="/admin/ask-pps">Ask PPS Admin</a>.
+      <strong>{{ psc_gap_preview }}</strong> PSC Training [TO DOCUMENT] blanks,
+      <strong>{{ feedback_gap_preview }}</strong> Rachel Farler feedback themes, and
+      <strong>{{ audit_gap_preview }}</strong> cross-cutting questions are missing from the knowledge base.
+      {% if open_prompt_count %}<strong>{{ open_prompt_count }}</strong> open prompts in the bank.{% endif %}
+      Expand each section below — then push to the field bank or answer yourself.
     </p>
     {% for mod in psc_gap_modules %}
     <details class="gap-module" open>
@@ -89,6 +96,16 @@
       </ul>
     </details>
     {% endfor %}
+    {% if feedback_gaps %}
+    <details class="gap-module">
+      <summary>PSC feedback themes <span class="hint">· {{ feedback_gaps|length }} gaps</span></summary>
+      <ul>
+        {% for g in feedback_gaps %}
+        <li>{{ g.topic }}</li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
     {% if audit_gaps %}
     <details class="gap-module">
       <summary>Cross-cutting knowledge <span class="hint">· {{ audit_gaps|length }} gaps</span></summary>
@@ -100,7 +117,8 @@
     </details>
     {% endif %}
     <div class="gap-actions">
-      <button type="button" class="ask-btn" id="reloadGapsBtn">Refresh my answer queue</button>
+      <button type="button" class="ask-btn" id="bankGapsBtn">Push gaps → field bank</button>
+      <button type="button" class="ask-btn btn-skip" id="reloadGapsBtn">Load gaps → my queue</button>
       <a href="/admin/ask-pps">Assign or manage prompts →</a>
     </div>
     <div class="msg" id="reloadGapsMsg"></div>
@@ -110,11 +128,34 @@
   {% if prompts %}
   <div class="section-head">Your answer queue{% if prompts|length > 1 %} ({{ prompts|length }} waiting){% endif %}</div>
   {% for p in prompts %}
-  <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}">
-    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}{% if p.field_role_hint %} · suggest {{ p.field_role_hint }}{% endif %}</span>
+  <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}" data-can-answer="{{ '1' if p.can_answer else '0' }}">
+    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}{% if p.field_role_hint %} · suggest {{ p.field_role_hint }}{% endif %}{% if p.target_user_display %} · {{ p.target_user_display }}{% endif %}</span>
     <div class="prompt-q">{{ p.question }}</div>
+    {% if p.can_answer %}
     <textarea class="prompt-answer" placeholder="How does this actually work on your jobs?"></textarea>
-    <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>
+    <div class="prompt-actions">
+      <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>
+      <button type="button" class="ask-btn btn-skip prompt-skip-btn">Skip for now</button>
+    </div>
+    {% elif is_curator %}
+    <p class="prompt-readonly">Not in your queue — assign to a consultant or PM below.</p>
+    <div class="prompt-assign">
+      <select class="prompt-assign-user">
+        <option value="">— by role —</option>
+        {% for u in consultant_assignees %}
+        <option value="{{ u.key }}">{{ u.display }}{% if u.title %} ({{ u.title }}){% endif %}</option>
+        {% endfor %}
+      </select>
+      <select class="prompt-assign-role">
+        <option value="consultant">Consultants</option>
+        <option value="pm">PMs</option>
+        <option value="any">Anyone</option>
+      </select>
+      <button type="button" class="ask-btn prompt-assign-btn">Assign</button>
+    </div>
+    {% else %}
+    <p class="prompt-readonly">Waiting for the right person to answer.</p>
+    {% endif %}
     <div class="msg prompt-msg"></div>
   </div>
   {% endfor %}
@@ -171,30 +212,44 @@
 
 <script>
 (function() {
+  async function loadIdentifiedGaps(body, btn) {
+    const msg = document.getElementById('reloadGapsMsg');
+    if (btn) btn.disabled = true;
+    msg.textContent = 'Loading…';
+    msg.className = 'msg';
+    try {
+      const res = await fetch('/api/ask-pps/load-identified-gaps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        msg.textContent = data.error || 'Could not load.';
+        msg.className = 'msg err';
+        if (btn) btn.disabled = false;
+        return;
+      }
+      const detail = (data.psc_candidates || 0) + ' PSC, ' + (data.feedback_candidates || 0) + ' feedback, ' + (data.audit_candidates || 0) + ' audit';
+      msg.textContent = 'Added ' + (data.created || 0) + ' (' + detail + ') — reloading…';
+      msg.className = 'msg ok';
+      setTimeout(function() { window.location.reload(); }, 600);
+    } catch (e) {
+      msg.textContent = 'Network error.';
+      msg.className = 'msg err';
+      if (btn) btn.disabled = false;
+    }
+  }
+  const bankBtn = document.getElementById('bankGapsBtn');
+  if (bankBtn) {
+    bankBtn.addEventListener('click', function() {
+      loadIdentifiedGaps({ bank_mode: true }, bankBtn);
+    });
+  }
   const reloadBtn = document.getElementById('reloadGapsBtn');
   if (reloadBtn) {
-    reloadBtn.addEventListener('click', async function() {
-      const msg = document.getElementById('reloadGapsMsg');
-      reloadBtn.disabled = true;
-      msg.textContent = 'Loading…';
-      msg.className = 'msg';
-      try {
-        const res = await fetch('/api/ask-pps/load-identified-gaps', { method: 'POST' });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          msg.textContent = data.error || 'Could not load.';
-          msg.className = 'msg err';
-          reloadBtn.disabled = false;
-          return;
-        }
-        msg.textContent = 'Added ' + (data.created || 0) + ' — reloading…';
-        msg.className = 'msg ok';
-        setTimeout(function() { window.location.reload(); }, 600);
-      } catch (e) {
-        msg.textContent = 'Network error.';
-        msg.className = 'msg err';
-        reloadBtn.disabled = false;
-      }
+    reloadBtn.addEventListener('click', function() {
+      loadIdentifiedGaps({ bank_mode: false, assign_to: '{{ session.user_key|e }}' }, reloadBtn);
     });
   }
 
@@ -245,6 +300,74 @@
   askBtn.addEventListener('click', doAsk);
   qInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); doAsk(); }
+  });
+
+  document.querySelectorAll('.prompt-skip-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      const card = btn.closest('.prompt-card');
+      const msgEl = card.querySelector('.prompt-msg');
+      btn.disabled = true;
+      msgEl.textContent = 'Skipping…';
+      msgEl.className = 'msg';
+      try {
+        const res = await fetch('/api/ask-pps/prompt-skip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt_id: parseInt(card.dataset.promptId, 10) }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          msgEl.textContent = data.error || 'Could not skip.';
+          msgEl.className = 'msg err';
+          btn.disabled = false;
+          return;
+        }
+        card.style.opacity = '0.5';
+        msgEl.textContent = 'Skipped — reload for next prompt.';
+        msgEl.className = 'msg ok';
+      } catch (e) {
+        msgEl.textContent = 'Network error.';
+        msgEl.className = 'msg err';
+        btn.disabled = false;
+      }
+    });
+  });
+
+  document.querySelectorAll('.prompt-assign-btn').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      const card = btn.closest('.prompt-card');
+      const msgEl = card.querySelector('.prompt-msg');
+      const targetUser = card.querySelector('.prompt-assign-user')?.value || '';
+      const targetRole = card.querySelector('.prompt-assign-role')?.value || 'consultant';
+      btn.disabled = true;
+      msgEl.textContent = 'Assigning…';
+      msgEl.className = 'msg';
+      try {
+        const res = await fetch('/api/ask-pps/prompt-assign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt_id: parseInt(card.dataset.promptId, 10),
+            target_user_key: targetUser || null,
+            target_role: targetRole,
+            perspective: 'field',
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          msgEl.textContent = data.error || 'Could not assign.';
+          msgEl.className = 'msg err';
+          btn.disabled = false;
+          return;
+        }
+        msgEl.textContent = 'Assigned — they will see it on their Ask PPS page.';
+        msgEl.className = 'msg ok';
+      } catch (e) {
+        msgEl.textContent = 'Network error.';
+        msgEl.className = 'msg err';
+        btn.disabled = false;
+      }
+    });
   });
 
   document.querySelectorAll('.prompt-submit-btn').forEach(function(btn) {

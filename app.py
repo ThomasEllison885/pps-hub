@@ -2798,8 +2798,8 @@ def dashboard():
                 conn_ask.close()
         except Exception as e:
             print(f'Ask PPS dashboard count error: {e}')
-    ask_pps_prompt = ask_pps.get_next_prompt_for_user(get_db, user_key, user_role)
-    ask_pps_prompt_queue = len(ask_pps.get_prompts_for_user(get_db, user_key, user_role))
+    ask_pps_prompt = ask_pps.get_next_prompt_for_user(get_db, USERS, user_key, user_role)
+    ask_pps_prompt_queue = len(ask_pps.get_prompts_for_user(get_db, USERS, user_key, user_role))
     return render_template(
         'dashboard.html',
         user=user,

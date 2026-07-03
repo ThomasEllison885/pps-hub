@@ -65,7 +65,8 @@
         until field confirms.
       </p>
       <div class="btn-row" style="margin-bottom:10px;">
-        <button type="button" class="btn btn-primary" id="syncIdentifiedBtn">Generate identified gaps → my queue</button>
+        <button type="button" class="btn btn-primary" id="syncBankBtn">Generate identified gaps → field bank</button>
+        <button type="button" class="btn btn-muted" id="syncIdentifiedBtn">Generate identified gaps → my queue</button>
         <button type="button" class="btn btn-muted" id="syncGapPromptsBtn">Prompt field from open gaps</button>
         <button type="button" class="btn btn-muted" id="syncGapPolicyBtn">Also ask leadership (policy)</button>
         <button type="button" class="btn btn-muted" id="syncThinBtn">Prompt thin categories</button>
@@ -74,6 +75,7 @@
       <p style="font-size:12px;color:#888;margin:0 0 14px;">
         Identified now:
         <strong>{{ psc_gap_preview or 0 }}</strong> PSC Training [TO DOCUMENT] blanks,
+        <strong>{{ feedback_gap_preview or 0 }}</strong> PSC feedback themes,
         <strong>{{ audit_gap_preview or 0 }}</strong> cross-cutting knowledge gaps
         (skips topics already in the knowledge base).
       </p>
@@ -129,6 +131,7 @@
           {% if pr.source_type == 'gap' %} · from Q&amp;A gap
           {% elif pr.source_type == 'thin_category' %} · thin category
           {% elif pr.source_type == 'psc_gap' %} · PSC Training blank
+          {% elif pr.source_type == 'psc_feedback' %} · PSC feedback theme
           {% elif pr.source_type == 'audit_gap' %} · knowledge audit{% endif %}
           {% if pr.field_role_hint %} · suggest field: {{ pr.field_role_hint }}{% endif %}
           · {{ pr.answer_count or 0 }} answer{% if pr.answer_count != 1 %}s{% endif %}
@@ -322,16 +325,28 @@ async function syncPrompts(includePolicy) {
     msg.textContent = data.error || 'Sync failed.';
   }
 }
-document.getElementById('syncIdentifiedBtn').addEventListener('click', async function() {
+async function syncIdentifiedGaps(body) {
   const msg = document.getElementById('syncPromptMsg');
-  msg.textContent = 'Scanning PSC Training + knowledge gaps…';
-  const res = await fetch('/admin/ask-pps/prompts/sync-identified', { method: 'POST' });
+  msg.textContent = 'Scanning PSC Training + feedback + knowledge gaps…';
+  const res = await fetch('/admin/ask-pps/prompts/sync-identified', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
   const data = await res.json();
   if (data.ok) {
-    msg.textContent = 'Added ' + (data.created || 0) + ' to your queue (' + (data.psc_candidates || 0) + ' PSC, ' + (data.audit_candidates || 0) + ' audit). Reload page.';
+    const detail = (data.psc_candidates || 0) + ' PSC, ' + (data.feedback_candidates || 0) + ' feedback, ' + (data.audit_candidates || 0) + ' audit';
+    const dest = body && body.bank_mode ? 'field bank' : 'your queue';
+    msg.textContent = 'Added ' + (data.created || 0) + ' to ' + dest + ' (' + detail + '). Reload page.';
   } else {
     msg.textContent = data.error || 'Sync failed.';
   }
+}
+document.getElementById('syncBankBtn').addEventListener('click', function() {
+  syncIdentifiedGaps({ bank_mode: true });
+});
+document.getElementById('syncIdentifiedBtn').addEventListener('click', function() {
+  syncIdentifiedGaps({ bank_mode: false });
 });
 document.getElementById('syncGapPromptsBtn').addEventListener('click', function() { syncPrompts(false); });
 document.getElementById('syncGapPolicyBtn').addEventListener('click', function() { syncPrompts(true); });
