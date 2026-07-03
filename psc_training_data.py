@@ -6,11 +6,11 @@ PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
-        'A 12-week program (Weeks 1–12, plus Week 0 foundations) covering PPS culture and voice, '
-        'company operations (Monday.com, estimating, Trade Partners, project lifecycle), sales fundamentals, '
-        'construction trades by property segment, field shadowing, and PPS tools. '
+        'A 12-week program (Weeks 0–12) built around judgment and communication — not just construction knowledge. '
+        'You will partner with an experienced consultant on real projects, learn how PPS evaluates scope and earns trust, '
+        'and use the Hub and Monday.com for consistency while developing the decision-making clients rely on. '
         'Company operations modules run Weeks 0–3 before trade depth ramps up. '
-        'The 4 Disciplines of Execution runs all four hospitality/commercial weeks — it is the densest read. '
+        'The 4 Disciplines of Execution runs Weeks 9–12 — the densest read. '
         'Enrolled when you start — not tied to any specific past hire.'
     ),
     'duration_weeks': 12,
@@ -79,11 +79,48 @@ FOUR_DX_WEEKLY = [
 PSC_CORE_VALUES = {
     'title': 'Mission, Values & PPS Voice',
     'intro': (
-        'This is training — not a document to memorize. Work through each activity before your first '
-        'client-facing assignment. The PPS Voice Guide powers the Proposal Generator; these exercises '
-        'teach you how to use it, adapt it, and represent PPS on site and in writing.'
+        'Start with the PSC role and mindset — then values and voice. This is training, not a document to memorize. '
+        'Work through each activity before your first client-facing assignment. The Proposal Generator applies PPS voice; '
+        'these exercises teach you how to evaluate projects, communicate with every stakeholder, and represent PPS on site.'
     ),
     'sections': [
+        {
+            'id': 'cv_psc_role',
+            'title': 'The PSC Role — Purpose & Mindset',
+            'content': (
+                'A Property Solutions Consultant drives revenue by earning awarded contracts through trusted relationships '
+                'with every stakeholder on a project — property manager, board, PM, Trade Partners, and residents or homeowners. '
+                'Sales are the measurable outcome; trust is what earns them. Construction knowledge deepens over time; '
+                'judgment, ownership, professionalism, and communication establish trust from day one.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_psc_role_stakeholders',
+                    'title': 'Map your stakeholders',
+                    'text': (
+                        'For apartment, condo, and one hospitality or commercial account you will touch, list who approves work, '
+                        'who manages day-to-day, and who is affected by the work. Note what each group cares about most. '
+                        'Review with your manager.'
+                    ),
+                },
+                {
+                    'id': 'cv_psc_role_advocacy',
+                    'title': 'Client advocacy vs. protecting PPS',
+                    'text': (
+                        'Write two sentences: how you advocate for the client without over-promising scope, schedule, or price '
+                        'that production has not confirmed. Share examples your manager has seen go well — and go wrong.'
+                    ),
+                },
+                {
+                    'id': 'cv_psc_role_ownership',
+                    'title': 'Ownership in everyday situations',
+                    'text': (
+                        'Describe what exceptional ownership looks like on: a delayed mobilization, a resident complaint, '
+                        'and a scope question you cannot answer on site. Your manager coaches tone and escalation — not scripts.'
+                    ),
+                },
+            ],
+        },
         {
             'id': 'cv_mission',
             'title': 'PPS Mission',
@@ -292,10 +329,50 @@ PSC_CORE_VALUES = {
 PSC_SALES_TRAINING = {
     'title': 'PPS Sales Training',
     'intro': (
-        'Use this section to build or sharpen sales skills. Work through it alongside your weekly trade training — '
-        'especially prospecting weeks 5–8. Your manager can assign specific modules based on what you need.'
+        'PPS wins work through relationships and communication as much as scope quality. Use this section alongside '
+        'weekly trade training — especially prospecting weeks 5–8. Your manager assigns modules based on what you need; '
+        'prioritize communication and judgment modules in your first 90 days.'
     ),
     'modules': [
+        {
+            'id': 'sales_communication',
+            'title': 'Communication, Judgment & Difficult Conversations',
+            'items': [
+                {
+                    'id': 'sales_comm_proactive',
+                    'title': 'Proactive communication standard',
+                    'text': (
+                        'Clients remember how they were communicated with as much as the finished work. '
+                        'List the touchpoints you owe on an active job: proposal follow-up, award, mobilization notice, '
+                        'mid-project updates, and close-out. Confirm cadence with your manager and Monday.com.'
+                    ),
+                },
+                {
+                    'id': 'sales_comm_stakeholders',
+                    'title': 'Different audiences, different messages',
+                    'text': (
+                        'Same project update — write one sentence for the property manager, one for a condo board context, '
+                        'and one internal note for your PM. Tone and detail should match who needs what.'
+                    ),
+                },
+                {
+                    'id': 'sales_comm_difficult',
+                    'title': 'Difficult conversation drills',
+                    'text': (
+                        'Role-play with your manager: schedule delay, concealed conditions, change order, and callback. '
+                        'Focus on listening first, documenting, and who you loop in before committing.'
+                    ),
+                },
+                {
+                    'id': 'sales_comm_uncertainty',
+                    'title': 'Reduce uncertainty',
+                    'text': (
+                        'Your value is not only estimating — it is aligning expectations and being a reliable point of contact. '
+                        'After shadowing, note one moment where clear communication prevented a problem. Write what you would do differently.'
+                    ),
+                },
+            ],
+        },
         {
             'id': 'sales_pipeline',
             'title': 'Pipeline & Prospecting',
@@ -413,16 +490,61 @@ PSC_SALES_TRAINING = {
 PSC_COMPANY_OPERATIONS = {
     'title': 'PPS Company Operations',
     'intro': (
-        'How PPS actually runs — not generic construction knowledge. Work through these modules in Weeks 0–3 '
-        'with your manager before trade training goes deep. Each module has SOP bullets (being filled in from '
-        'leadership capture sessions), a required manager 1:1, and hands-on exercises. '
-        'If it is not written here yet, your 1:1 is where it gets documented.'
+        'How PPS actually runs — not generic construction knowledge. Weeks 0–3 pair you with an experienced consultant '
+        'on real projects while you complete these modules with your manager. Each module has SOP bullets (many still '
+        'being captured from the field), a required manager 1:1, and hands-on exercises. '
+        'Training develops judgment and confidence — not just information transfer.'
     ),
     'draft_note': (
-        'SOP sections marked [TO DOCUMENT] are placeholders — complete the manager 1:1 and help fill gaps '
-        'your manager captures after each session.'
+        'SOP sections marked [TO DOCUMENT] are gaps we are filling through Ask PPS and manager capture sessions. '
+        'Field reality may differ from leadership intent — document what actually happens.'
     ),
     'modules': [
+        {
+            'id': 'ops_partner_projects',
+            'title': 'Partner-Project Onboarding (5–10 Projects)',
+            'assigned_week': 0,
+            'summary': (
+                'New PSCs learn fastest by partnering with an experienced consultant on 5–10 complete projects — '
+                'from opportunity through close-out — with responsibility shifting gradually from observation to participation '
+                'to independent execution with coaching.'
+            ),
+            'sop_placeholders': [
+                'Mentor consultant assigned by VP Sales; project mix includes apartment and condo if possible',
+                'Progressive ownership: observe → participate → lead with manager/mentor coaching at each stage',
+                'Exposure required: opportunity, discovery, site visit, estimate/proposal, award, PPM, mobilization, '
+                'active job, change orders, callbacks, punch/close-out',
+                'Post-project debrief after each partner project — lessons learned and decision-making review',
+                '[TO DOCUMENT] Criteria for when a PSC is cleared for independent client-facing work',
+            ],
+            'manager_1on1': (
+                '45-minute kickoff: name your mentor consultant, list the first 3–5 partner projects in Monday.com, '
+                'and agree how you will track observation vs. participation on each.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_partner_kickoff',
+                    'title': 'Partner-project kickoff',
+                    'text': 'Meet your mentor consultant. Confirm which active or upcoming jobs you will join and your role on each.',
+                },
+                {
+                    'id': 'ops_partner_log',
+                    'title': 'Partner-project log',
+                    'text': (
+                        'Start a simple log (Monday.com or notes): project name, stage you observed, what you owned, '
+                        'one judgment call you watched, and one question for debrief.'
+                    ),
+                },
+                {
+                    'id': 'ops_partner_debrief',
+                    'title': 'First project debrief',
+                    'text': (
+                        'After your first partner project milestone (site visit, proposal, or mobilization), '
+                        '30-minute debrief with mentor + manager: what would you do differently alone?'
+                    ),
+                },
+            ],
+        },
         {
             'id': 'ops_monday',
             'title': 'Monday.com at PPS',
@@ -465,14 +587,18 @@ PSC_COMPANY_OPERATIONS = {
             'title': 'Project Lifecycle at PPS',
             'assigned_week': 0,
             'summary': (
-                'End-to-end flow from first site visit through close-out — and where the PSC leads vs. supports the PM.'
+                'End-to-end flow from first client conversation through close-out — opportunity, discovery, site visit, '
+                'proposal, award, PPM, mobilization, production, change orders, callbacks, and punch/close-out. '
+                'Know where the PSC leads vs. supports the PM at each stage.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] Site visit → scope capture → proposal → client review',
-                '[TO DOCUMENT] Award → PPM → mobilization → active job',
-                '[TO DOCUMENT] Change orders — when, who approves, how documented',
-                '[TO DOCUMENT] Punch list and close-out handoff',
-                '[TO DOCUMENT] PSC responsibilities vs. PM vs. production at each stage',
+                'Opportunity & discovery → site visit → scope capture → proposal → client review conversation (never cold-send)',
+                'Award → PPM → mobilization → active job — PSC stays the relationship point of contact',
+                'Change orders: cease/document/approve in writing before extra work; PSC coordinates client, PM owns field',
+                'Punch list and close-out walkthrough — who attends, what gets documented',
+                'PSC leads: relationship, scope narrative, client communication, site visit quality',
+                'PM/production lead: crew schedule, Trade Partner coordination, field execution',
+                '[TO DOCUMENT] Callback and warranty handoff at close-out',
             ],
             'manager_1on1': (
                 '45-minute session: trace one real job on Monday.com and in Hub history from site visit to '
@@ -500,18 +626,68 @@ PSC_COMPANY_OPERATIONS = {
             ],
         },
         {
-            'id': 'ops_estimating',
-            'title': 'How PPS Estimates',
+            'id': 'ops_project_evaluation',
+            'title': 'Project Evaluation & Scope Development',
             'assigned_week': 1,
             'summary': (
-                'Site visit inputs, scope decisions, pricing, Hub tools, and when production or Trade Partners weigh in.'
+                'The Hub standardizes proposal output; your job is judgment — identify the real issue, understand client objectives, '
+                'surface unknown conditions, and develop the right scope before you generate a proposal.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] What to capture on a site visit (photos, measurements, failure modes, access, phasing)',
-                '[TO DOCUMENT] Which Hub tools per trade — Proposal Generator, estimate tools, Trade Partner Scope',
-                '[TO DOCUMENT] Who builds pricing — PSC, PM, production, Trade Partner input',
-                '[TO DOCUMENT] When to escalate scope uncertainty before sending a proposal',
-                '[TO DOCUMENT] Quality bar before a proposal leaves PPS',
+                'Define the existing problem before proposing a solution — observations, photos, measurements, questions',
+                'Document unknown conditions and assumptions; use concealed-condition language when appropriate',
+                'Scope decisions: what is in, what is excluded, alternatives (e.g. one coat vs. two), who supplies materials',
+                'Proposal review = coaching on decision-making, not just formatting',
+                'Hub Proposal Generator + estimators + Scope Library — tools apply after evaluation is sound',
+                '[TO DOCUMENT] Standard site-visit checklist by trade',
+            ],
+            'manager_1on1': (
+                '60-minute session: walk a recent site visit or hub proposal. Manager narrates how they identified the issue, '
+                'what they chose to exclude, and what they would not price without PM input.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_eval_issue_first',
+                    'title': 'Issue before solution',
+                    'text': (
+                        'On a partner-project site visit, write: what is failing, why it matters to the client, '
+                        'and what you still do not know. Do not scope until your manager reviews.'
+                    ),
+                },
+                {
+                    'id': 'ops_eval_unknowns',
+                    'title': 'Unknown conditions log',
+                    'text': (
+                        'List three unknowns you would flag on a real property (access, concealed damage, phasing). '
+                        'Draft how you would communicate each without over-promising.'
+                    ),
+                },
+                {
+                    'id': 'ops_eval_review',
+                    'title': 'Proposal review as coaching',
+                    'text': (
+                        'Review a hub proposal with your manager — for each major scope section, explain the reasoning '
+                        '(not just the line item). Note one assumption you would challenge.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_estimating',
+            'title': 'How PPS Estimates & Pricing',
+            'assigned_week': 1,
+            'summary': (
+                'You do not need to be a production estimator — but you must know how pricing is built, what information '
+                'PMs need from your site visit, and how complexity, mobilization, risk, and Trade Partner input affect the number.'
+            ),
+            'sop_placeholders': [
+                'Site visit capture: photos, measurements, failure modes, access, phasing, resident impact',
+                'Hub tools by trade: Proposal Generator, trade estimators, Trade Partner Scope',
+                'PSC gathers information and defines scope; PM/production builds production pricing with Trade Partner input',
+                'Escalate scope uncertainty before the client sees a proposal',
+                'Hub pricing defaults are starting points — final numbers confirmed with Tony/PM for context',
+                'Quality bar: proposal reviewed in conversation with client; PPS voice; no unconfirmed schedule promises',
+                '[TO DOCUMENT] Central reference for common unit costs by trade',
             ],
             'manager_1on1': (
                 '60-minute session: open a recent estimate or proposal in Hub history. Manager narrates every '
@@ -539,20 +715,60 @@ PSC_COMPANY_OPERATIONS = {
             ],
         },
         {
+            'id': 'ops_decision_ownership',
+            'title': 'Decision-Making & Who Owns What',
+            'assigned_week': 2,
+            'summary': (
+                'Flexibility is required on every job — but new consultants need a framework for who leads, who collaborates, '
+                'and when to escalate pricing, callbacks, scope changes, and client communication.'
+            ),
+            'sop_placeholders': [
+                'PSC primary: client relationship, site visit quality, scope narrative, proposal delivery conversation',
+                'PM primary: field schedule, Trade Partner coordination, production execution, change orders in field',
+                'Tony/leadership: pricing exceptions, major client escalations, proposal sign-off when assigned',
+                'Loop in PM before: promising dates, pricing beyond proposal, scope not documented, resident complaints on site',
+                'Simple guides for: pricing support, callbacks, change orders, concealed conditions',
+                '[TO DOCUMENT] After-hours and urgent site escalation path',
+            ],
+            'manager_1on1': (
+                '30-minute scenario session: three situations — callback, change order, client wants price today. '
+                'For each, name primary owner, who you copy, and what you never decide alone.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_ownership_card',
+                    'title': 'Ownership quick-reference',
+                    'text': (
+                        'One-page card: I own / PM owns / escalate to leadership — for pricing, schedule, scope changes, '
+                        'callbacks, and client complaints. Manager signs off.'
+                    ),
+                },
+                {
+                    'id': 'ops_ownership_scenarios',
+                    'title': 'Three scenario walk-throughs',
+                    'text': (
+                        'With your manager, walk through real hub/Monday examples of a change order, a schedule slip, '
+                        'and a scope dispute. Note who moved each phase forward.'
+                    ),
+                },
+            ],
+        },
+        {
             'id': 'ops_trade_partners',
             'title': 'Trade Partners — Find, Vet & Work With Subs',
             'assigned_week': 2,
             'summary': (
-                'How PPS finds subs, vets them, scopes work, schedules crews, and manages QC — '
-                'without over-promising to clients.'
+                'Trade Partners are an extension of the PPS team. Learn through partner projects — estimating conversations, '
+                'scope discussions, and site coordination alongside your mentor — not in isolation.'
             ),
             'sop_placeholders': [
                 '[TO DOCUMENT] How we find and recruit new Trade Partners',
                 '[TO DOCUMENT] Vetting criteria — insurance, references, trade quality, responsiveness',
-                '[TO DOCUMENT] Trade Partner Scope handoff — crew-ready language',
-                '[TO DOCUMENT] Scheduling, resident notice, and day-one escalation paths',
+                'Trade Partner Scope = crew-ready language; PSC does not promise scope production has not confirmed',
+                'Scheduling and 48-hour resident notice — PM/production lead; PSC communicates to client',
                 '[TO DOCUMENT] QC expectations and payment triggers',
-                '[TO DOCUMENT] What PSCs never promise without production confirmation',
+                'Include new PSC in Trade Partner site visits and estimate conversations during partner projects',
+                '[TO DOCUMENT] Preferred Trade Partner reference — trade, contact, specialty',
             ],
             'manager_1on1': (
                 '45-minute session: review one Trade Partner Scope document and the Monday.com/production '
@@ -587,11 +803,12 @@ PSC_COMPANY_OPERATIONS = {
                 'Who gets copied when, resident-aware communication, 48-hour notice, and escalation paths.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] Standard client touchpoints — site visit follow-up, proposal delivery, award, mobilization',
-                '[TO DOCUMENT] 48-hour notice and resident communication expectations',
-                '[TO DOCUMENT] Who to copy on emails — PM, production, ownership',
-                '[TO DOCUMENT] Escalation paths for complaints, schedule slips, and scope disputes',
-                '[TO DOCUMENT] What never goes to a client without manager or PM review',
+                'Touchpoints: site visit follow-up, proposal review call (not cold email), award, mobilization, mid-job, close-out',
+                '48-hour notice and resident communication through property management',
+                'Copy PM/production on schedule, scope, and complaint threads; ownership on major investment decisions',
+                'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Tony/manager',
+                'Never to client without PM/manager review: production dates, pricing outside proposal, scope commitments',
+                '[TO DOCUMENT] Communication examples library by phase (templates in progress)',
             ],
             'manager_1on1': (
                 '30-minute role-play: proposal review call, schedule delay conversation, and resident complaint '
@@ -614,6 +831,43 @@ PSC_COMPANY_OPERATIONS = {
                     'text': (
                         'Write a one-page reference: PM contact, production contact, urgent site issues, '
                         'after-hours path. Confirm with your manager and save in Monday.com.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_callbacks',
+            'title': 'Callbacks, Warranty & Service Recovery',
+            'assigned_week': 3,
+            'summary': (
+                'Callbacks affect trust as much as the original install. Know the operational process and your communication '
+                'role — respond quickly, set expectations, document findings, and follow through to resolution.'
+            ),
+            'sop_placeholders': [
+                'PSC role: acknowledge promptly, coordinate through PM, document with photos, no blame language to client',
+                'Internal: log in Monday.com, assign field owner, track to resolution',
+                'Warranty language: PPS labor vs. manufacturer — do not improvise; use documented trade language',
+                '[TO DOCUMENT] Standard callback intake and close-out checklist',
+                'Use completed callbacks as partner-project learning — debrief what communication worked',
+            ],
+            'manager_1on1': (
+                '30-minute review: walk one real callback from report to resolution. Role-play the client update you would send.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_callback_role',
+                    'title': 'Your role on a callback',
+                    'text': (
+                        'Shadow or review a callback case. Write: first client response, who you loop in, '
+                        'what you document, and how you close the loop with the client.'
+                    ),
+                },
+                {
+                    'id': 'ops_callback_draft',
+                    'title': 'Service recovery draft',
+                    'text': (
+                        'Draft a short client update for a hypothetical warranty call-back (schedule TBD, findings pending). '
+                        'Manager coaches tone — proactive, accountable, no over-promise.'
                     ),
                 },
             ],
@@ -684,6 +938,13 @@ PSC_ONBOARDING = {
             'text': 'Meet with your manager for a 60-minute PPS orientation: org chart, who does what, and your first 30/60/90-day goals.',
         },
         {
+            'id': 'w0_shadow_partner',
+            'text': (
+                'Meet your mentor consultant and join your first partner project touchpoint (site visit, client call, or proposal review) '
+                'before Week 1 — observe only; debrief with manager same week.'
+            ),
+        },
+        {
             'id': 'w0_shadow_ride',
             'text': 'Ride along on one consultant site visit before Week 1 ends — observe how scope is discussed with property staff.',
         },
@@ -732,11 +993,19 @@ PSC_ONBOARDING = {
     ],
     'pps_focus': [
         {
+            'id': 'w0_focus_partner',
+            'title': 'Partner-project onboarding — start here',
+            'text': (
+                'Complete the Partner-Project Onboarding module first: mentor assigned, 3–5 projects identified, '
+                'partner-project log started. This runs parallel to all Week 0–3 operations modules.'
+            ),
+        },
+        {
             'id': 'w0_focus_ops',
             'title': 'Company Operations — Monday.com & project lifecycle',
             'text': (
-                'Priority before trade depth: complete the Monday.com at PPS and Project Lifecycle modules '
-                'in the PPS Company Operations reference section (manager 1:1 required for each).'
+                'Complete Monday.com at PPS and Project Lifecycle modules in the Company Operations section '
+                '(manager 1:1 required for each).'
             ),
         },
         {
@@ -1389,8 +1658,20 @@ PSC_TRAINING_WEEKS = [
                 'title': 'Commit to weekly accountability',
                 'text': 'Schedule a recurring 30-minute WIG session with your manager for your first 90 days post-graduation.',
             },
+            {
+                'id': 'w12_focus_continuous',
+                'title': 'Continuous learning — after graduation',
+                'text': (
+                    'Onboarding is the start, not the finish. Commit to: monthly proposal review with manager, '
+                    'one post-project debrief per quarter, and contributing one lesson learned to the team '
+                    '(Ask PPS or manager capture).'
+                ),
+            },
         ],
-        'manager_checkin': 'Final graduation sign-off — VP Sales + President notified.',
+        'manager_checkin': (
+            'Final graduation sign-off — partner-project log reviewed, 90-day WIG approved, '
+            'VP Sales + President notified. Schedule first post-graduation coaching cadence.'
+        ),
     },
 ]
 

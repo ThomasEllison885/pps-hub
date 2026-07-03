@@ -547,20 +547,28 @@ THIN_CATEGORY_THRESHOLD = 3
 THIN_CATEGORY_SKIP = frozenset({'team_directory', 'voice_language'})
 
 PSC_MODULE_CATEGORY = {
+    'ops_partner_projects': 'training_core_values',
     'ops_monday': 'company_operations',
     'ops_lifecycle': 'production_process',
+    'ops_project_evaluation': 'sales_process',
     'ops_estimating': 'sales_process',
+    'ops_decision_ownership': 'company_operations',
     'ops_trade_partners': 'production_process',
     'ops_client_comms': 'sales_process',
+    'ops_callbacks': 'production_process',
     'ops_common_mistakes': 'training_core_values',
 }
 
 PSC_MODULE_FIELD_ROLE = {
+    'ops_partner_projects': 'consultant',
     'ops_monday': 'consultant',
     'ops_lifecycle': 'pm',
+    'ops_project_evaluation': 'consultant',
     'ops_estimating': 'consultant',
+    'ops_decision_ownership': 'consultant',
     'ops_trade_partners': 'pm',
     'ops_client_comms': 'consultant',
+    'ops_callbacks': 'pm',
     'ops_common_mistakes': 'consultant',
 }
 
