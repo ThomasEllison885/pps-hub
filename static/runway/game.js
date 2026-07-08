@@ -64,11 +64,12 @@
   }
 
   function aircraftType(id) {
-    return bootstrap.aircraft_types[id];
+    return (bootstrap.aircraft_types || {})[id] || null;
   }
 
   function aircraftSeats(acType, configured) {
     const ac = aircraftType(acType);
+    if (!ac) return configured || 0;
     const s = configured || ac.seats;
     return Math.min(ac.seats_max || ac.seats, Math.max(ac.seats_min || ac.seats, s));
   }
@@ -79,6 +80,7 @@
 
   function isSmallAircraft(acType) {
     const ac = aircraftType(acType);
+    if (!ac) return false;
     const max = ac.seats_max || ac.seats;
     return max < 76;
   }
@@ -173,7 +175,7 @@
       paused_reason: null,
     };
     sanitizeMarketingSpend();
-    ensureFleet();
+    normalizeGameState();
     resetMapView();
     pushEvent(`Started: ${base.name}`);
     saveGame();
@@ -229,6 +231,25 @@
     state.macro.country_health = computeCountryHealth();
   }
 
+  function normalizeGameState() {
+    if (!state) return;
+    state.fleet = Array.isArray(state.fleet) ? state.fleet : [];
+    state.gates = Array.isArray(state.gates) ? state.gates : [];
+    state.routes = Array.isArray(state.routes) ? state.routes : [];
+    state.debt = Array.isArray(state.debt) ? state.debt : [];
+    state.bonds = Array.isArray(state.bonds) ? state.bonds : [];
+    state.events = Array.isArray(state.events) ? state.events : [];
+    state.milestones = Array.isArray(state.milestones) ? state.milestones : [];
+    state.revenue_history = Array.isArray(state.revenue_history) ? state.revenue_history : [];
+    state.marketing_spend_monthly = state.marketing_spend_monthly || {};
+    state.brand_awareness = state.brand_awareness || {};
+    if (!Number.isFinite(state.fuel_price)) {
+      state.fuel_price = bootstrap.fuel_base || 2.85;
+    }
+    ensureMacro();
+    ensureFleet();
+  }
+
   function ensureFleet() {
     if (!state || !state.fleet) return;
     state.fleet.forEach((f) => {
@@ -244,7 +265,7 @@
         f.lease_months_left = 60;
       }
     });
-    state.routes.forEach((r) => {
+    (state.routes || []).forEach((r) => {
       if (!r.aircraft_id && state.fleet.length) {
         const match = state.fleet.find((f) => f.type === r.aircraft_type);
         if (match) r.aircraft_id = match.id;
@@ -396,7 +417,8 @@
   function fleetMonthlyCosts() {
     return state.fleet.reduce((s, f) => {
       const ac = aircraftType(f.type);
-      if (f.leased) return s + ac.lease_monthly;
+      if (!ac) return s;
+      if (f.leased) return s + (ac.lease_monthly || 0);
       return s + (ac.maintenance_monthly || 0);
     }, 0);
   }
@@ -429,6 +451,7 @@
   function routeDistance(route) {
     const o = airport(route.origin);
     const d = airport(route.dest);
+    if (!o || !d) return Infinity;
     return haversineNm(o.lat, o.lon, d.lat, d.lon);
   }
 
@@ -439,8 +462,9 @@
   function demandForRoute(route) {
     const o = airport(route.origin);
     const d = airport(route.dest);
-    const dist = routeDistance(route);
     const ac = aircraftType(route.aircraft_type);
+    if (!o || !d || !ac) return 0;
+    const dist = routeDistance(route);
     if (dist > ac.range_nm) return 0;
 
     const regionalBoost = (o.regional || d.regional) && isSmallAircraft(route.aircraft_type) ? 1.12 : 1;
@@ -462,8 +486,9 @@
 
   function simulateRouteDay(route) {
     const ac = aircraftType(route.aircraft_type);
+    if (!ac) return { revenue: 0, cost: 0, pax: 0, load: 0 };
     const dist = routeDistance(route);
-    if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0 };
+    if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0, load: 0 };
 
     const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
     const seats = plane ? fleetSeatCount(plane) : ac.seats;
@@ -534,7 +559,8 @@
           return true;
         });
         retired.forEach((f) => {
-          pushEvent(`Retired ${aircraftType(f.type).name} (${f.id}) — useful life ended.`);
+          const ac = aircraftType(f.type);
+          pushEvent(`Retired ${ac ? ac.name : f.type} (${f.id}) — useful life ended.`);
         });
       }
 
@@ -578,11 +604,14 @@
   }
 
   function setSpeed(speedId) {
+    if (!state) return;
     state.speed = speedId;
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = null;
-    const ms = bootstrap.tick_ms[speedId];
-    const days = bootstrap.time_speeds.find((t) => t.id === speedId)?.days_per_tick || 0;
+    const tickMs = bootstrap.tick_ms || {};
+    const ms = tickMs[speedId] || 0;
+    const speeds = bootstrap.time_speeds || [];
+    const days = speeds.find((t) => t.id === speedId)?.days_per_tick || 0;
     if (days > 0 && ms > 0) {
       tickTimer = setInterval(() => tickDays(days), ms);
     }
@@ -1041,18 +1070,22 @@
     `;
   }
 
+  function setText(id, text) {
+    const el = $(id);
+    if (el) el.textContent = text;
+  }
+
   function renderHud() {
     if (!state) return;
-    $('hud-cash').textContent = fmtMoney(state.cash);
-    $('hud-runway').textContent =
-      state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`;
-    $('hud-date').textContent = fmtDate(state.day);
-    $('hud-equity').textContent = `${state.equity_pct.toFixed(1)}%`;
-    $('hud-rep').textContent = state.reputation.toFixed(0);
-    $('hud-fuel').textContent = `$${state.fuel_price.toFixed(2)}/gal`;
-    $('hud-pnl').textContent = fmtMoney(state.daily_pnl);
-    $('hud-airline').textContent = state.airline_name;
-    $('hud-ltm').textContent = fmtMoney(state.ltm_revenue);
+    setText('hud-cash', fmtMoney(state.cash));
+    setText('hud-runway', state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`);
+    setText('hud-date', fmtDate(state.day));
+    setText('hud-equity', `${(state.equity_pct || 0).toFixed(1)}%`);
+    setText('hud-rep', (state.reputation || 0).toFixed(0));
+    setText('hud-fuel', `$${(state.fuel_price || 0).toFixed(2)}/gal`);
+    setText('hud-pnl', fmtMoney(state.daily_pnl));
+    setText('hud-airline', state.airline_name || 'Airline');
+    setText('hud-ltm', fmtMoney(state.ltm_revenue));
     const macroEl = $('hud-macro');
     if (macroEl && state.macro) {
       ensureMacro();
@@ -1129,6 +1162,10 @@
       html += '<ul class="list">';
       state.fleet.forEach((f) => {
         const ac = aircraftType(f.type);
+        if (!ac) {
+          html += `<li><strong>${f.type || 'Unknown aircraft'}</strong> — missing type data</li>`;
+          return;
+        }
         const seats = fleetSeatCount(f);
         const life = f.leased
           ? `${f.lease_months_left || '?'} mo lease left`
@@ -1140,8 +1177,9 @@
     }
 
     html += '<h4>Add aircraft</h4><p class="muted">Choose type → set seats → confirm lease or buy.</p><div class="fleet-grid">';
-    Object.keys(bootstrap.aircraft_types).forEach((tid) => {
+    Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
       const ac = aircraftType(tid);
+      if (!ac) return;
       const active = fleetPending && fleetPending.type === tid;
       html += `<div class="fleet-card ${active ? 'active' : ''}">
         <strong>${ac.name}</strong>
@@ -1190,7 +1228,8 @@
       state.routes.forEach((route) => {
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
-        html += `<tr><td>${route.origin}–${route.dest}</td><td>${route.frequency_week}/wk</td><td>$${route.fare}</td><td>${(r.load * 100).toFixed(0)}%</td><td>${fmtMoney(pnl)}</td></tr>`;
+        const loadPct = Number.isFinite(r.load) ? `${(r.load * 100).toFixed(0)}%` : '—';
+        html += `<tr><td>${route.origin}–${route.dest}</td><td>${route.frequency_week}/wk</td><td>$${route.fare}</td><td>${loadPct}</td><td>${fmtMoney(pnl)}</td></tr>`;
       });
       html += '</table>';
     }
@@ -1199,7 +1238,8 @@
       ? state.fleet
           .map((f) => {
             const ac = aircraftType(f.type);
-            return `<option value="${f.id}">${ac.name} (${fleetSeatCount(f)} seats)</option>`;
+            const label = ac ? ac.name : f.type || 'Aircraft';
+            return `<option value="${f.id}">${label} (${fleetSeatCount(f)} seats)</option>`;
           })
           .join('')
       : '<option value="">— add aircraft in Fleet tab —</option>';
@@ -1250,19 +1290,39 @@
   }
 
   function renderAll() {
-    renderHud();
-    drawMap();
-    renderFinance();
-    renderEconomy();
-    renderFleet();
-    renderRoutes();
-    renderEvents();
-    if (selectedAirport) renderAirportPanel(selectedAirport);
-    if (state.paused_reason) {
-      $('pause-banner').textContent = `Paused: ${state.paused_reason}`;
-      $('pause-banner').style.display = 'block';
-    } else {
-      $('pause-banner').style.display = 'none';
+    if (!state) return;
+    normalizeGameState();
+    const panels = [
+      renderHud,
+      drawMap,
+      renderFinance,
+      renderEconomy,
+      renderFleet,
+      renderRoutes,
+      renderEvents,
+    ];
+    panels.forEach((fn) => {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Runway render error:', fn.name || 'panel', err);
+      }
+    });
+    if (selectedAirport) {
+      try {
+        renderAirportPanel(selectedAirport);
+      } catch (err) {
+        console.error('Runway render error: renderAirportPanel', err);
+      }
+    }
+    const banner = $('pause-banner');
+    if (banner) {
+      if (state.paused_reason) {
+        banner.textContent = `Paused: ${state.paused_reason}`;
+        banner.style.display = 'block';
+      } else {
+        banner.style.display = 'none';
+      }
     }
   }
 
@@ -1292,8 +1352,7 @@
       if (data.airports) bootstrap.airports = data.airports;
       mergeAirportsFromBootstrap();
       sanitizeMarketingSpend();
-      ensureMacro();
-      ensureFleet();
+      normalizeGameState();
       return true;
     } catch (e) {
       return false;
@@ -1341,6 +1400,7 @@
     const raw = input ? input.value.trim() : '';
     const name = raw || (sc && sc.airline_name) || 'Your Airline';
     try {
+      fleetPending = null;
       showScreen('screen-game');
       newGame(pendingScenarioId, name);
       setSpeed('day');
@@ -1349,7 +1409,8 @@
       console.error('Runway: failed to start game', err);
       showScreen('screen-start');
       showScenarioPicker();
-      alert('Could not start the game. Try again or use New game to clear your save.');
+      const detail = err && err.message ? ` (${err.message})` : '';
+      alert(`Could not start the game${detail}. Try a hard refresh (Cmd+Shift+R), or clear your save with New game.`);
     }
   }
 
