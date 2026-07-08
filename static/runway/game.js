@@ -3939,6 +3939,25 @@
     };
   }
 
+  function fareSensitivityHtml(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    if (!plane) return '';
+    const market = marketFareForPair(draft.origin, draft.dest, plane.type);
+    const lowFare = Math.max(49, Math.round(draft.fare * 0.85));
+    const highFare = Math.min(899, Math.round(draft.fare * 1.15));
+    const base = projectRouteBusinessCase(draft);
+    const low = projectRouteBusinessCase({ ...draft, fare: lowFare });
+    const high = projectRouteBusinessCase({ ...draft, fare: highFare });
+    if (!base || !low || !high) return '';
+    const fmtNet = (e) =>
+      e.monthlyNet >= 0 ? fmtMoney(e.monthlyNet) + '/mo' : fmtMoney(e.monthlyNet) + '/mo loss';
+    return `<p class="judgment-fare-note">
+      Fare <b>$${draft.fare}</b> vs market <b>$${market}</b> — judgment updates as you change fare or frequency.
+      Sensitivity: <span class="muted">$${lowFare}</span> → ${(low.via.load * 100).toFixed(0)}% load · ${fmtNet(low)};
+      <span class="muted">$${highFare}</span> → ${(high.via.load * 100).toFixed(0)}% load · ${fmtNet(high)}.
+    </p>`;
+  }
+
   function routeBusinessJudgmentHtml(draft) {
     const econ = projectRouteBusinessCase(draft);
     if (!econ) return '<p class="muted">Select an aircraft to judge this route.</p>';
@@ -3969,6 +3988,7 @@
         <dt>Upfront at launch</dt><dd>${fmtMoney(econ.upfront)}</dd>
         <dt>Payback</dt><dd>${paybackLine}</dd>
       </dl>
+      ${fareSensitivityHtml(draft)}
       ${patienceNote}
     </div>`;
   }
