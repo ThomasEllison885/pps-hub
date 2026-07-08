@@ -957,6 +957,24 @@
     applyRouteFormDraftToDom();
   }
 
+  function syncRouteOriginFromMap(draft) {
+    if (!selectedAirport) return draft;
+    const ap = airport(selectedAirport);
+    const label = ap ? airportLabel(ap) : selectedAirport;
+    if (draft.origin === selectedAirport && draft.originLabel === label) return draft;
+    const next = {
+      ...draft,
+      origin: selectedAirport,
+      originLabel: label,
+    };
+    if (draft.origin !== selectedAirport) {
+      next.dest = '';
+      next.destLabel = '';
+    }
+    routeFormDraft = next;
+    return next;
+  }
+
   function applyRouteFormDraftToDom() {
     const draft = routeFormDraft || captureRouteFormDraft();
     const oSearch = $('rt-origin-search');
@@ -4877,7 +4895,18 @@
   }
 
   function selectAirport(iata) {
+    const prev = selectedAirport;
     selectedAirport = iata;
+    const ap = airport(iata);
+    if (prev !== iata) {
+      routeFormDraft = {
+        ...(routeFormDraft || captureRouteFormDraft()),
+        origin: iata,
+        originLabel: ap ? airportLabel(ap) : iata,
+        dest: '',
+        destLabel: '',
+      };
+    }
     const routesFrom = state.routes.filter((r) => r.origin === iata);
     applyAirportContext(iata);
     renderAirportPanel(iata);
@@ -5285,8 +5314,11 @@
     const freq = draft.freq || '7';
     const fare = draft.fare || '129';
 
+    const gateNote = hasGateAt(defOrigin)
+      ? '<span class="muted"> · gate leased</span>'
+      : '<span class="danger"> · lease a gate here first</span>';
     return `<p class="ops-section-title">Launch route</p>
-      <p class="muted route-origin-hint" style="font-size:0.75rem;">Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.</p>
+      <p class="muted route-origin-hint" style="font-size:0.75rem;">Launching from <b>${defOrigin}</b>${gateNote} — click map airports to change origin, or edit the field below.</p>
       <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
       <div id="route-preview" class="route-preview muted"></div>
@@ -5316,9 +5348,16 @@
   function refreshRouteLaunchFormSections(draft) {
     const form = $('route-launch-form');
     if (!form) return;
+    const oCode = $('rt-origin-code');
+    if (oCode && oCode.value !== draft.origin) applyRouteFormDraftToDom();
     const defOrigin = draft.origin || defaultRouteOrigin();
     const originHint = form.querySelector('.route-origin-hint');
-    if (originHint) originHint.innerHTML = `Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.`;
+    const gateNote = hasGateAt(defOrigin)
+      ? `<span class="muted"> · gate leased</span>`
+      : `<span class="danger"> · lease a gate here first</span>`;
+    if (originHint) {
+      originHint.innerHTML = `Launching from <b>${defOrigin}</b>${gateNote} — click map airports to change origin, or edit the field below.`;
+    }
     const acSelect = $('rt-aircraft');
     if (acSelect) {
       const prev = acSelect.value;
@@ -5337,10 +5376,11 @@
     const el = $('tab-routes');
     if (!el) return;
     const forceForm = !!(opts && opts.forceForm);
-    const draft = captureRouteFormDraft();
-    const mapOrigin = defaultRouteOrigin();
-    const mapAp = airport(mapOrigin);
-    if (!draft.dest && (!draft.origin || draft.origin === mapOrigin || !routeFormDraft)) {
+    let draft = captureRouteFormDraft();
+    draft = syncRouteOriginFromMap(draft);
+    if (!selectedAirport && !draft.origin) {
+      const mapOrigin = defaultRouteOrigin();
+      const mapAp = airport(mapOrigin);
       draft.origin = mapOrigin;
       draft.originLabel = mapAp ? airportLabel(mapAp) : draft.originLabel;
       routeFormDraft = draft;
@@ -5510,6 +5550,8 @@
     };
     const refresh = () => {
       captureRouteFormDraft();
+      const code = $('rt-origin-code');
+      if (code && code.value) selectedAirport = code.value;
       renderRouteSuggestions();
       updateRoutePreview();
     };
