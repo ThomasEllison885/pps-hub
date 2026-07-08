@@ -2051,7 +2051,7 @@
           total,
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
-            'Competitor alerts will pause the game when something big happens at your airports.',
+            'Competitor alerts pause the clock and drop you to <b>slow speed</b> so you can read them — press ▶ when you want normal day speed again.',
           'Watch cash runway in the HUD. If load factors stay above ~70%, consider another route or marketing spend at your origin.',
           'Got it — let me play →',
           'tutorial_finish',
@@ -2253,6 +2253,29 @@
     });
   }
 
+  function speedAfterInterrupt() {
+    return 'slow';
+  }
+
+  function pauseForInterrupt() {
+    if (!state || state.speed === 'pause') return;
+    decisionSpeedBeforePause = state.speed || speedBeforePause || 'day';
+    setSpeed('pause');
+  }
+
+  function resumeSpeedAfterInterrupt() {
+    if (!state || state.game_over) return;
+    if (activeDecision || decisionQueue.length || routeLaunchActive || routeReviewRouteId) return;
+    const next = speedAfterInterrupt();
+    speedBeforePause = next;
+    decisionSpeedBeforePause = next;
+    setSpeed(next);
+    const hint = $('speed-hint');
+    if (hint) {
+      hint.textContent = 'Slow (4 hr) after alert — press ▶ for normal day speed';
+    }
+  }
+
   function resolveDecision(choiceId) {
     if (!activeDecision) return;
     const option = activeDecision.options.find((o) => o.id === choiceId) || { effect: 'none' };
@@ -2294,8 +2317,8 @@
     state.paused_reason = null;
     renderDecisionModal();
     if (decisionQueue.length) showNextDecision();
-    else if (!onboarding && decisionSpeedBeforePause && decisionSpeedBeforePause !== 'pause') {
-      setSpeed(decisionSpeedBeforePause);
+    else if (!onboarding) {
+      resumeSpeedAfterInterrupt();
     } else {
       setSpeed('pause');
     }
@@ -2306,12 +2329,7 @@
   function showNextDecision() {
     if (activeDecision || !decisionQueue.length) return;
     activeDecision = decisionQueue.shift();
-    if (!activeDecision.onboarding && state.speed !== 'pause') {
-      decisionSpeedBeforePause = state.speed || speedBeforePause || 'day';
-      setSpeed('pause');
-    } else if (activeDecision.onboarding) {
-      setSpeed('pause');
-    }
+    pauseForInterrupt();
     state.paused_reason = activeDecision.onboarding
       ? activeDecision.tutorial
         ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
@@ -2331,6 +2349,11 @@
   }
 
   function queueDecision(decision) {
+    if (!decision.onboarding && !decision.tutorial && (activeDecision || decisionQueue.length)) {
+      const note = decision.logLine || decision.title || 'Market event';
+      pushEvent(`${note} <span class="muted">(logged while you handle another alert)</span>`);
+      return;
+    }
     decisionQueue.push(decision);
     showNextDecision();
   }
@@ -3512,6 +3535,7 @@
     if (!state || !routeId) return;
     const route = routeById(routeId);
     if (!route) return;
+    pauseForInterrupt();
     routeReviewRouteId = routeId;
     renderRouteReviewModal();
   }
@@ -3519,6 +3543,7 @@
   function closeRouteReview() {
     routeReviewRouteId = null;
     renderRouteReviewModal();
+    resumeSpeedAfterInterrupt();
   }
 
   function backfillRouteForecast(route) {
@@ -4496,6 +4521,7 @@
   }
 
   function processDayRollover(dayRev, dayCost) {
+    const decisionPending = !!(activeDecision || decisionQueue.length);
     if (state.day % 30 === 0) {
       updateDynamicFares();
       if (state.macro && state.macro.ota_promo) {
@@ -4523,7 +4549,7 @@
         state.reputation = Math.min(100, state.reputation + 0.3);
       }
       processMonthlyScoreboard();
-      processMonthlyGateEfficiency();
+      if (!decisionPending) processMonthlyGateEfficiency();
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
         if (f.leased) return true;
@@ -4553,11 +4579,11 @@
 
     processFleetDay();
 
-    if (state.day > 0 && state.day % 60 === 0) maybeCompetitorEvents();
+    if (!decisionPending && state.day > 0 && state.day % 60 === 0) maybeCompetitorEvents();
 
-    if (state.day > 0 && state.day % 7 === 0) processReactiveCompetitorThreats('weekly');
+    if (!decisionPending && state.day > 0 && state.day % 7 === 0) processReactiveCompetitorThreats('weekly');
 
-    if (state.day > 0 && state.day % 90 === 0) processCompetitorAI();
+    if (!decisionPending && state.day > 0 && state.day % 90 === 0) processCompetitorAI();
 
     if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
 
@@ -4671,8 +4697,8 @@
         pause: 'Paused',
         slow: '4-hour steps',
         day: '1 day / tick',
-        week: '1 week / tick',
-        month: '1 month / tick',
+        week: '1 week / tick — alerts will pause & slow you',
+        month: '1 month / tick — alerts will pause & slow you',
       };
       hint.textContent = labels[speedId] || '';
     }
@@ -5801,6 +5827,7 @@
   }
 
   function setRouteLaunchActive(active) {
+    const wasActive = routeLaunchActive;
     routeLaunchActive = !!active;
     const overlay = $('route-launch-modal');
     const dm = $('decision-modal');
@@ -5812,6 +5839,8 @@
       th.innerHTML = '';
     }
     document.body.classList.toggle('route-launch-active', routeLaunchActive);
+    if (routeLaunchActive && !wasActive) pauseForInterrupt();
+    else if (!routeLaunchActive && wasActive) resumeSpeedAfterInterrupt();
   }
 
   function ensureRouteLaunchOta(draft) {
@@ -7446,8 +7475,98 @@
     </div>`;
   }
 
+  function routeDailyPnls() {
+    return (state.routes || []).map((route) => {
+      const r = simulateRouteDay(route);
+      return {
+        route,
+        pnl: r.revenue - r.cost,
+        load: r.grounded ? 0 : r.load,
+        revenue: r.revenue,
+        cost: r.cost,
+        grounded: r.grounded,
+      };
+    });
+  }
+
+  function profitCoachContext() {
+    if (!state || !state.routes.length || state.day < 10) return null;
+    const econ = simulateDayEconomics();
+    const pnls = routeDailyPnls().sort((a, b) => b.pnl - a.pnl);
+    const best = pnls.find((x) => x.pnl > 0);
+    const worst = [...pnls].reverse().find((x) => x.pnl <= 0 || x.load < 0.4);
+    const thin = pnls.filter((x) => !x.grounded && x.load < 0.38);
+    const routeMargin = econ.dayRev - econ.dayCost;
+    const fixedDaily = econ.dailyFixed;
+    const netDaily = econ.pnl;
+
+    if (netDaily < -200 || (fixedDaily > routeMargin && state.day > 21)) {
+      let text = `Losing <b>${fmtMoney(Math.abs(netDaily))}/day</b> after overhead. Routes earn <b>${fmtMoney(routeMargin)}/day</b> variable margin; gates, leases, and marketing cost <b>${fmtMoney(fixedDaily)}/day</b>. `;
+      if (worst) {
+        text += `Weakest: <b>${worst.route.origin}–${worst.route.dest}</b> (${fmtMoney(worst.pnl)}/day`;
+        if (worst.load < 0.4) text += `, ${(worst.load * 100).toFixed(0)}% load — try a lower fare or less frequency`;
+        text += '). ';
+      }
+      if (best) {
+        text += `Winner: <b>${best.route.origin}–${best.route.dest}</b> (+${fmtMoney(best.pnl)}/day) — add frequency if gate and aircraft hours allow.`;
+      } else if (thin.length) {
+        text += `${thin.length} route${thin.length === 1 ? '' : 's'} under 38% load — thin markets need smaller planes or fewer weekly departures.`;
+      } else {
+        text += 'Cover fixed costs with more frequency on your best route before opening a second thin market.';
+      }
+      const actions = [];
+      if (best) {
+        actions.push({
+          label: `Review ${best.route.origin}–${best.route.dest}`,
+          effect: 'route_review',
+          routeId: best.route.id,
+        });
+      }
+      if (worst && worst.route.id !== best?.route.id) {
+        actions.push({
+          label: `Fix ${worst.route.origin}–${worst.route.dest}`,
+          effect: 'route_review',
+          routeId: worst.route.id,
+        });
+      }
+      actions.push({ label: 'Open Routes', effect: 'tab', tab: 'routes' });
+      return { step: 0, text, actions, profit: true, tone: 'warn' };
+    }
+
+    if (netDaily > 500 && best) {
+      return {
+        step: 0,
+        text: `Profitable: <b>+${fmtMoney(netDaily)}/day</b> net (routes +${fmtMoney(routeMargin)}/day · overhead −${fmtMoney(fixedDaily)}/day). Double down on <b>${best.route.origin}–${best.route.dest}</b> before chasing a second hub.`,
+        actions: [
+          { label: `Grow ${best.route.origin}–${best.route.dest}`, effect: 'route_review', routeId: best.route.id },
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+        ],
+        profit: true,
+        tone: 'good',
+      };
+    }
+
+    if (thin.length && state.routes.length >= 1) {
+      const r = thin[0].route;
+      return {
+        step: 0,
+        text: `<b>${r.origin}–${r.dest}</b> is only <b>${(thin[0].load * 100).toFixed(0)}%</b> full — at your airport share, loads stay thin until frequency or fleet grows. Lower fare or switch to a smaller aircraft.`,
+        actions: [
+          { label: `Review ${r.origin}–${r.dest}`, effect: 'route_review', routeId: r.id },
+          { label: 'Open Fleet', effect: 'tab', tab: 'fleet' },
+        ],
+        profit: true,
+        tone: 'warn',
+      };
+    }
+
+    return null;
+  }
+
   function opsGuideContext() {
     if (!state) return null;
+    const profitCoach = profitCoachContext();
+    if (profitCoach) return profitCoach;
     const firstGate = state.gates[0] && state.gates[0].airport;
     if (!state.gates.length) {
       return {
@@ -7503,14 +7622,14 @@
     if (state.speed === 'pause' && state.day < 120) {
       return {
         step: 4,
-        text: 'Routes are live. Press <b>▶</b> to run days. Click a route name to review trends.',
+        text: 'Routes are live. Press <b>▶</b> for normal day speed (or ▷ for slow). Alerts auto-slow you so pop-ups are readable.',
         actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
       };
     }
     return {
       step: 0,
-      text: '<b>Map</b> for airports · <b>Routes</b> for flights · <b>Fleet</b> for planes · <b>Capital</b> for cash.',
-      actions: [],
+      text: '<b>Map</b> airports · <b>Routes</b> flights & fares · <b>Fleet</b> planes · <b>Capital</b> cash. Check the profit coach here when daily P&L turns red.',
+      actions: state.routes.length ? [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }] : [],
     };
   }
 
@@ -7523,7 +7642,8 @@
     const ctx = opsGuideContext();
     if (!ctx) return;
     const collapsedClass = opsGuideCollapsed ? ' collapsed' : '';
-    const stepLabel = ctx.step > 0 ? `<span class="ops-guide-step">Step ${ctx.step}</span>` : '';
+    const toneClass = ctx.tone === 'good' ? ' ops-guide-good' : ctx.tone === 'warn' ? ' ops-guide-warn' : '';
+    const stepLabel = ctx.step > 0 ? `<span class="ops-guide-step">Step ${ctx.step}</span>` : ctx.profit ? `<span class="ops-guide-step">Playbook</span>` : '';
     const actions =
       ctx.actions && ctx.actions.length
         ? `<div class="ops-guide-actions">${ctx.actions
@@ -7543,13 +7663,16 @@
               if (a.effect === 'bump_freq' && a.routeId) {
                 return `<button type="button" class="btn secondary" data-ops-bump-freq="${a.routeId}" data-ops-bump-delta="${a.delta || 1}">${a.label}</button>`;
               }
+              if (a.effect === 'route_review' && a.routeId) {
+                return `<button type="button" class="btn secondary" data-ops-route-review="${a.routeId}">${a.label}</button>`;
+              }
               return '';
             })
             .join('')}</div>`
         : '';
-    el.className = `ops-guide${collapsedClass}`;
+    el.className = `ops-guide${collapsedClass}${toneClass}`;
     el.innerHTML = `<div class="ops-guide-head">
-        <strong>What to do next</strong>
+        <strong>${ctx.profit ? 'Profit playbook' : 'What to do next'}</strong>
         <button type="button" class="ops-guide-toggle" data-ops-collapse>${opsGuideCollapsed ? 'Show' : 'Hide'}</button>
       </div>
       <div class="ops-guide-body">
@@ -7582,6 +7705,12 @@
     el.querySelectorAll('[data-ops-bump-freq]').forEach((btn) => {
       btn.addEventListener('click', () => bumpRouteFrequency(btn.dataset.opsBumpFreq, +btn.dataset.opsBumpDelta || 1));
     });
+    el.querySelectorAll('[data-ops-route-review]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        switchTab('routes');
+        openRouteReview(btn.dataset.opsRouteReview);
+      });
+    });
   }
 
   function setHudFinancialsView(view) {
@@ -7613,13 +7742,20 @@
         <div class="stat-pill"><span class="stat-pill-label">Your share of cash</span><b>${fmtMoney(personalCash)}</b></div>
         <p class="hud-fin-note muted">Personal view is your equity slice of company net worth — not separate cash you can spend. Company cash pays the bills.</p>`;
     } else {
+      const econ = state.routes.length ? simulateDayEconomics() : null;
+      const routeMargin = econ ? econ.dayRev - econ.dayCost : 0;
+      const fixedDaily = econ ? econ.dailyFixed : burnMonthly() / 30;
+      const pnlBreakdown = econ
+        ? `<p class="hud-fin-note muted">Today: routes <b class="${routeMargin >= 0 ? '' : 'danger'}">${fmtMoney(routeMargin)}</b> variable margin · overhead <b>−${fmtMoney(fixedDaily)}</b> · net <b class="${econ.pnl >= 0 ? '' : 'danger'}">${fmtMoney(econ.pnl)}</b>/day</p>`
+        : '';
       pills = `
         <div class="stat-pill"><span class="stat-pill-label">Company net worth</span><b>${fmtMoney(b.total)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Cash</span><b>${fmtMoney(b.cash)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Monthly burn</span><b>${fmtMoney(burnMonthly())}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">LTM revenue</span><b>${fmtMoney(state.ltm_revenue)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Reputation</span><b>${(state.reputation || 0).toFixed(0)}</b></div>
-        <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b>$${(state.fuel_price || 0).toFixed(2)}/gal</b></div>`;
+        <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b>$${(state.fuel_price || 0).toFixed(2)}/gal</b></div>
+        ${pnlBreakdown}`;
     }
     panel.innerHTML = toggle + `<div class="hud-fin-body">${pills}</div>`;
     panel.querySelectorAll('[data-fin-view]').forEach((btn) => {

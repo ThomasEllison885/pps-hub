@@ -1164,6 +1164,10 @@
   }
   .ops-guide-actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
   .ops-guide-actions .btn { font-size: 0.68rem; padding: 5px 10px; }
+  .ops-guide-warn { border-color: rgba(255, 155, 122, 0.45); }
+  .ops-guide-warn .ops-guide-head strong { color: #ff9b7a; }
+  .ops-guide-good { border-color: rgba(0, 200, 150, 0.35); }
+  .ops-guide-good .ops-guide-head strong { color: var(--accent); }
   .tabs button .tab-hint { display: block; font-size: 0.58rem; opacity: 0.75; margin-top: 2px; }
   #airport-panel { padding: 12px 14px; border-bottom: 1px solid var(--border); max-height: 38vh; overflow-y: auto; }
   #airport-panel h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 2px; }
@@ -1703,6 +1707,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=44"></script>
+<script src="/static/runway/game.js?v=45"></script>
 </body>
 </html>
