@@ -6627,8 +6627,10 @@
     }
     const bump = suggestions.find((s) => s.action === 'bump_freq');
     if (bump) {
+      const br = routeById(bump.routeId) || (util.routesFrom && util.routesFrom[0]);
+      const leg = br ? `${br.origin}–${br.dest}` : util.iata;
       actions.push(
-        `<button type="button" class="btn secondary" data-bump-freq="${bump.routeId}" data-bump-delta="${bump.delta}">+${bump.delta}/wk on ${util.routesFrom[0].origin}–${util.routesFrom[0].dest}</button>`
+        `<button type="button" class="btn" data-bump-freq="${bump.routeId}" data-bump-delta="${bump.delta}">+${bump.delta}/wk on ${leg}${findReverseRoute(br) ? ' (+ return)' : ''}</button>`
       );
     }
     if (suggestions.some((s) => s.action === 'fleet_tab')) {
