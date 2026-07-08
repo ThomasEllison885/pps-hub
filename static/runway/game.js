@@ -2429,12 +2429,67 @@
     return sorted.map((e, i) => ({ ...e, rank: i + 1 }));
   }
 
+  function routePillarMetrics(route) {
+    const hist = routeHistoryAverages(route, 30);
+    const sim = simulateRouteDay(route);
+    const dailyPnl = hist ? hist.avgPnl : (sim.revenue || 0) - (sim.cost || 0);
+    const dailyPax = hist ? hist.avgPax : sim.pax || 0;
+    const load = hist ? hist.avgLoad : sim.grounded ? 0 : sim.load || 0;
+    const plane = state.fleet.find((f) => f.id === route.aircraft_id);
+    const aog = plane && plane.aog_days_left > 0 ? 6 : 0;
+    const repShare = (state.reputation || 0) * 0.15;
+    const csat = Math.max(0, Math.min(100, Math.round(repShare + load * 28 + 18 - aog)));
+    return {
+      profit: dailyPnl * 30,
+      riders: Math.round(dailyPax * 30),
+      csat,
+    };
+  }
+
+  function sortPlayerRoutesByPillar(sortKey) {
+    if (!state || !state.routes.length) return [];
+    const key = sortKey === 'overall' ? 'profit' : sortKey;
+    if (!['profit', 'riders', 'csat'].includes(key)) return [];
+    return state.routes
+      .map((route) => ({ route, ...routePillarMetrics(route) }))
+      .sort((a, b) => (b[key] || 0) - (a[key] || 0))
+      .map((e, i) => ({ ...e, rank: i + 1, sortKey: key }));
+  }
+
+  function formatRoutePillarValue(sortKey, metrics) {
+    if (sortKey === 'profit') return `${fmtMoney(metrics.profit)}/mo`;
+    if (sortKey === 'riders') return `${metrics.riders.toLocaleString()}/mo`;
+    if (sortKey === 'csat') return String(metrics.csat);
+    return '';
+  }
+
+  function yourRoutesRankHtml(sortKey) {
+    const ranked = sortPlayerRoutesByPillar(sortKey);
+    if (!ranked.length || !['profit', 'riders', 'csat'].includes(sortKey)) return '';
+    const rows = ranked
+      .map((e) => {
+        const val = formatRoutePillarValue(sortKey, e);
+        return `<tr><td>#${e.rank}</td><td><b>${e.route.origin}–${e.route.dest}</b></td><td>${val}</td></tr>`;
+      })
+      .join('');
+    return `<div class="your-routes-rank" style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);">
+      <h4 style="font-size:0.82rem;color:var(--gold);margin:0 0 6px;">Your routes — by ${pillarSortLabel(sortKey)}</h4>
+      <p class="muted" style="font-size:0.7rem;margin:0 0 8px;">Same pillar as the league table. Routes tab re-sorts to match.</p>
+      <table class="scoreboard-table" style="font-size:0.74rem;">
+        <thead><tr><th>#</th><th>Route</th><th>${pillarSortLabel(sortKey)}</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
   function openScoreboardSorted(sortKey) {
     if (!state) return;
     scoreboardSortBy = sortKey || 'overall';
     scoreboardOpen = true;
     selectedRival = null;
     renderScoreboardBar();
+    const runningEl = $('route-list-running');
+    if (runningEl) runningEl.innerHTML = runningRoutesHtml();
   }
 
   function ensureRouteStats(route) {
@@ -3035,6 +3090,7 @@
         </table>
         <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. CSAT — reliability, load, fair fares.</p>
         ${csatNote}
+        ${yourRoutesRankHtml(scoreboardSortBy)}
       </div>`;
     bindRivalClicks();
   }
@@ -5817,8 +5873,26 @@
     if (!state.routes.length) {
       return '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
     }
-    let html = '<div class="route-list">';
-    state.routes.forEach((route) => {
+    const ranked = sortPlayerRoutesByPillar(scoreboardSortBy);
+    const rankById = {};
+    ranked.forEach((e) => {
+      rankById[e.route.id] = e;
+    });
+    const routes =
+      ranked.length && ['profit', 'riders', 'csat'].includes(scoreboardSortBy)
+        ? ranked.map((e) => e.route)
+        : state.routes;
+    const sortNote =
+      ranked.length && ['profit', 'riders', 'csat'].includes(scoreboardSortBy)
+        ? `<p class="muted" style="font-size:0.7rem;margin:0 0 8px;">Sorted by <b>${pillarSortLabel(scoreboardSortBy)}</b> (click scoreboard pillars to change).</p>`
+        : '';
+    let html = sortNote + '<div class="route-list">';
+    routes.forEach((route) => {
+        const rankEntry = rankById[route.id];
+        const rankBadge =
+          rankEntry && ['profit', 'riders', 'csat'].includes(scoreboardSortBy)
+            ? `<span class="route-rank-badge" title="${pillarSortLabel(scoreboardSortBy)} #${rankEntry.rank}">#${rankEntry.rank}</span> `
+            : '';
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
         const loadNum = r.grounded ? null : r.load;
@@ -5859,7 +5933,7 @@
         html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
           <div class="route-card-head">
             <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
-              <strong>${route.origin}–${route.dest}</strong>
+              ${rankBadge}<strong>${route.origin}–${route.dest}</strong>
             </button>
             <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
           </div>

@@ -934,6 +934,18 @@
     margin-bottom: 6px;
   }
   .route-card-head strong { font-size: 0.88rem; color: #fff; }
+  .route-rank-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--gold);
+    background: rgba(212, 175, 55, 0.12);
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    border-radius: 4px;
+    padding: 1px 5px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
   .route-card-meta {
     display: flex;
     flex-wrap: wrap;
@@ -1324,6 +1336,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=33"></script>
+<script src="/static/runway/game.js?v=34"></script>
 </body>
 </html>

@@ -2,6 +2,24 @@
 
 This document explains how launch judgment, demand, gates, and overhead math work. Tune coefficients in `runway_game_data.py` → `ROUTE_ECONOMICS` and airport ops fields; the browser reads them via bootstrap.
 
+## Design decisions (Thomas Q&A)
+
+| Topic | Decision |
+|-------|----------|
+| Fare buckets | Keep current per-route bucket handling |
+| Ancillary strategy | **Airline-wide** — pick at creation, change in **Market** tab as marketing strategy |
+| HQ / overhead | **Always in judgment** so existing hubs do not automatically beat new stations |
+| Hub profit horizon | Real-world ~2.5 yr target; **3 yr** marginal warning OK; projections use ramp + inflation + cost creep — not a simple formula |
+| Gate costs | **Split** across routes at origin; gate lease ÷ (routes from origin + 1) |
+| Gate schedule | Ops hours, turnaround spacing, per-gate weekly cap — no 24/7; per-route max frequency from block + turnaround |
+| Launch competition | **Static** in judgment; live sim adds rival moves |
+| Brand ramp | **Conservative** years 1–3 in outlook table |
+| Fare recommendation | Sweep from known variables — **hint only**; live results diverge (GDP, marketing, inflation, rivals) |
+| Payback display | Monthly net + steady payback; years 1–3 outlook table |
+| Verdict | **Show recommendation, never block** launch |
+| League pillars → your routes | Click Profit/Riders/CSAT → league re-sorts **and** your routes rank (scoreboard panel + Routes tab) |
+| In-game math UI | **No** for players; this doc is for creator tuning |
+
 ## Route launch judgment
 
 **Steady-state** (what you see at the top of the judgment card):
@@ -60,6 +78,20 @@ Per airport (from `annual_pax_m`):
 1. **Gate total** — sum of all route frequencies from origin ≤ gates × weekly cap.
 2. **Per route** — `maxFrequencyForRoute()` from block hours + turnaround within ops window.
 
+## Your routes ranking (league pillars)
+
+When you click **Profit**, **Riders**, or **CSAT** on the scoreboard:
+
+- League table re-sorts (unchanged).
+- Scoreboard panel adds **Your routes** table for the same metric.
+- **Routes** tab re-orders cards with `#rank` badges.
+
+Per-route metrics (30-day history when available, else today’s sim):
+
+- **Profit** — variable margin × 30 (`avgPnl` from history).
+- **Riders** — avg daily pax × 30.
+- **CSAT** — load × 28 + reputation share + base − AOG penalty (route-level approximation).
+
 ## CSAT (scoreboard)
 
 Customer Satisfaction 0–100: reputation × 0.45 + avg load × 28 + 18 − AOG×6. Click **CSAT** pillar to sort league.
@@ -72,7 +104,10 @@ Customer Satisfaction 0–100: reputation × 0.45 + avg load × 28 + 18 − AOG�
 | Sim + judgment UI | `static/runway/game.js` |
 | `projectRouteBusinessCase`, `recommendLaunchFare` | game.js |
 | Gate capacity | `airportGateWeeklyCapacity`, `gateCapacityError` |
+| Route pillar ranking | `routePillarMetrics`, `sortPlayerRoutesByPillar` |
 
-## Remembered for later (Thomas)
+## Remembered for later
 
-- League pillars → rank **your routes** by profit/riders/CSAT (not built yet; detail-first idea saved).
+- Dual payback display (route-only vs fully burdened) in launch UI.
+- Fare optimizer chart on launch modal.
+- Hub maturity curve tied more tightly to `brand_awareness`.
