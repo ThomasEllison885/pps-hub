@@ -12,6 +12,7 @@
   let bootstrap = null;
   let initialAirports = null;
   let mapConfig = null;
+  let stateBorders = null;
   let activeMapKey = 'usa';
   let state = null;
   let tickTimer = null;
@@ -374,7 +375,7 @@
   }
 
   function applyOnboardingChoice(option) {
-    if (!option || option.effect === 'explore' || option.effect === 'none') return;
+    if (!option || option.effect === 'explore' || option.effect === 'none' || option.effect === 'tutorial_finish' || option.effect === 'tutorial_skip') return;
     if (option.effect === 'tab_routes') {
       if (option.airport) selectAirport(option.airport);
       switchTab('routes');
@@ -387,8 +388,131 @@
     }
   }
 
-  function buildOnboardingDecision(scenarioId) {
+  function tutorialStep(scenarioId, step, total, title, body, teach, goLabel, goEffect, goAirport, tutorialLast) {
+    return {
+      onboarding: true,
+      tutorial: true,
+      tutorialStep: step,
+      tutorialTotal: total,
+      tutorialLast: !!tutorialLast,
+      kicker: `Tutorial · Step ${step} of ${total}`,
+      title,
+      body,
+      teach,
+      options: [
+        {
+          id: 'go',
+          label: goLabel,
+          hint: 'Opens the right screen and keeps the game paused.',
+          effect: goEffect,
+          airport: goAirport,
+        },
+        {
+          id: 'skip',
+          label: 'Skip tutorial',
+          hint: 'Dismiss remaining steps.',
+          effect: 'tutorial_skip',
+        },
+      ],
+    };
+  }
+
+  function buildTutorialSteps(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId] || {};
+    const hub = (state.gates[0] && state.gates[0].airport) || 'CMH';
+    const plane = state.fleet[0];
+    const ac = plane ? aircraftType(plane.type) : null;
+    const planeLabel = ac ? ac.name : 'regional jet';
+    const route = state.routes[0];
+    const routeLabel = route ? `${route.origin}–${route.dest}` : `${hub}–DAY`;
+
+    if (scenarioId === 'beginner_2026' || sc.tutorial) {
+      const total = 6;
+      return [
+        tutorialStep(
+          scenarioId,
+          1,
+          total,
+          `Welcome, ${state.player_name}`,
+          `<b>${state.airline_name}</b> is a small Ohio carrier based at <b>CMH</b> (Columbus). ` +
+            `You have <b>${fmtMoney(state.cash)}</b>, one leased <b>${planeLabel}</b>, and a profitable <b>${routeLabel}</b> route. ` +
+            'The clock is <b>paused</b> until you finish this walkthrough.',
+          'This tutorial covers the four core loops: map → fleet → routes → fares. Press ▶ only when you are ready to run days.',
+          'Start with the map →',
+          'select_airport',
+          'CMH',
+          false
+        ),
+        tutorialStep(
+          scenarioId,
+          2,
+          total,
+          'Explore your hub on the map',
+          'Click airports to see <b>competitors</b>, wealth index, and lease gates. CMH is your home — Allegiant and Southwest matter on Ohio routes.',
+          'Drag the map to pan, scroll to zoom. Green dots are airports you control; blue are open markets.',
+          'Show CMH on the map →',
+          'select_airport',
+          'CMH',
+          false
+        ),
+        tutorialStep(
+          scenarioId,
+          3,
+          total,
+          'Fleet — lease or buy aircraft',
+          `Your <b>${planeLabel}</b> is leased (monthly payment, no big upfront cost). Open <b>Fleet</b> to see range and seats. ` +
+            'To grow, tap <b>Lease…</b> or <b>Buy…</b> on an aircraft card — try an E175 for longer Ohio routes.',
+          'Leasing preserves cash; buying builds asset value on your balance sheet. Match aircraft size to airport demand.',
+          'Open Fleet tab →',
+          'tab_fleet',
+          null,
+          false
+        ),
+        tutorialStep(
+          scenarioId,
+          4,
+          total,
+          'Routes — launch or review flights',
+          `You already fly <b>${routeLabel}</b>. To add a route: open <b>Routes</b>, pick origin (must have a gate), destination, aircraft, and frequency. ` +
+            'Try suggestions like <b>CMH→CVG</b> or <b>DAY→CMH</b> after you lease a second plane.',
+          'You need a gate at the origin airport before launching. Suggested routes show estimated load at market fare.',
+          'Open Routes tab →',
+          'tab_routes',
+          hub,
+          false
+        ),
+        tutorialStep(
+          scenarioId,
+          5,
+          total,
+          'Fares — auto vs manual',
+          'In <b>Routes</b>, each line shows your <b>Fare</b> and the <b>Market</b> benchmark. Fares on <b>auto</b> drift monthly with demand (high load → price up). ' +
+            'Edit the fare box to lock <b>manual</b> pricing — useful when competitors cut prices.',
+          'Thin markets (LUK, YNG) are price-sensitive; CMH and CVG support higher fares. Leave auto on until you understand load factors.',
+          'Open Routes & fares →',
+          'tab_routes',
+          hub,
+          false
+        ),
+        tutorialStep(
+          scenarioId,
+          6,
+          total,
+          'You\'re ready to fly',
+          'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
+            'Competitor alerts will pause the game when something big happens at your airports.',
+          'Watch cash runway in the HUD. If load factors stay above ~70%, consider another route or marketing spend at your origin.',
+          'Got it — let me play →',
+          'tutorial_finish',
+          null,
+          true
+        ),
+      ];
+    }
+    return [];
+  }
+
+  function buildOhioQuickSteps(scenarioId) {
     const firstGate =
       (state.gates[0] && state.gates[0].airport) ||
       (bootstrap.airports[0] && bootstrap.airports[0].iata) ||
@@ -396,93 +520,83 @@
     const plane = state.fleet[0];
     const ac = plane ? aircraftType(plane.type) : null;
     const planeLabel = ac ? ac.name : 'your aircraft';
-    const hasRoutes = state.routes.length > 0;
+    const total = 4;
+    return [
+      tutorialStep(
+        scenarioId,
+        1,
+        total,
+        `Welcome, ${state.player_name}`,
+        `${state.airline_name} begins with <b>${fmtMoney(state.cash)}</b>, a gate at <b>${firstGate}</b>, and a leased <b>${planeLabel}</b>. ` +
+          'The clock is paused — follow these quick steps, then press ▶.',
+        'Ohio regional play: thin routes, real competitors, auto fares.',
+        'Show my gate on the map →',
+        'select_airport',
+        firstGate,
+        false
+      ),
+      tutorialStep(
+        scenarioId,
+        2,
+        total,
+        'Scout competitors',
+        'Before flying into CVG or CMH, check <b>Competitors here</b> on the airport panel — Allegiant, Delta, and others affect your demand.',
+        'Lower wealth airports need smaller aircraft and sharper fares.',
+        'Open CVG competitors →',
+        'select_airport',
+        'CVG',
+        false
+      ),
+      tutorialStep(
+        scenarioId,
+        3,
+        total,
+        'Plan your first route',
+        `Open <b>Routes</b> from <b>${firstGate}</b>. Pick a suggested destination (try DAY–CMH), choose your PC-12, set frequency, and launch. Leave fare on auto.`,
+        'Market fare reflects distance and local wealth. You can edit it later in the active routes table.',
+        'Open Routes tab →',
+        'tab_routes',
+        firstGate,
+        false
+      ),
+      tutorialStep(
+        scenarioId,
+        4,
+        total,
+        'Ready when you are',
+        'Press <b>▶</b> when your first route looks good. The game will pause again if competitors make a big move.',
+        'Fleet tab: lease before you buy while cash is tight.',
+        'Got it →',
+        'tutorial_finish',
+        null,
+        true
+      ),
+    ];
+  }
 
-    if (sc.region === 'ohio' || scenarioId === 'ohio_regional_2026') {
-      return {
-        onboarding: true,
-        kicker: 'Getting started',
-        title: `Welcome, ${state.player_name}`,
-        body:
-          `${state.airline_name} begins with <b>${fmtMoney(state.cash)}</b>, a gate at <b>${firstGate}</b>, and a leased <b>${planeLabel}</b>. ` +
-          'The clock is <b>paused</b> — pick a first step below, then press ▶ when you are ready to run days.',
-        teach:
-          'A typical first move: open one short route (try DAY–CMH), leave the fare on auto, and add a little marketing at your origin airport.',
-        logLine: 'Chose a starting focus',
-        options: [
-          {
-            id: 'routes',
-            label: `A — Plan my first route from ${firstGate}`,
-            hint: 'Opens Routes with suggestions for your gate city.',
-            effect: 'tab_routes',
-            airport: firstGate,
-          },
-          {
-            id: 'scout',
-            label: 'B — Scout competitors at CVG',
-            hint: 'See Allegiant, Delta, and others before you fly.',
-            effect: 'select_airport',
-            airport: 'CVG',
-          },
-          {
-            id: 'finance',
-            label: 'C — Review cash & net worth',
-            hint: 'Know your runway before leasing or spending.',
-            effect: 'tab_finance',
-          },
-          {
-            id: 'explore',
-            label: 'D — I\'ll explore on my own',
-            hint: 'Dismiss and click airports on the map.',
-            effect: 'explore',
-          },
-        ],
-      };
+  function queueOnboarding(scenarioId) {
+    if (!state || state.onboarding_done) return;
+    const sc = bootstrap.scenarios[scenarioId] || {};
+    let steps = [];
+    if (sc.tutorial || scenarioId === 'beginner_2026') {
+      steps = buildTutorialSteps(scenarioId);
+    } else if (sc.region === 'ohio') {
+      steps = buildOhioQuickSteps(scenarioId);
     }
-
-    if (scenarioId === 'beginner_2026' || hasRoutes) {
-      const hub = firstGate || 'CMH';
-      return {
-        onboarding: true,
-        kicker: 'Getting started',
-        title: `Welcome back, ${state.player_name}`,
-        body:
-          `<b>${state.airline_name}</b> already has ${state.routes.length} route(s) and gates in place. ` +
-          'The clock is <b>paused</b> — orient yourself, then press ▶ when ready.',
-        teach:
-          'Check whether your routes are profitable in the Routes tab before expanding. Fares on auto will adjust monthly with demand.',
-        logLine: 'Chose a starting focus',
-        options: [
-          {
-            id: 'routes',
-            label: 'A — Review my active routes',
-            hint: 'Load factors, fares, and daily P&L per route.',
-            effect: 'tab_routes',
-            airport: hub,
-          },
-          {
-            id: 'finance',
-            label: 'B — Review cash & net worth',
-            hint: 'See equity value and monthly burn.',
-            effect: 'tab_finance',
-          },
-          {
-            id: 'map',
-            label: `C — Explore the map from ${hub}`,
-            hint: 'Click airports to see competitors and lease gates.',
-            effect: 'select_airport',
-            airport: hub,
-          },
-          {
-            id: 'explore',
-            label: 'D — I\'ll explore on my own',
-            hint: 'Dismiss and wander.',
-            effect: 'explore',
-          },
-        ],
-      };
+    if (steps.length) {
+      state.tutorial_total = steps.length;
+      steps.forEach((s) => queueDecision(s));
+      return;
     }
+    const fallback = buildOnboardingFallback(scenarioId);
+    if (fallback) queueDecision(fallback);
+  }
 
+  function buildOnboardingFallback(scenarioId) {
+    const firstGate =
+      (state.gates[0] && state.gates[0].airport) ||
+      (bootstrap.airports[0] && bootstrap.airports[0].iata) ||
+      'DAY';
     return {
       onboarding: true,
       kicker: 'Getting started',
@@ -490,42 +604,13 @@
       body:
         `You have <b>${fmtMoney(state.cash)}</b> to launch <b>${state.airline_name}</b>. ` +
         'The clock is <b>paused</b> — pick a first step, then press ▶ when you are ready.',
-      teach: 'Lease a gate where you want to fly from, then open your first route before unpausing.',
-      logLine: 'Chose a starting focus',
+      teach: 'Lease a gate, open a route, then unpause.',
       options: [
-        {
-          id: 'map',
-          label: 'A — Pick an airport on the map',
-          hint: 'Find a city, check competitors, lease a gate.',
-          effect: 'select_airport',
-          airport: firstGate,
-        },
-        {
-          id: 'finance',
-          label: 'B — Review cash & net worth',
-          hint: 'Plan spend before you commit.',
-          effect: 'tab_finance',
-        },
-        {
-          id: 'fleet',
-          label: 'C — Review my fleet',
-          hint: 'See range, seats, and lease costs.',
-          effect: 'tab_fleet',
-        },
-        {
-          id: 'explore',
-          label: 'D — I\'ll explore on my own',
-          hint: 'Dismiss and click around.',
-          effect: 'explore',
-        },
+        { id: 'map', label: 'A — Pick an airport', effect: 'select_airport', airport: firstGate },
+        { id: 'finance', label: 'B — Review finances', effect: 'tab_finance' },
+        { id: 'explore', label: 'C — Explore on my own', effect: 'explore' },
       ],
     };
-  }
-
-  function queueOnboarding(scenarioId) {
-    if (!state || state.onboarding_done) return;
-    const decision = buildOnboardingDecision(scenarioId);
-    if (decision) queueDecision(decision);
   }
 
   function resolveDecision(choiceId) {
@@ -533,9 +618,23 @@
     const option = activeDecision.options.find((o) => o.id === choiceId) || { effect: 'none' };
     const onboarding = !!activeDecision.onboarding;
     if (onboarding) {
-      applyOnboardingChoice(option);
-      state.onboarding_done = true;
-      pushPlayerEvent(`starting focus: ${option.label.replace(/^A — |^B — |^C — |^D — /, '')}`);
+      if (option.effect === 'tutorial_skip') {
+        decisionQueue = decisionQueue.filter((d) => !d.tutorial);
+        state.onboarding_done = true;
+        pushPlayerEvent('skipped tutorial');
+      } else {
+        applyOnboardingChoice(option);
+        if (activeDecision.tutorial) {
+          pushPlayerEvent(`tutorial step ${activeDecision.tutorialStep || ''}: ${activeDecision.title}`);
+          if (activeDecision.tutorialLast || option.effect === 'tutorial_finish') {
+            state.onboarding_done = true;
+            pushPlayerEvent('finished tutorial — press ▶ when ready');
+          }
+        } else {
+          state.onboarding_done = true;
+          pushPlayerEvent(`starting focus: ${option.label.replace(/^A — |^B — |^C — |^D — /, '')}`);
+        }
+      }
     } else {
       if (activeDecision.onResolve) activeDecision.onResolve(option);
       applyDecisionEffect({ ...option, airport: activeDecision.airport });
@@ -564,7 +663,9 @@
       setSpeed('pause');
     }
     state.paused_reason = activeDecision.onboarding
-      ? 'Getting started — pick a first step'
+      ? activeDecision.tutorial
+        ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
+        : 'Getting started — pick a first step'
       : 'Market shift — decision required';
     renderDecisionModal();
     renderHud();
@@ -572,7 +673,9 @@
     if (banner) {
       banner.style.display = 'block';
       banner.textContent = activeDecision.onboarding
-        ? 'Paused — choose a first step below (▶ runs the clock when ready)'
+        ? activeDecision.tutorial
+          ? `Paused — tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?' } (▶ when finished)`
+          : 'Paused — choose a first step below (▶ runs the clock when ready)'
         : `Paused: ${state.paused_reason}`;
     }
   }
@@ -600,9 +703,16 @@
       )
       .join('');
     const cardClass = activeDecision.onboarding ? 'decision-card onboarding' : 'decision-card';
+    const progress =
+      activeDecision.tutorial && activeDecision.tutorialTotal
+        ? `<div class="tutorial-progress" aria-hidden="true">${Array.from({ length: activeDecision.tutorialTotal }, (_, i) =>
+            `<span class="tutorial-dot${i + 1 <= (activeDecision.tutorialStep || 1) ? ' done' : ''}${i + 1 === activeDecision.tutorialStep ? ' current' : ''}"></span>`
+          ).join('')}</div>`
+        : '';
     overlay.innerHTML = `
       <div class="${cardClass}" role="dialog" aria-modal="true">
         <p class="decision-kicker">${activeDecision.kicker || 'Market intelligence'}</p>
+        ${progress}
         <h2>${activeDecision.title}</h2>
         <p class="decision-body">${activeDecision.body}</p>
         ${activeDecision.teach ? `<p class="decision-teach">${activeDecision.teach}</p>` : ''}
@@ -1918,6 +2028,26 @@
     };
   }
 
+  function statePathD(coords) {
+    if (!coords || !coords.length) return '';
+    return (
+      coords
+        .map((pair, i) => {
+          const pt = projectMap(pair[1], pair[0]);
+          return `${i ? 'L' : 'M'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+        })
+        .join(' ') + ' Z'
+    );
+  }
+
+  function stateBordersHtml() {
+    if (!stateBorders || !stateBorders.paths) return '';
+    const stroke = activeMapKey === 'ohio' ? 1.4 : 1.1;
+    return stateBorders.paths
+      .map((coords) => `<path d="${statePathD(coords)}" class="map-state-line" stroke-width="${stroke}"/>`)
+      .join('');
+  }
+
   function drawMap() {
     const svg = $('runway-map');
     if (!svg) return;
@@ -1926,6 +2056,7 @@
 
     let html = `
       <image class="map-raster" href="${mapSrc}" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"/>
+      <g class="map-state-borders">${stateBordersHtml()}</g>
       <rect class="map-pan-surface" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="transparent"/>
     `;
 
@@ -2542,6 +2673,15 @@
     });
   }
 
+  async function loadStateBorders() {
+    try {
+      const resp = await fetch('/static/runway/us-states.json');
+      if (resp.ok) stateBorders = await resp.json();
+    } catch (e) {
+      console.warn('Runway: state borders failed to load', e);
+    }
+  }
+
   async function loadMapConfig() {
     try {
       const resp = await fetch('/static/runway/map-config.json');
@@ -2566,7 +2706,7 @@
     bootstrap = window.RUNWAY_BOOTSTRAP;
     if (!bootstrap) return;
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
-    await loadMapConfig();
+    await Promise.all([loadMapConfig(), loadStateBorders()]);
     setupMapInteraction();
     setupStartScreen();
     setupKeyboardShortcuts();

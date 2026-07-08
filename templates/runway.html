@@ -192,6 +192,13 @@
     box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
   }
   #runway-map .map-raster { pointer-events: none; }
+  #runway-map .map-state-borders { pointer-events: none; }
+  #runway-map .map-state-line {
+    fill: none;
+    stroke: rgba(186, 228, 210, 0.52);
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
   #runway-map .map-routes line { pointer-events: none; }
   #runway-map .map-pan-surface { pointer-events: all; cursor: grab; }
   .map-wrap.dragging #runway-map .map-pan-surface { cursor: grabbing; }
@@ -227,6 +234,20 @@
   }
   .decision-card.onboarding { border-color: #4a8f72; }
   .decision-card.onboarding .decision-kicker { color: var(--accent); }
+  .tutorial-progress {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .tutorial-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+  .tutorial-dot.done { background: rgba(0, 200, 150, 0.45); }
+  .tutorial-dot.current { background: var(--accent); box-shadow: 0 0 8px rgba(0, 200, 150, 0.5); }
+  .decision-opt[data-choice="skip"] { opacity: 0.82; border-style: dashed; }
   .decision-card h2 {
     font-family: 'DM Serif Display', Georgia, serif;
     font-size: 1.35rem;
@@ -447,7 +468,7 @@
   <div class="start-wrap">
     <h1>Runway</h1>
     <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
-    <p class="muted" style="margin-bottom:24px;">MVP v0.3 · Ohio regional map · fare economics · competitor decisions</p>
+    <p class="muted" style="margin-bottom:24px;">MVP v0.4 · Ohio tutorial · state borders · guided walkthrough</p>
     <div id="scenario-picker">
       <div id="scenario-list"></div>
     </div>
@@ -530,6 +551,6 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=10"></script>
+<script src="/static/runway/game.js?v=11"></script>
 </body>
 </html>

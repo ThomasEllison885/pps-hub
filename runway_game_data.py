@@ -281,6 +281,47 @@ AIRPORTS = [_build_airport(r) for r in _AIRPORT_ROWS]
 AIRPORT_BY_IATA = {a['iata']: a for a in AIRPORTS}
 
 SCENARIOS = {
+    'beginner_2026': {
+        'id': 'beginner_2026',
+        'name': '2026 — Beginner (Ohio Tutorial)',
+        'tagline': 'Step-by-step — routes, fleet, fares in Ohio.',
+        'year': 2026,
+        'region': 'ohio',
+        'tutorial': True,
+        'briefing': (
+            'Training scenario in Ohio. You run Gateway Air from Columbus with one leased E145, '
+            'a CMH gate, and a profitable CMH–Dayton route. The tutorial walks you through the map, '
+            'fleet, routes, and fares before you unpause the clock.'
+        ),
+        'cash': 8_500_000,
+        'debt': [],
+        'bonds': [],
+        'equity_pct': 100.0,
+        'reputation': 28,
+        'brand_awareness': {'CMH': 58, 'DAY': 42},
+        'financing_tier': 'startup',
+        'bond_rating': 'BB',
+        'player_name': 'CEO',
+        'airline_name': 'Gateway Air',
+        'fleet': [
+            {'id': 'ga-1', 'type': 'e145', 'leased': True, 'lease_months_left': 48, 'seats': 50},
+        ],
+        'gates': [
+            {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 16_000},
+        ],
+        'routes': [
+            {
+                'id': 'ga-r1',
+                'origin': 'CMH',
+                'dest': 'DAY',
+                'aircraft_type': 'e145',
+                'frequency_week': 14,
+                'fare': 149,
+                'fare_mode': 'auto',
+                'aircraft_id': 'ga-1',
+            },
+        ],
+    },
     'ohio_regional_2026': {
         'id': 'ohio_regional_2026',
         'name': '2026 — Ohio Regional',
@@ -309,55 +350,6 @@ SCENARIOS = {
             {'airport': 'DAY', 'tier': 'common', 'years_left': 3, 'monthly': 7_200},
         ],
         'routes': [],
-    },
-    'beginner_2026': {
-        'id': 'beginner_2026',
-        'name': '2026 — Beginner',
-        'tagline': 'Learn the ropes — leased jets, hub gates, already profitable.',
-        'year': 2026,
-        'briefing': (
-            'Training scenario. You run Gateway Air, a small Midwest carrier with two leased E175s, '
-            'gates at Columbus, Indianapolis, and Nashville, and two established routes already in the black. '
-            'Explore the map, fleet, and finance tabs before trying Greenfield or Lake State.'
-        ),
-        'cash': 12_000_000,
-        'debt': [],
-        'bonds': [],
-        'equity_pct': 100.0,
-        'reputation': 32,
-        'brand_awareness': {'CMH': 62, 'IND': 58, 'BNA': 55},
-        'financing_tier': 'startup',
-        'bond_rating': 'BB',
-        'airline_name': 'Gateway Air',
-        'fleet': [
-            {'id': 'ga-1', 'type': 'e175', 'leased': True, 'lease_months_left': 48, 'seats': 76},
-            {'id': 'ga-2', 'type': 'e175', 'leased': True, 'lease_months_left': 48, 'seats': 76},
-        ],
-        'gates': [
-            {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 18_000},
-            {'airport': 'IND', 'tier': 'common', 'years_left': 3, 'monthly': 9_000},
-            {'airport': 'BNA', 'tier': 'common', 'years_left': 3, 'monthly': 11_000},
-        ],
-        'routes': [
-            {
-                'id': 'ga-r1',
-                'origin': 'CMH',
-                'dest': 'BNA',
-                'aircraft_type': 'e175',
-                'frequency_week': 21,
-                'fare': 169,
-                'aircraft_id': 'ga-1',
-            },
-            {
-                'id': 'ga-r2',
-                'origin': 'IND',
-                'dest': 'CMH',
-                'aircraft_type': 'e175',
-                'frequency_week': 21,
-                'fare': 159,
-                'aircraft_id': 'ga-2',
-            },
-        ],
     },
     'greenfield_2026': {
         'id': 'greenfield_2026',
@@ -635,3 +627,8 @@ def get_runway_bootstrap():
         'common_route_pairs': COMMON_ROUTE_PAIRS,
         'ohio_region_iata': OHIO_REGION_IATA,
     }
+
+
+def scenario_has_tutorial(scenario_id):
+    sc = SCENARIOS.get(scenario_id) or {}
+    return bool(sc.get('tutorial'))
