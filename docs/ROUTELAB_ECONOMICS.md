@@ -79,18 +79,23 @@ Defaults: `size_multiplier` 3.2, `dist_divisor` 180, `min_weekly` 4.
 
 ### Capture factor (addressable O-D demand)
 
+**Pair-first model** (airport-wide share only softens presence — a 7/wk hop at CMH is not crushed to ~1% load):
+
 ```
-originShare = min(cap, player_origin_deps / origin_market_weekly)
+originShare = player_origin_deps / origin_market_weekly
 pairCapacityShare = player_freq / (player_freq + comp_pair_weekly + imputed_pair_weekly)
-shareCore = sqrt(max(origin_floor, originShare) × max(pair_floor, pairCapacityShare))
-presenceScale = presence_scale_min + presence_scale_range × min(1, sqrt(originShare / presence_origin_target))
-repBoost = 1 + reputation / rep_divisor
-awareBoost = 1 + ((brand_origin + brand_dest) / 2 / 100) × awareness_factor
-freqPresence = freq_presence_base + min(freq_presence_max_add, player_freq / freq_presence_divisor)
-capture = min(capture_cap, shareCore × presenceScale × repBoost × awareBoost × freqPresence)
+pairCore = max(pair_floor, pairCapacityShare)
+originPresence = origin_presence_min + (1 − min) × (originShare / presence_target)^0.45
+capture = pairCore × originPresence × rep × awareness × freqPresence
 ```
 
-Default floors: origin 0.05%, pair 3%. Cap 88%. Rival traffic uses `rival_traffic_buffer` (default 1.12) on competitor pair frequency in live sim.
+Mature / established / high brand pairs also get a **capture floor** (~14%) so existing services fill seats.
+
+### Round trips, ferry, and cancellations
+
+- Routes are **one-way**. Block hours are one-way; a reverse route is a second one-way with its own pax.
+- No reverse route → **empty ferry return** (fuel/crew, $0 tickets) — judgment and launch warn; “Launch with return leg” is checked by default.
+- Projected load below **12%** → flight **cancels** that day (tiny cancel cost, no full burn). Airlines do not fly 1% full.
 
 ### Load estimate
 

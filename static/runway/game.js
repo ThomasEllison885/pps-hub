@@ -2416,11 +2416,10 @@
           1,
           total,
           `Welcome, ${state.player_name}`,
-          `<b>${state.airline_name}</b> is a small Ohio carrier based at <b>CMH</b> (Columbus). ` +
-            `You have <b>${fmtMoney(state.cash)}</b>, one leased <b>${planeLabel}</b>, and a tuned <b>${routeLabel}</b> route` +
-            (winning ? ` (<b>${freq}/wk</b> @ <b>$${fare}</b>, CMH marketing already on).` : '.') +
-            ' The clock is <b>paused</b> until you finish this walkthrough.' +
-            (winning ? ' A short coach may check in as you grow.' : ''),
+          `<b>${state.airline_name}</b> is a small Ohio carrier flying a <b>round trip</b> <b>CMH⇄DAY</b> — ` +
+            `paying passengers both ways on one leased <b>${planeLabel}</b>, with gates at both cities and <b>${fmtMoney(state.cash)}</b> cash.` +
+            (winning ? ` Fares are set near <b>$${fare}</b> and CMH marketing is already on.` : '') +
+            ' The clock is <b>paused</b> until you finish this walkthrough.',
           winning
             ? 'Tour the UI first — do not fast-forward until Daily P&L stays green.'
             : 'This tutorial covers the four core loops: map → fleet → routes → fares. Press ▶ only when you are ready to run days.',
@@ -2462,9 +2461,9 @@
           4,
           total,
           'Routes — launch or review flights',
-          `You already fly <b>${routeLabel}</b>. To add a route: open <b>Routes</b>, pick origin (must have a gate), destination, aircraft, and frequency. ` +
-            'Try suggestions like <b>CMH→CVG</b> or <b>DAY→CMH</b> after you lease a second plane.',
-          'You need a gate at the origin airport before launching. Suggested routes show estimated load at market fare.',
+          `You already fly <b>CMH⇄DAY</b> both ways. Real airlines sell seats on the return — one-way only means an empty ferry home. ` +
+            'When you launch a new city pair, keep <b>Launch with return leg</b> checked (and lease a gate at the far end first).',
+          'You need a gate at the origin for each direction. Thin loads cancel automatically so you do not burn fuel empty.',
           'Open Routes tab →',
           'tab_routes',
           hub,
@@ -3968,18 +3967,23 @@
 
   function networkRouteStats() {
     if (!state || !state.routes.length) {
-      return { count: 0, profitable: 0, dailyPnl: 0, avgLoad: 0 };
+      return { count: 0, profitable: 0, dailyPnl: 0, avgLoad: 0, canceled: 0, ferry: 0 };
     }
     let profitable = 0;
     let dailyPnl = 0;
     let loadSum = 0;
     let loadN = 0;
+    let canceled = 0;
+    let ferry = 0;
     state.routes.forEach((route) => {
       const r = simulateRouteDay(route);
       const pnl = r.revenue - r.cost;
       dailyPnl += pnl;
       if (pnl > 0) profitable += 1;
-      if (!r.grounded && Number.isFinite(r.load)) {
+      if (r.canceled) canceled += 1;
+      if (r.ferryReturn && !r.canceled && r.flightsToday > 0) ferry += 1;
+      // Canceled departures don't pull avg load to zero — they simply didn't fly.
+      if (!r.grounded && !r.canceled && Number.isFinite(r.load)) {
         loadSum += r.load;
         loadN += 1;
       }
@@ -3989,6 +3993,8 @@
       profitable,
       dailyPnl,
       avgLoad: loadN ? loadSum / loadN : 0,
+      canceled,
+      ferry,
     };
   }
 
@@ -5597,8 +5603,29 @@
     return haversineNm(o.lat, o.lon, d.lat, d.lon);
   }
 
+  /**
+   * One-way block hours (taxi + cruise + pad). Round-trips are 2× this when both
+   * legs fly, or ferry return adds a second one-way when no reverse route exists.
+   */
   function blockHours(distNm, ac) {
-    return (distNm / 420) * 2 + 0.5;
+    const cruiseKt = (ac && ac.cruise_kts) || 420;
+    const cruise = (distNm || 0) / cruiseKt;
+    return Math.max(0.55, cruise + 0.4);
+  }
+
+  function findReverseRoute(route, excludeId) {
+    if (!route || !state) return null;
+    return (state.routes || []).find(
+      (r) =>
+        r.id !== route.id &&
+        r.id !== excludeId &&
+        r.origin === route.dest &&
+        r.dest === route.origin
+    );
+  }
+
+  function hasReturnLeg(route) {
+    return !!findReverseRoute(route);
   }
 
   function airportMarketDeparturesDaily(ap) {
@@ -5682,6 +5709,12 @@
     const imputedPair = imputedPairMarketWeekly(route.origin, route.dest);
     const playerOriginDepsCurrent = playerDeparturesWeeklyFrom(route.origin, excludeRouteId, 0);
     const E = RunwayEcon();
+    const brandO = state.brand_awareness[route.origin] || 5;
+    const brandD = state.brand_awareness[route.dest] || 5;
+    const mature =
+      !!route.established ||
+      isCommonRoutePair(route.origin, route.dest) ||
+      (brandO + brandD) / 2 >= 40;
     const cap = E
       ? E.computeMarketCapture(
           {
@@ -5693,8 +5726,9 @@
             compPairWeekly: compPair,
             imputedPairWeekly: imputedPair,
             reputation: state.reputation || 0,
-            brandAwareOrigin: state.brand_awareness[route.origin] || 5,
-            brandAwareDest: state.brand_awareness[route.dest] || 5,
+            brandAwareOrigin: brandO,
+            brandAwareDest: brandD,
+            mature,
           },
           routeEconomics()
         )
@@ -5750,24 +5784,32 @@
 
     const wealth = (airportWealth(o) + airportWealth(d)) / 2;
     const luxury = (airportLuxury(o) + airportLuxury(d)) / 2;
-    const regionalBoost = (o.regional || d.regional) && isSmallAircraft(route.aircraft_type) ? 1.14 : 1;
+    const regionalBoost = (o.regional || d.regional) && isSmallAircraft(route.aircraft_type) ? 1.22 : 1;
     const wealthBoost = 0.72 + wealth * 0.55;
     const luxuryBoost = 1 + luxury * 0.35;
-    const base = Math.sqrt(o.metro_pop_m * d.metro_pop_m) * 1200 * regionalBoost * wealthBoost * luxuryBoost;
+    // Short hops (CMH–DAY etc.) have denser O-D demand than long thin routes.
+    const shortHopBoost = dist < 180 ? 2.35 : dist < 350 ? 1.55 : dist < 600 ? 1.15 : 1;
+    const base =
+      Math.sqrt(Math.max(0.15, o.metro_pop_m) * Math.max(0.15, d.metro_pop_m)) *
+      1450 *
+      regionalBoost *
+      wealthBoost *
+      luxuryBoost *
+      shortHopBoost;
     const compPenalty =
       1 -
       (incumbentPressure(o) +
         incumbentPressure(d) +
         competitorFarePressure(o) +
         competitorFarePressure(d)) *
-        0.34;
-    const hubPenalty = Math.max(0.42, compPenalty);
+        0.28;
+    const hubPenalty = Math.max(0.55, compPenalty);
     const awareO = (state.brand_awareness[route.origin] || 5) / 100;
     const awareD = (state.brand_awareness[route.dest] || 5) / 100;
-    const marketing = (0.5 + (awareO + awareD) / 2) * marketingDemandBonus(route.origin, route.dest);
+    const marketing = (0.55 + (awareO + awareD) / 2) * marketingDemandBonus(route.origin, route.dest);
     const rep = 1 + state.reputation / 200;
     const fareFactor = fareDemandFactor(route, o, d);
-    const overlap = 1 - competitorRouteOverlapPenalty(route);
+    const overlap = 1 - competitorRouteOverlapPenalty(route) * 0.72;
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
     const ota = otaEffects();
@@ -5789,7 +5831,10 @@
       comfortFactor *
       marketCapture *
       surge;
-    if (isCommonRoutePair(route.origin, route.dest)) demand *= 1.08;
+    if (isCommonRoutePair(route.origin, route.dest)) demand *= 1.18;
+    if (route.established) demand *= 1.12;
+    // Return leg on a pair you already fly outbound — some traffic already knows you.
+    if (hasReturnLeg(route)) demand *= 1.08;
     (route.featured_ota || []).forEach((pid) => {
       const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
       if (p) demand *= 1 + (p.demand_reach || 0.1) * 0.45;
@@ -5808,14 +5853,28 @@
   let simulatingDemandDepth = 0;
 
   function simulateRouteDay(route) {
+    const empty = {
+      revenue: 0,
+      cost: 0,
+      pax: 0,
+      load: 0,
+      ticketRev: 0,
+      ancillaryRev: 0,
+      grounded: false,
+      canceled: false,
+      ferryReturn: false,
+      schedScale: 1,
+      flightsToday: 0,
+      market: null,
+    };
     const ac = aircraftType(route.aircraft_type);
-    if (!ac) return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: false };
+    if (!ac) return { ...empty };
     const dist = routeDistance(route);
-    if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: false };
+    if (dist > ac.range_nm) return { ...empty };
 
     const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
     if (plane && !isPlaneAvailable(plane)) {
-      return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: true };
+      return { ...empty, grounded: true };
     }
     const o = airport(route.origin);
     const d = airport(route.dest);
@@ -5831,20 +5890,51 @@
     } finally {
       simulatingDemandDepth -= 1;
     }
-    const load = Math.min(0.92, demand / Math.max(dailySeats, 1));
+    let load = Math.min(0.92, demand / Math.max(dailySeats, 1));
+    const reverse = findReverseRoute(route);
+    const ferryReturn = !reverse;
+    const cancelThreshold = (routeEconomics().cancel_load_threshold != null
+      ? routeEconomics().cancel_load_threshold
+      : 0.12);
+
+    // Airlines cancel hopeless departures rather than burn fuel at 1–10% load.
+    if (load < cancelThreshold && flightsToday > 0 && !route.force_fly) {
+      const oneWayBlock = blockHours(dist, ac) * flightsToday;
+      // Tiny cancellation / positioning cost — far below a full empty flight.
+      const cancelCost = oneWayBlock * bootstrap.crew_cost_per_block_hour * 0.15;
+      return {
+        ...empty,
+        cost: cancelCost,
+        load: 0,
+        canceled: true,
+        ferryReturn,
+        schedScale,
+        flightsToday: 0,
+        market: mkt,
+        demand,
+        cancelReason: `load ${(load * 100).toFixed(0)}% below cancel threshold`,
+      };
+    }
+
     const pax = Math.floor(dailySeats * load);
     const ota = otaEffects();
     const ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult;
     const ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult;
     const revenue = ticketRev + ancillaryRev;
 
-    const block = blockHours(dist, ac) * flightsToday;
+    // One-way block for revenue leg; empty ferry home if no reverse service.
+    let block = blockHours(dist, ac) * flightsToday;
+    if (ferryReturn) {
+      block += blockHours(dist, ac) * flightsToday * 0.92;
+    }
     if (plane) {
       plane.block_hours_month = (plane.block_hours_month || 0) + block;
     }
     const fuel = block * ac.fuel_gal_hr * state.fuel_price;
     const crew = block * bootstrap.crew_cost_per_block_hour;
-    const fees = flightsToday * bootstrap.airport_fee_per_departure * 2;
+    // Airport fees: once per landing. Ferry return still lands at origin.
+    const landings = ferryReturn ? flightsToday * 2 : flightsToday;
+    const fees = landings * bootstrap.airport_fee_per_departure;
     const variable = fuel + crew + fees;
 
     return {
@@ -5855,9 +5945,12 @@
       ticketRev,
       ancillaryRev,
       grounded: false,
+      canceled: false,
+      ferryReturn,
       schedScale,
       flightsToday,
       market: mkt,
+      demand,
     };
   }
 
@@ -7450,10 +7543,18 @@
          <p class="muted" style="font-size:0.66rem;margin:4px 0 0;">Years 1–3 use conservative ramp (brand building), cost creep, and inflation — not a guarantee.</p>`
       : '';
 
+    const hasReverse = (state.routes || []).some(
+      (r) => r.origin === draft.dest && r.dest === draft.origin
+    );
+    const returnHtml = hasReverse
+      ? `<p class="judgment-note">Return service <b>${draft.dest}→${draft.origin}</b> already flies — both legs carry paying passengers.</p>`
+      : `<p class="judgment-note danger"><b>Empty return:</b> without a <b>${draft.dest}→${draft.origin}</b> flight, the plane ferries home empty (fuel + crew, $0 tickets). Open the return leg — or check “Launch with return” below.</p>`;
+
     return `<div class="route-judgment ${econ.verdictClass}">
       <p class="judgment-kicker">Business judgment</p>
       <p class="judgment-verdict"><strong>${econ.verdictLabel}</strong></p>
       ${marketJudgmentOneLiner(draft)}
+      ${returnHtml}
       ${recHtml}
       <dl class="stat-dl judgment-stats">
         <dt>Est. route margin (steady-state)</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day${econ.schedScale < 0.98 ? ` · aircraft flies ~${Math.round(econ.schedScale * 100)}% of ${draft.freq}/wk — plane shared` : ''} · ${(bootstrap.ancillary_modes || []).find((m) => m.id === (state.ancillary_strategy || 'auto'))?.label || 'Balanced'} strategy)</span></dd>
@@ -7646,6 +7747,20 @@
         <div class="route-launch-judgment" id="rl-judgment">${judgmentHtml}</div>
         <p class="route-launch-section">Station build-out (one-time)</p>
         <p style="font-size:0.76rem;line-height:1.4;">Counters, signage, ground ops setup at <b>${d.origin}</b> — <b>${fmtMoney(d.stationCost)}</b> due at launch. Additional gates let you run more simultaneous departures.</p>
+        <div class="route-return-box" style="margin:12px 0;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(0,200,150,0.06);">
+          <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.88rem;line-height:1.4;">
+            <input type="checkbox" id="rl-with-return" ${
+              (state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin) ? '' : 'checked'
+            } style="margin-top:3px;" ${(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin) ? 'disabled' : ''}>
+            <span><strong>Launch with return leg</strong> (${d.dest} → ${d.origin}) — same aircraft, fare, and frequency.
+              <span class="muted" style="display:block;font-size:0.76rem;margin-top:4px;">Airlines fill both directions. One-way only means an empty ferry home and much worse P&amp;L.${
+                hasGateAt(d.dest)
+                  ? ''
+                  : ` Requires a gate at <b>${d.dest}</b> (lease on the map first).`
+              }</span>
+            </span>
+          </label>
+        </div>
         <details class="route-launch-advanced">
           <summary class="route-launch-section" style="cursor:pointer;">Advanced: Marketing &amp; distribution (optional)</summary>
           <p class="route-launch-section">Marketing investments</p>
@@ -7788,10 +7903,28 @@
       if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly;
     });
 
+    const withReturnEl = $('rl-with-return');
+    const wantReturn =
+      !!(withReturnEl && withReturnEl.checked) &&
+      !(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
+
     const routeErr = validateOpenRoute(d.origin, d.dest, d.aircraftId, d.freq);
     if (routeErr) {
       alert(routeErr);
       return;
+    }
+    if (wantReturn) {
+      if (!hasGateAt(d.dest)) {
+        alert(
+          `Return leg ${d.dest}→${d.origin} needs a gate at ${d.dest}. Lease one on the map, then relaunch with return checked.`
+        );
+        return;
+      }
+      const retErr = validateOpenRoute(d.dest, d.origin, d.aircraftId, d.freq);
+      if (retErr) {
+        alert(`Return leg: ${retErr}`);
+        return;
+      }
     }
     if (state.cash < upfront) {
       alert(`Need ${fmtMoney(upfront)} upfront (station build-out + first month on new OTA listings).`);
@@ -7816,6 +7949,7 @@
       aircraftId: d.aircraftId,
       freq: d.freq,
       fare: d.fare,
+      wantReturn,
     };
 
     state.cash -= upfront;
@@ -7832,10 +7966,30 @@
 
     const launched = openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, {
       featured_ota: featured,
+      expectReturn: copy.wantReturn,
     });
     if (!launched) {
       state.cash += upfront;
       pushPlayerEvent(`route launch cancelled — ${fmtMoney(upfront)} station/OTA upfront refunded`);
+      saveGame();
+      renderAll();
+      return;
+    }
+    if (copy.wantReturn) {
+      const ret = openRoute(copy.dest, copy.origin, copy.aircraftId, copy.freq, copy.fare, {
+        featured_ota: featured,
+        quiet: true,
+      });
+      if (ret) {
+        pushPlayerEvent(
+          `also opened return ${copy.dest}–${copy.origin} (${copy.freq}x/wk) — both legs sell seats.`
+        );
+      } else {
+        pushEvent(
+          `Outbound ${copy.origin}–${copy.dest} launched, but return failed validation — plane may ferry empty.`,
+          'bad'
+        );
+      }
       saveGame();
       renderAll();
     }
@@ -7964,7 +8118,7 @@
     extras = extras || {};
     const routeErr = validateOpenRoute(origin, dest, aircraftId, freq);
     if (routeErr) {
-      alert(routeErr);
+      if (!extras.quiet) alert(routeErr);
       return false;
     }
     const plane = state.fleet.find((f) => f.id === aircraftId);
@@ -7983,6 +8137,7 @@
       ancillary_mode: state.ancillary_strategy || 'auto',
       aircraft_id: aircraftId,
       featured_ota: extras.featured_ota || [],
+      established: !!extras.established,
       launch_forecast_load: via.load,
       launch_forecast_pax_day: via.dailyPax,
       stats: { days: 0, pax_sum: 0, load_sum: 0 },
@@ -7991,27 +8146,31 @@
     state.routes.push(route);
     const starter = state.starter_route_count || 0;
     const routeCount = state.routes.length;
-    if (routeCount === 1 && starter === 0) {
-      markMilestoneOnce('first_route', `${state.airline_name} launched its first route. Wheels up!`);
-    } else if (routeCount > starter) {
-      markMilestoneOnce('first_new_route', `${state.airline_name} added <b>${origin}–${dest}</b> — network growing.`);
+    if (!extras.quiet) {
+      if (routeCount === 1 && starter === 0) {
+        markMilestoneOnce('first_route', `${state.airline_name} launched its first route. Wheels up!`);
+      } else if (routeCount > starter) {
+        markMilestoneOnce('first_new_route', `${state.airline_name} added <b>${origin}–${dest}</b> — network growing.`);
+      }
+      const otaNote = (extras.featured_ota || []).length ? ` · OTA featured: ${extras.featured_ota.join(', ')}` : '';
+      const ferryNote =
+        extras.expectReturn || hasReturnLeg(route) ? '' : ' · ⚠ no return — empty ferry home';
+      pushPlayerEvent(
+        `opened ${origin}–${dest} (${freq}x/wk @ $${finalFare}) · planned ~${via.dailyPax} pax/day (${(via.load * 100).toFixed(0)}% load)${otaNote}${ferryNote}`
+      );
+      processReactiveCompetitorThreats('player_route', origin, dest);
+      selectAirport(origin);
+      routeFormDraft = {
+        origin,
+        originLabel: airport(origin) ? airportLabel(airport(origin)) : origin,
+        dest: '',
+        destLabel: '',
+        aircraftId: aircraftId,
+        freq: String(freq),
+        fare: String(finalFare),
+      };
+      switchTab('routes');
     }
-    const otaNote = (extras.featured_ota || []).length ? ` · OTA featured: ${extras.featured_ota.join(', ')}` : '';
-    pushPlayerEvent(
-      `opened ${origin}–${dest} (${freq}x/wk @ $${finalFare}) · planned ~${via.dailyPax} pax/day (${(via.load * 100).toFixed(0)}% load)${otaNote}`
-    );
-    processReactiveCompetitorThreats('player_route', origin, dest);
-    selectAirport(origin);
-    routeFormDraft = {
-      origin,
-      originLabel: airport(origin) ? airportLabel(airport(origin)) : origin,
-      dest: '',
-      destLabel: '',
-      aircraftId: aircraftId,
-      freq: String(freq),
-      fare: String(finalFare),
-    };
-    switchTab('routes');
     saveGame();
     renderAll();
     return true;
@@ -9519,7 +9678,12 @@
     setText('hud-pnl', fmtMoney(state.daily_pnl));
     const net = networkRouteStats();
     const loadPct = net.count ? Math.round(net.avgLoad * 100) : null;
-    setText('hud-load', loadPct != null ? `${loadPct}%` : '—');
+    setText(
+      'hud-load',
+      loadPct != null
+        ? `${loadPct}%${net.canceled ? ' · cx' : ''}${net.ferry ? ' · ferry' : ''}`
+        : '—'
+    );
     if (loadPct != null) {
       if (loadPct >= 70) setStatPillTone('hud-pill-load', 'good');
       else if (loadPct >= 45) setStatPillTone('hud-pill-load', 'warn');

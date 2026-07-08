@@ -903,9 +903,8 @@ SCENARIOS = {
         'region': 'ohio',
         'tutorial': True,
         'briefing': (
-            'Training scenario in Ohio. You run Gateway Air from Columbus with one leased E145, '
-            'a CMH gate, and a profitable CMH–Dayton route. The tutorial walks you through the map, '
-            'fleet, routes, and fares before you unpause the clock.'
+            'Training scenario in Ohio. You run Gateway Air with one E145 on a <b>round trip</b> '
+            'CMH⇄DAY (paying passengers both ways), gates at both ends, and a short UI tour before you unpause.'
         ),
         'cash': 8_500_000,
         'debt': [],
@@ -922,6 +921,7 @@ SCENARIOS = {
         ],
         'gates': [
             {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 16_000},
+            {'airport': 'DAY', 'tier': 'common', 'years_left': 3, 'monthly': 7_200},
         ],
         'routes': [
             {
@@ -933,21 +933,33 @@ SCENARIOS = {
                 'fare': 149,
                 'fare_mode': 'auto',
                 'aircraft_id': 'ga-1',
+                'established': True,
+            },
+            {
+                'id': 'ga-r2',
+                'origin': 'DAY',
+                'dest': 'CMH',
+                'aircraft_type': 'e145',
+                'frequency_week': 7,
+                'fare': 149,
+                'fare_mode': 'auto',
+                'aircraft_id': 'ga-1',
+                'established': True,
             },
         ],
     },
     'beginner_winning_2026': {
         'id': 'beginner_winning_2026',
         'name': '2026 — Winning Path (Ohio Coach)',
-        'tagline': 'Same Ohio tutorial — tuned for profit with a light coach.',
+        'tagline': 'Same Ohio tutorial — round-trip CMH⇄DAY tuned for profit.',
         'year': 2026,
         'region': 'ohio',
         'tutorial': True,
         'winning_track': True,
         'tutorial_overhead_scale': 0.78,
         'briefing': (
-            'Gateway Air starts on a <b>winning track</b>: CMH–Dayton is tuned for profit and CMH marketing '
-            'is already running. Take the short UI tour, then press ▶ — a coach will check in when it matters.'
+            'Gateway Air starts on a <b>winning track</b>: daily <b>CMH⇄DAY</b> round trips with paying '
+            'passengers both ways, gates at both cities, and CMH marketing already on. Tour the UI, then press ▶.'
         ),
         'cash': 8_500_000,
         'debt': [],
@@ -955,7 +967,7 @@ SCENARIOS = {
         'equity_pct': 100.0,
         'reputation': 32,
         'brand_awareness': {'CMH': 62, 'DAY': 48},
-        'marketing_spend_monthly': {'CMH': 9_000},
+        'marketing_spend_monthly': {'CMH': 9_000, 'DAY': 4_500},
         'financing_tier': 'startup',
         'bond_rating': 'BB',
         'player_name': 'CEO',
@@ -965,6 +977,7 @@ SCENARIOS = {
         ],
         'gates': [
             {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 16_000},
+            {'airport': 'DAY', 'tier': 'common', 'years_left': 3, 'monthly': 7_200},
         ],
         'routes': [
             {
@@ -972,10 +985,22 @@ SCENARIOS = {
                 'origin': 'CMH',
                 'dest': 'DAY',
                 'aircraft_type': 'e145',
-                'frequency_week': 10,
+                'frequency_week': 7,
                 'fare': 139,
                 'fare_mode': 'manual',
                 'aircraft_id': 'ga-1',
+                'established': True,
+            },
+            {
+                'id': 'ga-r2',
+                'origin': 'DAY',
+                'dest': 'CMH',
+                'aircraft_type': 'e145',
+                'frequency_week': 7,
+                'fare': 139,
+                'fare_mode': 'manual',
+                'aircraft_id': 'ga-1',
+                'established': True,
             },
         ],
     },

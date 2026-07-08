@@ -11,19 +11,26 @@
     ramp_load_multipliers: [0.55, 0.78, 0.92],
     ramp_cost_creep_per_year: 0.03,
     avg_pax_load_factor: 0.8,
+    /**
+     * City-pair capture — pair competition dominates.
+     * Whole-airport share is only a soft presence boost (a 7/wk regional hop
+     * should not be crushed because CMH has 1800 deps/week).
+     */
     market_capture: {
-      origin_share_floor: 0.0005,
-      pair_share_floor: 0.03,
-      capture_cap: 0.88,
-      presence_origin_target: 0.08,
-      presence_scale_min: 0.42,
-      presence_scale_range: 0.58,
-      rep_divisor: 450,
-      awareness_factor: 0.35,
-      freq_presence_base: 0.72,
-      freq_presence_max_add: 0.28,
-      freq_presence_divisor: 42,
+      origin_share_floor: 0.002,
+      pair_share_floor: 0.06,
+      capture_cap: 0.9,
+      // Soft origin presence: min weight when almost no airport share
+      origin_presence_min: 0.55,
+      presence_origin_target: 0.04,
+      rep_divisor: 400,
+      awareness_factor: 0.42,
+      freq_presence_base: 0.85,
+      freq_presence_max_add: 0.22,
+      freq_presence_divisor: 28,
       origin_share_cap: 0.95,
+      // Established / mature pair boost (brand + common city pair)
+      mature_capture_floor: 0.14,
     },
     imputed_pair: {
       size_multiplier: 3.2,
@@ -41,6 +48,8 @@
       min_daily: 2,
     },
     rival_traffic_buffer: 1.12,
+    // Cancel departures when projected load is hopeless (variable cost avoided).
+    cancel_load_threshold: 0.12,
   };
 
   function mergeConfig(bootstrap) {
@@ -88,30 +97,55 @@
     return Math.max(ip.min_weekly, Math.round(size * ip.size_multiplier + distNm / ip.dist_divisor));
   }
 
+  /**
+   * Capture of addressable city-pair demand.
+   * Pair capacity share is the core lever; airport-wide share only softens presence.
+   */
   function computeMarketCapture(params, cfg) {
     const mc = cfg.market_capture;
-    const originShare = Math.min(mc.origin_share_cap, params.playerOriginDeps / Math.max(1, params.originMarketWeekly));
-    const pairDenom = Math.max(1, params.effectivePlayerFreq + params.compPairWeekly + params.imputedPairWeekly);
+    const originShare = Math.min(
+      mc.origin_share_cap,
+      params.playerOriginDeps / Math.max(1, params.originMarketWeekly)
+    );
+    const pairDenom = Math.max(
+      1,
+      params.effectivePlayerFreq + params.compPairWeekly + params.imputedPairWeekly
+    );
     const pairCapacityShare = params.effectivePlayerFreq / pairDenom;
     const repBoost = 1 + (params.reputation || 0) / mc.rep_divisor;
-    const awareBoost =
-      1 + (((params.brandAwareOrigin || 5) + (params.brandAwareDest || 5)) / 2 / 100) * mc.awareness_factor;
+    const awareAvg = ((params.brandAwareOrigin || 5) + (params.brandAwareDest || 5)) / 2;
+    const awareBoost = 1 + (awareAvg / 100) * mc.awareness_factor;
     const freqPresence =
       mc.freq_presence_base +
       Math.min(mc.freq_presence_max_add, params.effectivePlayerFreq / mc.freq_presence_divisor);
-    const shareCore = Math.sqrt(
-      Math.max(mc.origin_share_floor, originShare) * Math.max(mc.pair_share_floor, pairCapacityShare)
-    );
-    const presenceScale =
-      mc.presence_scale_min +
-      mc.presence_scale_range * Math.min(1, Math.sqrt(originShare / mc.presence_origin_target));
-    const capture = Math.min(mc.capture_cap, shareCore * presenceScale * repBoost * awareBoost * freqPresence);
+
+    // Pair-first core (not sqrt of airport share × pair — that zeroed thin majors).
+    const pairCore = Math.max(mc.pair_share_floor, pairCapacityShare);
+    const originPresence =
+      mc.origin_presence_min +
+      (1 - mc.origin_presence_min) *
+        Math.min(1, Math.pow(Math.max(mc.origin_share_floor, originShare) / mc.presence_origin_target, 0.45));
+
+    let capture = pairCore * originPresence * repBoost * awareBoost * freqPresence;
+
+    // Mature brand on a known city-pair — floor so "existing airline" isn't empty.
+    if (params.mature || awareAvg >= 40) {
+      const floor = mc.mature_capture_floor || 0.14;
+      capture = Math.max(capture, floor * Math.min(1.15, awareBoost));
+    }
+
+    capture = Math.min(mc.capture_cap, capture);
+
     return {
       originShare,
-      destShare: Math.min(mc.origin_share_cap, (params.playerDestDeps || 0) / Math.max(1, params.destMarketWeekly || 1)),
+      destShare: Math.min(
+        mc.origin_share_cap,
+        (params.playerDestDeps || 0) / Math.max(1, params.destMarketWeekly || 1)
+      ),
       pairCapacityShare,
       captureFactor: capture,
       pairDenom,
+      originPresence,
     };
   }
 
