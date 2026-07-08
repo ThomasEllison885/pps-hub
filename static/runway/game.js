@@ -1368,13 +1368,9 @@
         kicker: `${fmtDate(state.day)} · Competitor pricing`,
         title: `${log.airline} responds to your route`,
         body: `${log.msg}. They are defending share on a market you entered.${impact}`,
-        teach: 'Match only if the market is price-sensitive; otherwise lean on marketing, schedule, or ancillaries.',
+        teach: 'You never have to match. Marketing builds demand without cutting price; doing nothing is valid if loads still look fine.',
         logLine: log.msg,
-        options: [
-          { id: 'match', label: 'A — Match fare on overlapping routes', hint: 'Protect load; margin takes the hit.', effect: 'match_fares', airport: log.airport, pct: log.pct || 0.1 },
-          { id: 'market', label: `B — Hold fare · boost marketing at ${log.airport}`, hint: '+$12k/mo awareness.', effect: 'marketing', airport: log.airport, amount: 12000 },
-          { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
-        ],
+        options: fareWarResponseOptions(log.airport, log.airline, log.pct || 0.1),
       });
     } else if (log.type === 'capacity') {
       queueDecision({
@@ -1382,12 +1378,47 @@
         kicker: `${fmtDate(state.day)} · Competitor capacity`,
         title: `${log.airline} adds seats against you`,
         body: `${log.msg}. Extra seats usually mean fare pressure unless you differentiate.${impact}`,
-        teach: 'Trim fares selectively or invest in awareness — not every route needs a response.',
+        teach: 'Match with price, fight back with marketing, or hold premium — or wait and watch loads.',
         logLine: log.msg,
         options: [
-          { id: 'cut', label: `A — Trim fares ~8% on ${log.airport} routes`, effect: 'cut_fares', airport: log.airport, pct: 0.08 },
-          { id: 'premium', label: 'B — Hold premium · reputation push', effect: 'hold_premium', airport: log.airport },
-          { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
+          { id: 'cut', label: `A — Trim fares ~8% on ${log.airport} routes`, hint: 'Defend load factor.', effect: 'cut_fares', airport: log.airport, pct: 0.08 },
+          {
+            id: 'market',
+            label: `B — Hold fares · $15k/mo marketing at ${log.airport}`,
+            hint: 'Offset seat dump with awareness instead of a fare war.',
+            effect: 'marketing',
+            airport: log.airport,
+            amount: 15000,
+            competitorResponse: true,
+            awarenessBoost: true,
+            softenCompetitor: true,
+            airline: log.airline,
+          },
+          { id: 'premium', label: 'C — Hold premium · reputation push', hint: 'Accept softer loads short-term.', effect: 'hold_premium', airport: log.airport },
+          { id: 'ignore', label: 'D — Do nothing for now', hint: 'Monitor loads in Routes.', effect: 'none' },
+        ],
+      });
+    } else if (log.type === 'exit') {
+      queueDecision({
+        airport: log.airport,
+        kicker: `${fmtDate(state.day)} · Market opening`,
+        title: `${log.airline} left a market you serve`,
+        body: `${log.msg}. Less competition should lift loads on overlapping routes.${impact}`,
+        teach: 'Positive events are openings — invest in marketing to capture freed demand, or simply enjoy stronger margins.',
+        logLine: log.msg,
+        options: [
+          {
+            id: 'market',
+            label: `A — Capitalize: $12k/mo marketing at ${log.airport}`,
+            hint: 'Capture the opening before someone else fills it.',
+            effect: 'marketing',
+            airport: log.airport,
+            amount: 12000,
+            competitorResponse: true,
+            awarenessBoost: true,
+          },
+          { id: 'premium', label: 'B — Hold fares · take the demand bump', hint: 'Reputation +2; let loads rise naturally.', effect: 'hold_premium', airport: log.airport },
+          { id: 'ignore', label: 'C — Do nothing', hint: 'The opening applies either way.', effect: 'none' },
         ],
       });
     }
@@ -1432,9 +1463,12 @@
 
     logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l), competitorEventTier(l.type)));
     if (trigger === 'player_route' && logs.length) {
-      showEventToast(formatCompetitorEventMsg(logs[0]), 'bad');
+      const tier = competitorEventTier(logs[0].type);
+      showEventToast(formatCompetitorEventMsg(logs[0]), tier === 'good' ? 'good' : 'bad');
     }
-    queueReactiveCompetitorDecision(logs.find((l) => l.big && (l.type === 'fare_cut' || l.type === 'capacity')));
+    queueReactiveCompetitorDecision(
+      logs.find((l) => l.big && (l.type === 'fare_cut' || l.type === 'capacity' || l.type === 'exit'))
+    );
     state.last_reactive_competitor_day = state.day;
   }
 
@@ -1573,12 +1607,31 @@
           kicker: `${fmtDate(state.day)} · Competitor pricing`,
           title: `${big.airline} fare cut at ${big.airport}`,
           body: `${big.msg}.${impact}`,
-          teach: 'Ancillary-heavy pricing can hold ticket low while protecting margin — or hold fare and spend on awareness.',
+          teach: 'Matching is optional. Marketing offsets fare pressure over time without sacrificing ticket price.',
+          logLine: big.msg,
+          options: fareWarResponseOptions(big.airport, big.airline, big.pct || 0.12),
+        });
+      } else if (big.type === 'exit') {
+        queueDecision({
+          airport: big.airport,
+          kicker: `${fmtDate(state.day)} · Market opening`,
+          title: `${big.airline} exited ${big.airport}`,
+          body: `${big.msg}. Competitor capacity left the market — your routes may see stronger loads.${impact}`,
+          teach: 'Good news counts too. Reinvest in marketing to lock in share, or let margins improve on their own.',
           logLine: big.msg,
           options: [
-            { id: 'match', label: 'A — Match fare cut on overlapping routes', effect: 'match_fares', airport: big.airport, pct: big.pct || 0.12 },
-            { id: 'ancillary', label: 'B — Shift to ancillary-heavy on those routes', effect: 'ancillary_aggressive', airport: big.airport },
-            { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
+            {
+              id: 'market',
+              label: `A — Capitalize: $12k/mo marketing at ${big.airport}`,
+              hint: 'Capture freed demand.',
+              effect: 'marketing',
+              airport: big.airport,
+              amount: 12000,
+              competitorResponse: true,
+              awarenessBoost: true,
+            },
+            { id: 'premium', label: 'B — Hold fares · enjoy the opening', effect: 'hold_premium', airport: big.airport },
+            { id: 'ignore', label: 'C — Do nothing', effect: 'none' },
           ],
         });
       }
@@ -1722,6 +1775,32 @@
     return (state.routes || []).filter((r) => r.origin === iata || r.dest === iata);
   }
 
+  function applyMarketingSpend(option) {
+    const ap = option.airport;
+    if (!ap) return;
+    const amount = option.amount || 12000;
+    const prev = clampMoney(state.marketing_spend_monthly[ap]);
+    const next = option.setAmount ? clampMoney(amount) : clampMoney(prev + amount);
+    state.marketing_spend_monthly[ap] = next;
+    if (option.competitorResponse || option.awarenessBoost) {
+      state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + amount / 22000);
+      if (option.softenCompetitor && option.airline && state.competitor_markets[ap]) {
+        const m = state.competitor_markets[ap][option.airline];
+        if (m) {
+          if (m.fare_index < 1) m.fare_index = Math.min(1, m.fare_index + (1 - m.fare_index) * 0.3);
+          if (m.capacity_index > 1) m.capacity_index = Math.max(1, m.capacity_index - (m.capacity_index - 1) * 0.25);
+        }
+      }
+      pushPlayerEvent(
+        `holding fares at ${ap} — marketing ${fmtMoney(next)}/mo + awareness boost (builds demand over the next few weeks).`
+      );
+    } else {
+      pushPlayerEvent(`boosted marketing at ${ap} to ${fmtMoney(next)}/mo.`);
+    }
+    saveGame();
+    renderAll();
+  }
+
   function applyDecisionEffect(option) {
     if (!option || option.effect === 'none') return;
     if (option.effect === 'match_fares') {
@@ -1733,10 +1812,7 @@
       });
       pushPlayerEvent(`matched competitor fare cut at ${option.airport} (~${Math.round(pct * 100)}%).`);
     } else if (option.effect === 'marketing') {
-      state.marketing_spend_monthly[option.airport] = clampMoney(
-        (state.marketing_spend_monthly[option.airport] || 0) + (option.amount || 12000)
-      );
-      pushPlayerEvent(`boosted marketing at ${option.airport} to ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo.`);
+      applyMarketingSpend(option);
     } else if (option.effect === 'hub_routes' && option.airport) {
       focusHubForRoutes(option.airport);
     } else if (option.effect === 'bump_route_freq' && option.routeId) {
@@ -1768,7 +1844,72 @@
         if (r.fare_mode !== 'manual') r.fare = Math.max(49, Math.round(r.fare * 0.94));
       });
       pushPlayerEvent(`shifted ${option.airport} routes to ancillary-heavy pricing.`);
+    } else if (option.effect === 'raise_fares' && option.airport) {
+      const pct = option.pct || 0.05;
+      routesTouchingAirport(option.airport).forEach((r) => {
+        r.fare = Math.min(899, Math.max(49, Math.round(r.fare * (1 + pct))));
+        r.fare_mode = 'manual';
+      });
+      pushPlayerEvent(`raised fares ~${Math.round(pct * 100)}% on ${option.airport} routes while competitors retreated.`);
+    } else if (option.effect === 'demand_surge' && option.airport) {
+      if (!state.airport_demand_surges) state.airport_demand_surges = {};
+      state.airport_demand_surges[option.airport] = {
+        days_left: option.days || 45,
+        mult: option.mult || 1.12,
+      };
+      pushPlayerEvent(
+        `travel demand surge at ${option.airport} — +${Math.round(((option.mult || 1.12) - 1) * 100)}% local demand for ${option.days || 45} days.`
+      );
     }
+  }
+
+  function airportDemandSurgeMult(iata) {
+    if (!state || !state.airport_demand_surges) return 1;
+    const s = state.airport_demand_surges[iata];
+    if (!s || s.days_left <= 0) return 1;
+    return s.mult || 1;
+  }
+
+  function processAirportDemandSurges() {
+    if (!state || !state.airport_demand_surges) return;
+    Object.keys(state.airport_demand_surges).forEach((ap) => {
+      const s = state.airport_demand_surges[ap];
+      if (!s) return;
+      s.days_left -= 1;
+      if (s.days_left <= 0) delete state.airport_demand_surges[ap];
+    });
+  }
+
+  function fareWarResponseOptions(iata, airline, pct) {
+    const amount = 15000;
+    return [
+      {
+        id: 'match',
+        label: `A — Match the ~${Math.round((pct || 0.12) * 100)}% fare cut`,
+        hint: 'Protect loads today; margin takes the hit.',
+        effect: 'match_fares',
+        airport: iata,
+        pct: pct || 0.12,
+      },
+      {
+        id: 'market',
+        label: `B — Hold fares · invest $${Math.round(amount / 1000)}k/mo marketing at ${iata}`,
+        hint: 'Build awareness & demand — offsets pressure over 2–4 weeks without cutting price.',
+        effect: 'marketing',
+        airport: iata,
+        amount,
+        competitorResponse: true,
+        awarenessBoost: true,
+        softenCompetitor: true,
+        airline,
+      },
+      {
+        id: 'ignore',
+        label: 'C — Do nothing for now',
+        hint: 'Keep fares; watch loads and adjust manually in Routes.',
+        effect: 'none',
+      },
+    ];
   }
 
   function dismissDecisionsForRouteLaunch() {
@@ -3063,7 +3204,7 @@
     if (!state || state.game_over || activeDecision || decisionQueue.length) return;
     const gap = state.day - (state.last_competitor_event_day || 0);
     if (gap < 50) return;
-    if (Math.random() > 0.34) return;
+    if (Math.random() > 0.42) return;
     const invested = investedAirports();
     if (!invested.length) return;
     const iata = invested[Math.floor(Math.random() * invested.length)];
@@ -3073,7 +3214,7 @@
     const roll = Math.random();
     let decision = null;
 
-    if (roll < 0.38) {
+    if (roll < 0.30) {
       const pct = 0.14 + Math.random() * 0.12;
       bumpCompetitorMarket(iata, incumbent.airline, { fare_index: 1 - pct });
       decision = {
@@ -3083,34 +3224,11 @@
         body:
           `${incumbent.airline} dropped average fares about <b>${Math.round(pct * 100)}%</b> on overlapping city pairs. Shoppers are comparing every dollar — small moves won't matter; this one will.` +
           competitorImpactHtml({ airport: iata, type: 'fare_cut', airline: incumbent.airline }),
-        teach: 'Price-sensitive markets (lower wealth index) punish blind matching. Holding fare and buying awareness can protect margin on premium cabins.',
+        teach: 'Matching is one path — not the only one. Marketing fights back with demand; doing nothing is fine if loads hold.',
         logLine: `${incumbent.airline} fare war at ${iata} (−${Math.round(pct * 100)}%)`,
-        options: [
-          {
-            id: 'match',
-            label: `A — Match the cut on your ${iata} routes`,
-            hint: 'Protect load factor; margin takes the hit.',
-            effect: 'match_fares',
-            airport: iata,
-            pct,
-          },
-          {
-            id: 'market',
-            label: `B — Hold fares · add $15k/mo marketing at ${iata}`,
-            hint: 'Teach the market your product; better when luxury share is higher.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 15000,
-          },
-          {
-            id: 'ignore',
-            label: 'C — Ignore for now',
-            hint: 'Demand may soften until you react.',
-            effect: 'none',
-          },
-        ],
+        options: fareWarResponseOptions(iata, incumbent.airline, pct),
       };
-    } else if (roll < 0.62 && iata === 'CVG') {
+    } else if (roll < 0.40 && iata === 'CVG') {
       decision = {
         airport: iata,
         kicker: `${fmtDate(state.day)} · Distribution`,
@@ -3145,7 +3263,7 @@
           },
         ],
       };
-    } else {
+    } else if (roll < 0.52) {
       const pct = 0.1 + Math.random() * 0.08;
       bumpCompetitorMarket(iata, incumbent.airline, { capacity_index: 1 + pct });
       decision = {
@@ -3155,7 +3273,7 @@
         body:
           `${incumbent.airline} filed <b>+${Math.round(pct * 100)}% capacity</b> on key markets from ${iata}. More seats usually mean fare pressure unless you differentiate.` +
           competitorImpactHtml({ airport: iata, type: 'capacity', airline: incumbent.airline }),
-        teach: 'When competitors dump seats, either lean into service/schedule niche or compete on price selectively — not every route needs a response.',
+        teach: 'Price cuts, marketing, premium positioning, or patience — pick the tool that fits your network.',
         logLine: `${incumbent.airline} capacity increase at ${iata}`,
         options: [
           {
@@ -3167,17 +3285,130 @@
             pct: 0.08,
           },
           {
+            id: 'market',
+            label: `B — Hold fares · $15k/mo marketing at ${iata}`,
+            hint: 'Fight the seat dump with awareness instead of price.',
+            effect: 'marketing',
+            airport: iata,
+            amount: 15000,
+            competitorResponse: true,
+            awarenessBoost: true,
+            softenCompetitor: true,
+            airline: incumbent.airline,
+          },
+          {
             id: 'premium',
-            label: 'B — Hold premium · reputation push',
+            label: 'C — Hold premium · reputation push',
             hint: 'Works when luxury demand exists; accept softer loads short-term.',
             effect: 'hold_premium',
             airport: iata,
           },
           {
             id: 'ignore',
-            label: 'C — Ignore for now',
+            label: 'D — Do nothing for now',
             hint: 'Monitor loads; adjust fares manually later.',
             effect: 'none',
+          },
+        ],
+      };
+    } else if (roll < 0.72) {
+      const pct = 0.08 + Math.random() * 0.12;
+      bumpCompetitorMarket(iata, incumbent.airline, { capacity_index: Math.max(0.72, 1 - pct) });
+      pushEvent(
+        `${incumbent.airline} quietly <b>reduced capacity</b> at <b>${iata}</b> (−${Math.round(pct * 100)}%) — less competition on your routes.`,
+        'good'
+      );
+      decision = {
+        airport: iata,
+        kicker: `${fmtDate(state.day)} · Opportunity`,
+        title: `${incumbent.airline} pulls back at ${iata}`,
+        body:
+          `${incumbent.airline} cut schedules at <b>${iata}</b> by about <b>${Math.round(pct * 100)}%</b>. Freed gate time and demand should help your overlapping routes.` +
+          competitorImpactHtml({ airport: iata, type: 'pullback', airline: incumbent.airline }),
+        teach: 'Positive shifts happen too. Marketing locks in the opening; holding fares lets margins improve on their own.',
+        logLine: `${incumbent.airline} capacity pullback at ${iata}`,
+        options: [
+          {
+            id: 'market',
+            label: `A — Invest $12k/mo marketing at ${iata}`,
+            hint: 'Capture the opening before rivals refill it.',
+            effect: 'marketing',
+            airport: iata,
+            amount: 12000,
+            competitorResponse: true,
+            awarenessBoost: true,
+          },
+          { id: 'premium', label: 'B — Hold fares · take stronger loads', hint: 'Reputation +2.', effect: 'hold_premium', airport: iata },
+          { id: 'ignore', label: 'C — Do nothing', hint: 'Benefit applies without spending.', effect: 'none' },
+        ],
+      };
+    } else if (roll < 0.86) {
+      const mult = 1.1 + Math.random() * 0.08;
+      if (!state.airport_demand_surges) state.airport_demand_surges = {};
+      state.airport_demand_surges[iata] = { days_left: 45, mult };
+      pushEvent(
+        `<b>Travel demand surge</b> at <b>${iata}</b> — conventions &amp; corporate travel up <b>+${Math.round((mult - 1) * 100)}%</b> for ~45 days.`,
+        'good'
+      );
+      decision = {
+        airport: iata,
+        kicker: `${fmtDate(state.day)} · Demand surge`,
+        title: `Strong travel week at ${iata}`,
+        body:
+          `Corporate and leisure demand at <b>${iata}</b> is running <b>+${Math.round((mult - 1) * 100)}%</b> for the next month and a half. Your routes touching this airport should see a lift.` +
+          competitorImpactHtml({ airport: iata, type: 'demand_surge', airline: incumbent.airline }),
+        teach: 'Surges favor airlines with frequency and awareness — modest marketing can compound a hot market.',
+        logLine: `Travel demand surge at ${iata}`,
+        options: [
+          {
+            id: 'market',
+            label: `A — Ride the wave: $10k/mo marketing at ${iata}`,
+            hint: 'Stack awareness on top of the surge.',
+            effect: 'marketing',
+            airport: iata,
+            amount: 10000,
+            competitorResponse: true,
+            awarenessBoost: true,
+          },
+          { id: 'premium', label: 'B — Hold fares · let loads rise', effect: 'hold_premium', airport: iata },
+          { id: 'ignore', label: 'C — Do nothing', hint: 'Surge already active.', effect: 'none' },
+        ],
+      };
+    } else {
+      const pct = 0.06 + Math.random() * 0.1;
+      bumpCompetitorMarket(iata, incumbent.airline, { fare_index: 1 + pct });
+      pushEvent(
+        `${incumbent.airline} is <b>raising fares</b> at <b>${iata}</b> (+${Math.round(pct * 100)}%) — less fare pressure on your routes.`,
+        'good'
+      );
+      decision = {
+        airport: iata,
+        kicker: `${fmtDate(state.day)} · Competitor retreat`,
+        title: `${incumbent.airline} backs off fare war at ${iata}`,
+        body:
+          `${incumbent.airline} raised average fares about <b>${Math.round(pct * 100)}%</b> at <b>${iata}</b>. Shoppers are less price-sensitive — room to hold or raise your own fares.` +
+          competitorImpactHtml({ airport: iata, type: 'fare_rise', airline: incumbent.airline }),
+        teach: 'Not every alert is bad news. You can harvest margin, invest in share, or simply do nothing.',
+        logLine: `${incumbent.airline} fare increase at ${iata}`,
+        options: [
+          { id: 'hold', label: 'A — Hold fares · enjoy stronger margins', hint: 'Loads may rise without a fare change.', effect: 'none' },
+          {
+            id: 'market',
+            label: `B — Invest $10k/mo marketing while they retreat`,
+            hint: 'Win permanent share during their pullback.',
+            effect: 'marketing',
+            airport: iata,
+            amount: 10000,
+            competitorResponse: true,
+            awarenessBoost: true,
+          },
+          {
+            id: 'raise',
+            label: `C — Raise fares ~5% on ${iata} routes`,
+            hint: 'Capture margin while competitors price up.',
+            effect: 'raise_fares',
+            airport: iata,
+            pct: 0.05,
           },
         ],
       };
@@ -4615,6 +4846,7 @@
     if (!state.competitor_markets) initCompetitorMarkets();
     if (!state.competitor_routes) initCompetitorRoutes();
     if (state.last_competitor_event_day == null) state.last_competitor_event_day = 0;
+    if (!state.airport_demand_surges) state.airport_demand_surges = {};
     if (state.onboarding_done == null) state.onboarding_done = true;
   }
 
@@ -5139,6 +5371,8 @@
     const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
     const marketCapture = routeMarketCaptureFactor(route, opts);
 
+    const surge = Math.max(airportDemandSurgeMult(route.origin), airportDemandSurgeMult(route.dest));
+
     let demand =
       base *
       hubPenalty *
@@ -5150,7 +5384,8 @@
       macro *
       ota.demandMult *
       comfortFactor *
-      marketCapture;
+      marketCapture *
+      surge;
     if (isCommonRoutePair(route.origin, route.dest)) demand *= 1.08;
     (route.featured_ota || []).forEach((pid) => {
       const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
@@ -5303,6 +5538,8 @@
     });
 
     if (!decisionPending && state.onboarding_done) checkWinningPlaybookDayTriggers();
+
+    processAirportDemandSurges();
   }
 
   function checkSurvivalTriggers() {
@@ -6011,7 +6248,7 @@
   }
 
   function competitorEventTier(type) {
-    return type === 'exit' ? 'good' : 'bad';
+    return type === 'exit' || type === 'pullback' || type === 'fare_rise' || type === 'demand_surge' ? 'good' : 'bad';
   }
 
   function processMonthlyGateEfficiency() {
