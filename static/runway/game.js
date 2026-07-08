@@ -22,6 +22,7 @@
   let scoreboardOpen = false;
   let selectedRival = null;
   let routeLaunchDraft = null;
+  let routeLaunchActive = false;
   let pendingEmblem = 'wing';
   let state = null;
   let tickTimer = null;
@@ -899,8 +900,149 @@
     if (tabId === 'events') renderEvents();
   }
 
+  function formatBriefingSections(scenarioId) {
+    const sc = bootstrap.scenarios[scenarioId] || {};
+    const parts = [];
+    const teach = [];
+
+    parts.push(
+      `<p><b>${state.airline_name}</b> begins with <b>${fmtMoney(state.cash)}</b> cash. ` +
+        `The simulation clock is <b>paused</b> until you press ▶.</p>`
+    );
+
+    if (state.fleet.length) {
+      const fleetLines = state.fleet.map((f) => {
+        const ac = aircraftType(f.type);
+        const name = ac ? ac.name : f.type;
+        return `${name} · ${fleetSeatCount(f)} seats · ${f.leased ? 'leased' : 'owned'}`;
+      });
+      parts.push(`<p><b>Fleet</b></p><ul class="list briefing-list">${fleetLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
+    } else {
+      parts.push('<p class="danger"><b>No aircraft yet</b> — open Fleet and lease or buy before you can launch.</p>');
+      teach.push('Fleet tab first if you have no planes.');
+    }
+
+    if (state.gates.length) {
+      const gateLines = state.gates.map((g) => {
+        const cap = gateCapacityLabel(g.airport);
+        return `${g.airport} (${g.tier}, ${fmtMoney(g.monthly)}/mo) · ${cap.used}/${cap.max} departures/wk used · <b>${cap.remaining} free</b>`;
+      });
+      parts.push(`<p><b>Your gates</b></p><ul class="list briefing-list">${gateLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
+    } else {
+      parts.push('<p class="danger"><b>No gates leased</b> — click an airport on the map and lease before launching routes.</p>');
+      teach.push('Map → airport panel → lease a gate.');
+    }
+
+    if (state.routes.length) {
+      const routeLines = state.routes.map((r) => {
+        const sim = simulateRouteDay(r);
+        const pnl = sim.revenue - sim.cost;
+        const load = sim.grounded ? 'AOG' : `${(sim.load * 100).toFixed(0)}% load`;
+        const cap = gateCapacityLabel(r.origin);
+        const capNote = cap.remaining <= 0 ? ' · <span class="danger">origin at gate cap</span>' : '';
+        return `<b>${r.origin}–${r.dest}</b> ${r.frequency_week}x/wk @ $${r.fare} · ${load} · ${fmtMoney(pnl)}/day est.${capNote}`;
+      });
+      parts.push(`<p><b>Routes already flying</b></p><ul class="list briefing-list">${routeLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
+      teach.push('Tune fares on running routes before adding frequency at the same gate.');
+    } else {
+      const hub = (state.gates[0] && state.gates[0].airport) || 'your gate';
+      parts.push(
+        `<p><b>No routes yet</b> — open <b>Routes</b>, pick a destination from <b>${hub}</b>, then <b>Plan &amp; launch route…</b></p>`
+      );
+      teach.push('Use route suggestions for demand estimates; confirm launch sets station build-out and marketing.');
+    }
+
+    if (state.debt.length) {
+      const debtLines = state.debt.map(
+        (d) =>
+          `${d.name}: ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment)}/mo due`
+      );
+      parts.push(`<p><b>Needs attention — debt</b></p><ul class="list briefing-list">${debtLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
+      teach.push('Debt service drains cash every month — restructure or grow revenue early.');
+    }
+
+    const gateIatas = new Set((state.gates || []).map((g) => g.airport));
+    (state.routes || []).forEach((r) => {
+      gateIatas.add(r.origin);
+      gateIatas.add(r.dest);
+    });
+    const compRoutes = (state.competitor_routes || []).filter(
+      (cr) => gateIatas.has(cr.origin) || gateIatas.has(cr.dest)
+    );
+    if (compRoutes.length) {
+      const compLines = compRoutes.slice(0, 8).map(
+        (cr) => `${cr.airline}: ${cr.origin}–${cr.dest} · ${cr.frequency_week}x/wk from $${cr.fare}`
+      );
+      parts.push(
+        `<p><b>Competitor routes near your network</b></p><ul class="list briefing-list">${compLines.map((l) => `<li>${l}</li>`).join('')}</ul>`
+      );
+      teach.push('Rivals react when you enter their markets — watch Events after launching.');
+    }
+
+    if (sc.briefing && !state.routes.length) {
+      parts.push(`<p class="muted" style="font-size:0.76rem;margin-top:8px;">${sc.briefing}</p>`);
+    }
+
+    return {
+      html: parts.join(''),
+      teach: teach.join(' ') || 'Scout airports, launch when gate capacity allows, then unpause.',
+    };
+  }
+
+  function buildNewGameBriefing(scenarioId) {
+    const sc = bootstrap.scenarios[scenarioId] || {};
+    const sections = formatBriefingSections(scenarioId);
+    const firstGate = (state.gates[0] && state.gates[0].airport) || null;
+    const options = [
+      {
+        id: 'routes',
+        label: firstGate ? `A — Plan a route from ${firstGate}` : 'A — Open Routes tab',
+        hint: 'Pick destination, aircraft, then confirm launch.',
+        effect: 'tab_routes',
+        airport: firstGate,
+      },
+      {
+        id: 'map',
+        label: firstGate ? `B — Scout ${firstGate} on the map` : 'B — Pick an airport on the map',
+        hint: 'Competitors, gates, and marketing live here.',
+        effect: 'select_airport',
+        airport: firstGate,
+      },
+    ];
+    if (sc.tutorial || scenarioId === 'beginner_2026') {
+      options.push({
+        id: 'tour',
+        label: 'C — Take the guided tour',
+        hint: 'Step-by-step walkthrough (optional).',
+        effect: 'start_tutorial',
+      });
+      options.push({
+        id: 'play',
+        label: 'D — Got it — let me play',
+        hint: 'Dismiss and use the UI freely.',
+        effect: 'explore',
+      });
+    } else {
+      options.push({
+        id: 'play',
+        label: 'C — Got it — let me play',
+        hint: 'Dismiss and use the UI freely.',
+        effect: 'explore',
+      });
+    }
+    return {
+      onboarding: true,
+      briefing: true,
+      kicker: `${sc.name || 'New game'} · Situation report`,
+      title: `Welcome, ${state.player_name}`,
+      body: sections.html,
+      teach: sections.teach,
+      options,
+    };
+  }
+
   function applyOnboardingChoice(option) {
-    if (!option || option.effect === 'explore' || option.effect === 'none' || option.effect === 'tutorial_finish' || option.effect === 'tutorial_skip') return;
+    if (!option || option.effect === 'explore' || option.effect === 'none' || option.effect === 'tutorial_finish' || option.effect === 'tutorial_skip' || option.effect === 'start_tutorial') return;
     if (option.effect === 'tab_routes') {
       if (option.airport) selectAirport(option.airport);
       switchTab('routes');
@@ -1112,20 +1254,7 @@
 
   function queueOnboarding(scenarioId) {
     if (!state || state.onboarding_done) return;
-    const sc = bootstrap.scenarios[scenarioId] || {};
-    let steps = [];
-    if (sc.tutorial || scenarioId === 'beginner_2026') {
-      steps = buildTutorialSteps(scenarioId);
-    } else if (sc.region === 'ohio') {
-      steps = buildOhioQuickSteps(scenarioId);
-    }
-    if (steps.length) {
-      state.tutorial_total = steps.length;
-      steps.forEach((s) => queueDecision(s));
-      return;
-    }
-    const fallback = buildOnboardingFallback(scenarioId);
-    if (fallback) queueDecision(fallback);
+    queueDecision(buildNewGameBriefing(scenarioId));
   }
 
   function buildOnboardingFallback(scenarioId) {
@@ -1250,9 +1379,19 @@
         decisionQueue = decisionQueue.filter((d) => !d.tutorial);
         state.onboarding_done = true;
         pushPlayerEvent('skipped tutorial');
+      } else if (option.effect === 'start_tutorial') {
+        const steps = buildTutorialSteps(state.scenario_id);
+        if (steps.length) {
+          state.tutorial_total = steps.length;
+          steps.forEach((s) => queueDecision(s));
+          pushPlayerEvent('started guided tour');
+        }
       } else {
         applyOnboardingChoice(option);
-        if (activeDecision.tutorial) {
+        if (activeDecision.briefing) {
+          state.onboarding_done = true;
+          pushPlayerEvent('reviewed situation report');
+        } else if (activeDecision.tutorial) {
           pushPlayerEvent(`tutorial step ${activeDecision.tutorialStep || ''}: ${activeDecision.title}`);
           if (activeDecision.tutorialLast || option.effect === 'tutorial_finish') {
             state.onboarding_done = true;
@@ -3273,12 +3412,21 @@
       <span class="muted">Upfront station build-out <b>${fmtMoney(draft.stationCost)}</b> · new recurring ~<b>${fmtMoney(investMo)}/mo</b> from selections below</span>${capNote}`;
   }
 
+  function setRouteLaunchActive(active) {
+    routeLaunchActive = !!active;
+    const overlay = $('route-launch-modal');
+    const dm = $('decision-modal');
+    if (overlay) overlay.classList.toggle('route-launch-open', routeLaunchActive);
+    if (dm) dm.classList.toggle('suppressed', routeLaunchActive);
+  }
+
   function renderRouteLaunchModal() {
     const overlay = $('route-launch-modal');
     if (!overlay) return;
     if (!routeLaunchDraft) {
       overlay.classList.remove('active');
       overlay.innerHTML = '';
+      setRouteLaunchActive(false);
       return;
     }
     const d = routeLaunchDraft;
@@ -3353,11 +3501,12 @@
         <p class="route-launch-section">Distribution — OTAs (pay to play)</p>
         ${otaRows}
         <div class="route-launch-actions">
-          <button type="button" class="btn" id="rl-confirm">Confirm launch</button>
-          <button type="button" class="btn secondary" id="rl-cancel">Cancel</button>
+          <button type="button" class="btn" id="rl-confirm" onclick="Runway.confirmRouteLaunch()">Confirm launch</button>
+          <button type="button" class="btn secondary" id="rl-cancel" onclick="Runway.cancelRouteLaunch()">Cancel</button>
         </div>
       </div>`;
     overlay.classList.add('active');
+    setRouteLaunchActive(true);
 
     const refreshPreview = () => {
       const prev = $('rl-preview');
@@ -3369,16 +3518,16 @@
       const freqEl = $('rl-freq');
       if (fareEl) routeLaunchDraft.fare = +fareEl.value || routeLaunchDraft.fare;
       if (freqEl) routeLaunchDraft.freq = +(freqEl && freqEl.value) || routeLaunchDraft.freq;
-      document.querySelectorAll('[data-inv-amount]').forEach((inp) => {
+      document.querySelectorAll('#route-launch-modal [data-inv-amount]').forEach((inp) => {
         const key = inp.dataset.invAmount;
-        const toggle = document.querySelector(`[data-inv-toggle="${key}"]`);
+        const toggle = document.querySelector(`#route-launch-modal [data-inv-toggle="${key}"]`);
         const on = !toggle || toggle.checked;
         routeLaunchDraft.investments[key] = on ? clampMoney(inp.valueAsNumber) : 0;
       });
       (bootstrap.ota_platforms || []).forEach((p) => {
-        const list = document.querySelector(`[data-ota-list="${p.id}"]`);
-        const feat = document.querySelector(`[data-ota-feature="${p.id}"]`);
-        const hub = document.querySelector(`[data-ota-hub="${p.id}"]`);
+        const list = document.querySelector(`#route-launch-modal [data-ota-list="${p.id}"]`);
+        const feat = document.querySelector(`#route-launch-modal [data-ota-feature="${p.id}"]`);
+        const hub = document.querySelector(`#route-launch-modal [data-ota-hub="${p.id}"]`);
         routeLaunchDraft.ota[p.id] = {
           list: !!(list && list.checked),
           feature: !!(feat && feat.checked),
@@ -3401,6 +3550,9 @@
     if (cancel) cancel.addEventListener('click', cancelRouteLaunch);
     const confirm = $('rl-confirm');
     if (confirm) confirm.addEventListener('click', confirmRouteLaunch);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) cancelRouteLaunch();
+    };
   }
 
   function openRouteLaunchModal(origin, dest, aircraftId, freq, fare) {
@@ -3433,16 +3585,16 @@
     const freqEl = $('rl-freq');
     if (fareEl) d.fare = +fareEl.value || d.fare;
     if (freqEl) d.freq = +(freqEl && freqEl.value) || d.freq;
-    document.querySelectorAll('[data-inv-amount]').forEach((inp) => {
+    document.querySelectorAll('#route-launch-modal [data-inv-amount]').forEach((inp) => {
       const key = inp.dataset.invAmount;
-      const toggle = document.querySelector(`[data-inv-toggle="${key}"]`);
+      const toggle = document.querySelector(`#route-launch-modal [data-inv-toggle="${key}"]`);
       const on = !toggle || toggle.checked;
       d.investments[key] = on ? clampMoney(inp.valueAsNumber) : 0;
     });
     (bootstrap.ota_platforms || []).forEach((p) => {
-      const list = document.querySelector(`[data-ota-list="${p.id}"]`);
-      const feat = document.querySelector(`[data-ota-feature="${p.id}"]`);
-      const hub = document.querySelector(`[data-ota-hub="${p.id}"]`);
+      const list = document.querySelector(`#route-launch-modal [data-ota-list="${p.id}"]`);
+      const feat = document.querySelector(`#route-launch-modal [data-ota-feature="${p.id}"]`);
+      const hub = document.querySelector(`#route-launch-modal [data-ota-hub="${p.id}"]`);
       d.ota[p.id] = {
         list: !!(list && list.checked),
         feature: !!(feat && feat.checked),
@@ -3457,24 +3609,16 @@
       const o = d.ota[p.id];
       if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly;
     });
+
+    const routeErr = validateOpenRoute(d.origin, d.dest, d.aircraftId, d.freq);
+    if (routeErr) {
+      alert(routeErr);
+      return;
+    }
     if (state.cash < upfront) {
       alert(`Need ${fmtMoney(upfront)} upfront (station build-out + first month on new OTA listings).`);
       return;
     }
-    const capErr = gateCapacityError(d.origin, d.freq);
-    if (capErr) {
-      alert(capErr);
-      return;
-    }
-    state.cash -= upfront;
-
-    state.marketing_spend_monthly[d.origin] = clampMoney(d.investments.airport);
-    const oAp = airport(d.origin);
-    if (oAp && oAp.state) {
-      state.marketing_investments.state[oAp.state] = clampMoney(d.investments.state);
-    }
-    state.marketing_investments.national = clampMoney(d.investments.national);
-    state.marketing_investments.world = clampMoney(d.investments.world);
 
     const featured = [];
     if (!state.hub_ota_push[d.origin]) state.hub_ota_push[d.origin] = [];
@@ -3495,9 +3639,28 @@
       freq: d.freq,
       fare: d.fare,
     };
+
+    state.cash -= upfront;
+    state.marketing_spend_monthly[d.origin] = clampMoney(d.investments.airport);
+    const oAp = airport(d.origin);
+    if (oAp && oAp.state) {
+      state.marketing_investments.state[oAp.state] = clampMoney(d.investments.state);
+    }
+    state.marketing_investments.national = clampMoney(d.investments.national);
+    state.marketing_investments.world = clampMoney(d.investments.world);
+
     routeLaunchDraft = null;
     renderRouteLaunchModal();
-    openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, { featured_ota: featured });
+
+    const launched = openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, {
+      featured_ota: featured,
+    });
+    if (!launched) {
+      state.cash += upfront;
+      pushPlayerEvent(`route launch cancelled — ${fmtMoney(upfront)} station/OTA upfront refunded`);
+      saveGame();
+      renderAll();
+    }
   }
 
   function selectFleetOffer(type, mode) {
@@ -3574,37 +3737,39 @@
     renderAll();
   }
 
-  function openRoute(origin, dest, aircraftId, freq, fare, extras) {
-    extras = extras || {};
+  function validateOpenRoute(origin, dest, aircraftId, freq) {
     if (!hasGateAt(origin)) {
-      alert(`You need a gate at ${origin} first. Lease one in the airport panel.`);
-      return;
+      return `You need a gate at ${origin} first. Lease one in the airport panel.`;
     }
     if (state.routes.some((r) => r.origin === origin && r.dest === dest)) {
-      alert(`You already fly ${origin}–${dest}. Adjust frequency or fares on the active route card.`);
-      return;
+      return `You already fly ${origin}–${dest}. Adjust frequency or fares on the active route card.`;
     }
     const plane = state.fleet.find((f) => f.id === aircraftId);
     if (!plane) {
-      alert('Select an aircraft from your fleet (Fleet tab → add a plane if needed).');
-      return;
+      return 'Select an aircraft from your fleet (Fleet tab → add a plane if needed).';
     }
-    const dist = haversineNm(
-      airport(origin).lat,
-      airport(origin).lon,
-      airport(dest).lat,
-      airport(dest).lon
-    );
+    const oAp = airport(origin);
+    const dAp = airport(dest);
+    if (!oAp || !dAp) return 'Invalid origin or destination airport.';
+    const dist = haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon);
     const ac = aircraftType(plane.type);
+    if (!ac) return 'Unknown aircraft type.';
     if (dist > ac.range_nm) {
-      alert(`Route exceeds ${ac.name} range (${Math.round(dist)} nm).`);
-      return;
+      return `Route exceeds ${ac.name} range (${Math.round(dist)} nm).`;
     }
     const capErr = gateCapacityError(origin, freq);
-    if (capErr) {
-      alert(capErr);
-      return;
+    if (capErr) return capErr;
+    return null;
+  }
+
+  function openRoute(origin, dest, aircraftId, freq, fare, extras) {
+    extras = extras || {};
+    const routeErr = validateOpenRoute(origin, dest, aircraftId, freq);
+    if (routeErr) {
+      alert(routeErr);
+      return false;
     }
+    const plane = state.fleet.find((f) => f.id === aircraftId);
     const marketFare = marketFareForPair(origin, dest, plane.type);
     const finalFare = fare || marketFare;
     const via = estimateRouteViability(origin, dest, plane.type, freq, finalFare);
@@ -3631,8 +3796,10 @@
     );
     processReactiveCompetitorThreats('player_route', origin, dest);
     selectAirport(origin);
+    switchTab('routes');
     saveGame();
     renderAll();
+    return true;
   }
 
   function raiseSeed() {
@@ -5139,12 +5306,23 @@
     syncRouteFormFields();
     const oIn = $('rt-origin-search');
     const dIn = $('rt-dest-search');
-    const oCode = ($('rt-origin-code') && $('rt-origin-code').value) || '';
-    const dCode = ($('rt-dest-code') && $('rt-dest-code').value) || '';
-    const oAp = resolveAirportQuery(oIn && oIn.value) || airport(oCode);
-    const dAp = resolveAirportQuery(dIn && dIn.value) || airport(dCode);
-    if (!oAp || !dAp) {
-      alert('Pick valid origin and destination (IATA code or city from the list).');
+    const oHidden = $('rt-origin-code');
+    const dHidden = $('rt-dest-code');
+    const oAp = resolveAirportQuery(oIn && oIn.value) || airport(oHidden && oHidden.value);
+    const dAp = resolveAirportQuery(dIn && dIn.value) || airport(dHidden && dHidden.value);
+    if (oAp && oHidden) oHidden.value = oAp.iata;
+    if (dAp && dHidden) dHidden.value = dAp.iata;
+    if (!oAp) {
+      alert('Pick a valid origin (IATA code or city from the list, e.g. DAY — Dayton).');
+      return;
+    }
+    if (!dAp) {
+      const typed = dIn && dIn.value.trim();
+      alert(
+        typed
+          ? `Could not find "${typed}". Pick a destination from the list (e.g. CMH — Columbus).`
+          : 'Enter a destination airport before launching.'
+      );
       return;
     }
     if (oAp.iata === dAp.iata) {
@@ -5154,8 +5332,17 @@
     const acEl = $('rt-aircraft');
     const freqEl = $('rt-freq');
     const fareEl = $('rt-fare');
+    if (!state.fleet.length) {
+      alert('No aircraft in your fleet — open Fleet and lease or buy a plane first.');
+      return;
+    }
     if (!acEl || !acEl.value) {
       alert('Select an aircraft from your fleet.');
+      return;
+    }
+    if (!hasGateAt(oAp.iata)) {
+      alert(`Lease a gate at ${oAp.iata} first (click the airport on the map → Your position).`);
+      selectAirport(oAp.iata);
       return;
     }
     openRouteLaunchModal(
@@ -5376,6 +5563,7 @@
     confirmFleet: confirmFleetOffer,
     setFleetSeats: setFleetPendingSeats,
     submitRoute,
+    confirmRouteLaunch,
     cancelRouteLaunch,
     raiseSeed,
     raiseGrowthEquity,

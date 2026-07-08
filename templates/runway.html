@@ -453,6 +453,7 @@
     padding: 24px;
   }
   #decision-modal.active { display: flex; }
+  #decision-modal.suppressed { display: none !important; }
   #route-launch-modal {
     display: none;
     position: fixed;
@@ -466,6 +467,8 @@
     overflow-y: auto;
   }
   #route-launch-modal.active { display: flex; }
+  #route-launch-modal.route-launch-open { z-index: 220; }
+  .briefing-list li { font-size: 0.76rem; line-height: 1.4; }
   .route-launch-card {
     max-width: 560px;
     width: 100%;
@@ -1102,6 +1105,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=23"></script>
+<script src="/static/runway/game.js?v=24"></script>
 </body>
 </html>
