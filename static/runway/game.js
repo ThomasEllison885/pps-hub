@@ -228,7 +228,9 @@
         state.macro.ota_listed[p.id] = false;
       });
     }
-    state.macro.country_health = computeCountryHealth();
+    if (state.macro) {
+      state.macro.country_health = computeCountryHealth();
+    }
   }
 
   function normalizeGameState() {
@@ -282,7 +284,7 @@
   }
 
   function computeCountryHealth() {
-    ensureMacro();
+    if (!state || !state.macro) return 72;
     const m = state.macro;
     let score = 68;
     score += m.gdp_growth_pct * 3.5;
@@ -1291,7 +1293,6 @@
 
   function renderAll() {
     if (!state) return;
-    normalizeGameState();
     const panels = [
       renderHud,
       drawMap,

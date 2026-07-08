@@ -177,6 +177,55 @@ AIRPORTS = [
 AIRPORT_BY_IATA = {a['iata']: a for a in AIRPORTS}
 
 SCENARIOS = {
+    'beginner_2026': {
+        'id': 'beginner_2026',
+        'name': '2026 — Beginner',
+        'tagline': 'Learn the ropes — leased jets, hub gates, already profitable.',
+        'year': 2026,
+        'briefing': (
+            'Training scenario. You run Gateway Air, a small Midwest carrier with two leased E175s, '
+            'gates at Columbus, Indianapolis, and Nashville, and two established routes already in the black. '
+            'Explore the map, fleet, and finance tabs before trying Greenfield or Lake State.'
+        ),
+        'cash': 12_000_000,
+        'debt': [],
+        'bonds': [],
+        'equity_pct': 100.0,
+        'reputation': 32,
+        'brand_awareness': {'CMH': 62, 'IND': 58, 'BNA': 55},
+        'financing_tier': 'startup',
+        'bond_rating': 'BB',
+        'airline_name': 'Gateway Air',
+        'fleet': [
+            {'id': 'ga-1', 'type': 'e175', 'leased': True, 'lease_months_left': 48, 'seats': 76},
+            {'id': 'ga-2', 'type': 'e175', 'leased': True, 'lease_months_left': 48, 'seats': 76},
+        ],
+        'gates': [
+            {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 18_000},
+            {'airport': 'IND', 'tier': 'common', 'years_left': 3, 'monthly': 9_000},
+            {'airport': 'BNA', 'tier': 'common', 'years_left': 3, 'monthly': 11_000},
+        ],
+        'routes': [
+            {
+                'id': 'ga-r1',
+                'origin': 'CMH',
+                'dest': 'BNA',
+                'aircraft_type': 'e175',
+                'frequency_week': 21,
+                'fare': 169,
+                'aircraft_id': 'ga-1',
+            },
+            {
+                'id': 'ga-r2',
+                'origin': 'IND',
+                'dest': 'CMH',
+                'aircraft_type': 'e175',
+                'frequency_week': 21,
+                'fare': 159,
+                'aircraft_id': 'ga-2',
+            },
+        ],
+    },
     'greenfield_2026': {
         'id': 'greenfield_2026',
         'name': '2026 — Greenfield Startup',
