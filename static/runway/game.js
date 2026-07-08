@@ -96,6 +96,7 @@
       gates: base.gates,
       routes: base.routes,
       fuel_price: bootstrap.fuel_base,
+      macro: createMacroState(),
       marketing_spend_monthly: {},
       ltm_revenue: 0,
       revenue_history: [],
@@ -122,6 +123,163 @@
     Object.keys(state.marketing_spend_monthly).forEach((k) => {
       state.marketing_spend_monthly[k] = clampMoney(state.marketing_spend_monthly[k]);
     });
+  }
+
+  function clampPct(n, min, max) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return min;
+    return Math.min(max, Math.max(min, v));
+  }
+
+  function createMacroState() {
+    const base = bootstrap.macro_usa_base || {};
+    const listed = {};
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      listed[p.id] = false;
+    });
+    return {
+      country: base.country || 'United States',
+      inflation_pct: base.inflation_pct ?? 2.4,
+      gdp_growth_pct: base.gdp_growth_pct ?? 2.1,
+      gdp_index: base.gdp_index ?? 100,
+      travel_spend_index: base.travel_spend_index ?? 100,
+      travel_spend_growth_pct: base.travel_spend_growth_pct ?? 2.5,
+      country_health: base.country_health ?? 72,
+      ota_market_penetration_pct: base.ota_market_penetration_pct ?? 74,
+      ota_listed: listed,
+    };
+  }
+
+  function ensureMacro() {
+    if (!state) return;
+    if (!state.macro) state.macro = createMacroState();
+    if (!state.macro.ota_listed) {
+      state.macro.ota_listed = {};
+      (bootstrap.ota_platforms || []).forEach((p) => {
+        state.macro.ota_listed[p.id] = false;
+      });
+    }
+    state.macro.country_health = computeCountryHealth();
+  }
+
+  function computeCountryHealth() {
+    ensureMacro();
+    const m = state.macro;
+    let score = 68;
+    score += m.gdp_growth_pct * 3.5;
+    score += Math.min(3, m.travel_spend_growth_pct) * 2.5;
+    score -= Math.max(0, m.inflation_pct - 3.5) * 4;
+    score -= Math.max(0, 2 - m.inflation_pct) * 1.5;
+    score -= Math.max(0, -m.travel_spend_growth_pct) * 5;
+    return clampPct(score, 25, 100);
+  }
+
+  function macroDemandMultiplier() {
+    ensureMacro();
+    const m = state.macro;
+    const gdpFactor = Math.pow(m.gdp_index / 100, 0.55);
+    const travelFactor = Math.pow(m.travel_spend_index / 100, 0.75);
+    const healthFactor = 0.65 + (m.country_health / 100) * 0.45;
+    return gdpFactor * travelFactor * healthFactor;
+  }
+
+  function otaEffects() {
+    ensureMacro();
+    const m = state.macro;
+    const penetration = m.ota_market_penetration_pct / 100;
+    let demandBoost = 1;
+    let revenueMult = 1;
+    let marketingAmplify = 1;
+    let listingCost = 0;
+
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      if (!m.ota_listed[p.id]) return;
+      listingCost += p.listing_monthly;
+      const share = penetration * p.demand_reach;
+      demandBoost += share;
+      revenueMult *= 1 - (p.commission_pct / 100) * share * 0.85;
+      marketingAmplify = Math.max(marketingAmplify, p.marketing_amplify);
+    });
+
+    return {
+      demandMult: demandBoost,
+      revenueMult: Math.max(0.72, revenueMult),
+      marketingAmplify,
+      listingCost,
+    };
+  }
+
+  function otaListingMonthly() {
+    return otaEffects().listingCost;
+  }
+
+  function advanceMacroYear() {
+    ensureMacro();
+    const m = state.macro;
+    m.inflation_pct = clampPct(
+      m.inflation_pct + (Math.random() - 0.48) * 1.8,
+      -2,
+      6
+    );
+    m.gdp_growth_pct = clampPct(
+      1.2 + (Math.random() - 0.4) * 2.2 + m.inflation_pct * 0.15,
+      -1.5,
+      5.5
+    );
+    m.gdp_index *= 1 + m.gdp_growth_pct / 100;
+
+    m.travel_spend_growth_pct = clampPct(
+      m.gdp_growth_pct * 0.85 + (Math.random() - 0.35) * 2.4,
+      -4,
+      7
+    );
+    m.travel_spend_index *= 1 + m.travel_spend_growth_pct / 100;
+
+    m.ota_market_penetration_pct = clampPct(
+      m.ota_market_penetration_pct + (Math.random() - 0.42) * 4,
+      52,
+      90
+    );
+
+    state.gates.forEach((g) => {
+      g.monthly = Math.round(g.monthly * (1 + m.inflation_pct / 100));
+    });
+
+    m.country_health = computeCountryHealth();
+    pushEvent(
+      `US economy Y${Math.floor(state.day / 365) + 1}: inflation ${m.inflation_pct.toFixed(1)}%, ` +
+        `GDP ${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%, ` +
+        `travel spend ${m.travel_spend_growth_pct >= 0 ? '+' : ''}${m.travel_spend_growth_pct.toFixed(1)}%, ` +
+        `health ${m.country_health.toFixed(0)}/100`
+    );
+  }
+
+  function updateFuelPrice() {
+    ensureMacro();
+    const m = state.macro;
+    const inflWeekly = m.inflation_pct / 100 / 52;
+    const gdpPressure = Math.max(0, m.gdp_growth_pct / 100) * 0.004;
+    const marketNoise = (Math.random() - 0.5) * 0.06;
+    const healthRelief = m.country_health < 50 ? 0.01 : 0;
+    state.fuel_price = Math.max(
+      1.45,
+      state.fuel_price * (1 + inflWeekly + gdpPressure - healthRelief * 0.5 + marketNoise)
+    );
+  }
+
+  function toggleOtaListing(platformId) {
+    ensureMacro();
+    const p = (bootstrap.ota_platforms || []).find((x) => x.id === platformId);
+    if (!p) return;
+    const next = !state.macro.ota_listed[platformId];
+    if (next && state.cash < p.listing_monthly) {
+      alert(`Need ~${fmtMoney(p.listing_monthly)} for first month on ${p.name}.`);
+      return;
+    }
+    state.macro.ota_listed[platformId] = next;
+    pushEvent(next ? `Listed on ${p.name} (OTA channel).` : `Removed listing from ${p.name}.`);
+    saveGame();
+    renderAll();
   }
 
   function pushEvent(msg) {
@@ -157,6 +315,7 @@
       fleetLeaseMonthly() +
       gateLeaseMonthly() +
       marketingMonthly() +
+      otaListingMonthly() +
       monthlyDebtService() +
       quarterlyBondCoupons() / 3
     );
@@ -194,8 +353,10 @@
     const rep = 1 + state.reputation / 200;
     const fareFactor = Math.max(0.35, 1.1 - route.fare / 280);
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
+    const macro = macroDemandMultiplier();
+    const ota = otaEffects();
 
-    return base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability;
+    return base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult;
   }
 
   function simulateRouteDay(route) {
@@ -208,7 +369,8 @@
     const demand = demandForRoute(route);
     const load = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const pax = Math.floor(dailySeats * load);
-    const revenue = pax * route.fare;
+    const ota = otaEffects();
+    const revenue = pax * route.fare * ota.revenueMult;
 
     const block = blockHours(dist, ac) * flightsToday;
     const fuel = block * ac.fuel_gal_hr * state.fuel_price;
@@ -246,9 +408,15 @@
           const spend = clampMoney(state.marketing_spend_monthly[ap]);
           state.marketing_spend_monthly[ap] = spend;
           if (spend > 0) {
-            state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + spend / 50000);
+            const amp = otaEffects().marketingAmplify;
+            state.brand_awareness[ap] = Math.min(
+              100,
+              (state.brand_awareness[ap] || 0) + (spend / 50000) * amp
+            );
           }
         });
+        const otaCost = otaListingMonthly();
+        if (otaCost > 0) state.cash -= otaCost;
         if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
           state.reputation = Math.min(100, state.reputation + 0.3);
         }
@@ -263,12 +431,9 @@
       state.revenue_history.push(dayRev);
       if (state.revenue_history.length > 400) state.revenue_history.shift();
 
-      if (state.day % 7 === 0) {
-        state.fuel_price = Math.max(
-          1.8,
-          state.fuel_price + (Math.random() - 0.48) * 0.12
-        );
-      }
+      if (state.day % 7 === 0) updateFuelPrice();
+
+      if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
 
       state.gates.forEach((g) => {
         if (state.day % 30 === 0) g.months_left = (g.months_left || g.years_left * 12) - 1;
@@ -715,6 +880,7 @@
         <input type="number" min="0" step="1000" value="${clampMoney(state.marketing_spend_monthly[iata])}"
           oninput="var v=Math.max(0,this.valueAsNumber||0);this.value=v;Runway.setMarketing('${iata}', v)">
       </label>
+      <p class="muted" style="margin-top:8px;font-size:0.75rem;">OTA amplify: ${otaEffects().marketingAmplify.toFixed(2)}× · Country demand: ${(macroDemandMultiplier() * 100).toFixed(0)}%</p>
     `;
   }
 
@@ -730,6 +896,45 @@
     $('hud-pnl').textContent = fmtMoney(state.daily_pnl);
     $('hud-airline').textContent = state.airline_name;
     $('hud-ltm').textContent = fmtMoney(state.ltm_revenue);
+    const macroEl = $('hud-macro');
+    if (macroEl && state.macro) {
+      ensureMacro();
+      macroEl.textContent =
+        `Infl ${state.macro.inflation_pct.toFixed(1)}% · GDP ${state.macro.gdp_growth_pct >= 0 ? '+' : ''}${state.macro.gdp_growth_pct.toFixed(1)}% · Travel ${state.macro.travel_spend_growth_pct >= 0 ? '+' : ''}${state.macro.travel_spend_growth_pct.toFixed(1)}% · US ${state.macro.country_health.toFixed(0)}`;
+    }
+  }
+
+  function renderEconomy() {
+    const el = $('tab-economy');
+    if (!el) return;
+    ensureMacro();
+    const m = state.macro;
+    const ota = otaEffects();
+    let html = `<h3>${m.country} economy</h3>
+      <dl class="stat-dl">
+        <dt>Inflation</dt><dd>${m.inflation_pct.toFixed(1)}% <span class="muted">(-2% to 6%)</span></dd>
+        <dt>GDP growth</dt><dd>${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%</dd>
+        <dt>GDP index</dt><dd>${m.gdp_index.toFixed(1)}</dd>
+        <dt>Travel spend index</dt><dd>${m.travel_spend_index.toFixed(1)}</dd>
+        <dt>Travel spend growth</dt><dd>${m.travel_spend_growth_pct >= 0 ? '+' : ''}${m.travel_spend_growth_pct.toFixed(1)}%</dd>
+        <dt>Country health</dt><dd>${m.country_health.toFixed(0)} / 100</dd>
+        <dt>Demand multiplier</dt><dd>${(macroDemandMultiplier() * 100).toFixed(0)}%</dd>
+        <dt>OTA market share</dt><dd>${m.ota_market_penetration_pct.toFixed(0)}%</dd>
+      </dl>
+      <p class="muted">Inflation feeds jet fuel indirectly each week. GDP and travel spend drive passenger demand. List on OTAs in Marketing &amp; Distribution below.</p>
+      <h4>Marketing &amp; distribution (OTAs)</h4>
+      <p class="muted">Expedia, Google Flights, Kayak, Travelocity — listing fees plus commission on bookings. Boosts demand and marketing efficiency.</p>
+      <ul class="list">`;
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      const on = m.ota_listed[p.id];
+      html += `<li style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;justify-content:space-between;">
+        <span><strong>${p.name}</strong><br><span class="muted">${fmtMoney(p.listing_monthly)}/mo · ${p.commission_pct}% comm · +${(p.demand_reach * 100).toFixed(0)}% reach</span></span>
+        <button class="btn ${on ? '' : 'secondary'}" onclick="Runway.toggleOta('${p.id}')">${on ? 'Listed ✓' : 'List airline'}</button>
+      </li>`;
+    });
+    html += `</ul>
+      <p class="muted" style="margin-top:10px;">Active OTA demand boost: ${((ota.demandMult - 1) * 100).toFixed(0)}% · Revenue retention: ${(ota.revenueMult * 100).toFixed(0)}% · Marketing amplify: ${ota.marketingAmplify.toFixed(2)}×</p>`;
+    el.innerHTML = html;
   }
 
   function renderFinance() {
@@ -806,6 +1011,7 @@
     renderHud();
     drawMap();
     renderFinance();
+    renderEconomy();
     renderFleet();
     renderRoutes();
     renderEvents();
@@ -841,6 +1047,7 @@
       state = data.state;
       if (data.airports) bootstrap.airports = data.airports;
       sanitizeMarketingSpend();
+      ensureMacro();
       return true;
     } catch (e) {
       return false;
@@ -926,6 +1133,7 @@
     issueAssetBackedBonds,
     restructureDebt,
     setMarketing,
+    toggleOta: toggleOtaListing,
     newGame: (id) => {
       newGame(id);
       showScreen('screen-game');

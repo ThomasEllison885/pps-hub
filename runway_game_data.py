@@ -307,6 +307,54 @@ FUEL_BASE_USD_GAL = 2.85
 CREW_COST_PER_BLOCK_HOUR = 420
 AIRPORT_FEE_PER_DEPARTURE = 2800
 
+# US macro baseline (2026 present-day scenario).
+MACRO_USA_BASE = {
+    'country': 'United States',
+    'inflation_pct': 2.4,
+    'gdp_growth_pct': 2.1,
+    'gdp_index': 100.0,
+    'travel_spend_index': 100.0,
+    'travel_spend_growth_pct': 2.5,
+    'country_health': 72,
+    'ota_market_penetration_pct': 74,
+}
+
+# Online travel agencies / metasearch — listing fees and demand reach.
+OTA_PLATFORMS = [
+    {
+        'id': 'expedia',
+        'name': 'Expedia',
+        'listing_monthly': 28_000,
+        'commission_pct': 12,
+        'demand_reach': 0.22,
+        'marketing_amplify': 1.35,
+    },
+    {
+        'id': 'google_flights',
+        'name': 'Google Flights',
+        'listing_monthly': 9_500,
+        'commission_pct': 0,
+        'demand_reach': 0.18,
+        'marketing_amplify': 1.15,
+    },
+    {
+        'id': 'kayak',
+        'name': 'Kayak',
+        'listing_monthly': 16_000,
+        'commission_pct': 10,
+        'demand_reach': 0.14,
+        'marketing_amplify': 1.2,
+    },
+    {
+        'id': 'travelocity',
+        'name': 'Travelocity',
+        'listing_monthly': 12_000,
+        'commission_pct': 11,
+        'demand_reach': 0.1,
+        'marketing_amplify': 1.12,
+    },
+]
+
 TIME_SPEEDS = [
     {'id': 'pause', 'label': 'Pause', 'days_per_tick': 0},
     {'id': 'day', 'label': 'Day', 'days_per_tick': 1},
@@ -328,6 +376,8 @@ def get_runway_bootstrap():
         'fuel_base': FUEL_BASE_USD_GAL,
         'crew_cost_per_block_hour': CREW_COST_PER_BLOCK_HOUR,
         'airport_fee_per_departure': AIRPORT_FEE_PER_DEPARTURE,
+        'macro_usa_base': MACRO_USA_BASE,
+        'ota_platforms': OTA_PLATFORMS,
         'time_speeds': TIME_SPEEDS,
         'tick_ms': TICK_MS,
     }
