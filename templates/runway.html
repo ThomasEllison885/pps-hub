@@ -340,20 +340,38 @@
     display: none;
     flex: 1 1 100%;
     order: 9;
+    width: 100%;
+    min-height: 0;
   }
-  .scoreboard-panel.open { display: block; }
+  /* Rankings list must scroll inside the fixed game chrome (screen overflow is hidden). */
+  .scoreboard-panel.open {
+    display: block;
+    max-height: min(70vh, calc(100dvh - 150px));
+    overflow-x: auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
   .scoreboard-panel-inner {
-    background: rgba(6, 13, 24, 0.65);
+    background: rgba(6, 13, 24, 0.92);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 12px 14px;
     margin-top: 4px;
+    min-width: min(100%, 640px);
   }
   .scoreboard-panel-inner h3 { font-size: 0.9rem; color: var(--gold); margin-bottom: 6px; }
   .scoreboard-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.72rem;
+  }
+  .scoreboard-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #0c1a2c;
+    box-shadow: 0 1px 0 var(--border);
   }
   .scoreboard-table th, .scoreboard-table td {
     padding: 6px 5px;
@@ -681,6 +699,15 @@
   #screen-game .speed-bar,
   #screen-game #pause-banner {
     flex-shrink: 0;
+  }
+  /* Header can host the open rankings panel without growing the page past the viewport. */
+  #screen-game .game-header {
+    max-height: min(78vh, calc(100dvh - 72px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    align-content: flex-start;
   }
   .game-layout {
     display: grid;
@@ -2217,7 +2244,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=58"></script>
-<script src="/static/runway/game.js?v=58"></script>
+<script src="/static/runway/economics.js?v=59"></script>
+<script src="/static/runway/game.js?v=59"></script>
 </body>
 </html>
