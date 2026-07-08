@@ -18,6 +18,7 @@ AIRCRAFT_TYPES = {
         'maintenance_monthly': 8_500,
         'lifespan_years': 18,
         'crew_per_flight': 2,
+        'target_block_hours_day': 6.5,
     },
     'e145': {
         'name': 'Embraer ERJ-145',
@@ -34,6 +35,7 @@ AIRCRAFT_TYPES = {
         'maintenance_monthly': 22_000,
         'lifespan_years': 22,
         'crew_per_flight': 3,
+        'target_block_hours_day': 8.5,
     },
     'e175': {
         'name': 'Embraer E175',
@@ -50,6 +52,7 @@ AIRCRAFT_TYPES = {
         'maintenance_monthly': 38_000,
         'lifespan_years': 25,
         'crew_per_flight': 4,
+        'target_block_hours_day': 9.5,
     },
     'a320': {
         'name': 'Airbus A320neo',
@@ -66,6 +69,7 @@ AIRCRAFT_TYPES = {
         'maintenance_monthly': 72_000,
         'lifespan_years': 28,
         'crew_per_flight': 5,
+        'target_block_hours_day': 10.0,
     },
     'b737': {
         'name': 'Boeing 737-800',
@@ -82,8 +86,31 @@ AIRCRAFT_TYPES = {
         'maintenance_monthly': 68_000,
         'lifespan_years': 28,
         'crew_per_flight': 5,
+        'target_block_hours_day': 10.0,
     },
 }
+
+# Real-world-ish competitor routes in the Ohio regional network (seed for active AI).
+OHIO_COMPETITOR_ROUTE_SEEDS = [
+    {'airline': 'Allegiant', 'origin': 'DAY', 'dest': 'CVG', 'frequency_week': 4, 'fare': 69, 'tier': 'lcc'},
+    {'airline': 'Allegiant', 'origin': 'TOL', 'dest': 'CVG', 'frequency_week': 3, 'fare': 79, 'tier': 'lcc'},
+    {'airline': 'Allegiant', 'origin': 'CAK', 'dest': 'CVG', 'frequency_week': 3, 'fare': 75, 'tier': 'lcc'},
+    {'airline': 'Delta', 'origin': 'CVG', 'dest': 'DTW', 'frequency_week': 21, 'fare': 189, 'tier': 'legacy'},
+    {'airline': 'Delta', 'origin': 'DTW', 'dest': 'CMH', 'frequency_week': 14, 'fare': 159, 'tier': 'legacy'},
+    {'airline': 'Southwest', 'origin': 'CMH', 'dest': 'CVG', 'frequency_week': 7, 'fare': 119, 'tier': 'lcc'},
+    {'airline': 'American', 'origin': 'CMH', 'dest': 'DAY', 'frequency_week': 14, 'fare': 139, 'tier': 'legacy'},
+    {'airline': 'Frontier', 'origin': 'CMH', 'dest': 'CVG', 'frequency_week': 4, 'fare': 89, 'tier': 'lcc'},
+    {'airline': 'United', 'origin': 'CMH', 'dest': 'IND', 'frequency_week': 14, 'fare': 149, 'tier': 'legacy'},
+    {'airline': 'Southwest', 'origin': 'IND', 'dest': 'CMH', 'frequency_week': 7, 'fare': 129, 'tier': 'lcc'},
+    {'airline': 'American', 'origin': 'PIT', 'dest': 'CMH', 'frequency_week': 7, 'fare': 159, 'tier': 'legacy'},
+    {'airline': 'Delta', 'origin': 'CVG', 'dest': 'CMH', 'frequency_week': 14, 'fare': 169, 'tier': 'legacy'},
+]
+
+ANCILLARY_MODES = [
+    {'id': 'auto', 'label': 'Auto', 'desc': 'Balances bags/seats with load and market.'},
+    {'id': 'aggressive', 'label': 'Ancillary-heavy', 'desc': 'Low base, high bags/seats/priority fees (LCC style).'},
+    {'id': 'minimal', 'label': 'Minimal', 'desc': 'Fewer fees, more ticket in the quoted fare.'},
+]
 
 # US-focused MVP airports (~55). Coordinates and scale from public data; gates approximate.
 _AIRPORT_ROWS = [
@@ -626,6 +653,8 @@ def get_runway_bootstrap():
         'tick_ms': TICK_MS,
         'common_route_pairs': COMMON_ROUTE_PAIRS,
         'ohio_region_iata': OHIO_REGION_IATA,
+        'ohio_competitor_route_seeds': OHIO_COMPETITOR_ROUTE_SEEDS,
+        'ancillary_modes': ANCILLARY_MODES,
     }
 
 

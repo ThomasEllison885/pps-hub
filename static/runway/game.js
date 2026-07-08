@@ -306,6 +306,296 @@
     state.last_competitor_event_day = state.last_competitor_event_day || 0;
   }
 
+  function initCompetitorRoutes() {
+    const seeds = bootstrap.ohio_competitor_route_seeds || [];
+    const allowed = new Set((bootstrap.airports || []).map((a) => a.iata));
+    state.competitor_routes = seeds
+      .filter((s) => allowed.has(s.origin) && allowed.has(s.dest))
+      .map((s) => ({
+        id: `cr-${s.airline}-${s.origin}-${s.dest}`,
+        airline: s.airline,
+        origin: s.origin,
+        dest: s.dest,
+        frequency_week: s.frequency_week,
+        fare: s.fare,
+        tier: s.tier || 'legacy',
+        started_day: 0,
+      }));
+    state.last_competitor_ai_day = state.last_competitor_ai_day || 0;
+  }
+
+  function competitorRoutesAt(iata) {
+    return (state.competitor_routes || []).filter((r) => r.origin === iata || r.dest === iata);
+  }
+
+  function competitorRouteOverlapPenalty(route) {
+    let penalty = 0;
+    (state.competitor_routes || []).forEach((cr) => {
+      const match =
+        (cr.origin === route.origin && cr.dest === route.dest) ||
+        (cr.origin === route.dest && cr.dest === route.origin);
+      if (!match) return;
+      const fareAdv = cr.fare < (route.fare || 999) * 0.92 ? 1.12 : 1;
+      penalty += 0.07 + (cr.frequency_week / 28) * 0.14 * fareAdv;
+    });
+    return Math.min(0.48, penalty);
+  }
+
+  function hasCompetitorRoute(airline, origin, dest) {
+    return (state.competitor_routes || []).some(
+      (r) =>
+        r.airline === airline &&
+        ((r.origin === origin && r.dest === dest) || (r.origin === dest && r.dest === origin))
+    );
+  }
+
+  function processCompetitorAI() {
+    if (!state || !state.competitor_routes) return;
+    const airports = bootstrap.airports || [];
+    if (!airports.length) return;
+    const invested = new Set(investedAirports());
+    const actions = 1 + Math.floor(Math.random() * 2);
+    const logs = [];
+
+    for (let i = 0; i < actions; i++) {
+      const roll = Math.random();
+      if (roll < 0.38) {
+        const ap = airports[Math.floor(Math.random() * airports.length)];
+        if (!ap.incumbents || !ap.incumbents.length) continue;
+        const inc = ap.incumbents[Math.floor(Math.random() * ap.incumbents.length)];
+        const others = airports.filter((x) => x.iata !== ap.iata);
+        const dest = others[Math.floor(Math.random() * others.length)];
+        if (!dest || hasCompetitorRoute(inc.airline, ap.iata, dest.iata)) continue;
+        const freq = inc.tier === 'lcc' ? 3 + Math.floor(Math.random() * 4) : 7 + Math.floor(Math.random() * 14);
+        const fare = Math.round(marketFareForPair(ap.iata, dest.iata, 'e175') * (inc.tier === 'lcc' ? 0.78 : 1.05));
+        state.competitor_routes.push({
+          id: uid('cr'),
+          airline: inc.airline,
+          origin: ap.iata,
+          dest: dest.iata,
+          frequency_week: freq,
+          fare,
+          tier: inc.tier,
+          started_day: state.day,
+        });
+        logs.push({
+          msg: `${inc.airline} launched ${ap.iata}–${dest.iata} (${freq}x/wk from $${fare})`,
+          big: invested.has(ap.iata) || invested.has(dest.iata),
+          airport: ap.iata,
+          airline: inc.airline,
+          type: 'new_route',
+          freq,
+          fare,
+        });
+      } else if (roll < 0.68) {
+        const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
+        if (!cr) continue;
+        const delta = cr.tier === 'lcc' ? 2 + Math.floor(Math.random() * 3) : 4 + Math.floor(Math.random() * 7);
+        const old = cr.frequency_week;
+        cr.frequency_week = Math.min(28, cr.frequency_week + delta);
+        if (cr.frequency_week - old >= 4) {
+          bumpCompetitorMarket(cr.origin, cr.airline, { capacity_index: 1 + (cr.frequency_week - old) / 28 });
+          logs.push({
+            msg: `${cr.airline} added capacity on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}x/wk)`,
+            big: invested.has(cr.origin) || invested.has(cr.dest),
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'capacity',
+          });
+        }
+      } else if (roll < 0.88) {
+        const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
+        if (!cr) continue;
+        const cut = 0.1 + Math.random() * 0.14;
+        const oldFare = cr.fare;
+        cr.fare = Math.max(49, Math.round(cr.fare * (1 - cut)));
+        if (oldFare - cr.fare >= 12) {
+          bumpCompetitorMarket(cr.origin, cr.airline, { fare_index: 1 - cut });
+          logs.push({
+            msg: `${cr.airline} cut ${cr.origin}–${cr.dest} fares ~${Math.round(cut * 100)}% (now from $${cr.fare})`,
+            big: invested.has(cr.origin) || invested.has(cr.dest),
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'fare_cut',
+            pct: cut,
+          });
+        }
+      } else if (state.competitor_routes.length > 6) {
+        const idx = Math.floor(Math.random() * state.competitor_routes.length);
+        const cr = state.competitor_routes[idx];
+        if (cr.frequency_week <= 3) {
+          state.competitor_routes.splice(idx, 1);
+          logs.push({
+            msg: `${cr.airline} exited ${cr.origin}–${cr.dest}`,
+            big: invested.has(cr.origin) || invested.has(cr.dest),
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'exit',
+          });
+        } else {
+          cr.frequency_week = Math.max(2, cr.frequency_week - 3);
+        }
+      }
+    }
+
+    logs.forEach((l) => pushEvent(l.msg));
+    const big = logs.find((l) => l.big);
+    if (big && state.day - (state.last_competitor_event_day || 0) >= 45) {
+      state.last_competitor_event_day = state.day;
+      if (big.type === 'new_route') {
+        queueDecision({
+          airport: big.airport,
+          kicker: `${fmtDate(state.day)} · Competitor network`,
+          title: `${big.airline} enters ${big.airport}`,
+          body: `${big.msg}. This overlaps markets you may want.`,
+          teach: 'Check Routes for load impact. Match only if the market is price-sensitive; otherwise lean on marketing or ancillaries.',
+          logLine: big.msg,
+          options: [
+            { id: 'routes', label: 'A — Review my routes', hint: 'Check load and fares.', effect: 'tab_routes', airport: big.airport },
+            { id: 'market', label: `B — Boost marketing at ${big.airport}`, hint: '+$12k/mo awareness.', effect: 'marketing', airport: big.airport, amount: 12000 },
+            { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
+          ],
+        });
+      } else if (big.type === 'fare_cut') {
+        queueDecision({
+          airport: big.airport,
+          kicker: `${fmtDate(state.day)} · Competitor pricing`,
+          title: `${big.airline} fare cut at ${big.airport}`,
+          body: `${big.msg}.`,
+          teach: 'Ancillary-heavy pricing can hold ticket low while protecting margin — or hold fare and spend on awareness.',
+          logLine: big.msg,
+          options: [
+            { id: 'match', label: 'A — Match fare cut on overlapping routes', effect: 'match_fares', airport: big.airport, pct: big.pct || 0.12 },
+            { id: 'ancillary', label: 'B — Shift to ancillary-heavy on those routes', effect: 'ancillary_aggressive', airport: big.airport },
+            { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
+          ],
+        });
+      }
+    }
+    state.last_competitor_ai_day = state.day;
+  }
+
+  function routeFareBuckets(route) {
+    const base = route.fare || 129;
+    const mode = route.ancillary_mode || 'auto';
+    let basicMult = 0.84;
+    let flexMult = 1.32;
+    if (mode === 'aggressive') {
+      basicMult = 0.72;
+      flexMult = 1.18;
+    } else if (mode === 'minimal') {
+      basicMult = 0.94;
+      flexMult = 1.45;
+    }
+    return [
+      { id: 'basic', fare: Math.max(49, Math.round(base * basicMult)), share: mode === 'aggressive' ? 0.52 : 0.42 },
+      { id: 'standard', fare: base, share: 0.38 },
+      { id: 'flex', fare: Math.min(899, Math.round(base * flexMult)), share: 0.2 },
+    ];
+  }
+
+  function bucketedTicketRevenue(route, pax) {
+    const buckets = routeFareBuckets(route);
+    let rev = 0;
+    let assigned = 0;
+    buckets.forEach((b) => {
+      const n = Math.floor(pax * b.share);
+      rev += n * b.fare;
+      assigned += n;
+    });
+    const rem = pax - assigned;
+    if (rem > 0) rev += rem * route.fare;
+    return rev;
+  }
+
+  function ancillaryPerPax(route, load, o, d) {
+    const mode = route.ancillary_mode || 'auto';
+    const regional = (o && o.regional) || (d && d.regional);
+    let base = regional ? 22 : 16;
+    if (mode === 'aggressive') base *= 1.55;
+    else if (mode === 'minimal') base *= 0.45;
+    else base *= 0.92 + Math.min(0.35, (load || 0.5) * 0.25);
+    const buckets = routeFareBuckets(route);
+    const basicShare = buckets[0].share;
+    if (mode === 'auto' || mode === 'aggressive') base *= 0.85 + basicShare * 0.35;
+    return Math.round(base);
+  }
+
+  function planeTargetBlockHoursDay(plane) {
+    const ac = aircraftType(plane.type);
+    return ac?.target_block_hours_day || 8;
+  }
+
+  function planeBlockHoursToday(plane) {
+    if (!plane || plane.aog_days_left > 0) return 0;
+    let hours = 0;
+    (state.routes || []).forEach((r) => {
+      if (r.aircraft_id !== plane.id) return;
+      const ac = aircraftType(r.aircraft_type);
+      if (!ac) return;
+      hours += blockHours(routeDistance(r), ac) * (r.frequency_week / 7);
+    });
+    return hours;
+  }
+
+  function planeUtilizationPct(plane) {
+    const target = planeTargetBlockHoursDay(plane);
+    const today = planeBlockHoursToday(plane);
+    return Math.min(100, (today / Math.max(target, 0.5)) * 100);
+  }
+
+  function planeMonthUtilizationPct(plane) {
+    const target = planeTargetBlockHoursDay(plane) * 30;
+    const actual = plane.block_hours_month || 0;
+    return Math.min(100, (actual / Math.max(target, 1)) * 100);
+  }
+
+  function isPlaneAvailable(plane) {
+    return plane && (!plane.aog_days_left || plane.aog_days_left <= 0);
+  }
+
+  function processFleetDay() {
+    if (!state || !state.fleet) return;
+    state.fleet.forEach((plane) => {
+      if (plane.aog_days_left > 0) {
+        plane.aog_days_left -= 1;
+        if (plane.aog_days_left === 0) {
+          const ac = aircraftType(plane.type);
+          pushEvent(`${ac ? ac.name : plane.id} returned to service after maintenance.`);
+        }
+      }
+    });
+
+    if (state.day > 0 && state.day % 7 === 0) {
+      state.fleet.forEach((plane) => {
+        if (!isPlaneAvailable(plane)) return;
+        const util = planeMonthUtilizationPct(plane);
+        let risk = 0.006;
+        if (util > 82) risk = 0.018;
+        if (util > 94) risk = 0.032;
+        if (Math.random() < risk) {
+          plane.aog_days_left = 1 + Math.floor(Math.random() * 4);
+          const ac = aircraftType(plane.type);
+          const affected = (state.routes || []).filter((r) => r.aircraft_id === plane.id).length;
+          pushEvent(
+            `AOG: ${ac ? ac.name : plane.type} (${plane.id}) — ${plane.aog_days_left}d out.` +
+              (affected ? ` ${affected} route(s) grounded.` : ' Aircraft idle — lease still due.')
+          );
+        }
+      });
+    }
+
+    if (state.day > 0 && state.day % 30 === 0) {
+      state.fleet.forEach((plane) => {
+        const util = planeMonthUtilizationPct(plane);
+        if (util < 35 && (state.routes || []).some((r) => r.aircraft_id === plane.id)) {
+          pushEvent(`Low utilization: ${plane.id} flew ${util.toFixed(0)}% of target block hours last month — lease cost unchanged.`);
+        }
+        plane.block_hours_month = 0;
+      });
+    }
+  }
+
   function investedAirports() {
     const set = new Set();
     (state.gates || []).forEach((g) => set.add(g.airport));
@@ -356,6 +646,12 @@
         r.fare_mode = 'manual';
       });
       pushPlayerEvent(`trimmed fares ~${Math.round((option.pct || 0.08) * 100)}% on ${option.airport} routes.`);
+    } else if (option.effect === 'ancillary_aggressive') {
+      routesTouchingAirport(option.airport).forEach((r) => {
+        r.ancillary_mode = 'aggressive';
+        if (r.fare_mode !== 'manual') r.fare = Math.max(49, Math.round(r.fare * 0.94));
+      });
+      pushPlayerEvent(`shifted ${option.airport} routes to ancillary-heavy pricing.`);
     }
   }
 
@@ -486,9 +782,9 @@
           5,
           total,
           'Fares — auto vs manual',
-          'In <b>Routes</b>, each line shows your <b>Fare</b> and the <b>Market</b> benchmark. Fares on <b>auto</b> drift monthly with demand (high load → price up). ' +
-            'Edit the fare box to lock <b>manual</b> pricing — useful when competitors cut prices.',
-          'Thin markets (LUK, YNG) are price-sensitive; CMH and CVG support higher fares. Leave auto on until you understand load factors.',
+          'In <b>Routes</b>, each line shows <b>Fare buckets</b> (basic/standard/flex), <b>Ancillary</b> mode (bags/seats fees), and revenue per passenger. ' +
+            'Fares on <b>auto</b> drift monthly; ancillary-heavy works like Allegiant on thin markets.',
+          'Competitor routes on the same city pair steal demand — watch dashed red lines on the map and the airport panel.',
           'Open Routes & fares →',
           'tab_routes',
           hub,
@@ -879,6 +1175,14 @@
     renderHud();
   }
 
+  function setRouteAncillary(routeId, mode) {
+    const route = state.routes.find((r) => r.id === routeId);
+    if (!route) return;
+    route.ancillary_mode = mode || 'auto';
+    saveGame();
+    renderRoutes();
+  }
+
   function resetRouteFare(routeId) {
     const route = state.routes.find((r) => r.id === routeId);
     if (!route) return;
@@ -977,6 +1281,7 @@
     sanitizeMarketingSpend();
     normalizeGameState();
     initCompetitorMarkets();
+    initCompetitorRoutes();
     resetMapView();
     pushEvent(`${state.player_name} founded ${state.airline_name} — ${base.name}`);
     saveGame();
@@ -1071,6 +1376,8 @@
       if (f.leased && f.lease_months_left == null) {
         f.lease_months_left = 60;
       }
+      if (f.aog_days_left == null) f.aog_days_left = 0;
+      if (f.block_hours_month == null) f.block_hours_month = 0;
     });
     (state.routes || []).forEach((r) => {
       if (!r.aircraft_id && state.fleet.length) {
@@ -1081,8 +1388,10 @@
       if (!Number.isFinite(r.fare)) {
         r.fare = marketFareForPair(r.origin, r.dest, r.aircraft_type);
       }
+      if (!r.ancillary_mode) r.ancillary_mode = 'auto';
     });
     if (!state.competitor_markets) initCompetitorMarkets();
+    if (!state.competitor_routes) initCompetitorRoutes();
     if (state.last_competitor_event_day == null) state.last_competitor_event_day = 0;
     if (state.onboarding_done == null) state.onboarding_done = true;
   }
@@ -1413,25 +1722,33 @@
     const awareD = (state.brand_awareness[route.dest] || 5) / 100;
     const marketing = 0.5 + (awareO + awareD) / 2;
     const rep = 1 + state.reputation / 200;
-    const fareFactor = fareDemandFactor(route, o, d);
+    const buckets = routeFareBuckets(route);
+    const fareProbe = { ...route, fare: buckets[0].fare };
+    const fareFactor = fareDemandFactor(fareProbe, o, d);
+    const overlap = 1 - competitorRouteOverlapPenalty(route);
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
     const ota = otaEffects();
     const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
 
     let demand =
-      base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult * comfortFactor;
+      base * hubPenalty * overlap * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult * comfortFactor;
     if (isCommonRoutePair(route.origin, route.dest)) demand *= 1.08;
     return demand;
   }
 
   function simulateRouteDay(route) {
     const ac = aircraftType(route.aircraft_type);
-    if (!ac) return { revenue: 0, cost: 0, pax: 0, load: 0 };
+    if (!ac) return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: false };
     const dist = routeDistance(route);
-    if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0, load: 0 };
+    if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: false };
 
     const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+    if (plane && !isPlaneAvailable(plane)) {
+      return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: true };
+    }
+    const o = airport(route.origin);
+    const d = airport(route.dest);
     const seats = plane ? fleetSeatCount(plane) : ac.seats;
     const flightsToday = route.frequency_week / 7;
     const dailySeats = seats * flightsToday;
@@ -1439,15 +1756,20 @@
     const load = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const pax = Math.floor(dailySeats * load);
     const ota = otaEffects();
-    const revenue = pax * route.fare * ota.revenueMult;
+    const ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult;
+    const ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult;
+    const revenue = ticketRev + ancillaryRev;
 
     const block = blockHours(dist, ac) * flightsToday;
+    if (plane) {
+      plane.block_hours_month = (plane.block_hours_month || 0) + block;
+    }
     const fuel = block * ac.fuel_gal_hr * state.fuel_price;
     const crew = block * bootstrap.crew_cost_per_block_hour;
     const fees = flightsToday * bootstrap.airport_fee_per_departure * 2;
     const variable = fuel + crew + fees;
 
-    return { revenue, cost: variable, pax, load };
+    return { revenue, cost: variable, pax, load, ticketRev, ancillaryRev, grounded: false };
   }
 
   function simulateDayEconomics() {
@@ -1519,7 +1841,11 @@
 
     if (state.day % 7 === 0) updateFuelPrice();
 
+    processFleetDay();
+
     if (state.day > 0 && state.day % 60 === 0) maybeCompetitorEvents();
+
+    if (state.day > 0 && state.day % 90 === 0) processCompetitorAI();
 
     if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
 
@@ -1714,6 +2040,8 @@
         seats: seatCount,
         leased: true,
         lease_months_left: 60,
+        aog_days_left: 0,
+        block_hours_month: 0,
       });
       pushPlayerEvent(`leased ${ac.name} (${seatCount} seats).`);
     } else {
@@ -1731,6 +2059,8 @@
         seats: seatCount,
         leased: false,
         life_months_left: (ac.lifespan_years || 25) * 12,
+        aog_days_left: 0,
+        block_hours_month: 0,
       });
       pushPlayerEvent(`purchased ${ac.name} (${seatCount} seats).`);
     }
@@ -1770,6 +2100,7 @@
       fare: fare || marketFare,
       market_fare: marketFare,
       fare_mode: 'auto',
+      ancillary_mode: 'auto',
       aircraft_id: aircraftId,
     });
     pushPlayerEvent(`opened ${origin}–${dest} (${freq}x/wk @ $${fare}).`);
@@ -2060,6 +2391,19 @@
       <rect class="map-pan-surface" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="transparent"/>
     `;
 
+    if (state && state.competitor_routes && state.competitor_routes.length) {
+      html += '<g class="map-competitor-routes">';
+      state.competitor_routes.forEach((route) => {
+        const o = airport(route.origin);
+        const d = airport(route.dest);
+        if (!o || !d) return;
+        const p1 = projectMap(o.lat, o.lon);
+        const p2 = projectMap(d.lat, d.lon);
+        html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ff7b5a" stroke-width="1.2" opacity="0.35" stroke-dasharray="6 4" stroke-linecap="round"/>`;
+      });
+      html += '</g>';
+    }
+
     if (state && state.routes) {
       html += '<g class="map-routes">';
       state.routes.forEach((route) => {
@@ -2131,6 +2475,17 @@
           )
           .join('')}</ul>`
           : '<p class="muted" style="font-size:0.75rem;">No major scheduled incumbents — thin or GA market.</p>'
+      }
+      ${
+        competitorRoutesAt(iata).length
+          ? `<h4 style="font-size:0.82rem;margin:10px 0 6px;color:#ff9b7a;">Competitor routes</h4>
+        <ul class="list incumbent-list">${competitorRoutesAt(iata)
+          .map(
+            (cr) =>
+              `<li><strong>${cr.airline}</strong> ${cr.origin}–${cr.dest} <span class="muted">${cr.frequency_week}x/wk · $${cr.fare}</span></li>`
+          )
+          .join('')}</ul>`
+          : ''
       }
       ${gate ? '' : `
         <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">Lease common-use (3yr)</button>
@@ -2271,12 +2626,18 @@
         const life = f.leased
           ? `${f.lease_months_left || '?'} mo lease left`
           : `${Math.ceil((f.life_months_left || 0) / 12)} yr life left · ${fmtMoney(ac.maintenance_monthly)}/mo maint`;
-        html += `<li><strong>${ac.name}</strong> (${seats} seats) — ${f.leased ? 'Leased' : 'Owned'}<br>
-          <span class="muted">${ac.size} · ${ac.range_nm} nm · Comfort ${comfortStars(ac.comfort_rating)} · ${life}</span></li>`;
+        const util = planeMonthUtilizationPct(f);
+        const utilToday = planeUtilizationPct(f);
+        const aog = f.aog_days_left > 0 ? `<span class="danger"> · AOG ${f.aog_days_left}d</span>` : '';
+        const utilClass = util < 40 ? 'danger' : util > 85 ? 'via-good' : 'muted';
+        html += `<li><strong>${ac.name}</strong> (${seats} seats) — ${f.leased ? 'Leased' : 'Owned'}${aog}<br>
+          <span class="muted">${ac.size} · ${ac.range_nm} nm · Comfort ${comfortStars(ac.comfort_rating)} · ${life}</span><br>
+          <span class="${utilClass}" style="font-size:0.72rem;">Util ${util.toFixed(0)}% MTD · ${utilToday.toFixed(0)}% today (target ${planeTargetBlockHoursDay(f)} block hr/day)</span></li>`;
       });
       html += '</ul>';
     }
 
+    html += `<p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Leased aircraft bill monthly whether they fly or sit <b>AOG</b> (aircraft on ground). High utilization raises maintenance risk but earns revenue.</p>`;
     html += '<h4>Add aircraft</h4><p class="muted">Choose type → set seats → confirm lease or buy.</p><div class="fleet-grid">';
     Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
       const ac = aircraftType(tid);
@@ -2325,27 +2686,38 @@
     if (!state.routes.length) {
       html += '<p class="muted">No routes yet.</p>';
     } else {
-      html += '<table class="data-table"><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Market</th><th>Load</th><th>P&L</th></tr>';
+      html += '<table class="data-table"><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Ancillary</th><th>Rev/pax</th><th>Load</th><th>P&L</th></tr>';
       state.routes.forEach((route) => {
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
-        const loadPct = Number.isFinite(r.load) ? `${(r.load * 100).toFixed(0)}%` : '—';
+        const loadPct = r.grounded ? 'AOG' : Number.isFinite(r.load) ? `${(r.load * 100).toFixed(0)}%` : '—';
         const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
         const mode = route.fare_mode === 'manual' ? 'manual' : 'auto';
+        const anc = route.ancillary_mode || 'auto';
+        const revPerPax = r.pax > 0 ? Math.round(r.revenue / r.pax) : 0;
+        const buckets = routeFareBuckets(route);
+        const bucketHint = buckets.map((b) => `$${b.fare}`).join(' / ');
         html += `<tr>
           <td>${route.origin}–${route.dest}</td>
           <td>${route.frequency_week}/wk</td>
           <td>
             <input type="number" min="49" max="899" value="${route.fare}" style="width:62px;padding:4px;"
-              onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')">
+              onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
             <span class="muted" style="font-size:0.65rem;">${mode}</span>
           </td>
-          <td class="muted">$${market}</td>
+          <td>
+            <select style="font-size:0.7rem;padding:2px;" onchange="Runway.setRouteAncillary('${route.id}', this.value)">
+              <option value="auto" ${anc === 'auto' ? 'selected' : ''}>Auto</option>
+              <option value="aggressive" ${anc === 'aggressive' ? 'selected' : ''}>Heavy</option>
+              <option value="minimal" ${anc === 'minimal' ? 'selected' : ''}>Min</option>
+            </select>
+          </td>
+          <td class="muted" title="Ticket + bags/seats">$${revPerPax}<br><span style="font-size:0.65rem;">mkt $${market}</span></td>
           <td>${loadPct}</td>
           <td>${fmtMoney(pnl)}</td>
         </tr>`;
       });
-      html += '</table><p class="muted" style="font-size:0.72rem;">Fares on <b>auto</b> drift monthly with load (supply & demand). Edit to lock manual. Market fare uses distance, local wealth, and luxury demand.</p>';
+      html += '</table><p class="muted" style="font-size:0.72rem;"><b>Fare buckets</b> (basic / standard / flex) set ticket mix. <b>Ancillary</b> adds bags, seats, priority per passenger — Allegiant-style markets reward ancillary-heavy. Competitor overlap on the same city pair steals demand.</p>';
     }
 
     const fleetOpts = state.fleet.length
@@ -2770,6 +3142,7 @@
     applyMarketing,
     applyRouteSuggestion,
     setRouteFare,
+    setRouteAncillary,
     resetRouteFare,
     toggleOta: toggleOtaListing,
     newGame: (id) => {
