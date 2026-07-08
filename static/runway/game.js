@@ -13,6 +13,18 @@
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
+  let mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+  const MAP_ZOOM_MIN_W = MAP_W * 0.22;
+  const MAP_ZOOM_MAX_W = MAP_W * 2.2;
+  let mapDrag = {
+    active: false,
+    moved: false,
+    startX: 0,
+    startY: 0,
+    viewX: 0,
+    viewY: 0,
+    clickIata: null,
+  };
 
   const $ = (id) => document.getElementById(id);
 
@@ -93,9 +105,23 @@
       game_over: false,
       paused_reason: null,
     };
+    sanitizeMarketingSpend();
+    resetMapView();
     pushEvent(`Started: ${base.name}`);
     saveGame();
     renderAll();
+  }
+
+  function clampMoney(n) {
+    const v = Number(n);
+    return Math.max(0, Number.isFinite(v) ? v : 0);
+  }
+
+  function sanitizeMarketingSpend() {
+    if (!state || !state.marketing_spend_monthly) return;
+    Object.keys(state.marketing_spend_monthly).forEach((k) => {
+      state.marketing_spend_monthly[k] = clampMoney(state.marketing_spend_monthly[k]);
+    });
   }
 
   function pushEvent(msg) {
@@ -123,7 +149,7 @@
   }
 
   function marketingMonthly() {
-    return Object.values(state.marketing_spend_monthly).reduce((a, b) => a + b, 0);
+    return Object.values(state.marketing_spend_monthly).reduce((a, b) => a + clampMoney(b), 0);
   }
 
   function burnMonthly() {
@@ -217,7 +243,8 @@
       if (state.day % 30 === 0) {
         state.ltm_revenue = state.revenue_history.slice(-365).reduce((a, b) => a + b, 0) + dayRev * 30;
         Object.keys(state.brand_awareness).forEach((ap) => {
-          const spend = state.marketing_spend_monthly[ap] || 0;
+          const spend = clampMoney(state.marketing_spend_monthly[ap]);
+          state.marketing_spend_monthly[ap] = spend;
           if (spend > 0) {
             state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + spend / 50000);
           }
@@ -458,9 +485,128 @@
   }
 
   function setMarketing(iata, monthly) {
-    state.marketing_spend_monthly[iata] = Math.max(0, monthly);
+    const v = clampMoney(monthly);
+    state.marketing_spend_monthly[iata] = v;
     saveGame();
     renderHud();
+    return v;
+  }
+
+  function resetMapView() {
+    mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+    applyMapView();
+  }
+
+  function clampMapView() {
+    if (mapView.w >= MAP_W) {
+      mapView.x = -(mapView.w - MAP_W) / 2;
+      mapView.y = -(mapView.h - MAP_H) / 2;
+      return;
+    }
+    mapView.x = Math.max(0, Math.min(MAP_W - mapView.w, mapView.x));
+    mapView.y = Math.max(0, Math.min(MAP_H - mapView.h, mapView.y));
+  }
+
+  function applyMapView() {
+    const svg = $('runway-map');
+    if (!svg) return;
+    svg.setAttribute(
+      'viewBox',
+      `${mapView.x} ${mapView.y} ${mapView.w} ${mapView.h}`
+    );
+  }
+
+  function zoomMapAt(factor, clientX, clientY) {
+    const svg = $('runway-map');
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const mx = ((clientX - rect.left) / rect.width) * mapView.w + mapView.x;
+    const my = ((clientY - rect.top) / rect.height) * mapView.h + mapView.y;
+
+    const aspect = MAP_H / MAP_W;
+    let newW = mapView.w * factor;
+    newW = Math.min(MAP_ZOOM_MAX_W, Math.max(MAP_ZOOM_MIN_W, newW));
+    const newH = newW * aspect;
+
+    mapView.x = mx - ((mx - mapView.x) * newW) / mapView.w;
+    mapView.y = my - ((my - mapView.y) * newH) / mapView.h;
+    mapView.w = newW;
+    mapView.h = newH;
+    clampMapView();
+    applyMapView();
+  }
+
+  function setupMapInteraction() {
+    const wrap = document.querySelector('.map-wrap');
+    const svg = $('runway-map');
+    if (!wrap || !svg || wrap.dataset.mapPanInit) return;
+    wrap.dataset.mapPanInit = '1';
+
+    const endDrag = () => {
+      if (!mapDrag.active) return;
+      if (!mapDrag.moved && mapDrag.clickIata) selectAirport(mapDrag.clickIata);
+      mapDrag.active = false;
+      wrap.classList.remove('dragging');
+    };
+
+    svg.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      mapDrag.active = true;
+      mapDrag.moved = false;
+      mapDrag.startX = e.clientX;
+      mapDrag.startY = e.clientY;
+      mapDrag.viewX = mapView.x;
+      mapDrag.viewY = mapView.y;
+      const dot = e.target.closest && e.target.closest('.ap-dot');
+      mapDrag.clickIata = dot ? dot.dataset.iata : null;
+      svg.setPointerCapture(e.pointerId);
+      wrap.classList.add('dragging');
+    });
+
+    svg.addEventListener('pointermove', (e) => {
+      if (!mapDrag.active) return;
+      const dx = e.clientX - mapDrag.startX;
+      const dy = e.clientY - mapDrag.startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) mapDrag.moved = true;
+      if (!mapDrag.moved) return;
+
+      const rect = svg.getBoundingClientRect();
+      mapView.x = mapDrag.viewX - (dx / rect.width) * mapView.w;
+      mapView.y = mapDrag.viewY - (dy / rect.height) * mapView.h;
+      clampMapView();
+      applyMapView();
+    });
+
+    svg.addEventListener('pointerup', endDrag);
+    svg.addEventListener('pointercancel', endDrag);
+
+    wrap.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        zoomMapAt(e.deltaY > 0 ? 1.1 : 0.9, e.clientX, e.clientY);
+      },
+      { passive: false }
+    );
+
+    const zoomIn = $('map-zoom-in');
+    const zoomOut = $('map-zoom-out');
+    const zoomReset = $('map-zoom-reset');
+    if (zoomIn) {
+      zoomIn.addEventListener('click', () => {
+        const r = svg.getBoundingClientRect();
+        zoomMapAt(0.82, r.left + r.width / 2, r.top + r.height / 2);
+      });
+    }
+    if (zoomOut) {
+      zoomOut.addEventListener('click', () => {
+        const r = svg.getBoundingClientRect();
+        zoomMapAt(1.22, r.left + r.width / 2, r.top + r.height / 2);
+      });
+    }
+    if (zoomReset) zoomReset.addEventListener('click', resetMapView);
   }
 
   function mapBounds() {
@@ -533,12 +679,9 @@
 
     html += `<text x="14" y="22" fill="#6a9fc0" font-size="11" opacity="0.85">United States · airport network</text>`;
 
-    svg.setAttribute('viewBox', `0 0 ${MAP_W} ${MAP_H}`);
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.innerHTML = html;
-    svg.querySelectorAll('.ap-dot').forEach((el) => {
-      el.addEventListener('click', () => selectAirport(el.dataset.iata));
-    });
+    applyMapView();
   }
 
   function selectAirport(iata) {
@@ -569,8 +712,8 @@
         <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">Lease exclusive (5yr)</button>
       `}
       <label>Marketing $/mo
-        <input type="number" step="5000" value="${state.marketing_spend_monthly[iata] || 0}"
-          onchange="Runway.setMarketing('${iata}', +this.value)">
+        <input type="number" min="0" step="1000" value="${clampMoney(state.marketing_spend_monthly[iata])}"
+          oninput="var v=Math.max(0,this.valueAsNumber||0);this.value=v;Runway.setMarketing('${iata}', v)">
       </label>
     `;
   }
@@ -697,6 +840,7 @@
       const data = JSON.parse(raw);
       state = data.state;
       if (data.airports) bootstrap.airports = data.airports;
+      sanitizeMarketingSpend();
       return true;
     } catch (e) {
       return false;
@@ -722,6 +866,7 @@
     if (!bootstrap) return;
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
     await loadUsMap();
+    setupMapInteraction();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.addEventListener('click', () => setSpeed(btn.dataset.speed));
