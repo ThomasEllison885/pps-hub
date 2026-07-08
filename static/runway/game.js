@@ -204,9 +204,9 @@
         ? ` — aircraft already flies ${sched.routesOn} other route${sched.routesOn === 1 ? '' : 's'}`
         : '';
     return (
-      `Aircraft schedule exceeded: one ${ac ? ac.name : 'plane'} can only be in one place at a time ` +
-      `(~${sched.cap.toFixed(1)} block-hr/wk) but this plan needs ${sched.after.toFixed(1)} hr/wk${routeNote}. ` +
-      `Lower frequency, shift an existing route to another aircraft, or lease a second plane.`
+      `This plane's already booked solid — cut your frequency, shift an existing route to another aircraft, or lease a second plane. ` +
+      `(One ${ac ? ac.name : 'plane'} can only be in one place at a time: ~${sched.cap.toFixed(1)} block-hr/wk available, ` +
+      `this plan needs ${sched.after.toFixed(1)} hr/wk${routeNote}.)`
     );
   }
 
@@ -1311,7 +1311,7 @@
     }
     if (!logs.length) return;
 
-    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l)));
+    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l), competitorEventTier(l.type)));
     queueReactiveCompetitorDecision(logs.find((l) => l.big && (l.type === 'fare_cut' || l.type === 'capacity')));
     state.last_reactive_competitor_day = state.day;
   }
@@ -1426,7 +1426,7 @@
       }
     }
 
-    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l)));
+    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l), competitorEventTier(l.type)));
     const big = logs.find((l) => l.big);
     if (big && state.day - (state.last_competitor_event_day || 0) >= 45) {
       state.last_competitor_event_day = state.day;
@@ -1550,7 +1550,7 @@
         plane.aog_days_left -= 1;
         if (plane.aog_days_left === 0) {
           const ac = aircraftType(plane.type);
-          pushEvent(`${ac ? ac.name : plane.id} returned to service after maintenance.`);
+          pushEvent(`${ac ? ac.name : plane.id} returned to service after maintenance.`, 'good');
         }
       }
     });
@@ -1568,7 +1568,8 @@
           const affected = (state.routes || []).filter((r) => r.aircraft_id === plane.id).length;
           pushEvent(
             `AOG: ${ac ? ac.name : plane.type} (${plane.id}) — ${plane.aog_days_left}d out.` +
-              (affected ? ` ${affected} route(s) grounded.` : ' Aircraft idle — lease still due.')
+              (affected ? ` ${affected} route(s) grounded.` : ' Aircraft idle — lease still due.'),
+            'bad'
           );
         }
       });
@@ -1578,7 +1579,7 @@
       state.fleet.forEach((plane) => {
         const util = planeMonthUtilizationPct(plane);
         if (util < 35 && (state.routes || []).some((r) => r.aircraft_id === plane.id)) {
-          pushEvent(`Low utilization: ${plane.id} flew ${util.toFixed(0)}% of target block hours last month — lease cost unchanged.`);
+          pushEvent(`Low utilization: ${plane.id} flew ${util.toFixed(0)}% of target block hours last month — lease cost unchanged.`, 'bad');
         }
         plane.block_hours_month = 0;
       });
@@ -2038,7 +2039,8 @@
           'Fares — auto vs manual',
           'In <b>Routes</b>, each line shows <b>Fare buckets</b> (basic/standard/flex), <b>Ancillary</b> mode (bags/seats fees), and revenue per passenger. ' +
             'Fares on <b>auto</b> drift monthly; ancillary-heavy works like Allegiant on thin markets.',
-          'Competitor routes on the same city pair steal demand — watch dashed red lines on the map and the airport panel.',
+          '<b>Load factor</b> is the % of seats you actually sell — the fuller the plane, the better the economics. ' +
+            'Competitor routes on the same city pair steal demand — watch dashed red lines on the map and the airport panel.',
           'Open Routes & fares →',
           'tab_routes',
           hub,
@@ -2052,7 +2054,7 @@
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
             'Competitor alerts pause the clock and drop you to <b>slow speed</b> so you can read them — press ▶ when you want normal day speed again.',
-          'Watch cash runway in the HUD. If load factors stay above ~70%, consider another route or marketing spend at your origin.',
+          'Watch cash runway in the HUD. If load factor stays above ~70%, consider another route or marketing spend at your origin.',
           'Got it — let me play →',
           'tutorial_finish',
           null,
@@ -2254,7 +2256,9 @@
   }
 
   function speedAfterInterrupt() {
-    return 'slow';
+    // Restore whatever speed the player had chosen before the interrupt,
+    // rather than forcing them back down to slow every time.
+    return decisionSpeedBeforePause || speedBeforePause || 'day';
   }
 
   function pauseForInterrupt() {
@@ -2267,13 +2271,8 @@
     if (!state || state.game_over) return;
     if (activeDecision || decisionQueue.length || routeLaunchActive || routeReviewRouteId) return;
     const next = speedAfterInterrupt();
-    speedBeforePause = next;
-    decisionSpeedBeforePause = next;
+    decisionSpeedBeforePause = null;
     setSpeed(next);
-    const hint = $('speed-hint');
-    if (hint) {
-      hint.textContent = 'Slow (4 hr) after alert — press ▶ for normal day speed';
-    }
   }
 
   function resolveDecision(choiceId) {
@@ -2407,6 +2406,38 @@
     if (!state.competitor_markets[iata]) state.competitor_markets[iata] = {};
     const cur = state.competitor_markets[iata][airline] || { fare_index: 1, capacity_index: 1 };
     state.competitor_markets[iata][airline] = { ...cur, ...patch };
+  }
+
+  function maybeWindfallEvent() {
+    if (!state || state.game_over || activeDecision || decisionQueue.length) return;
+    const gap = state.day - (state.last_windfall_event_day || 0);
+    if (gap < 45) return;
+    if (Math.random() > 0.3) return;
+
+    const invested = investedAirports();
+    const roll = Math.random();
+
+    if (roll < 0.5 && invested.length) {
+      const iata = invested[Math.floor(Math.random() * invested.length)];
+      const ap = airport(iata);
+      const incumbents = (ap && ap.incumbents) || [];
+      if (incumbents.length) {
+        const incumbent = incumbents[Math.floor(Math.random() * Math.min(3, incumbents.length))];
+        const pct = 0.08 + Math.random() * 0.1;
+        bumpCompetitorMarket(iata, incumbent.airline, { capacity_index: 1 - pct });
+        state.last_windfall_event_day = state.day;
+        pushEvent(`${incumbent.airline} quietly pulled back capacity at <b>${iata}</b> — an opening for you.`, 'good');
+        return;
+      }
+    }
+
+    const idlePlane = (state.fleet || []).find((p) => isPlaneAvailable(p) && planeMonthUtilizationPct(p) < 60);
+    if (idlePlane) {
+      const bonus = Math.round(80_000 + Math.random() * 120_000);
+      state.cash += bonus;
+      state.last_windfall_event_day = state.day;
+      pushEvent(`Charter contract: a corporate client chartered your idle ${idlePlane.id} for a one-off trip — <b>${fmtMoney(bonus)}</b> booked.`, 'good');
+    }
   }
 
   function maybeCompetitorEvents() {
@@ -3599,9 +3630,12 @@
     });
 
     if (player && prev.player != null && player.rank < prev.player) {
-      pushEvent(`League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> in the league.`);
+      pushEvent(
+        `League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> in the league.`,
+        player.rank === 1 ? 'milestone' : 'good'
+      );
     } else if (player && prev.player != null && player.rank > prev.player) {
-      pushEvent(`League (${region}): ${state.airline_name} slipped to <b>#${player.rank}</b> — rivals gained ground.`);
+      pushEvent(`League (${region}): ${state.airline_name} slipped to <b>#${player.rank}</b> — rivals gained ground.`, 'bad');
     }
 
     ['profit', 'riders', 'csat'].forEach((key) => {
@@ -4065,9 +4099,21 @@
     renderAll();
   }
 
-  function pushEvent(msg) {
-    state.events.unshift({ day: state.day, msg });
+  function pushEvent(msg, tier) {
+    state.events.unshift({ day: state.day, msg, tier: tier || 'neutral' });
     if (state.events.length > 80) state.events.length = 80;
+    if (tier === 'good' || tier === 'milestone') showEventToast(msg, tier);
+  }
+
+  function showEventToast(msg, tier) {
+    const stack = document.getElementById('event-toast-stack');
+    if (!stack) return;
+    const el = document.createElement('div');
+    el.className = `event-toast ${tier}`;
+    el.innerHTML = msg;
+    stack.appendChild(el);
+    setTimeout(() => el.remove(), 4200);
+    while (stack.children.length > 3) stack.removeChild(stack.firstChild);
   }
 
   function monthlyDebtService() {
@@ -4581,6 +4627,8 @@
 
     if (!decisionPending && state.day > 0 && state.day % 60 === 0) maybeCompetitorEvents();
 
+    if (!decisionPending && state.day > 0 && state.day % 45 === 0) maybeWindfallEvent();
+
     if (!decisionPending && state.day > 0 && state.day % 7 === 0) processReactiveCompetitorThreats('weekly');
 
     if (!decisionPending && state.day > 0 && state.day % 90 === 0) processCompetitorAI();
@@ -4595,21 +4643,44 @@
   function checkSurvivalTriggers() {
     if (state.cash < 0 && !state.milestones.includes('chapter11_warn')) {
       state.milestones.push('chapter11_warn');
-      pushEvent('CRITICAL: Negative cash. Raise capital or cut burn.');
+      pushEvent('CRITICAL: Negative cash. Raise capital or cut burn.', 'bad');
       setSpeed('pause');
       state.paused_reason = 'Cash below zero';
     }
     if (state.cash < -2_000_000) {
       state.game_over = true;
-      pushEvent('BANKRUPTCY — game over.');
+      pushEvent('BANKRUPTCY — game over.', 'bad');
       setSpeed('pause');
     }
     if (runwayMonths() < 2 && state.cash > 0 && !state.milestones.includes('runway_warn')) {
       state.milestones.push('runway_warn');
-      pushEvent(`Cash runway under 2 months (${runwayMonths().toFixed(1)} mo).`);
+      pushEvent(`Cash runway under 2 months (${runwayMonths().toFixed(1)} mo).`, 'bad');
       setSpeed('pause');
       state.paused_reason = 'Low runway';
     }
+  }
+
+  function markMilestoneOnce(id, msg) {
+    if (state.milestones.includes(id)) return;
+    state.milestones.push(id);
+    pushEvent(msg, 'milestone');
+  }
+
+  function checkPositiveMilestones() {
+    if (!state || state.game_over) return;
+
+    if ((state.pnl_history || []).length >= 30) {
+      const sum30 = state.pnl_history.reduce((a, b) => a + b, 0);
+      if (sum30 > 0) markMilestoneOnce('first_profitable_month', `${state.airline_name} closed a <b>profitable trailing month</b> — the model is working.`);
+    }
+    if ((state.routes || []).length >= 1) markMilestoneOnce('first_route', `${state.airline_name} launched its first route. Wheels up!`);
+    if ((state.fleet || []).length >= 3) markMilestoneOnce('fleet_3', `Fleet milestone: ${state.airline_name} now operates <b>3 aircraft</b>.`);
+    if ((state.fleet || []).length >= 5) markMilestoneOnce('fleet_5', `Fleet milestone: ${state.airline_name} now operates <b>5 aircraft</b>.`);
+    if ((state.routes || []).length >= 5) markMilestoneOnce('routes_5', `Network milestone: ${state.airline_name} now flies <b>5 routes</b>.`);
+    if ((state.routes || []).length >= 10) markMilestoneOnce('routes_10', `Network milestone: ${state.airline_name} now flies <b>10 routes</b>.`);
+    if (state.day >= 365) markMilestoneOnce('survive_year1', `${state.airline_name} made it to <b>year 2</b> — one year in the air.`);
+    if (state.day >= 730) markMilestoneOnce('survive_year2', `${state.airline_name} made it to <b>year 3</b> — still flying strong.`);
+    if (state.cash >= 20_000_000) markMilestoneOnce('cash_20m', `${state.airline_name} crossed <b>${fmtMoney(20_000_000)}</b> cash on hand.`);
   }
 
   function tickDays(n) {
@@ -4621,13 +4692,21 @@
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
+      recordPnlHistory(state.daily_pnl);
       updateDailyMetrics(econ);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
+      checkPositiveMilestones();
       if (state.game_over || state.paused_reason) break;
     }
     saveGame();
     renderAll();
+  }
+
+  function recordPnlHistory(pnl) {
+    if (!Array.isArray(state.pnl_history)) state.pnl_history = [];
+    state.pnl_history.push(pnl);
+    if (state.pnl_history.length > 30) state.pnl_history.shift();
   }
 
   function tickHours(hours) {
@@ -4646,8 +4725,10 @@
       state.hour -= 24;
       state.day += 1;
       dayAdvanced = true;
+      recordPnlHistory(state.daily_pnl);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
+      checkPositiveMilestones();
       if (state.game_over || state.paused_reason) break;
     }
 
@@ -4741,9 +4822,8 @@
     if (cap.ok) return null;
     const gates = gateCountAt(iata);
     return (
-      `Gate capacity exceeded at ${iata}: ${cap.after}/${cap.max} weekly departures ` +
-      `(${gates} gate${gates !== 1 ? 's' : ''} × ${airportGateWeeklyCapacity(airport(iata))}/wk max). ` +
-      `Lease another gate, lower frequency, or spread departures — airports have limited hours and turnaround time.`
+      `Your gates at ${iata} are full — lease another gate, lower frequency, or spread departures out. ` +
+      `(${cap.after}/${cap.max} weekly departures across ${gates} gate${gates !== 1 ? 's' : ''} × ${airportGateWeeklyCapacity(airport(iata))}/wk max.)`
     );
   }
 
@@ -5190,6 +5270,10 @@
       .map((h) => `${h.route.origin}–${h.route.dest}`)
       .join(', ');
     return `${log.msg} — affects <b>${names}</b>`;
+  }
+
+  function competitorEventTier(type) {
+    return type === 'exit' ? 'good' : 'bad';
   }
 
   function processMonthlyGateEfficiency() {
@@ -5944,10 +6028,13 @@
         <div class="route-launch-judgment" id="rl-judgment">${judgmentHtml}</div>
         <p class="route-launch-section">Station build-out (one-time)</p>
         <p style="font-size:0.76rem;line-height:1.4;">Counters, signage, ground ops setup at <b>${d.origin}</b> — <b>${fmtMoney(d.stationCost)}</b> due at launch. Additional gates let you run more simultaneous departures.</p>
-        <p class="route-launch-section">Marketing investments</p>
-        ${channelRows}
-        <p class="route-launch-section">Distribution — OTAs (pay to play)</p>
-        ${otaRows}
+        <details class="route-launch-advanced">
+          <summary class="route-launch-section" style="cursor:pointer;">Advanced: Marketing &amp; distribution (optional)</summary>
+          <p class="route-launch-section">Marketing investments</p>
+          ${channelRows}
+          <p class="route-launch-section">Distribution — OTAs (pay to play)</p>
+          ${otaRows}
+        </details>
         <div class="route-launch-actions">
           <button type="button" class="btn" id="rl-confirm" onclick="Runway.confirmRouteLaunch()">Confirm launch</button>
           <button type="button" class="btn secondary" id="rl-cancel" onclick="Runway.cancelRouteLaunch()">Cancel</button>
@@ -6310,7 +6397,7 @@
     const dilution = 0.22;
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
-    pushEvent(`Seed round closed: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`);
+    pushEvent(`Seed round closed: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`, 'good');
     saveGame();
     renderAll();
   }
@@ -6321,7 +6408,7 @@
     const dilution = 0.15;
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
-    pushEvent(`Growth equity: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`);
+    pushEvent(`Growth equity: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`, 'good');
     saveGame();
     renderAll();
   }
@@ -6339,7 +6426,7 @@
       monthly_payment: monthly,
       secured: false,
     });
-    pushEvent(`Bank loan: ${fmtMoney(amount)} @ ${(rate * 100).toFixed(1)}%.`);
+    pushEvent(`Bank loan: ${fmtMoney(amount)} @ ${(rate * 100).toFixed(1)}%.`, 'good');
     saveGame();
     renderAll();
   }
@@ -6361,7 +6448,7 @@
       coupon,
       months_left: 120,
     });
-    pushEvent(`Bond issuance: ${fmtMoney(amount)} @ ${(coupon * 100).toFixed(1)}% coupon.`);
+    pushEvent(`Bond issuance: ${fmtMoney(amount)} @ ${(coupon * 100).toFixed(1)}% coupon.`, 'good');
     saveGame();
     renderAll();
   }
@@ -6382,7 +6469,7 @@
       months_left: 60,
       secured: true,
     });
-    pushEvent(`Asset-backed bonds: ${fmtMoney(amount)}.`);
+    pushEvent(`Asset-backed bonds: ${fmtMoney(amount)}.`, 'good');
     saveGame();
     renderAll();
   }
@@ -6392,7 +6479,7 @@
     if (!d) return;
     d.monthly_payment = 185_000;
     d.rate = 0.078;
-    pushEvent('Creditors agreed to restructured payments (-30% monthly).');
+    pushEvent('Creditors agreed to restructured payments (-30% monthly).', 'good');
     saveGame();
     renderAll();
   }
@@ -8517,7 +8604,10 @@
   function renderEvents() {
     const el = $('tab-events');
     if (!el) return;
-    el.innerHTML = `<ul class="list">${state.events.map((e) => `<li><span class="muted">${fmtDate(e.day)}</span> ${e.msg}</li>`).join('')}</ul>`;
+    el.innerHTML = `<ul class="list">${state.events.map((e) => {
+      const cls = e.tier === 'good' ? 'log-good' : e.tier === 'bad' ? 'log-bad' : e.tier === 'milestone' ? 'log-milestone' : '';
+      return `<li class="${cls}"><span class="muted">${fmtDate(e.day)}</span> ${e.msg}</li>`;
+    }).join('')}</ul>`;
   }
 
   function renderAll() {
