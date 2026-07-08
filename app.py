@@ -239,7 +239,7 @@ USERS = {
         'team_view': False,
         'team_view_scope': None,
         'title': 'Project Manager',
-        'email': 'Ben@purepropsolutions.com',
+        'email': 'ben@purepropsolutions.com',
     },
     'stephanie_whetstone': {
         'display': 'Stephanie Whetstone',
@@ -2517,6 +2517,16 @@ def _post_login_redirect():
     return redirect(url_for('dashboard'))
 
 
+def _safe_check_password(stored_hash, password):
+    if not stored_hash or not password:
+        return False
+    try:
+        return check_password_hash(stored_hash, password)
+    except (ValueError, TypeError) as e:
+        print(f'Password hash check failed: {e}')
+        return False
+
+
 def _upsert_hub_user_password(user_key, new_password, must_change=False):
     """Create or update hub_users row — fixes login when user is in USERS but missing from DB."""
     user_def = USERS.get(user_key)
@@ -2652,7 +2662,7 @@ def login():
                     cur.close()
                     conn.close()
 
-                    if db_user and check_password_hash(db_user['password_hash'], password):
+                    if db_user and _safe_check_password(db_user.get('password_hash'), password):
                         user = USERS.get(user_key, {})
                         _establish_session(user_key, user, db_user)
                         record_login_attempt(get_db, user_key, True, ip)
@@ -2672,8 +2682,8 @@ def login():
                     else:
                         error = 'Incorrect password. Please try again.'
             except Exception as e:
-                print(f"Login error: {e}")
-                error = 'Something went wrong. Please try again.'
+                print(f"Login error for {user_key or 'unknown'}: {e}")
+                error = 'Something went wrong. Please try again or contact Thomas.'
 
             if not logged_in and not error and not DATABASE_URL:
                 error = 'Database unavailable. Please try again shortly.'
@@ -5961,7 +5971,7 @@ def forgot_password():
             else:
                 link = reset_url_for_token(token)
                 ok, detail = _send_resend_email(
-                    to_email,
+                    to_email.strip().lower(),
                     'Reset your PPS Hub password',
                     f'<p>Hi {user_def["display"].split()[0]},</p>'
                     f'<p><a href="{link}">Click here to reset your PPS Hub password</a>. '
@@ -6003,20 +6013,13 @@ def reset_password_with_token(token):
         error = 'Passwords do not match.'
     else:
         try:
-            conn = get_db()
-            if conn:
-                cur = conn.cursor()
-                hashed = generate_password_hash(new_password)
-                cur.execute(
-                    'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
-                    (hashed, user_key),
-                )
-                conn.commit()
-                cur.close()
-                conn.close()
+            ok, action = _upsert_hub_user_password(user_key, new_password, must_change=False)
+            if ok:
+                print(f'Password reset via token for {user_key} ({action})')
                 return redirect(url_for('login'))
+            error = 'Database unavailable. Try again or contact Thomas.'
         except Exception as e:
-            print(f'reset password error: {e}')
+            print(f'reset password error for {user_key}: {e}')
             error = 'Something went wrong. Try again or contact Thomas.'
     return render_template('reset_password.html', error=error, token=token)
 
