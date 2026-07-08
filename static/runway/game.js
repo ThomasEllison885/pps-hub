@@ -63,7 +63,8 @@
   const $ = (id) => document.getElementById(id);
 
   function routeEconomics() {
-    if (global.RunwayEconomics && bootstrap) return global.RunwayEconomics.mergeConfig(bootstrap);
+    const E = window.RunwayEconomics;
+    if (E && bootstrap) return E.mergeConfig(bootstrap);
     return (
       bootstrap.route_economics || {
         hub_profit_target_years: 2.5,
@@ -74,7 +75,7 @@
     );
   }
 
-  const RunwayEcon = () => global.RunwayEconomics;
+  const RunwayEcon = () => window.RunwayEconomics;
 
   function airportGateWeeklyCapacity(ap) {
     if (!ap) return DEPARTURES_PER_GATE_PER_WEEK;
