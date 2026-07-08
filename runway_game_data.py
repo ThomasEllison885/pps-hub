@@ -702,51 +702,94 @@ OHIO_REGION_IATA = [
 ]
 
 # Financial health / scale for competitor intel (approximate public-market flavor).
-# Brand colors approximate real airline identities (stylized SVG marks in the UI — not official trademarks).
+# Competitor brands. Private builds use real logo files under static/runway/logos/.
+# Public release: set USE_REAL_COMPETITOR_LOGOS=false and swap names to near-names.
+USE_REAL_COMPETITOR_LOGOS = os.environ.get('ROUTELAB_REAL_LOGOS', '1').strip().lower() not in (
+    '0', 'false', 'no', 'off',
+)
+
+def _logo(slug):
+    """Path to private-build competitor logo (PNG). Missing files fall back to SVG marks in UI."""
+    return f'/static/runway/logos/{slug}.png'
+
+
 AIRLINE_PROFILES = {
     'Delta': {
         'tier': 'legacy', 'financial_health': 0.84, 'route_sensitivity': 0.38, 'cash_runway_years': 1.8,
-        'brand': {'code': 'DL', 'primary': '#003268', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'delta'},
+        'brand': {
+            'code': 'DL', 'primary': '#003268', 'secondary': '#C8102E', 'accent': '#FFFFFF',
+            'mark': 'delta', 'logo': _logo('delta'), 'domain': 'delta.com',
+        },
     },
     'American': {
         'tier': 'legacy', 'financial_health': 0.72, 'route_sensitivity': 0.42, 'cash_runway_years': 1.4,
-        'brand': {'code': 'AA', 'primary': '#0078D2', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'american'},
+        'brand': {
+            'code': 'AA', 'primary': '#0078D2', 'secondary': '#C8102E', 'accent': '#FFFFFF',
+            'mark': 'american', 'logo': _logo('american'), 'domain': 'aa.com',
+        },
     },
     'United': {
         'tier': 'legacy', 'financial_health': 0.78, 'route_sensitivity': 0.40, 'cash_runway_years': 1.6,
-        'brand': {'code': 'UA', 'primary': '#002244', 'secondary': '#FFB81C', 'accent': '#FFFFFF', 'mark': 'united'},
+        'brand': {
+            'code': 'UA', 'primary': '#002244', 'secondary': '#FFB81C', 'accent': '#FFFFFF',
+            'mark': 'united', 'logo': _logo('united'), 'domain': 'united.com',
+        },
     },
     'Southwest': {
         'tier': 'lcc', 'financial_health': 0.76, 'route_sensitivity': 0.55, 'cash_runway_years': 2.1,
-        'brand': {'code': 'WN', 'primary': '#304CB2', 'secondary': '#FFBF27', 'accent': '#E31837', 'mark': 'southwest'},
+        'brand': {
+            'code': 'WN', 'primary': '#304CB2', 'secondary': '#FFBF27', 'accent': '#E31837',
+            'mark': 'southwest', 'logo': _logo('southwest'), 'domain': 'southwest.com',
+        },
     },
     'Allegiant': {
         'tier': 'lcc', 'financial_health': 0.81, 'route_sensitivity': 0.72, 'cash_runway_years': 2.4,
-        'brand': {'code': 'G4', 'primary': '#003B70', 'secondary': '#FDB913', 'accent': '#FFFFFF', 'mark': 'allegiant'},
+        'brand': {
+            'code': 'G4', 'primary': '#003B70', 'secondary': '#FDB913', 'accent': '#FFFFFF',
+            'mark': 'allegiant', 'logo': _logo('allegiant'), 'domain': 'allegiantair.com',
+        },
     },
     'Frontier': {
         'tier': 'lcc', 'financial_health': 0.58, 'route_sensitivity': 0.88, 'cash_runway_years': 1.1,
-        'brand': {'code': 'F9', 'primary': '#006341', 'secondary': '#8DC63F', 'accent': '#FFFFFF', 'mark': 'frontier'},
+        'brand': {
+            'code': 'F9', 'primary': '#006341', 'secondary': '#8DC63F', 'accent': '#FFFFFF',
+            'mark': 'frontier', 'logo': _logo('frontier'), 'domain': 'flyfrontier.com',
+        },
     },
     'Spirit': {
         'tier': 'lcc', 'financial_health': 0.41, 'route_sensitivity': 0.92, 'cash_runway_years': 0.7,
-        'brand': {'code': 'NK', 'primary': '#1B0A3D', 'secondary': '#FFE016', 'accent': '#FFFFFF', 'mark': 'spirit'},
+        'brand': {
+            'code': 'NK', 'primary': '#1B0A3D', 'secondary': '#FFE016', 'accent': '#FFFFFF',
+            'mark': 'spirit', 'logo': _logo('spirit'), 'domain': 'spirit.com',
+        },
     },
     'JetBlue': {
         'tier': 'lcc', 'financial_health': 0.52, 'route_sensitivity': 0.78, 'cash_runway_years': 0.9,
-        'brand': {'code': 'B6', 'primary': '#003876', 'secondary': '#68BBE3', 'accent': '#FFFFFF', 'mark': 'jetblue'},
+        'brand': {
+            'code': 'B6', 'primary': '#003876', 'secondary': '#68BBE3', 'accent': '#FFFFFF',
+            'mark': 'jetblue', 'logo': _logo('jetblue'), 'domain': 'jetblue.com',
+        },
     },
     'Sun Country': {
         'tier': 'lcc', 'financial_health': 0.64, 'route_sensitivity': 0.80, 'cash_runway_years': 1.2,
-        'brand': {'code': 'SY', 'primary': '#F15A22', 'secondary': '#FFC72C', 'accent': '#FFFFFF', 'mark': 'suncountry'},
+        'brand': {
+            'code': 'SY', 'primary': '#F15A22', 'secondary': '#FFC72C', 'accent': '#FFFFFF',
+            'mark': 'suncountry', 'logo': _logo('suncountry'), 'domain': 'suncountry.com',
+        },
     },
     'Alaska': {
         'tier': 'legacy', 'financial_health': 0.70, 'route_sensitivity': 0.48, 'cash_runway_years': 1.5,
-        'brand': {'code': 'AS', 'primary': '#01426A', 'secondary': '#7CB82F', 'accent': '#FFFFFF', 'mark': 'alaska'},
+        'brand': {
+            'code': 'AS', 'primary': '#01426A', 'secondary': '#7CB82F', 'accent': '#FFFFFF',
+            'mark': 'alaska', 'logo': _logo('alaska'), 'domain': 'alaskaair.com',
+        },
     },
     'Breeze': {
         'tier': 'lcc', 'financial_health': 0.48, 'route_sensitivity': 0.85, 'cash_runway_years': 0.8,
-        'brand': {'code': 'MX', 'primary': '#6C2EB9', 'secondary': '#00C2A8', 'accent': '#FFFFFF', 'mark': 'breeze'},
+        'brand': {
+            'code': 'MX', 'primary': '#6C2EB9', 'secondary': '#00C2A8', 'accent': '#FFFFFF',
+            'mark': 'breeze', 'logo': _logo('breeze'), 'domain': 'flybreeze.com',
+        },
     },
     'Ultimate Air Shuttle': {
         'tier': 'shuttle', 'financial_health': 0.55, 'route_sensitivity': 0.95, 'cash_runway_years': 0.6,
@@ -1529,6 +1572,16 @@ EMBLEM_OPTIONS = [
 
 def get_runway_bootstrap():
     """JSON-safe payload for the browser game."""
+    profiles = AIRLINE_PROFILES
+    if not USE_REAL_COMPETITOR_LOGOS:
+        # Public / near-name mode: drop real logo paths (stylized SVG marks only).
+        profiles = {}
+        for name, prof in AIRLINE_PROFILES.items():
+            p = dict(prof)
+            brand = dict(p.get('brand') or {})
+            brand.pop('logo', None)
+            p['brand'] = brand
+            profiles[name] = p
     return {
         'airports': AIRPORTS,
         'aircraft_types': AIRCRAFT_TYPES,
@@ -1550,7 +1603,8 @@ def get_runway_bootstrap():
         'midwest_competitor_route_seeds': MIDWEST_COMPETITOR_ROUTE_SEEDS,
         'ancillary_modes': ANCILLARY_MODES,
         'route_economics': ROUTE_ECONOMICS,
-        'airline_profiles': AIRLINE_PROFILES,
+        'airline_profiles': profiles,
+        'use_real_competitor_logos': USE_REAL_COMPETITOR_LOGOS,
         'league_by_region': LEAGUE_BY_REGION,
         'league_scopes': LEAGUE_SCOPES,
         'emblem_options': EMBLEM_OPTIONS,

@@ -4149,18 +4149,19 @@
     favicon.type = 'image/jpeg';
   }
 
+  function useRealCompetitorLogos() {
+    if (bootstrap && bootstrap.use_real_competitor_logos === false) return false;
+    return true; // private default
+  }
+
+  function competitorLogoFallbackSvg(name, brand, size) {
+    return competitorBrandSvg(name, brand, size);
+  }
+
   function airlineLogoHtml(name, emblemId, size) {
     const sz = size || 36;
     const safeName = String(name || 'Airline').replace(/"/g, '&quot;');
     const prof = airlineProfile(name);
-    // Known competitor → brand-accurate stylized mark
-    if (prof && prof.brand && !emblemId) {
-      return `<span class="airline-logo airline-logo-brand" style="width:${sz}px;height:${sz}px" title="${safeName}">${competitorBrandSvg(
-        name,
-        prof.brand,
-        sz
-      )}</span>`;
-    }
     // Player airline → unique emblem SVG
     if (emblemId) {
       const opt = emblemOption(emblemId);
@@ -4169,6 +4170,24 @@
       return `<span class="airline-logo airline-logo-player" style="width:${sz}px;height:${sz}px" title="${safeName}">${emblemSvgMarkup(
         mark,
         colors,
+        sz
+      )}</span>`;
+    }
+    // Known competitor — real logo file (private) with SVG mark fallback
+    if (prof && prof.brand) {
+      const brand = prof.brand;
+      const logoUrl = useRealCompetitorLogos() ? brand.logo : null;
+      if (logoUrl) {
+        const bg = brand.primary || '#0f1c2e';
+        return `<span class="airline-logo airline-logo-real" style="width:${sz}px;height:${sz}px;background:${bg}" title="${safeName}">
+          <img class="airline-logo-img" src="${logoUrl}" alt="${safeName}" width="${sz}" height="${sz}" loading="lazy" decoding="async"
+            onerror="this.remove();var f=this.parentNode&&this.parentNode.querySelector('.airline-logo-fallback');if(f)f.hidden=false;">
+          <span class="airline-logo-fallback" hidden>${competitorLogoFallbackSvg(name, brand, sz)}</span>
+        </span>`;
+      }
+      return `<span class="airline-logo airline-logo-brand" style="width:${sz}px;height:${sz}px" title="${safeName}">${competitorBrandSvg(
+        name,
+        brand,
         sz
       )}</span>`;
     }
