@@ -358,17 +358,198 @@
     }
   }
 
+  function switchTab(tabId) {
+    const btn = document.querySelector(`[data-tab="${tabId}"]`);
+    if (!btn) return;
+    document.querySelectorAll('[data-tab]').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    const panel = $(`panel-${tabId}`);
+    if (panel) panel.classList.add('active');
+    if (tabId === 'routes') renderRoutes();
+    if (tabId === 'finance') renderFinance();
+    if (tabId === 'fleet') renderFleet();
+    if (tabId === 'economy') renderEconomy();
+    if (tabId === 'events') renderEvents();
+  }
+
+  function applyOnboardingChoice(option) {
+    if (!option || option.effect === 'explore' || option.effect === 'none') return;
+    if (option.effect === 'tab_routes') {
+      if (option.airport) selectAirport(option.airport);
+      switchTab('routes');
+    } else if (option.effect === 'tab_finance') {
+      switchTab('finance');
+    } else if (option.effect === 'tab_fleet') {
+      switchTab('fleet');
+    } else if (option.effect === 'select_airport' && option.airport) {
+      selectAirport(option.airport);
+    }
+  }
+
+  function buildOnboardingDecision(scenarioId) {
+    const sc = bootstrap.scenarios[scenarioId] || {};
+    const firstGate =
+      (state.gates[0] && state.gates[0].airport) ||
+      (bootstrap.airports[0] && bootstrap.airports[0].iata) ||
+      'DAY';
+    const plane = state.fleet[0];
+    const ac = plane ? aircraftType(plane.type) : null;
+    const planeLabel = ac ? ac.name : 'your aircraft';
+    const hasRoutes = state.routes.length > 0;
+
+    if (sc.region === 'ohio' || scenarioId === 'ohio_regional_2026') {
+      return {
+        onboarding: true,
+        kicker: 'Getting started',
+        title: `Welcome, ${state.player_name}`,
+        body:
+          `${state.airline_name} begins with <b>${fmtMoney(state.cash)}</b>, a gate at <b>${firstGate}</b>, and a leased <b>${planeLabel}</b>. ` +
+          'The clock is <b>paused</b> — pick a first step below, then press ▶ when you are ready to run days.',
+        teach:
+          'A typical first move: open one short route (try DAY–CMH), leave the fare on auto, and add a little marketing at your origin airport.',
+        logLine: 'Chose a starting focus',
+        options: [
+          {
+            id: 'routes',
+            label: `A — Plan my first route from ${firstGate}`,
+            hint: 'Opens Routes with suggestions for your gate city.',
+            effect: 'tab_routes',
+            airport: firstGate,
+          },
+          {
+            id: 'scout',
+            label: 'B — Scout competitors at CVG',
+            hint: 'See Allegiant, Delta, and others before you fly.',
+            effect: 'select_airport',
+            airport: 'CVG',
+          },
+          {
+            id: 'finance',
+            label: 'C — Review cash & net worth',
+            hint: 'Know your runway before leasing or spending.',
+            effect: 'tab_finance',
+          },
+          {
+            id: 'explore',
+            label: 'D — I\'ll explore on my own',
+            hint: 'Dismiss and click airports on the map.',
+            effect: 'explore',
+          },
+        ],
+      };
+    }
+
+    if (scenarioId === 'beginner_2026' || hasRoutes) {
+      const hub = firstGate || 'CMH';
+      return {
+        onboarding: true,
+        kicker: 'Getting started',
+        title: `Welcome back, ${state.player_name}`,
+        body:
+          `<b>${state.airline_name}</b> already has ${state.routes.length} route(s) and gates in place. ` +
+          'The clock is <b>paused</b> — orient yourself, then press ▶ when ready.',
+        teach:
+          'Check whether your routes are profitable in the Routes tab before expanding. Fares on auto will adjust monthly with demand.',
+        logLine: 'Chose a starting focus',
+        options: [
+          {
+            id: 'routes',
+            label: 'A — Review my active routes',
+            hint: 'Load factors, fares, and daily P&L per route.',
+            effect: 'tab_routes',
+            airport: hub,
+          },
+          {
+            id: 'finance',
+            label: 'B — Review cash & net worth',
+            hint: 'See equity value and monthly burn.',
+            effect: 'tab_finance',
+          },
+          {
+            id: 'map',
+            label: `C — Explore the map from ${hub}`,
+            hint: 'Click airports to see competitors and lease gates.',
+            effect: 'select_airport',
+            airport: hub,
+          },
+          {
+            id: 'explore',
+            label: 'D — I\'ll explore on my own',
+            hint: 'Dismiss and wander.',
+            effect: 'explore',
+          },
+        ],
+      };
+    }
+
+    return {
+      onboarding: true,
+      kicker: 'Getting started',
+      title: `Welcome, ${state.player_name}`,
+      body:
+        `You have <b>${fmtMoney(state.cash)}</b> to launch <b>${state.airline_name}</b>. ` +
+        'The clock is <b>paused</b> — pick a first step, then press ▶ when you are ready.',
+      teach: 'Lease a gate where you want to fly from, then open your first route before unpausing.',
+      logLine: 'Chose a starting focus',
+      options: [
+        {
+          id: 'map',
+          label: 'A — Pick an airport on the map',
+          hint: 'Find a city, check competitors, lease a gate.',
+          effect: 'select_airport',
+          airport: firstGate,
+        },
+        {
+          id: 'finance',
+          label: 'B — Review cash & net worth',
+          hint: 'Plan spend before you commit.',
+          effect: 'tab_finance',
+        },
+        {
+          id: 'fleet',
+          label: 'C — Review my fleet',
+          hint: 'See range, seats, and lease costs.',
+          effect: 'tab_fleet',
+        },
+        {
+          id: 'explore',
+          label: 'D — I\'ll explore on my own',
+          hint: 'Dismiss and click around.',
+          effect: 'explore',
+        },
+      ],
+    };
+  }
+
+  function queueOnboarding(scenarioId) {
+    if (!state || state.onboarding_done) return;
+    const decision = buildOnboardingDecision(scenarioId);
+    if (decision) queueDecision(decision);
+  }
+
   function resolveDecision(choiceId) {
     if (!activeDecision) return;
     const option = activeDecision.options.find((o) => o.id === choiceId) || { effect: 'none' };
-    if (activeDecision.onResolve) activeDecision.onResolve(option);
-    applyDecisionEffect({ ...option, airport: activeDecision.airport });
-    pushEvent(activeDecision.logLine || `Decision: ${activeDecision.title} — ${option.label}`);
+    const onboarding = !!activeDecision.onboarding;
+    if (onboarding) {
+      applyOnboardingChoice(option);
+      state.onboarding_done = true;
+      pushPlayerEvent(`starting focus: ${option.label.replace(/^A — |^B — |^C — |^D — /, '')}`);
+    } else {
+      if (activeDecision.onResolve) activeDecision.onResolve(option);
+      applyDecisionEffect({ ...option, airport: activeDecision.airport });
+      pushEvent(activeDecision.logLine || `Decision: ${activeDecision.title} — ${option.label}`);
+    }
     activeDecision = null;
     state.paused_reason = null;
     renderDecisionModal();
     if (decisionQueue.length) showNextDecision();
-    else if (decisionSpeedBeforePause && decisionSpeedBeforePause !== 'pause') setSpeed(decisionSpeedBeforePause);
+    else if (!onboarding && decisionSpeedBeforePause && decisionSpeedBeforePause !== 'pause') {
+      setSpeed(decisionSpeedBeforePause);
+    } else {
+      setSpeed('pause');
+    }
     saveGame();
     renderAll();
   }
@@ -376,17 +557,23 @@
   function showNextDecision() {
     if (activeDecision || !decisionQueue.length) return;
     activeDecision = decisionQueue.shift();
-    if (state.speed !== 'pause') {
+    if (!activeDecision.onboarding && state.speed !== 'pause') {
       decisionSpeedBeforePause = state.speed || speedBeforePause || 'day';
       setSpeed('pause');
+    } else if (activeDecision.onboarding) {
+      setSpeed('pause');
     }
-    state.paused_reason = 'Market shift — decision required';
+    state.paused_reason = activeDecision.onboarding
+      ? 'Getting started — pick a first step'
+      : 'Market shift — decision required';
     renderDecisionModal();
     renderHud();
     const banner = $('pause-banner');
     if (banner) {
       banner.style.display = 'block';
-      banner.textContent = state.paused_reason;
+      banner.textContent = activeDecision.onboarding
+        ? 'Paused — choose a first step below (▶ runs the clock when ready)'
+        : `Paused: ${state.paused_reason}`;
     }
   }
 
@@ -412,8 +599,9 @@
           </button>`
       )
       .join('');
+    const cardClass = activeDecision.onboarding ? 'decision-card onboarding' : 'decision-card';
     overlay.innerHTML = `
-      <div class="decision-card" role="dialog" aria-modal="true">
+      <div class="${cardClass}" role="dialog" aria-modal="true">
         <p class="decision-kicker">${activeDecision.kicker || 'Market intelligence'}</p>
         <h2>${activeDecision.title}</h2>
         <p class="decision-body">${activeDecision.body}</p>
@@ -674,6 +862,7 @@
       milestones: [],
       game_over: false,
       paused_reason: null,
+      onboarding_done: false,
     };
     sanitizeMarketingSpend();
     normalizeGameState();
@@ -785,6 +974,7 @@
     });
     if (!state.competitor_markets) initCompetitorMarkets();
     if (state.last_competitor_event_day == null) state.last_competitor_event_day = 0;
+    if (state.onboarding_done == null) state.onboarding_done = true;
   }
 
   function mergeAirportsFromBootstrap() {
@@ -2322,7 +2512,8 @@
       fleetPending = null;
       showScreen('screen-game');
       newGame(pendingScenarioId, resolvedAirline, resolvedPlayer);
-      setSpeed('day');
+      setSpeed('pause');
+      queueOnboarding(pendingScenarioId);
       pendingScenarioId = null;
     } catch (err) {
       console.error('Runway: failed to start game', err);
