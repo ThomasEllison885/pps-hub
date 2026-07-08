@@ -964,6 +964,86 @@
     border: 1px solid rgba(255, 107, 107, 0.35);
   }
   body.route-launch-active { overflow: hidden; }
+  body.route-review-active { overflow: hidden; }
+
+  #route-review-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 215;
+    background: rgba(4, 10, 18, 0.82);
+    backdrop-filter: blur(5px);
+    padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #route-review-modal.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  .route-review-card {
+    max-width: 620px;
+    width: 100%;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: linear-gradient(180deg, #12243a 0%, #0c1a2c 100%);
+    border: 1px solid #3d6288;
+    border-radius: 14px;
+    padding: 20px 22px 18px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+  .route-review-card h2 { font-size: 1.15rem; color: var(--gold); margin-bottom: 6px; }
+  .route-review-close { margin-bottom: 10px; }
+  .route-review-summary { margin: 10px 0 14px; }
+  .route-review-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.74rem;
+    margin-bottom: 14px;
+  }
+  .route-review-table th,
+  .route-review-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid rgba(30, 58, 95, 0.5);
+    text-align: left;
+  }
+  .route-review-table th { color: var(--muted); font-weight: 600; }
+  .route-review-charts { display: grid; gap: 12px; }
+  .chart-panel {
+    padding: 10px 11px;
+    border-radius: 10px;
+    background: rgba(6, 13, 24, 0.55);
+    border: 1px solid var(--border);
+  }
+  .chart-panel h4 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  .metric-chart { width: 100%; height: auto; display: block; }
+  .chart-grid { stroke: rgba(30, 58, 95, 0.55); stroke-width: 1; }
+  .chart-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .chart-dot { fill: #fff; stroke: var(--accent); stroke-width: 1.5; }
+  .chart-axis { fill: var(--muted); font-size: 9px; font-family: inherit; }
+  .chart-forecast { stroke: rgba(255, 209, 102, 0.65); stroke-width: 1; stroke-dasharray: 4 3; }
+  .chart-forecast-label { fill: var(--gold); font-size: 8px; font-family: inherit; }
+  .chart-empty { font-size: 0.72rem; margin: 8px 0; }
+  .route-card-title {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .route-card-title:hover strong { color: var(--accent); }
+  .route-review-btn { margin-top: 8px; width: 100%; font-size: 0.78rem; }
 
   .fleet-grid {
     display: grid;
@@ -1091,6 +1171,7 @@
 <div id="tutorial-highlight" aria-hidden="true"></div>
 <div id="decision-modal" aria-live="polite"></div>
 <div id="route-launch-modal" aria-live="polite"></div>
+<div id="route-review-modal" aria-live="polite"></div>
 
 <div id="screen-game" class="screen">
   <div id="pause-banner"></div>
@@ -1177,6 +1258,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=29"></script>
+<script src="/static/runway/game.js?v=30"></script>
 </body>
 </html>

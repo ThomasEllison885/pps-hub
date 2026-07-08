@@ -24,6 +24,7 @@
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
   let routeFormDraft = null;
+  let routeReviewRouteId = null;
   let pendingEmblem = 'routes';
   let state = null;
   let tickTimer = null;
@@ -51,6 +52,7 @@
   const MAPBOX_STYLE = 'mapbox://styles/mapbox/dark-v11';
   const DEPARTURES_PER_GATE_PER_WEEK = 14;
   const ROUTE_STATS_WINDOW_DAYS = 30;
+  const ROUTE_HISTORY_MAX_DAYS = 90;
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
 
   const $ = (id) => document.getElementById(id);
@@ -2369,21 +2371,39 @@
 
   function ensureRouteStats(route) {
     if (!route.stats) route.stats = { days: 0, pax_sum: 0, load_sum: 0 };
+    if (!Array.isArray(route.history)) route.history = [];
   }
 
   function recordRouteDailyStats(route, sim) {
-    if (!route || sim.grounded) return;
+    if (!route || !state) return;
     ensureRouteStats(route);
-    const s = route.stats;
-    if (s.days >= ROUTE_STATS_WINDOW_DAYS) {
-      const k = (ROUTE_STATS_WINDOW_DAYS - 1) / ROUTE_STATS_WINDOW_DAYS;
-      s.pax_sum *= k;
-      s.load_sum *= k;
-    } else {
-      s.days += 1;
+    if (!sim.grounded) {
+      const s = route.stats;
+      if (s.days >= ROUTE_STATS_WINDOW_DAYS) {
+        const k = (ROUTE_STATS_WINDOW_DAYS - 1) / ROUTE_STATS_WINDOW_DAYS;
+        s.pax_sum *= k;
+        s.load_sum *= k;
+      } else {
+        s.days += 1;
+      }
+      s.pax_sum += sim.pax || 0;
+      s.load_sum += sim.load || 0;
     }
-    s.pax_sum += sim.pax || 0;
-    s.load_sum += sim.load || 0;
+    const last = route.history.length ? route.history[route.history.length - 1] : null;
+    if (!last || last.day !== state.day) {
+      route.history.push({
+        day: state.day,
+        load: sim.grounded ? null : sim.load,
+        pax: sim.grounded ? 0 : sim.pax || 0,
+        rev: sim.revenue || 0,
+        cost: sim.cost || 0,
+        pnl: (sim.revenue || 0) - (sim.cost || 0),
+        grounded: !!sim.grounded,
+      });
+      if (route.history.length > ROUTE_HISTORY_MAX_DAYS) {
+        route.history = route.history.slice(-ROUTE_HISTORY_MAX_DAYS);
+      }
+    }
   }
 
   function routeActualStats(route) {
@@ -2395,6 +2415,250 @@
       avgLoad: s.load_sum / Math.max(1, s.days),
       avgPax: s.pax_sum / Math.max(1, s.days),
     };
+  }
+
+  function routeById(routeId) {
+    return (state && state.routes || []).find((r) => r.id === routeId) || null;
+  }
+
+  function routeHistoryWindow(route, days) {
+    ensureRouteStats(route);
+    const hist = route.history || [];
+    if (!days || days >= hist.length) return hist.slice();
+    return hist.slice(-days);
+  }
+
+  function routeHistoryAverages(route, days) {
+    const window = routeHistoryWindow(route, days).filter((h) => !h.grounded && h.load != null);
+    if (!window.length) return null;
+    const n = window.length;
+    return {
+      days: n,
+      avgLoad: window.reduce((s, h) => s + h.load, 0) / n,
+      avgPax: window.reduce((s, h) => s + h.pax, 0) / n,
+      avgPnl: window.reduce((s, h) => s + h.pnl, 0) / n,
+      totalRev: window.reduce((s, h) => s + h.rev, 0),
+      totalPnl: window.reduce((s, h) => s + h.pnl, 0),
+    };
+  }
+
+  function renderLineChart(points, opts) {
+    opts = opts || {};
+    const valueKey = opts.valueKey || 'y';
+    const width = opts.width || 340;
+    const height = opts.height || 108;
+    const color = opts.color || '#00c896';
+    const forecast = opts.forecast;
+    const formatValue = opts.formatValue || ((v) => String(Math.round(v)));
+    const unit = opts.unit || '';
+
+    if (!points || !points.length) {
+      return '<p class="muted chart-empty">No history yet — data builds day by day.</p>';
+    }
+    const vals = points.map((p) => p[valueKey]).filter((v) => v != null && Number.isFinite(v));
+    if (!vals.length) {
+      return '<p class="muted chart-empty">No readings for this metric yet.</p>';
+    }
+
+    let min = Math.min(...vals);
+    let max = Math.max(...vals);
+    if (forecast != null && Number.isFinite(forecast)) {
+      min = Math.min(min, forecast);
+      max = Math.max(max, forecast);
+    }
+    const span = max - min || 1;
+    const pad = span * 0.1;
+    min -= pad;
+    max += pad;
+    const margin = { l: 40, r: 10, t: 10, b: 24 };
+    const innerW = width - margin.l - margin.r;
+    const innerH = height - margin.t - margin.b;
+    const xAt = (i) => margin.l + (i / Math.max(1, points.length - 1)) * innerW;
+    const yAt = (v) => margin.t + innerH - ((v - min) / (max - min)) * innerH;
+
+    let pathD = '';
+    points.forEach((p, i) => {
+      const v = p[valueKey];
+      if (v == null || !Number.isFinite(v)) return;
+      const seg = `${xAt(i).toFixed(1)},${yAt(v).toFixed(1)}`;
+      pathD += pathD ? ` L${seg}` : `M${seg}`;
+    });
+
+    const yTicks = [min, min + (max - min) * 0.5, max];
+    const yGrid = yTicks
+      .map((v) => {
+        const y = yAt(v).toFixed(1);
+        return `<line x1="${margin.l}" y1="${y}" x2="${width - margin.r}" y2="${y}" class="chart-grid"/>`;
+      })
+      .join('');
+    const yLabels = yTicks
+      .map((v) => {
+        const y = yAt(v) + 3;
+        return `<text x="${margin.l - 6}" y="${y}" class="chart-axis" text-anchor="end">${formatValue(v)}${unit}</text>`;
+      })
+      .join('');
+
+    const firstDay = points[0].day;
+    const lastDay = points[points.length - 1].day;
+    const xLabels = `<text x="${margin.l}" y="${height - 4}" class="chart-axis">${fmtDate(firstDay)}</text>
+      <text x="${width - margin.r}" y="${height - 4}" class="chart-axis" text-anchor="end">${fmtDate(lastDay)}</text>`;
+
+    let forecastLine = '';
+    if (forecast != null && Number.isFinite(forecast)) {
+      const fy = yAt(forecast).toFixed(1);
+      forecastLine = `<line x1="${margin.l}" y1="${fy}" x2="${width - margin.r}" y2="${fy}" class="chart-forecast"/>
+        <text x="${width - margin.r}" y="${+fy - 4}" class="chart-forecast-label" text-anchor="end">plan ${formatValue(forecast)}${unit}</text>`;
+    }
+
+    const last = vals[vals.length - 1];
+    const lastPoint = points.slice().reverse().find((p) => p[valueKey] != null && Number.isFinite(p[valueKey]));
+    const lastIdx = lastPoint ? points.indexOf(lastPoint) : points.length - 1;
+    const lastV = lastPoint ? lastPoint[valueKey] : last;
+    const dot = lastPoint
+      ? `<circle cx="${xAt(lastIdx).toFixed(1)}" cy="${yAt(lastV).toFixed(1)}" r="3.5" class="chart-dot"/>`
+      : '';
+
+    return `<svg class="metric-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${opts.label || 'Trend chart'}">
+      ${yGrid}
+      ${forecastLine}
+      <path d="${pathD}" class="chart-line" style="stroke:${color}"/>
+      ${dot}
+      ${yLabels}
+      ${xLabels}
+    </svg>`;
+  }
+
+  function renderRouteReviewModal() {
+    const overlay = $('route-review-modal');
+    if (!overlay) return;
+    if (!routeReviewRouteId || !state) {
+      overlay.classList.remove('active');
+      overlay.innerHTML = '';
+      document.body.classList.remove('route-review-active');
+      return;
+    }
+    const route = routeById(routeReviewRouteId);
+    if (!route) {
+      routeReviewRouteId = null;
+      renderRouteReviewModal();
+      return;
+    }
+    backfillRouteForecast(route);
+    ensureRouteStats(route);
+    const hist = route.history || [];
+    const avg7 = routeHistoryAverages(route, 7);
+    const avg30 = routeHistoryAverages(route, 30);
+    const avgAll = routeHistoryAverages(route, hist.length);
+    const oAp = airport(route.origin);
+    const dAp = airport(route.dest);
+    const dist =
+      oAp && dAp ? Math.round(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon)) : null;
+    const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+    const ac = aircraftType(route.aircraft_type);
+    const launchDay = hist.length ? hist[0].day : null;
+    const daysLive = hist.length;
+    const forecastLoad = route.launch_forecast_load;
+    const forecastPax = route.launch_forecast_pax_day;
+
+    const loadChart = renderLineChart(hist, {
+      valueKey: 'load',
+      label: 'Load factor trend',
+      color: '#00c896',
+      forecast: forecastLoad,
+      formatValue: (v) => `${(v * 100).toFixed(0)}`,
+      unit: '%',
+    });
+    const paxChart = renderLineChart(hist, {
+      valueKey: 'pax',
+      label: 'Daily passengers',
+      color: '#7eb8e8',
+      forecast: forecastPax,
+      formatValue: (v) => String(Math.round(v)),
+    });
+    const pnlChart = renderLineChart(hist, {
+      valueKey: 'pnl',
+      label: 'Daily route P&L',
+      color: '#ffd166',
+      formatValue: (v) => fmtMoney(v),
+    });
+
+    const statRow = (label, avg) => {
+      if (!avg) return `<tr><td>${label}</td><td class="muted" colspan="3">—</td></tr>`;
+      return `<tr>
+        <td>${label}</td>
+        <td>${(avg.avgLoad * 100).toFixed(0)}%</td>
+        <td>${Math.round(avg.avgPax)}</td>
+        <td class="${avg.avgPnl >= 0 ? '' : 'danger'}">${fmtMoney(avg.avgPnl)}</td>
+      </tr>`;
+    };
+
+    overlay.innerHTML = `
+      <div class="route-review-card" role="dialog" aria-modal="true">
+        <button type="button" class="btn secondary route-review-close" data-route-review-close>← Back to routes</button>
+        <p class="decision-kicker">Route review</p>
+        <h2>${route.origin} → ${route.dest}</h2>
+        <p class="muted" style="font-size:0.76rem;line-height:1.45;margin-bottom:12px;">
+          ${oAp ? oAp.city : route.origin} to ${dAp ? dAp.city : route.dest}
+          ${dist != null ? ` · ${dist} nm` : ''}
+          · ${route.frequency_week}/wk @ $${route.fare}
+          · ${ac ? ac.name : route.aircraft_type}${plane ? ` (${fleetSeatCount(plane)} seats)` : ''}
+        </p>
+        <dl class="stat-dl route-review-summary">
+          <dt>Days operating</dt><dd>${daysLive || '—'}${launchDay != null ? ` <span class="muted">since ${fmtDate(launchDay)}</span>` : ''}</dd>
+          <dt>Launch plan</dt><dd>${forecastLoad != null ? `${(forecastLoad * 100).toFixed(0)}% load · ~${forecastPax} pax/day` : '—'}</dd>
+          <dt>Latest day</dt><dd>${
+            hist.length
+              ? (() => {
+                  const h = hist[hist.length - 1];
+                  if (h.grounded) return '<span class="danger">AOG — no service</span>';
+                  return `${(h.load * 100).toFixed(0)}% load · ${h.pax} pax · <span class="${h.pnl >= 0 ? '' : 'danger'}">${fmtMoney(h.pnl)}</span>`;
+                })()
+              : 'Collecting…'
+          }</dd>
+        </dl>
+        <table class="route-review-table">
+          <thead><tr><th>Window</th><th>Avg load</th><th>Avg pax/day</th><th>Avg P&L/day</th></tr></thead>
+          <tbody>
+            ${statRow('Last 7 days', avg7)}
+            ${statRow('Last 30 days', avg30)}
+            ${statRow('All time', avgAll)}
+          </tbody>
+        </table>
+        <div class="route-review-charts">
+          <div class="chart-panel">
+            <h4>Load factor</h4>
+            ${loadChart}
+          </div>
+          <div class="chart-panel">
+            <h4>Daily passengers</h4>
+            ${paxChart}
+          </div>
+          <div class="chart-panel">
+            <h4>Daily P&amp;L (route variable)</h4>
+            ${pnlChart}
+          </div>
+        </div>
+        <p class="muted" style="font-size:0.68rem;margin-top:10px;">Daily snapshots (up to ${ROUTE_HISTORY_MAX_DAYS} days). Same chart pattern will extend to fleet, gates, and league metrics.</p>
+      </div>`;
+    overlay.classList.add('active');
+    document.body.classList.add('route-review-active');
+    overlay.querySelector('[data-route-review-close]')?.addEventListener('click', closeRouteReview);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closeRouteReview();
+    };
+  }
+
+  function openRouteReview(routeId) {
+    if (!state || !routeId) return;
+    const route = routeById(routeId);
+    if (!route) return;
+    routeReviewRouteId = routeId;
+    renderRouteReviewModal();
+  }
+
+  function closeRouteReview() {
+    routeReviewRouteId = null;
+    renderRouteReviewModal();
   }
 
   function backfillRouteForecast(route) {
@@ -3986,6 +4250,7 @@
       launch_forecast_load: via.load,
       launch_forecast_pax_day: via.dailyPax,
       stats: { days: 0, pax_sum: 0, load_sum: 0 },
+      history: [],
     };
     state.routes.push(route);
     const otaNote = (extras.featured_ota || []).length ? ` · OTA featured: ${extras.featured_ota.join(', ')}` : '';
@@ -5259,9 +5524,11 @@
                 : '';
           forecastHtml = `<p class="${forecastClass}">Planned ${(forecastLoad * 100).toFixed(0)}% → Actual ${actualLabel}${paxNote}</p>`;
         }
-        html += `<div class="route-card" data-origin="${route.origin}" data-dest="${route.dest}">
+        html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
           <div class="route-card-head">
-            <strong>${route.origin}–${route.dest}</strong>
+            <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
+              <strong>${route.origin}–${route.dest}</strong>
+            </button>
             <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
           </div>
           ${forecastHtml}
@@ -5284,6 +5551,7 @@
             </label>
           </div>
           <p class="route-card-hint muted">Buckets: ${bucketHint}</p>
+          <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
         </div>`;
     });
     html += '</div>';
@@ -5827,6 +6095,12 @@
           +sugBtn.dataset.freq,
           sugBtn.dataset.autoLaunch === 'true'
         );
+        return;
+      }
+      const reviewBtn = e.target.closest('[data-route-review]');
+      if (reviewBtn) {
+        e.preventDefault();
+        openRouteReview(reviewBtn.dataset.routeReview);
       }
     });
   }
@@ -5955,6 +6229,8 @@
     setLeagueScope,
     selectRival,
     closeRivalDetail,
+    openRouteReview,
+    closeRouteReview,
     setEmblem: (id) => {
       pendingEmblem = id;
       document.querySelectorAll('[data-emblem]').forEach((btn) => {
