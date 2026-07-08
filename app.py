@@ -2840,6 +2840,7 @@ def dashboard():
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+        runway_available=(user_key == RUNWAY_OWNER),
     )
 
 
@@ -3817,7 +3818,8 @@ def admin():
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
                            breakdown=breakdown, vault=vault,
-                           user_definitions=USERS)
+                           user_definitions=USERS,
+                           runway_available=(session.get('user_key') == RUNWAY_OWNER))
 
 
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])

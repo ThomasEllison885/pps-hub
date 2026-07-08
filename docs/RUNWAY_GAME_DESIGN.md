@@ -1,6 +1,6 @@
 # Runway: A Startup Airline Simulation
 
-Design framework stored from Thomas's v0.2 spec. **Playable MVP:** `/runway` — unlisted URL on the Hub host (Thomas login only). Not linked from dashboard, Ask PPS, or any PPS UI.
+Design framework stored from Thomas's v0.2 spec. **Playable MVP:** `/runway` — Thomas login only. Linked from **Hub Admin** (dashboard Admin lane + `/admin` page). Not in sales/production lanes, Ask PPS, or team-facing UI.
 
 ## MVP shipped (v0.1)
 
