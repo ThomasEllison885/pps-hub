@@ -577,7 +577,11 @@
       fd.append('new_password', password);
       const resp = await fetch('/admin/reset-password', { method: 'POST', body: fd });
       const data = await resp.json();
-      if (data.success) { msg.textContent = 'Password updated successfully.'; msg.className = 'modal-msg success'; setTimeout(closeReset, 1500); }
+      if (data.success) {
+        msg.textContent = data.action === 'created' ? 'Account created and password set.' : 'Password updated successfully.';
+        msg.className = 'modal-msg success';
+        setTimeout(closeReset, 1500);
+      }
       else { msg.textContent = data.error || 'Something went wrong.'; msg.className = 'modal-msg error'; }
     } catch(e) { msg.textContent = 'Network error.'; msg.className = 'modal-msg error'; }
   }

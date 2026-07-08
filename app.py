@@ -2517,6 +2517,38 @@ def _post_login_redirect():
     return redirect(url_for('dashboard'))
 
 
+def _upsert_hub_user_password(user_key, new_password, must_change=False):
+    """Create or update hub_users row — fixes login when user is in USERS but missing from DB."""
+    user_def = USERS.get(user_key)
+    if not user_def or not new_password or len(new_password) < 6:
+        return False, 'invalid'
+    hashed = generate_password_hash(new_password)
+    conn = get_db()
+    if not conn:
+        return False, 'no_db'
+    cur = conn.cursor()
+    cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (user_key,))
+    exists = cur.fetchone()
+    if exists:
+        cur.execute(
+            'UPDATE hub_users SET password_hash = %s, must_change_password = %s WHERE user_key = %s',
+            (hashed, bool(must_change), user_key),
+        )
+        action = 'updated'
+    else:
+        cur.execute(
+            '''INSERT INTO hub_users
+               (user_key, display_name, password_hash, role, must_change_password)
+               VALUES (%s, %s, %s, %s, %s)''',
+            (user_key, user_def['display'], hashed, user_def.get('role', 'consultant'), bool(must_change)),
+        )
+        action = 'created'
+    conn.commit()
+    cur.close()
+    conn.close()
+    return True, action
+
+
 def _establish_session(user_key, user_def, db_user=None):
     session.permanent = True
     session['user_key'] = user_key
@@ -2632,7 +2664,13 @@ def login():
 
                 if not logged_in:
                     record_login_attempt(get_db, user_key, False, ip)
-                    error = 'Incorrect password. Please try again.'
+                    if user_key in USERS and not db_user:
+                        error = (
+                            'Your Hub account is not activated yet. '
+                            'Use Forgot Password, or ask Thomas or Stephanie to set your password from Admin.'
+                        )
+                    else:
+                        error = 'Incorrect password. Please try again.'
             except Exception as e:
                 print(f"Login error: {e}")
                 error = 'Something went wrong. Please try again.'
@@ -4041,19 +4079,13 @@ def admin_reset_password():
     new_password = request.form.get('new_password', '').strip()
     if not user_key or not new_password or len(new_password) < 6:
         return jsonify({'error': 'Invalid request'}), 400
+    if user_key not in USERS:
+        return jsonify({'error': 'Unknown user'}), 400
     try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor()
-            hashed = generate_password_hash(new_password)
-            cur.execute(
-                'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
-                (hashed, user_key),
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-        return jsonify({'success': True})
+        ok, action = _upsert_hub_user_password(user_key, new_password, must_change=False)
+        if not ok:
+            return jsonify({'error': 'Database unavailable'}), 503
+        return jsonify({'success': True, 'action': action})
     except Exception as e:
         return _api_error(e)
 
