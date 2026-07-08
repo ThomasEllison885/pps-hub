@@ -1349,66 +1349,71 @@
         ),
       ];
     }
-    return [];
+    return buildQuickTourSteps(scenarioId);
   }
 
-  function buildOhioQuickSteps(scenarioId) {
+  function buildQuickTourSteps(scenarioId) {
     const firstGate =
       (state.gates[0] && state.gates[0].airport) ||
       (bootstrap.airports[0] && bootstrap.airports[0].iata) ||
       'DAY';
     const plane = state.fleet[0];
     const ac = plane ? aircraftType(plane.type) : null;
-    const planeLabel = ac ? ac.name : 'your aircraft';
+    const planeLabel = ac ? ac.name : 'your first aircraft';
+    const hasRoutes = state.routes.length > 0;
     const total = 4;
+    const routeNote = hasRoutes
+      ? `You already have <b>${state.routes[0].origin}–${state.routes[0].dest}</b> flying.`
+      : `Lease a gate if needed, then launch from <b>${firstGate}</b>.`;
     return [
       tutorialStep(
         scenarioId,
         1,
         total,
         `Welcome, ${state.player_name}`,
-        `${state.airline_name} begins with <b>${fmtMoney(state.cash)}</b>, a gate at <b>${firstGate}</b>, and a leased <b>${planeLabel}</b>. ` +
-          'The clock is paused — follow these quick steps, then press ▶.',
-        'Ohio regional play: thin routes, real competitors, auto fares.',
-        'Show my gate on the map →',
-        'select_airport',
+        `<b>${state.airline_name}</b> starts with <b>${fmtMoney(state.cash)}</b>. ${routeNote} The clock is paused — four quick steps, then press ▶.`,
+        'Route Lab loop: map → fleet → routes → run time.',
+        firstGate ? `Show ${firstGate} on the map →` : 'Show the map →',
+        firstGate ? 'select_airport' : 'explore',
         firstGate,
         false,
-        { selector: '.map-wrap', label: 'Regional map — your airports' }
+        { selector: '.map-wrap', label: 'Map — click airports' }
       ),
       tutorialStep(
         scenarioId,
         2,
         total,
-        'Scout competitors',
-        'Before flying into CVG or CMH, check <b>Competitors here</b> on the airport panel — Allegiant, Delta, and others affect your demand.',
-        'Lower wealth airports need smaller aircraft and sharper fares.',
-        'Open CVG competitors →',
-        'select_airport',
-        'CVG',
+        'Airport panel',
+        'Each airport shows <b>competitors</b>, gate lease options, and local marketing. Check demand before you add frequency.',
+        'Wealthier airports support higher fares; thin markets need smaller planes.',
+        firstGate ? `Open ${firstGate} →` : 'Pick an airport →',
+        firstGate ? 'select_airport' : 'explore',
+        firstGate,
         false,
-        { selector: '#airport-panel', label: 'Competitors & market intel per airport' }
+        { selector: '#airport-panel', label: 'Airport intel & gates' }
       ),
       tutorialStep(
         scenarioId,
         3,
         total,
-        'Plan your first route',
-        `Open <b>Routes</b> from <b>${firstGate}</b>. Pick a suggested destination (try DAY–CMH), choose your PC-12, set frequency, and launch. Leave fare on auto.`,
-        'Market fare reflects distance and local wealth. You can edit it later in the active routes table.',
+        state.fleet.length ? 'Fleet & routes' : 'Get aircraft & routes',
+        state.fleet.length
+          ? `Your <b>${planeLabel}</b> is in <b>Fleet</b>. Open <b>Routes</b> to launch or tune fares on running flights.`
+          : 'Open <b>Fleet</b> to lease an aircraft, then <b>Routes</b> to launch your first flight.',
+        'Launch modal shows a business case — judgment is advice, not a block.',
         'Open Routes tab →',
         'tab_routes',
         firstGate,
         false,
-        { selector: '[data-tab="routes"]', label: 'Routes tab — plan your first flight' }
+        { selector: '[data-tab="routes"]', label: 'Routes — flights & fares' }
       ),
       tutorialStep(
         scenarioId,
         4,
         total,
         'Ready when you are',
-        'Press <b>▶</b> when your first route looks good. The game will pause again if competitors make a big move.',
-        'Fleet tab: lease before you buy while cash is tight.',
+        'Press <b>▶</b> when your network looks right. Use the <b>What to do next</b> strip anytime. Rivals react in the Log.',
+        'Financials drawer: company vs your personal stake.',
         'Got it →',
         'tutorial_finish',
         null,
