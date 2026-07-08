@@ -61,6 +61,53 @@
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
 
   const $ = (id) => document.getElementById(id);
+  const MOBILE_MQ = '(max-width: 900px)';
+  const TOUCH_MQ = '(max-width: 900px), (pointer: coarse)';
+
+  function isMobileLayout() {
+    return window.matchMedia(MOBILE_MQ).matches;
+  }
+
+  function isCoarsePointer() {
+    return window.matchMedia(TOUCH_MQ).matches;
+  }
+
+  function mapDotRadius(baseR) {
+    return isCoarsePointer() ? baseR + 8 : baseR;
+  }
+
+  function syncMobileDock(active) {
+    document.querySelectorAll('[data-mobile-nav]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.mobileNav === active);
+    });
+  }
+
+  function scrollToMap(opts) {
+    opts = opts || {};
+    const wrap = $('map-wrap') || document.querySelector('.map-wrap');
+    if (wrap && opts.expand !== false && wrap.classList.contains('map-collapsed')) {
+      wrap.classList.remove('map-collapsed');
+      ensureMapboxSize();
+      drawMap();
+    }
+    if (wrap) wrap.scrollIntoView({ behavior: opts.instant ? 'auto' : 'smooth', block: 'start' });
+    syncMobileDock('map');
+  }
+
+  function scrollToSidePanel() {
+    const panel = document.querySelector('.side-panel');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function setMapCollapsed(collapsed) {
+    const wrap = $('map-wrap');
+    if (!wrap || !isMobileLayout()) return;
+    wrap.classList.toggle('map-collapsed', !!collapsed);
+    if (!collapsed) {
+      ensureMapboxSize();
+      drawMap();
+    }
+  }
 
   function routeEconomics() {
     const E = window.RunwayEconomics;
@@ -1842,6 +1889,10 @@
     if (tabId === 'economy') renderEconomy();
     if (tabId === 'events') renderEvents();
     renderOpsGuide();
+    if (isMobileLayout()) {
+      syncMobileDock(tabId);
+      requestAnimationFrame(() => scrollToSidePanel());
+    }
   }
 
   function formatBriefingSections(scenarioId) {
@@ -2275,6 +2326,7 @@
   }
 
   function pickTutorialModalSide(rect) {
+    if (isMobileLayout()) return 'bottom';
     const cx = rect.left + rect.width / 2;
     if (cx > window.innerWidth * 0.58) return 'left';
     if (rect.bottom > window.innerHeight * 0.72) return 'bottom';
@@ -4969,15 +5021,58 @@
     });
     const hint = $('speed-hint');
     if (hint) {
-      const labels = {
-        pause: 'Paused',
-        slow: '4-hour steps',
-        day: '1 day / tick',
-        week: '1 week / tick — alerts will pause & slow you',
-        month: '1 month / tick — alerts will pause & slow you',
-      };
+      const labels = isMobileLayout()
+        ? {
+            pause: 'Paused',
+            slow: '4-hour steps',
+            day: '1 day / tick',
+            week: '1 week / tick',
+            month: '1 month / tick',
+          }
+        : {
+            pause: 'Paused',
+            slow: '4-hour steps',
+            day: '1 day / tick',
+            week: '1 week / tick — alerts will pause & slow you',
+            month: '1 month / tick — alerts will pause & slow you',
+          };
       hint.textContent = labels[speedId] || '';
     }
+  }
+
+  function setupMobileDock() {
+    const dock = $('mobile-dock');
+    if (!dock || dock._runwayInit) return;
+    dock._runwayInit = true;
+    dock.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-mobile-nav]');
+      if (!btn) return;
+      const nav = btn.dataset.mobileNav;
+      if (nav === 'map') {
+        scrollToMap();
+        return;
+      }
+      switchTab(nav);
+    });
+    const collapseBtn = $('map-collapse-btn');
+    const expandBtn = $('map-expand-btn');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => setMapCollapsed(true));
+    }
+    if (expandBtn) {
+      expandBtn.addEventListener('click', () => {
+        setMapCollapsed(false);
+        scrollToMap({ instant: true });
+      });
+    }
+    window.matchMedia(MOBILE_MQ).addEventListener('change', () => {
+      if (!isMobileLayout()) {
+        const wrap = $('map-wrap');
+        if (wrap) wrap.classList.remove('map-collapsed');
+      }
+      setSpeed(state ? state.speed : 'pause');
+      drawMap();
+    });
   }
 
   function gateCountAt(iata) {
@@ -7096,7 +7191,7 @@
       const util = owned && state ? gateUtilizationAt(ap.iata) : null;
       const underCap = util && (util.underutilized || util.idle);
       const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
-      const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
+      const r = mapDotRadius(owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25));
       const capLabel = util ? `${Math.round(util.pct)}%` : '';
       const capSub = util && util.remaining > 0 ? `${util.remaining}o` : '';
 
@@ -7267,7 +7362,8 @@
       mapDrag.viewX = mapView.x;
       mapDrag.viewY = mapView.y;
       mapDrag.pointerId = e.pointerId;
-      const dot = e.target.closest && e.target.closest('.ap-dot');
+      const dot =
+        (e.target.closest && (e.target.closest('.ap-dot-hit') || e.target.closest('.ap-dot'))) || null;
       mapDrag.clickIata = dot ? dot.dataset.iata : null;
       wrap.setPointerCapture(e.pointerId);
       wrap.classList.add('dragging');
@@ -7394,11 +7490,14 @@
       const util = owned && state ? gateUtilizationAt(ap.iata) : null;
       const underCap = util && (util.underutilized || util.idle);
       const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
-      const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
+      const r = mapDotRadius(owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25));
       const stroke = selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)';
       if (share > 0.08) {
         const halo = r + 3 + share * 8;
         html += `<circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="none" stroke="rgba(0,228,168,${0.15 + share * 0.45})" stroke-width="2" class="ap-share-ring"/>`;
+      }
+      if (isCoarsePointer()) {
+        html += `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(18, r + 10)}" fill="transparent" class="ap-dot-hit" data-iata="${ap.iata}"/>`;
       }
       html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
       if (owned && util) {
@@ -7563,6 +7662,10 @@
     if (routesPanel && routesPanel.classList.contains('active')) {
       renderRoutes();
       if (routesFrom.length) scheduleContextPulse(`.route-card[data-origin="${iata}"]`, '#panel-routes');
+    }
+    if (isMobileLayout()) {
+      const apPanel = $('airport-panel');
+      if (apPanel) apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   }
 
@@ -8012,7 +8115,10 @@
       });
     }
     el.querySelectorAll('[data-ops-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => switchTab(btn.dataset.opsTab));
+      btn.addEventListener('click', () => {
+        switchTab(btn.dataset.opsTab);
+        if (isMobileLayout()) scrollToSidePanel();
+      });
     });
     el.querySelectorAll('[data-ops-airport]').forEach((btn) => {
       btn.addEventListener('click', () => selectAirport(btn.dataset.opsAirport));
@@ -9164,6 +9270,7 @@
     setupRoutePanelDelegation();
     setupScoreboardDelegation();
     setupKeyboardShortcuts();
+    setupMobileDock();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.addEventListener('click', () => setSpeed(btn.dataset.speed));
@@ -9186,6 +9293,10 @@
       showScreen('screen-game');
       setSpeed(state.speed || 'pause');
       renderAll();
+      if (isMobileLayout()) {
+        const activeTab = document.querySelector('[data-tab].active');
+        syncMobileDock(activeTab ? activeTab.dataset.tab : 'routes');
+      }
     } else {
       showScreen('screen-start');
       showScenarioPicker();

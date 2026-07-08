@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Route Lab · Airline Simulation</title>
 <link rel="icon" href="/static/routelab/routelab-app-logo.jpg" type="image/jpeg">
 {% if mapbox_token %}
@@ -26,6 +26,9 @@
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
+    min-height: 100dvh;
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
   .screen { display: none; }
   .screen.active { display: block; }
@@ -590,7 +593,164 @@
     .game-layout { grid-template-columns: 1.4fr minmax(280px, 320px); }
   }
   @media (max-width: 900px) {
-    .game-layout { grid-template-columns: 1fr; }
+    .game-layout { grid-template-columns: 1fr; min-height: 0; }
+    #screen-game { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
+    .game-header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
+    .game-header .btn.secondary { font-size: 0.68rem; padding: 6px 10px; }
+    .game-product-brand { min-width: 0; flex: 1 1 120px; }
+    .game-product-name { font-size: 1.1rem; }
+    .scoreboard-bar { padding-bottom: 8px; margin-bottom: 2px; }
+    .hud-primary { flex: 1 1 100%; }
+    .stat-pill { min-width: 64px; padding: 5px 8px; }
+    .speed-bar {
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 6px 10px;
+      gap: 6px;
+    }
+    .speed-hint { display: none; }
+    .speed-toolbar { flex: 1 1 auto; justify-content: center; }
+    .speed-bar button.speed-btn {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 10px 12px;
+    }
+    .map-wrap { padding: 8px 10px 6px; }
+    .map-wrap.map-collapsed { padding-bottom: 4px; }
+    .map-wrap.map-collapsed #runway-map {
+      height: 0 !important;
+      min-height: 0 !important;
+      max-height: 0 !important;
+      overflow: hidden;
+      border-width: 0;
+      margin: 0;
+    }
+    .map-wrap.map-collapsed .map-controls { display: none; }
+    .map-collapse-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(6, 13, 24, 0.65);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .map-wrap.map-collapsed .map-collapse-bar { display: flex; }
+    #runway-map {
+      min-height: 200px;
+      height: min(36vh, 280px);
+      max-height: 280px;
+    }
+    .map-controls button {
+      width: 44px;
+      height: 44px;
+    }
+    .side-panel {
+      border-left: none;
+      border-top: 1px solid var(--border);
+    }
+    .side-panel .tabs { display: none; }
+    .side-panel .tab-panel {
+      padding: 12px 14px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+    }
+    #airport-panel { max-height: none; }
+    .mobile-dock { display: flex; }
+    #pause-banner {
+      padding-top: max(8px, env(safe-area-inset-top));
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+    }
+    #event-toast-stack {
+      top: max(14px, calc(14px + env(safe-area-inset-top)));
+    }
+    #decision-modal,
+    #route-launch-modal,
+    #route-review-modal {
+      padding-bottom: calc(20px + 58px + env(safe-area-inset-bottom));
+    }
+    #decision-modal.tutorial-modal-left,
+    #decision-modal.tutorial-modal-right,
+    #decision-modal.tutorial-modal-bottom {
+      align-items: stretch;
+      justify-content: flex-end;
+      padding: 12px;
+      padding-bottom: calc(12px + 58px + env(safe-area-inset-bottom));
+    }
+    #decision-modal.tutorial-mode .decision-card {
+      max-width: none;
+      width: 100%;
+      margin: 0;
+    }
+    .scoreboard-table { font-size: 0.68rem; }
+    .data-table { font-size: 0.7rem; }
+    .judgment-stats { font-size: 0.72rem; }
+    .ops-guide-actions .btn {
+      min-height: 40px;
+      padding: 8px 12px;
+    }
+  }
+  @media (max-width: 480px) {
+    .game-product-brand { display: none; }
+    .pillar { min-width: 72px; padding: 5px 7px; }
+    .scoreboard-brand-text strong { font-size: 0.8rem; }
+  }
+  .mobile-dock {
+    display: none;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 160;
+    align-items: stretch;
+    gap: 0;
+    background: rgba(12, 22, 36, 0.97);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+  }
+  .mobile-dock button {
+    flex: 1;
+    min-width: 0;
+    min-height: 52px;
+    padding: 6px 2px;
+    border: none;
+    border-top: 2px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.6rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  .mobile-dock button .dock-icon {
+    display: block;
+    font-size: 1.05rem;
+    line-height: 1;
+    margin-bottom: 2px;
+    opacity: 0.9;
+  }
+  .mobile-dock button.active {
+    color: var(--accent);
+    border-top-color: var(--accent);
+    background: rgba(0, 200, 150, 0.08);
+  }
+  .map-collapse-bar button {
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--accent);
+    cursor: pointer;
   }
   .map-wrap {
     position: relative;
@@ -627,6 +787,10 @@
   }
   .map-controls button:hover { border-color: var(--accent); color: var(--accent); }
   #map-zoom-reset { font-size: 10px; font-weight: 600; }
+  .map-collapse-only { display: none; font-size: 9px !important; font-weight: 700 !important; }
+  @media (max-width: 900px) {
+    .map-collapse-only { display: block; }
+  }
   #runway-map {
     width: 100%;
     min-height: 420px;
@@ -1805,11 +1969,16 @@
     <span class="speed-hint" id="speed-hint">1 day / tick · Space toggles pause</span>
   </div>
   <div class="game-layout">
-    <div class="map-wrap">
+    <div class="map-wrap" id="map-wrap">
+      <div class="map-collapse-bar" id="map-collapse-bar">
+        <span>Map hidden — tap to show airports</span>
+        <button type="button" id="map-expand-btn">Show map</button>
+      </div>
       <div class="map-controls" aria-label="Map zoom">
         <button type="button" id="map-zoom-in" title="Zoom in">+</button>
         <button type="button" id="map-zoom-out" title="Zoom out">−</button>
         <button type="button" id="map-zoom-reset" title="Reset view">Reset</button>
+        <button type="button" id="map-collapse-btn" class="map-collapse-only" title="Hide map to save space">Hide</button>
       </div>
       <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
@@ -1830,11 +1999,19 @@
       <div id="panel-events" class="tab-panel"><div id="tab-events"></div></div>
     </aside>
   </div>
+  <nav id="mobile-dock" class="mobile-dock" aria-label="Mobile navigation">
+    <button type="button" data-mobile-nav="map"><span class="dock-icon" aria-hidden="true">🗺</span>Map</button>
+    <button type="button" data-mobile-nav="routes" class="active"><span class="dock-icon" aria-hidden="true">✈</span>Routes</button>
+    <button type="button" data-mobile-nav="fleet"><span class="dock-icon" aria-hidden="true">🛩</span>Fleet</button>
+    <button type="button" data-mobile-nav="finance"><span class="dock-icon" aria-hidden="true">$</span>Capital</button>
+    <button type="button" data-mobile-nav="economy"><span class="dock-icon" aria-hidden="true">📣</span>Market</button>
+    <button type="button" data-mobile-nav="events"><span class="dock-icon" aria-hidden="true">📋</span>Log</button>
+  </nav>
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=47"></script>
-<script src="/static/runway/game.js?v=47"></script>
+<script src="/static/runway/economics.js?v=48"></script>
+<script src="/static/runway/game.js?v=48"></script>
 </body>
 </html>
