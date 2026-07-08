@@ -120,10 +120,22 @@ OHIO_COMPETITOR_ROUTE_SEEDS = [
 ]
 
 ANCILLARY_MODES = [
-    {'id': 'auto', 'label': 'Auto', 'desc': 'Balances bags/seats with load and market.'},
-    {'id': 'aggressive', 'label': 'Ancillary-heavy', 'desc': 'Low base, high bags/seats/priority fees (LCC style).'},
-    {'id': 'minimal', 'label': 'Minimal', 'desc': 'Fewer fees, more ticket in the quoted fare.'},
+    {'id': 'auto', 'label': 'Balanced', 'desc': 'Balances bags/seats with load and market.'},
+    {'id': 'aggressive', 'label': 'Ancillary-heavy', 'desc': 'Low base, high bags/seats/priority fees (LCC / Allegiant style).'},
+    {'id': 'minimal', 'label': 'All-inclusive', 'desc': 'Fewer fees, more ticket in the quoted fare.'},
 ]
+
+# Creator-tunable route / hub economics (mirrored in game.js via bootstrap).
+ROUTE_ECONOMICS = {
+    'hub_profit_target_years': 2.5,
+    'marginal_payback_warn_years': 3.0,
+    'ramp_load_multipliers': [0.55, 0.78, 0.92],
+    'ramp_cost_creep_per_year': 0.03,
+    'projection_note': (
+        'Launch projections use conservative ramp-up, static competition, and HQ overhead. '
+        'Actual results vary with GDP, inflation, marketing, and rival moves.'
+    ),
+}
 
 # US-focused MVP airports (~55). Coordinates and scale from public data; gates approximate.
 _AIRPORT_ROWS = [
@@ -347,6 +359,18 @@ def _build_airport(r):
     if pax < 0.6:
         wealth_index = round(wealth_index * 0.62, 3)
         luxury_share = round(luxury_share * 0.45, 3)
+    regional_flag = r[6] < 3 or (len(r) > 12 and r[12] in ('OH', 'KY'))
+    if pax < 0.5:
+        ops_hours, dep_per_hour, op_days, turnaround = 9, 1, 5, 100
+    elif pax < 2:
+        ops_hours, dep_per_hour, op_days, turnaround = 11, 1, 6, 95
+    elif pax < 10:
+        ops_hours, dep_per_hour, op_days, turnaround = 14, 2, 6, 85
+    elif pax < 40:
+        ops_hours, dep_per_hour, op_days, turnaround = 16, 3, 7, 75
+    else:
+        ops_hours, dep_per_hour, op_days, turnaround = 18, 4, 7, 65
+    max_weekly_dep = max(4, int(ops_hours * dep_per_hour * op_days * 0.8))
     return {
         'iata': iata,
         'name': r[1],
@@ -367,7 +391,12 @@ def _build_airport(r):
         'lease_exclusive_monthly': int(12_000 + r[6] * 800 + (20 if r[9] else 0)),
         'lease_common_monthly': int(5_000 + r[6] * 350),
         'seasonal_reliability': 0.92 if iata in ('ORD', 'DTW', 'BOS', 'MSP', 'DEN') else 0.98,
-        'regional': r[6] < 3 or (len(r) > 12 and r[12] in ('OH', 'KY')),
+        'regional': regional_flag,
+        'ops_hours_per_day': ops_hours,
+        'max_departures_per_hour': dep_per_hour,
+        'operating_days_per_week': op_days,
+        'min_turnaround_min': turnaround,
+        'max_weekly_departures_per_gate': max_weekly_dep,
     }
 
 
@@ -824,6 +853,7 @@ def get_runway_bootstrap():
         'ohio_region_iata': OHIO_REGION_IATA,
         'ohio_competitor_route_seeds': OHIO_COMPETITOR_ROUTE_SEEDS,
         'ancillary_modes': ANCILLARY_MODES,
+        'route_economics': ROUTE_ECONOMICS,
         'airline_profiles': AIRLINE_PROFILES,
         'league_by_region': LEAGUE_BY_REGION,
         'league_scopes': LEAGUE_SCOPES,

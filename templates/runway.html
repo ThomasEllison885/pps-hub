@@ -598,6 +598,15 @@
     line-height: 1.45;
     color: var(--muted);
   }
+  .judgment-rec {
+    font-size: 0.74rem;
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(0, 200, 150, 0.08);
+    border: 1px solid rgba(0, 200, 150, 0.25);
+  }
+  .judgment-years { margin-top: 8px; }
   .invest-row {
     display: flex;
     flex-wrap: wrap;
@@ -1212,6 +1221,8 @@
         <label for="airline-name-input">Airline name
           <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Buckeye Air">
         </label>
+        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Pricing strategy (company-wide)</p>
+        <div class="emblem-picker" id="ancillary-strategy-picker"></div>
         <p class="muted" style="font-size:0.8rem;margin-top:14px;">Choose your emblem (logo mark)</p>
         <div class="emblem-picker" id="emblem-picker"></div>
         <div class="btn-row">
@@ -1313,6 +1324,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=32"></script>
+<script src="/static/runway/game.js?v=33"></script>
 </body>
 </html>

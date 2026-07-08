@@ -27,6 +27,7 @@
   let routeFormDraft = null;
   let routeReviewRouteId = null;
   let pendingEmblem = 'routes';
+  let pendingAncillaryStrategy = 'auto';
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -51,12 +52,52 @@
   let mapboxReady = false;
   let mapboxInitStarted = false;
   const MAPBOX_STYLE = 'mapbox://styles/mapbox/dark-v11';
-  const DEPARTURES_PER_GATE_PER_WEEK = 14;
+  const DEPARTURES_PER_GATE_PER_WEEK = 14; // fallback if airport ops data missing
   const ROUTE_STATS_WINDOW_DAYS = 30;
   const ROUTE_HISTORY_MAX_DAYS = 90;
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
 
   const $ = (id) => document.getElementById(id);
+
+  function routeEconomics() {
+    return (
+      bootstrap.route_economics || {
+        hub_profit_target_years: 2.5,
+        marginal_payback_warn_years: 3.0,
+        ramp_load_multipliers: [0.55, 0.78, 0.92],
+        ramp_cost_creep_per_year: 0.03,
+      }
+    );
+  }
+
+  function airportGateWeeklyCapacity(ap) {
+    if (!ap) return DEPARTURES_PER_GATE_PER_WEEK;
+    if (ap.max_weekly_departures_per_gate) return ap.max_weekly_departures_per_gate;
+    const hrs = ap.ops_hours_per_day || 14;
+    const dph = ap.max_departures_per_hour || 2;
+    const days = ap.operating_days_per_week || 6;
+    return Math.max(4, Math.floor(hrs * dph * days * 0.82));
+  }
+
+  function maxFrequencyForRoute(origin, dest, acTypeId) {
+    const ap = airport(origin);
+    const dAp = airport(dest);
+    const ac = aircraftType(acTypeId);
+    if (!ap || !dAp || !ac) return 28;
+    const dist = haversineNm(ap.lat, ap.lon, dAp.lat, dAp.lon);
+    const block = blockHours(dist, ac);
+    const turnaroundH = (ap.min_turnaround_min || 90) / 60;
+    const cycleH = Math.max(0.75, block + turnaroundH);
+    const dailySlots = Math.floor((ap.ops_hours_per_day || 14) / cycleH);
+    const weekly = dailySlots * (ap.operating_days_per_week || 6);
+    return Math.max(1, Math.min(28, weekly));
+  }
+
+  function effectiveAncillaryMode(route) {
+    const mode = (route && route.ancillary_mode) || 'auto';
+    if (mode !== 'auto') return mode;
+    return (state && state.ancillary_strategy) || 'auto';
+  }
 
   function haversineNm(lat1, lon1, lat2, lon2) {
     const R = 3440.065;
@@ -751,7 +792,7 @@
   }
 
   function ancillaryPerPax(route, load, o, d) {
-    const mode = route.ancillary_mode || 'auto';
+    const mode = effectiveAncillaryMode(route);
     const regional = (o && o.regional) || (d && d.regional);
     let base = regional ? 22 : 16;
     if (mode === 'aggressive') base *= 1.55;
@@ -1871,6 +1912,7 @@
       paused_reason: null,
       onboarding_done: false,
       airline_emblem: pendingEmblem || 'wing',
+      ancillary_strategy: pendingAncillaryStrategy || 'auto',
     };
     sanitizeMarketingSpend();
     normalizeGameState();
@@ -3023,6 +3065,7 @@
     if (state.hour == null) state.hour = 8;
     if (!state.player_name) state.player_name = 'CEO';
     if (!state.airline_emblem) state.airline_emblem = 'wing';
+    if (!state.ancillary_strategy) state.ancillary_strategy = 'auto';
     ensureMetrics();
     ensureMacro();
     ensureFleet();
@@ -3668,7 +3711,8 @@
   }
 
   function maxFrequencyAtOrigin(iata) {
-    return gateCountAt(iata) * DEPARTURES_PER_GATE_PER_WEEK;
+    const ap = airport(iata);
+    return gateCountAt(iata) * airportGateWeeklyCapacity(ap);
   }
 
   function gateCapacityRemaining(iata, excludeRouteId) {
@@ -3690,8 +3734,8 @@
     const gates = gateCountAt(iata);
     return (
       `Gate capacity exceeded at ${iata}: ${cap.after}/${cap.max} weekly departures ` +
-      `(${gates} gate${gates !== 1 ? 's' : ''} × ${DEPARTURES_PER_GATE_PER_WEEK}/wk). ` +
-      `Lease another gate or lower frequency.`
+      `(${gates} gate${gates !== 1 ? 's' : ''} × ${airportGateWeeklyCapacity(airport(iata))}/wk max). ` +
+      `Lease another gate, lower frequency, or spread departures — airports have limited hours and turnaround time.`
     );
   }
 
@@ -3839,6 +3883,7 @@
     const ac = plane ? aircraftType(plane.type) : null;
     if (!plane || !ac) return null;
 
+    const routesAtOrigin = state.routes.filter((r) => r.origin === draft.origin).length;
     const mockRoute = {
       origin: draft.origin,
       dest: draft.dest,
@@ -3847,7 +3892,7 @@
       frequency_week: draft.freq,
       fare: draft.fare,
       fare_mode: 'manual',
-      ancillary_mode: 'auto',
+      ancillary_mode: state.ancillary_strategy || 'auto',
     };
     const sim = simulateRouteDay(mockRoute);
     const via = estimateRouteViability(draft.origin, draft.dest, plane.type, draft.freq, draft.fare);
@@ -3861,8 +3906,8 @@
       if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly || 0;
     });
 
-    const routesAtOrigin = state.routes.filter((r) => r.origin === draft.origin).length;
     const routesOnPlane = state.routes.filter((r) => r.aircraft_id === draft.aircraftId).length;
+    const isNewStation = routesAtOrigin === 0;
     const gateMonthly = state.gates
       .filter((g) => g.airport === draft.origin)
       .reduce((s, g) => s + (g.monthly || 0), 0);
@@ -3909,7 +3954,7 @@
       verdict = 'ok';
       verdictLabel = 'Acceptable — patience required';
       verdictClass = 'judgment-ok';
-    } else if (breakEvenYears <= 3.5) {
+    } else if (breakEvenYears <= routeEconomics().marginal_payback_warn_years) {
       verdict = 'marginal';
       verdictLabel = 'Marginal — long payback';
       verdictClass = 'judgment-warn';
@@ -3936,7 +3981,52 @@
       marketingMonthly,
       otaMonthly,
       corpShare,
+      routesAtOrigin,
+      isNewStation,
     };
+  }
+
+  function recommendLaunchFare(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    if (!plane) return null;
+    const market = marketFareForPair(draft.origin, draft.dest, plane.type);
+    let best = null;
+    for (let f = Math.max(49, Math.round(market * 0.72)); f <= Math.min(899, Math.round(market * 1.28)); f += 4) {
+      const econ = projectRouteBusinessCase({ ...draft, fare: f });
+      if (!econ) continue;
+      const score =
+        econ.monthlyNet > 0
+          ? econ.monthlyNet * 12 - (econ.breakEvenYears || 99) * 8000
+          : econ.monthlyNet;
+      if (!best || score > best.score) best = { fare: f, econ, score, market };
+    }
+    return best;
+  }
+
+  function projectRouteYearlyOutlook(draft) {
+    const steady = projectRouteBusinessCase(draft);
+    if (!steady) return [];
+    const cfg = routeEconomics();
+    const ramps = cfg.ramp_load_multipliers || [0.55, 0.78, 0.92];
+    const creep = cfg.ramp_cost_creep_per_year || 0.03;
+    ensureMacro();
+    const infl = (state.macro.inflation_pct || 2) / 100;
+    let cumulative = -(steady.upfront || 0);
+    return ramps.map((ramp, i) => {
+      const year = i + 1;
+      const monthlyVar = steady.monthlyVariable * ramp * (1 + infl * i * 0.35);
+      const monthlyFixed = steady.monthlyFixed * (1 + creep * i + infl * i * 0.25);
+      const monthlyNet = monthlyVar - monthlyFixed;
+      const yearProfit = monthlyNet * 12;
+      cumulative += yearProfit;
+      return {
+        year,
+        monthlyNet,
+        yearProfit,
+        cumulative,
+        loadPct: Math.round((steady.via.load || 0) * ramp * 100),
+      };
+    });
   }
 
   function fareSensitivityHtml(draft) {
@@ -3961,7 +4051,11 @@
   function routeBusinessJudgmentHtml(draft) {
     const econ = projectRouteBusinessCase(draft);
     if (!econ) return '<p class="muted">Select an aircraft to judge this route.</p>';
+    const cfg = routeEconomics();
+    const rec = recommendLaunchFare(draft);
+    const yearly = projectRouteYearlyOutlook(draft);
     const loadPct = (econ.via.load * 100).toFixed(0);
+    const hubTarget = cfg.hub_profit_target_years || 2.5;
     const paybackLine =
       econ.monthlyNet <= 0
         ? `<span class="danger">Never</span> — projected to lose <b>${fmtMoney(Math.abs(econ.monthlyNet))}/mo</b> after allocated fixed costs.`
@@ -3978,18 +4072,39 @@
         '<p class="judgment-note danger">Even a multi-year horizon does not turn positive unless load, fares, or costs improve.</p>';
     }
 
+    const recHtml = rec
+      ? `<p class="judgment-rec">Suggested starting fare: <b>$${rec.fare}</b> (market $${rec.market}) — model hint only; GDP, rivals, and marketing will move results.</p>`
+      : '';
+    const hqNote = econ.isNewStation
+      ? `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ &amp; corporate overhead share. New stations bear more overhead per route until the hub matures — existing hubs look cheaper for the same aircraft.</p>`
+      : `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ overhead (split across ${state.routes.length + 1} routes). Airlines typically want a <b>hub station profitable within ~${hubTarget} years</b>.</p>`;
+    const yearRows = yearly
+      .map(
+        (y) =>
+          `<tr><td>Year ${y.year}</td><td>${y.loadPct}% est. load</td><td class="${y.monthlyNet >= 0 ? '' : 'danger'}">${fmtMoney(y.monthlyNet)}/mo</td><td class="${y.cumulative >= 0 ? '' : 'danger'}">${fmtMoney(y.cumulative)} cumulative</td></tr>`
+      )
+      .join('');
+    const yearTable = yearly.length
+      ? `<table class="route-review-table judgment-years"><thead><tr><th>Horizon</th><th>Conservative load</th><th>Net/mo</th><th>Cumulative</th></tr></thead><tbody>${yearRows}</tbody></table>
+         <p class="muted" style="font-size:0.66rem;margin:4px 0 0;">Years 1–3 use conservative ramp (brand building), cost creep, and inflation — not a guarantee.</p>`
+      : '';
+
     return `<div class="route-judgment ${econ.verdictClass}">
       <p class="judgment-kicker">Business judgment</p>
       <p class="judgment-verdict"><strong>${econ.verdictLabel}</strong></p>
+      ${recHtml}
       <dl class="stat-dl judgment-stats">
-        <dt>Est. route margin</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day)</span></dd>
-        <dt>Allocated fixed costs</dt><dd>${fmtMoney(econ.monthlyFixed)}/mo <span class="muted">(gate ${fmtMoney(econ.gateShare)} · aircraft ${fmtMoney(econ.fleetShare)} · mkt/OTA ${fmtMoney(econ.marketingMonthly + econ.otaMonthly)} · overhead ${fmtMoney(econ.corpShare)})</span></dd>
+        <dt>Est. route margin (steady-state)</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day · ${(bootstrap.ancillary_modes || []).find((m) => m.id === (state.ancillary_strategy || 'auto'))?.label || 'Balanced'} strategy)</span></dd>
+        <dt>Allocated fixed costs</dt><dd>${fmtMoney(econ.monthlyFixed)}/mo <span class="muted">(gate ${fmtMoney(econ.gateShare)} · aircraft ${fmtMoney(econ.fleetShare)} · mkt/OTA ${fmtMoney(econ.marketingMonthly + econ.otaMonthly)} · HQ ${fmtMoney(econ.corpShare)})</span></dd>
         <dt>Net contribution</dt><dd class="${econ.monthlyNet >= 0 ? '' : 'danger'}">${fmtMoney(econ.monthlyNet)}/mo</dd>
         <dt>Upfront at launch</dt><dd>${fmtMoney(econ.upfront)}</dd>
-        <dt>Payback</dt><dd>${paybackLine}</dd>
+        <dt>Payback (steady-state)</dt><dd>${paybackLine}</dd>
       </dl>
+      ${hqNote}
+      ${yearTable}
       ${fareSensitivityHtml(draft)}
       ${patienceNote}
+      <p class="muted" style="font-size:0.64rem;margin-top:6px;">${cfg.projection_note || 'Projections are conservative estimates — competition is static here; live sim adds variance.'}</p>
     </div>`;
   }
 
@@ -4015,7 +4130,7 @@
     const cap = gateCapacityLabel(draft.origin, draft.freq);
     const capClass = cap.ok ? '' : ' danger';
     const capNote = cap.max
-      ? `<br><span class="muted${capClass}">Gate capacity at ${draft.origin}: <b>${cap.after}/${cap.max}</b> departures/wk (${gateCountAt(draft.origin)} gate${gateCountAt(draft.origin) !== 1 ? 's' : ''} × ${DEPARTURES_PER_GATE_PER_WEEK}/wk)</span>`
+      ? `<br><span class="muted${capClass}">Gate capacity at ${draft.origin}: <b>${cap.after}/${cap.max}</b> departures/wk (${gateCountAt(draft.origin)} gate${gateCountAt(draft.origin) !== 1 ? 's' : ''} × ${airportGateWeeklyCapacity(oAp)}/wk · ${oAp && oAp.ops_hours_per_day ? oAp.ops_hours_per_day + 'h ops' : 'limited hours'})</span>`
       : '';
     return `<strong>${draft.origin}–${draft.dest}</strong> · ${dist} nm · ~${via.dailyPax} pax/day · ${(via.load * 100).toFixed(0)}% est. load · market $${market}<br>
       <span class="muted">Upfront station build-out <b>${fmtMoney(draft.stationCost)}</b> · new recurring ~<b>${fmtMoney(investMo)}/mo</b> from selections below</span>${capNote}`;
@@ -4127,8 +4242,8 @@
           <label>Fare $
             <input type="number" id="rl-fare" min="49" max="899" value="${d.fare}">
           </label>
-          <label>Freq / wk (max ${gateCapacityRemaining(d.origin) + d.freq} at ${d.origin})
-            <input type="number" id="rl-freq" min="1" max="28" value="${d.freq}">
+          <label>Freq / wk (gate ${gateCapacityRemaining(d.origin) + d.freq} · schedule ~${maxFrequencyForRoute(d.origin, d.dest, state.fleet.find((f) => f.id === d.aircraftId)?.type || 'e175')} max)
+            <input type="number" id="rl-freq" min="1" max="${Math.min(28, maxFrequencyForRoute(d.origin, d.dest, state.fleet.find((f) => f.id === d.aircraftId)?.type || 'e175'), gateCapacityRemaining(d.origin) + d.freq)}" value="${d.freq}">
           </label>
         </div>
         <div class="route-launch-preview" id="rl-preview">${previewHtml}</div>
@@ -4418,6 +4533,16 @@
     }
     const capErr = gateCapacityError(origin, freq);
     if (capErr) return capErr;
+    const routeMax = maxFrequencyForRoute(origin, dest, plane.type);
+    if (freq > routeMax) {
+      const ap = airport(origin);
+      const hrs = ap ? ap.ops_hours_per_day : 14;
+      const turn = ap ? ap.min_turnaround_min : 90;
+      return (
+        `Schedule limit at ${origin}: ${freq}/wk exceeds ~${routeMax}/wk for this aircraft ` +
+        `(~${hrs}h ops window, ${turn}min turnaround between departures).`
+      );
+    }
     return null;
   }
 
@@ -4441,7 +4566,7 @@
       fare: finalFare,
       market_fare: marketFare,
       fare_mode: extras.fare_mode || 'manual',
-      ancillary_mode: 'auto',
+      ancillary_mode: state.ancillary_strategy || 'auto',
       aircraft_id: aircraftId,
       featured_ota: extras.featured_ota || [],
       launch_forecast_load: via.load,
@@ -5423,7 +5548,7 @@
       : '<span class="danger">None — lease below</span>';
     const cap = gateCapacityLabel(iata);
     const capLine = myGates.length
-      ? `${cap.used}/${cap.max} departures/wk used · <b>${cap.remaining}</b> remaining (${DEPARTURES_PER_GATE_PER_WEEK}/gate)`
+      ? `${cap.used}/${cap.max} departures/wk used · <b>${cap.remaining}</b> remaining (${airportGateWeeklyCapacity(ap)}/gate · ${ap.ops_hours_per_day || 14}h/day)`
       : '—';
     const canLeaseMore = ap.gates_available > 0;
     const positionBody = `
@@ -5514,7 +5639,17 @@
     ensureMacro();
     const m = state.macro;
     const ota = otaEffects();
+    const strat = state.ancillary_strategy || 'auto';
+    const stratLabel = (bootstrap.ancillary_modes || []).find((x) => x.id === strat);
     let html = `<h3>Market — ${m.country}</h3>
+      <h4 style="margin-top:12px;">Airline pricing strategy</h4>
+      <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">Company-wide ancillary approach — new routes inherit this unless you override per route. Change mid-game as your marketing strategy evolves.</p>
+      <div class="btn-row" style="flex-wrap:wrap;gap:6px;margin-bottom:14px;">`;
+    (bootstrap.ancillary_modes || []).forEach((mode) => {
+      html += `<button type="button" class="btn ${strat === mode.id ? '' : 'secondary'}" onclick="Runway.setAirlineAncillaryStrategy('${mode.id}')">${mode.label}</button>`;
+    });
+    html += `</div>
+      <p class="muted" style="font-size:0.72rem;margin-bottom:12px;">Active: <b>${stratLabel ? stratLabel.label : strat}</b> — ${stratLabel ? stratLabel.desc : ''}</p>
       <dl class="stat-dl">
         <dt>Inflation</dt><dd>${m.inflation_pct.toFixed(1)}% <span class="muted">(-2% to 6%)</span></dd>
         <dt>GDP growth</dt><dd>${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%</dd>
@@ -6199,6 +6334,19 @@
     window.scrollTo(0, 0);
   }
 
+  function renderAncillaryStrategyPicker() {
+    const box = $('ancillary-strategy-picker');
+    if (!box || !bootstrap.ancillary_modes) return;
+    box.innerHTML = bootstrap.ancillary_modes
+      .map(
+        (m) =>
+          `<button type="button" class="emblem-opt${pendingAncillaryStrategy === m.id ? ' active' : ''}" data-ancillary-strategy="${m.id}" title="${m.desc}" onclick="Runway.setPendingAncillaryStrategy('${m.id}')">
+            <span class="emblem-label">${m.label}</span>
+          </button>`
+      )
+      .join('');
+  }
+
   function renderEmblemPicker() {
     const box = $('emblem-picker');
     if (!box || !bootstrap.emblem_options) return;
@@ -6233,6 +6381,7 @@
     if (playerInput) playerInput.value = sc.player_name || '';
     if (airlineInput) airlineInput.value = sc.airline_name || '';
     renderEmblemPicker();
+    renderAncillaryStrategyPicker();
     if (nameStep) {
       requestAnimationFrame(() => {
         nameStep.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -6448,6 +6597,21 @@
       document.querySelectorAll('[data-emblem]').forEach((btn) => {
         btn.classList.toggle('active', btn.dataset.emblem === id);
       });
+    },
+    setPendingAncillaryStrategy: (id) => {
+      pendingAncillaryStrategy = id;
+      renderAncillaryStrategyPicker();
+    },
+    setAirlineAncillaryStrategy: (id) => {
+      if (!state) return;
+      state.ancillary_strategy = id;
+      pushPlayerEvent(`shifted airline pricing strategy to ${(bootstrap.ancillary_modes || []).find((m) => m.id === id)?.label || id}.`);
+      saveGame();
+      renderEconomy();
+      if (routeLaunchDraft) {
+        const judgment = $('rl-judgment');
+        if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
+      }
     },
     toggleAirportSection: (section) => {
       if (!airportSections.hasOwnProperty(section)) return;
