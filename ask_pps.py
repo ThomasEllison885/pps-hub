@@ -11,6 +11,7 @@ from flask import jsonify, redirect, render_template, request, session, url_for
 from psycopg2.extras import RealDictCursor
 
 from estimators.pricing_defaults import SYSTEM_DEFAULTS, get_pricing_defaults
+from production_board_reference import production_board_ask_pps_entries
 from psc_training_data import (
     PSC_CORE_VALUES,
     PSC_COMPANY_OPERATIONS,
@@ -467,6 +468,7 @@ def build_seed_entries(users, get_db_fn):
     })
     entries.extend(_team_directory_entries(users))
     entries.extend(_training_seed_entries())
+    entries.extend(production_board_ask_pps_entries())
     entries.extend(_pricing_seed_entries(get_db_fn))
     return entries
 
