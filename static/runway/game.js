@@ -1974,8 +1974,21 @@
       teach.push('Rivals react when you enter their markets — watch Events after launching.');
     }
 
-    if (sc.briefing && !state.routes.length) {
+    if (sc.briefing && (!state.routes.length || sc.winning_track)) {
       parts.push(`<p class="muted" style="font-size:0.76rem;margin-top:8px;">${sc.briefing}</p>`);
+    }
+
+    const mktLines = Object.entries(state.marketing_spend_monthly || {})
+      .filter(([, v]) => clampMoney(v) > 0)
+      .map(([ap, v]) => `${ap}: ${fmtMoney(clampMoney(v))}/mo`);
+    if (mktLines.length) {
+      parts.push(`<p><b>Marketing spend</b></p><ul class="list briefing-list">${mktLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
+    }
+
+    if (sc.winning_track) {
+      teach.push(
+        'After the UI tour, a timed coach walks you through fare, marketing, frequency, and fleet at days 14, 45, 90, and 120.'
+      );
     }
 
     return {
@@ -2004,17 +2017,23 @@
         airport: firstGate,
       },
     ];
-    if (sc.tutorial || scenarioId === 'beginner_2026') {
+    if (sc.tutorial || scenarioId === 'beginner_2026' || sc.winning_track) {
+      const tourLabel = sc.winning_track
+        ? 'C — Take the guided tour (recommended)'
+        : 'C — Take the guided tour';
+      const tourHint = sc.winning_track
+        ? 'UI walkthrough, then the timed profit coach takes over.'
+        : 'Step-by-step walkthrough (optional).';
       options.push({
         id: 'tour',
-        label: 'C — Take the guided tour',
-        hint: 'Step-by-step walkthrough (optional).',
+        label: tourLabel,
+        hint: tourHint,
         effect: 'start_tutorial',
       });
       options.push({
         id: 'play',
         label: 'D — Got it — let me play',
-        hint: 'Dismiss and use the UI freely.',
+        hint: sc.winning_track ? 'Skip tour; profit coach still appears on schedule.' : 'Dismiss and use the UI freely.',
         effect: 'explore',
       });
     } else {
@@ -2099,7 +2118,10 @@
     const route = state.routes[0];
     const routeLabel = route ? `${route.origin}–${route.dest}` : `${hub}–DAY`;
 
-    if (scenarioId === 'beginner_2026' || sc.tutorial) {
+    if (scenarioId === 'beginner_2026' || sc.tutorial || sc.winning_track) {
+      const winning = isWinningTrackScenario(scenarioId);
+      const freq = route ? route.frequency_week : 10;
+      const fare = route ? route.fare : 139;
       const total = 7;
       return [
         tutorialStep(
@@ -2108,9 +2130,15 @@
           total,
           `Welcome, ${state.player_name}`,
           `<b>${state.airline_name}</b> is a small Ohio carrier based at <b>CMH</b> (Columbus). ` +
-            `You have <b>${fmtMoney(state.cash)}</b>, one leased <b>${planeLabel}</b>, and a profitable <b>${routeLabel}</b> route. ` +
-            'The clock is <b>paused</b> until you finish this walkthrough.',
-          'This tutorial covers the four core loops: map → fleet → routes → fares. Press ▶ only when you are ready to run days.',
+            `You have <b>${fmtMoney(state.cash)}</b>, one leased <b>${planeLabel}</b>, and a tuned <b>${routeLabel}</b> route` +
+            (winning ? ` (<b>${freq}/wk</b> @ <b>$${fare}</b>, CMH marketing already on).` : '.') +
+            ' The clock is <b>paused</b> until you finish this walkthrough.' +
+            (winning
+              ? ' After the tour, a <b>timed profit coach</b> guides marketing, fares, frequency, and fleet at days 14, 45, 90, and 120.'
+              : ''),
+          winning
+            ? 'Tour the UI first, then follow the coach — do not fast-forward until Daily P&L stays green.'
+            : 'This tutorial covers the four core loops: map → fleet → routes → fares. Press ▶ only when you are ready to run days.',
           'Start with the map →',
           'select_airport',
           'CMH',
@@ -2136,8 +2164,12 @@
           total,
           'Fleet — lease or buy aircraft',
           `Your <b>${planeLabel}</b> is leased (monthly payment, no big upfront cost). Open <b>Fleet</b> to see range and seats. ` +
-            'To grow, tap <b>Lease…</b> or <b>Buy…</b> on an aircraft card — try an E175 for longer Ohio routes.',
-          'Leasing preserves cash; buying builds asset value on your balance sheet. Match aircraft size to airport demand.',
+            (winning
+              ? 'Do <b>not</b> lease a second plane yet — the profit coach will suggest a <b>PC-12</b> around <b>day 90</b> when P&L and cash runway look healthy.'
+              : 'Do <b>not</b> lease a second plane until <b>Daily P&L</b> stays positive on your first route — overhead bills every day whether seats are full or empty.'),
+          winning
+            ? 'Grow frequency on CMH–DAY before adding aircraft. Leasing a second jet early is the fastest way to burn cash.'
+            : 'Leasing preserves cash; buying builds asset value. Match aircraft size to demand — one profitable route before two planes.',
           'Open Fleet tab →',
           'tab_fleet',
           null,
@@ -2179,7 +2211,7 @@
           total,
           'Market scope — why loads look thin',
           'When you launch a route, <b>Market scope</b> shows the whole airport — not just your gate. ' +
-            '<b>CMH</b> runs ~300 departures/week from all airlines; your one E145 at 7/wk is roughly <b>2%</b> of that traffic. ' +
+            `<b>CMH</b> runs ~300 departures/week from all airlines; your one E145 at ${freq}/wk is roughly <b>${Math.max(1, Math.round((freq / 300) * 100))}%</b> of that traffic. ` +
             'Demand capture blends airport share, city-pair competition, and frequency — thin loads are normal until you add planes or frequency.',
           'Gate slots cap how many flights <em>you</em> can run; market scope caps how many passengers you can realistically win. ' +
             'Check the three limits strip on launch: <b>Gate · Aircraft · Market</b>.',
@@ -2195,8 +2227,12 @@
           total,
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
-            'Competitor alerts pause the clock — use the <b>Resume ▶</b> chip or finish the alert, then run at day speed again.',
-          'Watch cash runway in the HUD. If load factor stays above ~70%, consider another route or marketing spend at your origin.',
+            (winning
+              ? 'The <b>profit coach</b> opens next — follow it before fast-forwarding.'
+              : 'Competitor alerts pause the clock — use the <b>Resume ▶</b> chip or finish the alert, then run at day speed again.'),
+          winning
+            ? 'Coach steps cover marketing, fares, frequency, and when to add a second aircraft — watch Avg load and Daily P&L in the HUD.'
+            : 'Watch cash runway in the HUD. If load factor stays above ~70%, consider more frequency or modest marketing at your origin.',
           'Got it — let me play →',
           'tutorial_finish',
           null,
@@ -2277,6 +2313,378 @@
         { selector: '[data-speed="day"]', label: 'Press ▶ to start the clock' }
       ),
     ];
+  }
+
+  function isWinningTrackScenario(scenarioId) {
+    const id = scenarioId || (state && state.scenario_id);
+    const sc = bootstrap.scenarios[id] || {};
+    return !!(sc.winning_track || id === 'beginner_winning_2026');
+  }
+
+  function tutorialOverheadScale() {
+    if (!state) return 1;
+    const sc = bootstrap.scenarios[state.scenario_id] || {};
+    const n = sc.tutorial_overhead_scale;
+    return n != null && Number.isFinite(n) ? Math.max(0.5, Math.min(1, n)) : 1;
+  }
+
+  function ensureWinningPlaybook() {
+    if (!state) return;
+    if (!isWinningTrackScenario()) {
+      state.winning_playbook = null;
+      return;
+    }
+    if (!state.winning_playbook || typeof state.winning_playbook !== 'object') {
+      state.winning_playbook = { completed: [] };
+    }
+    if (!Array.isArray(state.winning_playbook.completed)) {
+      state.winning_playbook.completed = [];
+    }
+  }
+
+  function isPlaybookPhaseDone(id) {
+    ensureWinningPlaybook();
+    return (state.winning_playbook.completed || []).includes(id);
+  }
+
+  function markWinningPlaybookDone(id) {
+    ensureWinningPlaybook();
+    if (!id || isPlaybookPhaseDone(id)) return;
+    state.winning_playbook.completed.push(id);
+  }
+
+  function routeByEndpoints(origin, dest) {
+    return (state.routes || []).find((r) => r.origin === origin && r.dest === dest);
+  }
+
+  function winningPlaybookPhases() {
+    const route = routeByEndpoints('CMH', 'DAY') || state.routes[0];
+    const routeId = route ? route.id : null;
+    return [
+      {
+        id: 'wp_start',
+        triggerDay: 0,
+        triggerOnStart: true,
+        title: 'Phase 1 — Run your first week (paused → slow)',
+        body:
+          'Your <b>CMH–DAY</b> route is tuned for profit: <b>10/wk</b>, fare <b>$139</b>, and <b>$20k/mo</b> CMH marketing already running. ' +
+          'Open <b>Financials</b> and watch <b>Daily P&L</b> and <b>Avg load</b> in the HUD.',
+        teach:
+          'Do <b>not</b> fast-forward (▶▶▶) until Daily P&L stays green. Overhead (lease + gate + HQ) bills every day whether the plane is full or empty.',
+        options: [
+          {
+            id: 'slow',
+            label: 'A — Set speed to Slow & open Financials',
+            hint: '4-hour steps — safe way to watch loads build.',
+            effect: 'playbook_slow_finance',
+          },
+          {
+            id: 'day',
+            label: 'B — Set speed to Day & open Routes',
+            hint: '1 day per tick — check load % on CMH–DAY.',
+            effect: 'playbook_day_routes',
+            routeId,
+          },
+        ],
+      },
+      {
+        id: 'wp_day14',
+        triggerDay: 14,
+        title: 'Phase 2 — Tune fares & marketing (day 14)',
+        body:
+          'Two weeks in. If loads are thin, match American’s <b>$139</b> fare and add CMH marketing. ' +
+          'If <b>Avg load</b> is already ≥55% and P&L is green, you can skip.',
+        teach: 'Marketing raises demand (seat load). It cannot fix a second empty plane — grow one route first.',
+        skipIf: (st) => {
+          const net = networkRouteStats();
+          const econ = simulateDayEconomics();
+          return net.avgLoad >= 0.55 && econ.pnl > 200;
+        },
+        options: [
+          {
+            id: 'fare_mkt',
+            label: 'A — Fare $139 + CMH marketing $28k/mo',
+            hint: 'One-click tune for CMH–DAY.',
+            effect: 'playbook_tune_cmh_day',
+            routeId,
+            airport: 'CMH',
+            amount: 28_000,
+            fare: 139,
+          },
+          {
+            id: 'mkt_only',
+            label: 'B — CMH marketing only → $28k/mo',
+            hint: 'Keep fare; buy awareness.',
+            effect: 'set_marketing',
+            airport: 'CMH',
+            amount: 28_000,
+          },
+          {
+            id: 'skip',
+            label: 'C — Skip — metrics look good',
+            hint: 'Mark step done; continue at day speed.',
+            effect: 'none',
+          },
+        ],
+      },
+      {
+        id: 'wp_day45',
+        triggerDay: 45,
+        title: 'Phase 3 — Add frequency on CMH–DAY (day 45)',
+        body:
+          'If <b>Daily P&L</b> is positive, add <b>+3/wk</b> on CMH–DAY before buying another plane. ' +
+          'More weekly departures = more airport market share = higher loads.',
+        teach: 'Gate and aircraft hours are the limits — the coach only bumps if capacity allows.',
+        skipIf: (st) => simulateDayEconomics().pnl <= 0,
+        options: [
+          {
+            id: 'freq',
+            label: 'A — CMH–DAY +3 departures/week',
+            hint: 'Uses spare gate time on your E145.',
+            effect: 'bump_route_freq',
+            routeId,
+            delta: 3,
+            origin: 'CMH',
+            dest: 'DAY',
+          },
+          {
+            id: 'routes',
+            label: 'B — Open Routes to adjust manually',
+            hint: 'Review load % first.',
+            effect: 'tab_routes',
+            airport: 'CMH',
+          },
+          {
+            id: 'wait',
+            label: 'C — Not profitable yet — fix fares first',
+            hint: 'Stay on one route; lower fare or marketing.',
+            effect: 'tab_routes',
+            airport: 'CMH',
+          },
+        ],
+      },
+      {
+        id: 'wp_day90',
+        triggerDay: 90,
+        title: 'Phase 4 — Second aircraft when you can afford it (day 90)',
+        body:
+          'Roughly three months in. Only add a plane if <b>Daily P&L</b> is green and <b>cash runway</b> is ≥6 months. ' +
+          'A <b>PC-12</b> turboprop is best for thin Ohio pairs like CMH–CVG.',
+        teach: 'Leasing bills ~$84k deposit + $42k/mo — never add capacity while the first route loses money net.',
+        skipIf: (st) => simulateDayEconomics().pnl <= 0 || runwayMonths() < 6,
+        options: [
+          {
+            id: 'pc12',
+            label: 'A — Lease PC-12 (coach applies deposit)',
+            hint: 'Small plane for thin markets — ~$84k deposit.',
+            effect: 'guided_lease',
+            aircraftType: 'pc12',
+          },
+          {
+            id: 'fleet',
+            label: 'B — Open Fleet shop myself',
+            hint: 'Compare lease costs before committing.',
+            effect: 'tab_fleet',
+          },
+          {
+            id: 'wait',
+            label: 'C — Wait — strengthen CMH–DAY first',
+            hint: 'Recommended if P&L is still shaky.',
+            effect: 'none',
+          },
+        ],
+      },
+      {
+        id: 'wp_day120',
+        triggerDay: 120,
+        title: 'Phase 5 — Launch a second route (day 120)',
+        body:
+          'With two aircraft (or strong CMH–DAY profits), plan <b>CMH→CVG</b> at <b>7/wk</b>. ' +
+          'Skip heavy launch marketing — use modest airport spend only after the route is flying.',
+        teach: 'Station build-out is upfront cash. Open the launch modal, check judgment, confirm only if payback looks acceptable.',
+        skipIf: (st) => st.fleet.length < 2 && simulateDayEconomics().pnl <= 800,
+        options: [
+          {
+            id: 'launch',
+            label: 'A — Open CMH→CVG launch (7/wk preview)',
+            hint: 'Uses your second plane if leased.',
+            effect: 'prefill_route',
+            origin: 'CMH',
+            dest: 'CVG',
+            freq: 7,
+          },
+          {
+            id: 'routes',
+            label: 'B — Browse route suggestions from CMH',
+            hint: 'Pick your own pair.',
+            effect: 'hub_routes',
+            airport: 'CMH',
+          },
+          {
+            id: 'done',
+            label: 'C — Winning path complete — fly solo',
+            hint: 'Coach steps done; use Profit playbook strip.',
+            effect: 'none',
+          },
+        ],
+      },
+    ];
+  }
+
+  function enrichPlaybookBody(phase) {
+    let body = phase.body || '';
+    if (!state) return body;
+    const net = networkRouteStats();
+    const econ = simulateDayEconomics();
+    body += `<p class="muted" style="font-size:0.76rem;margin-top:10px;">Snapshot: Avg load <b>${(net.avgLoad * 100).toFixed(0)}%</b> · Daily P&L <b class="${econ.pnl >= 0 ? '' : 'danger'}">${fmtMoney(econ.pnl)}</b> · Cash runway <b>${runwayMonths().toFixed(1)} mo</b></p>`;
+    return body;
+  }
+
+  function buildPlaybookDecision(phase) {
+    const route = routeByEndpoints('CMH', 'DAY') || state.routes[0];
+    const options = (phase.options || []).map((o) => ({
+      ...o,
+      routeId: o.routeId || (route && route.id),
+    }));
+    return {
+      winningPlaybook: true,
+      playbookId: phase.id,
+      kicker: `Winning path · Day ${state.day}`,
+      title: phase.title,
+      body: enrichPlaybookBody(phase),
+      teach: phase.teach || '',
+      logLine: `Winning path: ${phase.title}`,
+      options,
+    };
+  }
+
+  function queueWinningPlaybookPhase(phaseId) {
+    if (!isWinningTrackScenario() || !state || state.game_over) return;
+    ensureWinningPlaybook();
+    if (isPlaybookPhaseDone(phaseId)) return;
+    const phase = winningPlaybookPhases().find((p) => p.id === phaseId);
+    if (!phase) return;
+    if (phase.skipIf && phase.skipIf(state)) {
+      markWinningPlaybookDone(phaseId);
+      pushPlayerEvent(`winning path: skipped ${phase.title} — already on track`);
+      return;
+    }
+    queueDecision(buildPlaybookDecision(phase));
+  }
+
+  function checkWinningPlaybookDayTriggers() {
+    if (!state || state.game_over || !state.onboarding_done || !isWinningTrackScenario()) return;
+    if (activeDecision || decisionQueue.length) return;
+    ensureWinningPlaybook();
+    winningPlaybookPhases().forEach((phase) => {
+      if (!phase.triggerDay || phase.triggerOnStart) return;
+      if (state.day !== phase.triggerDay) return;
+      if (isPlaybookPhaseDone(phase.id)) return;
+      queueWinningPlaybookPhase(phase.id);
+    });
+  }
+
+  function maybeStartWinningPlaybook() {
+    if (!state || !state.onboarding_done || !isWinningTrackScenario()) return;
+    if (!isPlaybookPhaseDone('wp_start')) {
+      queueWinningPlaybookPhase('wp_start');
+    }
+  }
+
+  function leaseAircraftGuided(type) {
+    const ac = aircraftType(type);
+    if (!ac) return null;
+    const deposit = ac.lease_monthly * 2;
+    if (state.cash < deposit) {
+      pushPlayerEvent(`coach lease skipped — need ${fmtMoney(deposit)} deposit for ${ac.name}`);
+      return null;
+    }
+    state.cash -= deposit;
+    const plane = {
+      id: uid('ac'),
+      type,
+      seats: ac.seats,
+      leased: true,
+      lease_months_left: 60,
+      aog_days_left: 0,
+      block_hours_month: 0,
+    };
+    state.fleet.push(plane);
+    pushPlayerEvent(`coach: leased ${ac.name} (${ac.seats} seats) — ${fmtMoney(deposit)} deposit`);
+    saveGame();
+    renderAll();
+    return plane.id;
+  }
+
+  function applyPlaybookEffect(option) {
+    if (!option || option.effect === 'none') return;
+    if (option.effect === 'playbook_slow_finance') {
+      setSpeed('slow');
+      toggleHudPanel('financials');
+      pushPlayerEvent('coach: slow speed + Financials — watch Daily P&L for 7+ days before fast-forward.');
+      return;
+    }
+    if (option.effect === 'playbook_day_routes') {
+      setSpeed('day');
+      switchTab('routes');
+      pushPlayerEvent('coach: day speed + Routes — check load % on each route card.');
+      return;
+    }
+    if (option.effect === 'playbook_tune_cmh_day') {
+      const route = routeByEndpoints('CMH', 'DAY') || routeById(option.routeId);
+      if (route) setRouteFare(route.id, option.fare || 139, 'manual');
+      if (option.airport) {
+        state.marketing_spend_monthly[option.airport] = clampMoney(option.amount || 28_000);
+        pushPlayerEvent(`coach: CMH marketing → ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo`);
+      }
+      saveGame();
+      renderAll();
+      return;
+    }
+    if (option.effect === 'set_marketing' && option.airport) {
+      state.marketing_spend_monthly[option.airport] = clampMoney(option.amount || 12_000);
+      pushPlayerEvent(`coach: ${option.airport} marketing → ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo`);
+      saveGame();
+      renderAll();
+      return;
+    }
+    if (option.effect === 'set_route_fare' && option.routeId) {
+      setRouteFare(option.routeId, option.fare, 'manual');
+      pushPlayerEvent(`coach: set fare to $${option.fare}`);
+      return;
+    }
+    if (option.effect === 'guided_lease' && option.aircraftType) {
+      leaseAircraftGuided(option.aircraftType);
+      return;
+    }
+    if (option.effect === 'prefill_route' && option.origin && option.dest) {
+      const plane =
+        state.fleet.find((f) => f.id !== 'ga-1' && !state.routes.some((r) => r.aircraft_id === f.id)) ||
+        state.fleet[state.fleet.length - 1];
+      if (!plane) {
+        pushPlayerEvent('coach: lease a second aircraft before opening CMH–CVG');
+        switchTab('fleet');
+        return;
+      }
+      const fare = suggestFareForPair(option.origin, option.dest, plane.type);
+      openRouteLaunchModal(option.origin, option.dest, plane.id, option.freq || 7, fare);
+      pushPlayerEvent(`coach: opened launch preview ${option.origin}→${option.dest} — confirm only if judgment looks acceptable`);
+      return;
+    }
+    if (option.effect === 'set_speed' && option.speed) {
+      setSpeed(option.speed);
+      return;
+    }
+    if (option.effect === 'bump_route_freq' && option.routeId) {
+      bumpRouteFrequency(option.routeId, option.delta || 1);
+      const route = routeById(option.routeId);
+      const label = route ? `${route.origin}–${route.dest}` : 'route';
+      pushPlayerEvent(`coach: ${label} +${option.delta || 1}/wk departures`);
+      saveGame();
+      renderAll();
+      return;
+    }
+    applyOnboardingChoice(option);
   }
 
   function queueOnboarding(scenarioId) {
@@ -2463,12 +2871,27 @@
   function resolveDecision(choiceId) {
     if (!activeDecision) return;
     const option = activeDecision.options.find((o) => o.id === choiceId) || { effect: 'none' };
+    if (activeDecision.winningPlaybook) {
+      applyPlaybookEffect(option);
+      markWinningPlaybookDone(activeDecision.playbookId);
+      pushPlayerEvent(`winning path: ${activeDecision.title} — ${option.label}`);
+      activeDecision = null;
+      state.paused_reason = 'Winning path coach — review your choice, then press ▶';
+      coalescedDecisionCount = 0;
+      renderDecisionModal();
+      setSpeed('pause');
+      saveGame();
+      renderAll();
+      if (decisionQueue.length) showNextDecision();
+      return;
+    }
     const onboarding = !!activeDecision.onboarding;
     if (onboarding) {
       if (option.effect === 'tutorial_skip') {
         decisionQueue = decisionQueue.filter((d) => !d.tutorial);
         state.onboarding_done = true;
         pushPlayerEvent('skipped tutorial');
+        maybeStartWinningPlaybook();
       } else if (option.effect === 'start_tutorial') {
         const steps = buildTutorialSteps(state.scenario_id);
         if (steps.length) {
@@ -2481,15 +2904,18 @@
         if (activeDecision.briefing) {
           state.onboarding_done = true;
           pushPlayerEvent('reviewed situation report');
+          maybeStartWinningPlaybook();
         } else if (activeDecision.tutorial) {
           pushPlayerEvent(`tutorial step ${activeDecision.tutorialStep || ''}: ${activeDecision.title}`);
           if (activeDecision.tutorialLast || option.effect === 'tutorial_finish') {
             state.onboarding_done = true;
             pushPlayerEvent('finished tutorial — press ▶ when ready');
+            maybeStartWinningPlaybook();
           }
         } else {
           state.onboarding_done = true;
           pushPlayerEvent(`starting focus: ${option.label.replace(/^A — |^B — |^C — |^D — /, '')}`);
+          maybeStartWinningPlaybook();
         }
       }
     } else {
@@ -2515,18 +2941,20 @@
     if (activeDecision || !decisionQueue.length) return;
     activeDecision = decisionQueue.shift();
     pauseForInterrupt();
-    state.paused_reason = activeDecision.onboarding
-      ? activeDecision.tutorial
-        ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
-        : 'Getting started — pick a first step'
-      : 'Market shift — decision required';
+    state.paused_reason = activeDecision.winningPlaybook
+      ? 'Winning path coach — timed profit steps'
+      : activeDecision.onboarding
+        ? activeDecision.tutorial
+          ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
+          : 'Getting started — pick a first step'
+        : 'Market shift — decision required';
     renderDecisionModal();
     renderHud();
     renderPauseBanner();
   }
 
   function queueDecision(decision) {
-    if (!decision.onboarding && !decision.tutorial && (activeDecision || decisionQueue.length)) {
+    if (!decision.onboarding && !decision.tutorial && !decision.winningPlaybook && (activeDecision || decisionQueue.length)) {
       const note = decision.logLine || decision.title || 'Market event';
       pushEvent(`${note} <span class="muted">(logged while you handle another alert)</span>`);
       coalescedDecisionCount += 1;
@@ -2555,7 +2983,8 @@
           </button>`
       )
       .join('');
-    const cardClass = activeDecision.onboarding ? 'decision-card onboarding' : 'decision-card';
+    const cardClass =
+      activeDecision.onboarding || activeDecision.winningPlaybook ? 'decision-card onboarding' : 'decision-card';
     const progress =
       activeDecision.tutorial && activeDecision.tutorialTotal
         ? `<div class="tutorial-progress" aria-hidden="true">${Array.from({ length: activeDecision.tutorialTotal }, (_, i) =>
@@ -2881,7 +3310,7 @@
       routes: base.routes,
       fuel_price: bootstrap.fuel_base,
       macro: createMacroState(),
-      marketing_spend_monthly: {},
+      marketing_spend_monthly: { ...(base.marketing_spend_monthly || {}) },
       ltm_revenue: 0,
       revenue_history: [],
       daily_pnl: 0,
@@ -2898,6 +3327,7 @@
     };
     sanitizeMarketingSpend();
     normalizeGameState();
+    if (isWinningTrackScenario(scenarioId)) ensureWinningPlaybook();
     ensureMetrics();
     state.metrics.league_scope = defaultLeagueScope();
     state.metrics.league_snapshot = buildLeagueTable(state.metrics.league_scope);
@@ -3220,7 +3650,7 @@
     const brand = Math.sqrt(Math.max(0, riders)) * 280;
     const revenue = (state.ltm_revenue || 0) / 12;
     const sales = revenue * 0.015;
-    return corp + brand + sales;
+    return (corp + brand + sales) * tutorialOverheadScale();
   }
 
   function estimateMonthlyRiders(scopeKey) {
@@ -4149,6 +4579,7 @@
     ensureMetrics();
     ensureMacro();
     ensureFleet();
+    ensureWinningPlaybook();
   }
 
   function ensureFleet() {
@@ -4870,6 +5301,8 @@
     state.gates.forEach((g) => {
       if (state.day % 30 === 0) g.months_left = (g.months_left || g.years_left * 12) - 1;
     });
+
+    if (!decisionPending && state.onboarding_done) checkWinningPlaybookDayTriggers();
   }
 
   function checkSurvivalTriggers() {
@@ -9340,6 +9773,8 @@
     const el = $('scenario-list');
     if (!el) return;
     const sorted = Object.values(bootstrap.scenarios).sort((a, b) => {
+      if (a.winning_track && !b.winning_track) return -1;
+      if (!a.winning_track && b.winning_track) return 1;
       if (a.tutorial && !b.tutorial) return -1;
       if (!a.tutorial && b.tutorial) return 1;
       return (a.name || '').localeCompare(b.name || '');
@@ -9350,9 +9785,11 @@
         const chips = scenarioStartingChips(s)
           .map((c) => `<span class="scenario-chip">${c}</span>`)
           .join('');
-        const tutorialBadge = s.tutorial
-          ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended for new players</span>'
-          : '';
+        const tutorialBadge = s.winning_track
+          ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended — profit coach</span>'
+          : s.tutorial
+            ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended for new players</span>'
+            : '';
         return `<button type="button" class="scenario-card" data-scenario="${s.id}">
         <span class="scenario-diff ${diff.tone}">${diff.label}</span>
         <strong>${s.name}</strong>

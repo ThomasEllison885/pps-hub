@@ -893,6 +893,50 @@ SCENARIOS = {
             },
         ],
     },
+    'beginner_winning_2026': {
+        'id': 'beginner_winning_2026',
+        'name': '2026 — Winning Path (Ohio Coach)',
+        'tagline': 'Same Ohio tutorial — tuned economics + timed coach for profit.',
+        'year': 2026,
+        'region': 'ohio',
+        'tutorial': True,
+        'winning_track': True,
+        'tutorial_overhead_scale': 0.78,
+        'briefing': (
+            'Gateway Air starts on a <b>winning track</b>: CMH–Dayton is tuned for profit, CMH marketing '
+            'is already running, and a <b>timed coach</b> walks you through fare, frequency, marketing, '
+            'and when to add aircraft — at day 14, 45, 90, and 120. Finish the UI tour, then follow the coach.'
+        ),
+        'cash': 8_500_000,
+        'debt': [],
+        'bonds': [],
+        'equity_pct': 100.0,
+        'reputation': 32,
+        'brand_awareness': {'CMH': 62, 'DAY': 48},
+        'marketing_spend_monthly': {'CMH': 20_000},
+        'financing_tier': 'startup',
+        'bond_rating': 'BB',
+        'player_name': 'CEO',
+        'airline_name': 'Gateway Air',
+        'fleet': [
+            {'id': 'ga-1', 'type': 'e145', 'leased': True, 'lease_months_left': 48, 'seats': 50},
+        ],
+        'gates': [
+            {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 16_000},
+        ],
+        'routes': [
+            {
+                'id': 'ga-r1',
+                'origin': 'CMH',
+                'dest': 'DAY',
+                'aircraft_type': 'e145',
+                'frequency_week': 10,
+                'fare': 139,
+                'fare_mode': 'manual',
+                'aircraft_id': 'ga-1',
+            },
+        ],
+    },
     'ohio_regional_2026': {
         'id': 'ohio_regional_2026',
         'name': '2026 — Ohio Regional',
