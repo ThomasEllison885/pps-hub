@@ -21,8 +21,8 @@ PM_TRAINING_META = {
     'description': (
         'A structured onboarding path for new Project Managers — shadowing first, then building a '
         'personal operating system for routes, Trade Partner communication, and time on site vs. desk work. '
-        'Week 1 uses Production Board column names and status groups from Monday.com. '
-        'Validate with Trey before flipping status to live and wiring Hub routes.'
+        'Monday.com is shared with PSCs — they learn pipeline Monday in PSC Training (ops_monday, Week 0); '
+        'PM Week 1 deep-dives the Production Board (post-award). Validate with Trey before going live.'
     ),
     'duration_weeks': 2,
     'reference_docs': [
@@ -68,9 +68,10 @@ PM_TRAINING_WEEKS = [
         'week': 1,
         'title': 'Shadow & Orientation',
         'topic_summary': (
-            'See what a typical PM day and week look like before you own a route. Learn the Production Board '
-            'on Monday.com — status groups, column names, Updates, and how Hub tools (PPM, TPS, Proposal) '
-            'map to the row. Know every communication channel and where to find contacts.'
+            'See what a typical PM day and week look like before you own a route. Monday.com is not PM-only — '
+            'PSCs live there too (pipeline, contacts, pre-award). Your Week 1 focus is the Production Board '
+            'after award: status groups, column names, Updates, Consultant handoff from PSC, and how Hub tools '
+            '(PPM, TPS, Proposal) map to the row.'
         ),
         'shadowing': [
             'Shadow an experienced PM for a full week — observe daily and weekly rhythm, not just site visits.',
@@ -80,12 +81,23 @@ PM_TRAINING_WEEKS = [
         ],
         'additional': [
             {
+                'title': 'Monday.com at PPS — PSC vs PM',
+                'text': (
+                    'Monday.com is shared across PPS. PSCs learn pipeline Monday in PSC Training Week 0 '
+                    '(Company Operations → Monday.com at PPS / ops_monday): contacts, properties, follow-up, '
+                    'proposals before award. PMs live on the Production Board after award. '
+                    'At handoff, Consultant on the row = PSC who sold it; Project Manager = you. '
+                    'PSC stays the client relationship; you own schedule, Trade Partners, and board hygiene. '
+                    'Read docs/PRODUCTION_BOARD_REFERENCE.md — section "Monday.com at PPS".'
+                ),
+            },
+            {
                 'title': 'Production Board — what it is',
                 'text': (
-                    'The Production Board on Monday.com is the system of record after award — one row per job. '
+                    'The Production Board is the post-award system of record — one row per awarded job. '
                     'It holds Consultant, Project Manager, Proposal Number, Job Size, Trade, timelines, Trade Partner '
-                    'fields (Sub Assigned, Sub Contract $), PPM, Files, margins, and status. '
-                    'Read docs/PRODUCTION_BOARD_REFERENCE.md with your mentor before your first solo board session.'
+                    'fields (Sub Assigned, Sub Contract $), PPM, Files, margins, and status groups. '
+                    'PSCs rarely drive status groups day-to-day; PMs do. Walk through with your mentor before your first solo session.'
                 ),
             },
             {

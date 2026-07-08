@@ -1,8 +1,60 @@
-"""Production Board — Monday.com operational reference for PPS.
+"""Monday.com & Production Board — operational reference for PPS.
 
-Source: Production Board export (July 2026). Used by PM Training, Ask PPS seeding,
-and internal recommendations. The Production Board is the system of record after award.
+Source: Production Board export (July 2026). Used by PSC Training (ops_monday), PM Training,
+Ask PPS seeding, and internal recommendations.
+
+Monday.com is shared across the company — PSCs and PMs both live there, in different ways.
+PSC onboarding covers Monday in PSC Training Week 0 (Company Operations — ops_monday).
+PM onboarding deep-dives the Production Board in PM Training Week 1.
 """
+
+# How PSC vs PM use Monday.com (PSC Training ops_monday + PM Training Week 1).
+MONDAY_AT_PPS = {
+    'intro': (
+        'Monday.com is not PM-only — PSCs live there too. Everyone uses the same platform; '
+        'role determines which boards you work in daily and which columns you own.'
+    ),
+    'psc_focus': {
+        'when': 'Pre-award — prospecting through proposal and client review.',
+        'you_own': (
+            'Contacts, properties, follow-up dates, outreach log, site visits, proposals sent, '
+            'and pipeline stage. Your manager shows you which boards hold your pipeline in Week 0.'
+        ),
+        'training': 'PSC Training Week 0 — Company Operations module ops_monday (Monday.com at PPS).',
+        'hygiene': (
+            'Log every meaningful touch in Monday — calls, emails, site visits, proposals. '
+            'A CRM is only as good as what you put into it. Weekly cadence with your manager.'
+        ),
+    },
+    'pm_focus': {
+        'when': 'Post-award — mobilization through close-out and invoicing.',
+        'you_own': (
+            'Production Board row: Project Manager, timelines, PPM, Trade Partner fields, Updates, '
+            'margins, and status groups (Needs Scheduled → In Progress → Completed - Final).'
+        ),
+        'training': 'PM Training Week 1 — Production Board deep-dive (this reference).',
+        'hygiene': (
+            'Start the day on the Production Board. Read Updates before calling anyone. '
+            'Post an Update when status or scope changes.'
+        ),
+    },
+    'shared': {
+        'updates': (
+            'Updates threads on Monday items are shared — PSCs may post on pre-award items; '
+            'PMs and office post draws, files, and coordination on Production Board items.'
+        ),
+        'hub_tools': (
+            'Hub outputs feed Monday: Proposal Generator, Site Visit, PPM, and TPS map to '
+            'specific Production Board columns at handoff.'
+        ),
+    },
+    'handoff_at_award': (
+        'When a job is awarded, it lands on the Production Board. Consultant = PSC who sold it; '
+        'Project Manager = who runs field execution. PSC stays the relationship point of contact; '
+        'PM owns schedule, Trade Partners, and board hygiene. PSC Training ops_lifecycle traces '
+        'this handoff end-to-end.'
+    ),
+}
 
 PRODUCTION_BOARD_META = {
     'board_name': 'Production Board',
@@ -201,8 +253,9 @@ AWARD_TO_MOBILIZATION_CHECKLIST = [
 
 # How Updates are used in practice (from export patterns).
 UPDATES_GUIDANCE = (
-    'The Updates sheet is the operational conversation log — not optional. PMs and office staff post '
-    'phase draw schedules, deposit breakdowns, PDF attachments, insurance packets, and @mentions '
+    'The Updates sheet is the operational conversation log — not optional. PSCs, PMs, and office staff '
+    'all use Updates on their Monday items. On the Production Board, PMs and office post phase draw '
+    'schedules, deposit breakdowns, PDF attachments, insurance packets, and @mentions '
     '(e.g. @Stephanie Whetstone, @Thomas Ellison). When something important happens on a job, '
     'post it on the item Updates thread so the team has one source of truth alongside the columns.'
 )
@@ -217,6 +270,7 @@ PPS_PRODUCTION_FLOW = (
 def get_production_board_reference():
     """Return full reference dict for training modules and Ask PPS."""
     return {
+        'monday_at_pps': MONDAY_AT_PPS,
         'meta': PRODUCTION_BOARD_META,
         'status_groups': PRODUCTION_BOARD_STATUS_GROUPS,
         'columns': PRODUCTION_BOARD_COLUMNS,
@@ -243,7 +297,20 @@ def production_board_ask_pps_entries():
     cols_fin = ', '.join(c['name'] for c in ref['columns']['financial'])
     cols_sub = ', '.join(c['name'] for c in ref['columns']['trade_partners'])
 
+    monday = ref['monday_at_pps']
     return [
+        {
+            'category': 'company_operations',
+            'title': 'Monday.com at PPS — PSC and PM roles',
+            'content': (
+                f'{monday["intro"]}\n\n'
+                f'PSC (pre-award): {monday["psc_focus"]["you_own"]} '
+                f'Training: {monday["psc_focus"]["training"]}\n\n'
+                f'PM (post-award): {monday["pm_focus"]["you_own"]} '
+                f'Training: {monday["pm_focus"]["training"]}\n\n'
+                f'Handoff at award: {monday["handoff_at_award"]}'
+            )[:2400],
+        },
         {
             'category': 'production_process',
             'title': 'Production Board — overview & status groups',

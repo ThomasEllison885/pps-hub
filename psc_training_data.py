@@ -1,5 +1,7 @@
 """PSC Onboarding — Property Solutions Consultant training curriculum."""
 
+from production_board_reference import MONDAY_AT_PPS
+
 PSC_TRAINING_MANAGER = 'tony_cumella'  # VP Sales — accountability owner for enrolled trainees
 
 PSC_TRAINING_META = {
@@ -550,35 +552,62 @@ PSC_COMPANY_OPERATIONS = {
             'title': 'Monday.com at PPS',
             'assigned_week': 0,
             'summary': (
-                'How PPS uses Monday.com for pipeline, projects, contacts, and follow-up — '
-                'not a generic tutorial.'
+                'Monday.com is shared — PSCs and PMs both live there, in different ways. '
+                'As a PSC you own pre-award pipeline: contacts, properties, follow-up, site visits, and proposals. '
+                'After award, jobs live on the Production Board (PM-led) where you appear as Consultant. '
+                'Not a generic Monday tutorial — learn PPS boards and column names with your manager.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] Which boards we use and what each is for',
-                '[TO DOCUMENT] Column definitions and when to update each field',
+                MONDAY_AT_PPS['intro'],
+                (
+                    'PSC boards (your manager shows in 1:1): pipeline, contacts, properties, follow-up dates — '
+                    'log every meaningful touch before award.'
+                ),
+                (
+                    'Production Board (post-award): system of record for awarded jobs — Proposal Number, '
+                    'Consultant, Project Manager, Job Size, PPM, Trade Partner fields, status groups, Updates. '
+                    'See docs/PRODUCTION_BOARD_REFERENCE.md.'
+                ),
+                MONDAY_AT_PPS['handoff_at_award'],
                 '[TO DOCUMENT] Naming conventions for properties, contacts, and deals',
-                '[TO DOCUMENT] Who owns what — PSC vs. PM vs. production',
-                '[TO DOCUMENT] Daily and weekly CRM hygiene expectations',
+                MONDAY_AT_PPS['psc_focus']['hygiene'],
             ],
             'manager_1on1': (
-                '60-minute screen share: walk your actual Monday.com boards together. '
-                'Update one real or test item. Confirm where your pipeline lives and your weekly update cadence.'
+                '60-minute screen share: walk your PSC pipeline boards and preview the Production Board. '
+                'Update one real or test contact/property/follow-up. Confirm where your pipeline lives, '
+                'what happens at award (Consultant on Production Board row), and your weekly CRM cadence.'
             ),
             'items': [
                 {
                     'id': 'ops_monday_read',
                     'title': 'Review Monday.com SOP',
-                    'text': 'Read the SOP bullets above. Write down three questions for your manager 1:1.',
+                    'text': (
+                        'Read the SOP bullets above — especially PSC vs PM ownership and the award handoff. '
+                        'Write three questions for your manager 1:1 (pipeline boards, Production Board, Updates).'
+                    ),
                 },
                 {
                     'id': 'ops_monday_1on1',
                     'title': 'Manager 1:1 — Monday.com walkthrough',
-                    'text': 'Complete the screen-share session. Manager confirms boards, columns, and your update cadence.',
+                    'text': (
+                        'Complete the screen-share: your pipeline boards plus a look at Production Board columns '
+                        '(Consultant, Proposal Number, status groups). Manager confirms boards and update cadence.'
+                    ),
                 },
                 {
                     'id': 'ops_monday_practice',
                     'title': 'Hands-on — update Monday.com',
-                    'text': 'Add or update one contact, property, or follow-up date. Show your manager before checking off.',
+                    'text': 'Add or update one contact, property, or follow-up date on your pipeline. Show your manager before checking off.',
+                },
+                {
+                    'id': 'ops_monday_award_handoff',
+                    'title': 'Trace award → Production Board',
+                    'text': (
+                        'With your manager, open one recently awarded job on the Production Board. '
+                        'Find Consultant (PSC), Project Manager, Proposal Number, and Date Awarded. '
+                        'Note what the PSC logged pre-award vs what the PM owns post-award. '
+                        'Pair with Project Lifecycle (ops_lifecycle) module.'
+                    ),
                 },
             ],
         },

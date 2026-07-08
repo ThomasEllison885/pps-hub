@@ -1,22 +1,37 @@
-# Production Board — Operational Reference
+# Monday.com & Production Board — Operational Reference
 
 **Source:** Monday.com export (`Production_Board_1782990846.xlsx`), July 2026  
-**Purpose:** How PPS runs production after award. Used for PM Training, Ask PPS, and Hub recommendations.  
+**Purpose:** How PPS uses Monday.com — PSC pipeline and PM production. Used for PSC Training (`ops_monday`), PM Training, Ask PPS, and Hub recommendations.  
 **Code:** `production_board_reference.py`
 
-## What it is
+## Monday.com is shared — PSC and PM
 
-The **Production Board** on Monday.com is PPS’s system of record for every **awarded** job. One row per project. It tracks people, Hub documents, Trade Partners, timelines, margins, and workflow status from mobilization through invoicing and close-out.
+Monday.com is **not PM-only**. PSCs and PMs both live there, in different ways:
 
-The export includes three sheets:
+| Role | When | What you own on Monday |
+|------|------|------------------------|
+| **PSC** | Pre-award | Pipeline, contacts, properties, follow-up dates, outreach, site visits, proposals sent |
+| **PM** | Post-award | **Production Board** — schedule, Trade Partners, PPM, Updates, margins, status groups |
+
+**Training paths:**
+- **PSC:** Week 0 Company Operations → `ops_monday` (Monday.com at PPS) in `psc_training_data.py`
+- **PM:** Week 1 Production Board deep-dive in `pm_training_data.py`
+
+**Handoff at award:** Job lands on the Production Board. **Consultant** = PSC who sold it. **Project Manager** = field execution owner. PSC stays the relationship point of contact; PM owns mobilization through close-out.
+
+## Production Board (post-award)
+
+The **Production Board** is the system of record for every **awarded** job. One row per project.
+
+Export sheets:
 
 | Sheet | Purpose |
 |-------|---------|
 | **production board** | Master job record |
-| **updates** | Operational thread — draws, files, @mentions |
+| **updates** | Operational thread — draws, files, @mentions (PSCs, PMs, and office) |
 | **Time tracking** | Per-job time entries |
 
-## Production flow (where the board sits)
+### Production flow
 
 ```
 Site visit → Proposal → Review call → Award → Production Board row
@@ -24,79 +39,61 @@ Site visit → Proposal → Review call → Award → Production Board row
   → close-out walks → invoicing → margins → Completed - Final
 ```
 
-## Status groups
+### Status groups
 
-Jobs move through these groups (typical progression):
-
-| Group | PM meaning |
-|-------|------------|
-| **Awarded - On Hold** | Awarded; not ready to schedule — complete board data, run PPM |
-| **Needs Scheduled** | Ready to schedule — set timelines, confirm Trade Partner |
-| **Scheduled** | Start date confirmed — 48-hour notice, access |
-| **In Progress** | Active field work — Updates on milestones |
+| Group | Meaning |
+|-------|---------|
+| **Awarded - On Hold** | Awarded; complete board data, run PPM |
+| **Needs Scheduled** | Ready to schedule — timelines, Trade Partner |
+| **Scheduled** | Start confirmed — 48-hour notice, access |
+| **In Progress** | Active field work |
 | **Call Backs/ Warranty Work** | Return visits |
-| **Completed Needs Internal Walk** | Internal punch before client |
+| **Completed Needs Internal Walk** | Internal punch |
 | **Completed Needs Customer Walk** | Client walkthrough pending |
-| **ON HOLD - MISSING INFORMATION** | Stalled — missing columns/docs |
+| **ON HOLD - MISSING INFORMATION** | Missing columns/docs |
 | **Needs Invoiced - All Information Entered** | Ready to invoice |
-| **Invoiced - Needs Approved** | Invoice out — awaiting approval |
+| **Invoiced - Needs Approved** | Invoice out |
 | **Waiting on Margins** | Financial close-out backlog |
 | **Completed - Final** | Fully closed |
-| **Completed Call Backs** | Warranty work resolved |
+| **Completed Call Backs** | Warranty resolved |
 
-## Key columns (proper Monday language)
+### Key columns
 
-### People
-- **Consultant** — PSC who sold the job
-- **Project Manager** — owns the row
-- **Support PM** — optional second PM
+**People:** Consultant (PSC), Project Manager, Support PM  
+**Identity:** Name, Proposal Number, Trade, Company Type, Mgmt Company, City, Location, Customer Name, Email  
+**Timeline:** Date Awarded, Estimated Timeline - Start/End, Check in Date  
+**Hub docs:** Survey, PPM, Files  
+**Financial:** Job Size, Estimated margin %, Supply/Sub/Overhead Cost, Actual margin $, Margin %, Quarter Invoiced  
+**Trade Partners:** Sold to Sub, Sub Contract $, Sub Assigned, Sub Compliance, link to Pay Request (TPS maps here — no separate TPS column)
 
-### Identity
-- **Name**, **Proposal Number**, **Trade**, **Company Type**, **Mgmt Company**, **VC**, **City**, **Location**, **Customer Name**, **Email**
+### Hub → Production Board
 
-### Timeline
-- **Date Awarded**, **Estimated Timeline - Start**, **Estimated Timeline - End**, **Check in Date**
-
-### Hub documents
-- **Survey** — site visit link
-- **PPM** — Yes/No + Pre-Project Meeting checklist from Hub
-- **Files** — proposal, scope, project docs
-- **monday Doc v2** — Monday doc when used
-
-### Financial
-- **Job Size**, **Estimated margin %**, **Supply Cost**, **Sub Cost**, **Overhead Cost**, **Actual margin $**, **Margin %**, **Quarter Invoiced**
-
-### Trade Partners (TPS lives here — no separate TPS column)
-- **Sold to Sub**, **Sub Contract $**, **Sub Assigned**, **Sub Compliance**, **Sub Responsible for Material**, **link to Pay Request**
-
-## Hub tool → Monday mapping
-
-| Hub tool | Production Board fields | When |
-|----------|-------------------------|------|
-| Proposal Generator | Proposal Number, Files, Job Size, Trade, Company Type, Mgmt Company | At award |
+| Hub tool | Fields | When |
+|----------|--------|------|
+| Proposal Generator | Proposal Number, Files, Job Size, Trade… | At award |
 | Site Visit | Survey, Files | When survey exists |
-| PPM Checklist | PPM | After award, before mobilization |
-| TPS (Trade Partner Scope) | Sub Assigned, Sub Contract $, Sold to Sub, link to Pay Request | When Trade Partner assigned |
+| PPM | PPM | Before mobilization |
+| TPS | Sub Assigned, Sub Contract $, Sold to Sub… | Trade Partner assigned |
 
-## Updates
+## PM morning checklist (Production Board)
 
-The **updates** sheet is the operational conversation log. PMs and office post phase draw schedules, deposit breakdowns, PDFs, and @mentions. If something important happens on a job, post it on the item **Updates** thread — not only in email or text.
-
-## PM morning checklist
-
-1. Open Production Board → filter to **Project Manager** = you  
+1. Open Production Board → filter **Project Manager** = you  
 2. Scan **In Progress** → **Scheduled** → **Needs Scheduled** → **Awarded - On Hold**  
-3. Read recent **Updates** on active jobs  
+3. Read **Updates** on active jobs  
 4. Confirm **Estimated Timeline - Start/End**  
-5. Clear **ON HOLD - MISSING INFORMATION** (common gaps: PPM, Sub Assigned, Proposal Number)  
+5. Clear **ON HOLD - MISSING INFORMATION**  
 6. Post an **Update** on any job with movement today  
+
+## PSC Monday hygiene (pre-award)
+
+Log every meaningful touch — calls, site visits, proposals, follow-ups. Weekly cadence with your manager. At award, ensure Proposal Number and client data hand off cleanly to the Production Board row.
 
 ## Owners
 
 | Area | Owner |
 |------|--------|
-| Production SOPs, board hygiene | Trey Hollmeyer |
-| Hub tools (PPM, TPS, Proposal) | Thomas Ellison |
-| PM Training Week 1 board content | `pm_training_data.py` |
+| PSC Monday / pipeline | Tony Cumella |
+| Production Board SOPs | Trey Hollmeyer |
+| Hub tools & reference | Thomas Ellison |
 
 *Last updated: July 2026*

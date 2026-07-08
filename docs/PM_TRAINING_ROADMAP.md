@@ -9,7 +9,7 @@
 ### Week 1 — Shadow & orientation
 
 - **Shadowing** — see a typical day-to-week flow and what to expect before owning work.
-- **Monday.com** — checklist for navigation and order of operations.
+- **Monday.com** — Production Board deep-dive (PSCs learn shared Monday in PSC Training `ops_monday` first).
 - **Communication** — all avenues PPS uses; how and where to find contacts.
 
 ### Week 2 — Route & operating system
