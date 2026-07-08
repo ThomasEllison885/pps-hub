@@ -2,23 +2,25 @@
   "usa": {
     "src": "/static/runway/us-map-styled.png",
     "width": 1920,
-    "height": 1188,
+    "height": 1053,
     "bounds": {
-      "lonMin": -124.85,
-      "lonMax": -66.7,
-      "latMin": 24.3,
-      "latMax": 49.55
-    }
+      "lonMin": -125.597014,
+      "lonMax": -64.626797,
+      "latMin": 16.929556,
+      "latMax": 50.383625
+    },
+    "geoSource": "us-land.json"
   },
   "ohio": {
     "src": "/static/runway/ohio-region-map.png",
-    "width": 972,
-    "height": 1278,
+    "width": 1228,
+    "height": 1180,
     "bounds": {
       "lonMin": -87.35,
       "lonMax": -78.75,
       "latMin": 36.15,
       "latMax": 44.35
-    }
+    },
+    "geoSource": "us-land.json"
   }
 }

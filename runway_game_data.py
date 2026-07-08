@@ -681,6 +681,21 @@ COMMON_ROUTE_PAIRS = [
 ]
 
 
+LEAGUE_BY_REGION = {
+    'ohio': ['Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit'],
+    'national': ['Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue'],
+}
+
+EMBLEM_OPTIONS = [
+    {'id': 'wing', 'label': 'Wing', 'glyph': '✈'},
+    {'id': 'compass', 'label': 'Compass', 'glyph': '◎'},
+    {'id': 'star', 'label': 'Star', 'glyph': '★'},
+    {'id': 'bolt', 'label': 'Bolt', 'glyph': '⚡'},
+    {'id': 'globe', 'label': 'Globe', 'glyph': '◉'},
+    {'id': 'stripe', 'label': 'Stripe', 'glyph': '▮'},
+]
+
+
 def get_runway_bootstrap():
     """JSON-safe payload for the browser game."""
     return {
@@ -700,6 +715,8 @@ def get_runway_bootstrap():
         'ohio_competitor_route_seeds': OHIO_COMPETITOR_ROUTE_SEEDS,
         'ancillary_modes': ANCILLARY_MODES,
         'airline_profiles': AIRLINE_PROFILES,
+        'league_by_region': LEAGUE_BY_REGION,
+        'emblem_options': EMBLEM_OPTIONS,
     }
 
 

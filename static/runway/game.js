@@ -19,6 +19,8 @@
   let hudPanels = { financials: false, economy: false };
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
+  let scoreboardOpen = false;
+  let pendingEmblem = 'wing';
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -1391,9 +1393,12 @@
       game_over: false,
       paused_reason: null,
       onboarding_done: false,
+      airline_emblem: pendingEmblem || 'wing',
     };
     sanitizeMarketingSpend();
     normalizeGameState();
+    ensureMetrics();
+    state.metrics.league_snapshot = buildLeagueTable();
     initCompetitorMarkets();
     initCompetitorRoutes();
     resetMapView();
@@ -1524,6 +1529,340 @@
     };
   }
 
+  function hashHue(str) {
+    let h = 0;
+    const s = String(str || 'Airline');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h % 360;
+  }
+
+  function emblemGlyph(id) {
+    const opts = bootstrap.emblem_options || [];
+    const hit = opts.find((o) => o.id === id);
+    return hit ? hit.glyph : '✈';
+  }
+
+  function airlineLogoHtml(name, emblemId, size) {
+    const hue = hashHue(name);
+    const glyph = emblemGlyph(emblemId);
+    const sz = size || 36;
+    const initials = String(name || 'A')
+      .split(/\s+/)
+      .map((w) => w[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+    return `<span class="airline-logo" style="width:${sz}px;height:${sz}px;background:linear-gradient(145deg,hsl(${hue},52%,38%),hsl(${hue},48%,24%))" title="${name}">
+      <span class="airline-logo-glyph">${glyph}</span>
+      <span class="airline-logo-init">${initials}</span>
+    </span>`;
+  }
+
+  function leagueRegionKey() {
+    const sc = bootstrap.scenarios[state.scenario_id] || {};
+    return sc.region === 'ohio' ? 'ohio' : 'national';
+  }
+
+  function leagueAirlineNames() {
+    const byRegion = bootstrap.league_by_region || {};
+    return byRegion[leagueRegionKey()] || byRegion.national || ['Delta', 'American', 'Southwest'];
+  }
+
+  function ensureMetrics() {
+    if (!state) return;
+    if (!state.metrics) {
+      state.metrics = {
+        passengers_mtd: 0,
+        passengers_month: 0,
+        op_revenue_mtd: 0,
+        op_cost_mtd: 0,
+        csat: state.reputation || 20,
+        month_index: 0,
+        airport_share: {},
+        prev_ranks: {},
+        league_snapshot: [],
+      };
+    }
+    if (!state.metrics.airport_share) state.metrics.airport_share = {};
+    if (!state.metrics.prev_ranks) state.metrics.prev_ranks = {};
+  }
+
+  function computeCsat() {
+    if (!state) return 0;
+    const net = networkRouteStats();
+    const rep = state.reputation || 0;
+    const aogN = (state.fleet || []).filter((f) => f.aog_days_left > 0).length;
+    return Math.max(0, Math.min(100, rep * 0.45 + net.avgLoad * 28 + 18 - aogN * 6));
+  }
+
+  function computeProfitScore() {
+    const econ = simulateDayEconomics();
+    const margin = econ.dayRev > 0 ? (econ.dayRev - econ.dayCost - econ.dailyFixed * 0.35) / Math.max(econ.dayRev, 1) : -0.2;
+    const runway = Math.min(24, runwayMonths());
+    const net = networkRouteStats();
+    const routeRatio = net.count ? net.profitable / net.count : 0;
+    return Math.max(0, Math.min(100, margin * 90 + runway * 2.2 + routeRatio * 22 + (state.cash > 0 ? 8 : 0)));
+  }
+
+  function competitorLeagueEntry(name) {
+    const prof = airlineProfile(name) || { financial_health: 0.55, route_sensitivity: 0.6 };
+    let dailyPax = 0;
+    (state.competitor_routes || []).forEach((r) => {
+      if (r.airline !== name) return;
+      dailyPax += (r.frequency_week / 7) * (65 + r.fare * 0.15) * prof.financial_health;
+    });
+    (bootstrap.airports || []).forEach((ap) => {
+      (ap.incumbents || []).forEach((inc) => {
+        if (inc.airline !== name) return;
+        dailyPax += (ap.annual_pax_m * 1_000_000 * inc.share) / 365 * 0.08;
+      });
+    });
+    const playerSteal = Object.keys(state.brand_awareness || {}).reduce((s, iata) => {
+      const ap = airport(iata);
+      if (!ap) return s;
+      const inc = (ap.incumbents || []).find((c) => c.airline === name);
+      if (!inc) return s;
+      return s + (state.brand_awareness[iata] || 0) * inc.share * 0.4;
+    }, 0);
+    dailyPax = Math.max(40, dailyPax - playerSteal * 12);
+    const riders = Math.round(dailyPax * 30);
+    const profit = Math.max(5, Math.min(98, prof.financial_health * 72 + (state.competitor_routes || []).filter((r) => r.airline === name).length * 4 - playerSteal * 0.15));
+    const csat = Math.max(20, Math.min(95, 35 + prof.financial_health * 45));
+    const overall = profit * 0.4 + Math.min(100, riders / 350) * 0.35 + csat * 0.25;
+    return {
+      id: name.replace(/\s+/g, '_').toLowerCase(),
+      name,
+      isPlayer: false,
+      profit: Math.round(profit),
+      riders,
+      csat: Math.round(csat),
+      overall: Math.round(overall),
+      emblem: null,
+    };
+  }
+
+  function estimateMonthlyRiders() {
+    let daily = 0;
+    (state.routes || []).forEach((route) => {
+      daily += simulateRouteDay(route).pax || 0;
+    });
+    return Math.round(daily * 30);
+  }
+
+  function playerLeagueEntry() {
+    ensureMetrics();
+    const profit = Math.round(computeProfitScore());
+    const riders = Math.round(
+      state.metrics.passengers_mtd || state.metrics.passengers_month || estimateMonthlyRiders()
+    );
+    const csat = Math.round(computeCsat());
+    const overall = Math.round(profit * 0.4 + Math.min(100, riders / 200) * 0.35 + csat * 0.25);
+    return {
+      id: 'player',
+      name: state.airline_name || 'You',
+      isPlayer: true,
+      profit,
+      riders: riders || Math.round(networkRouteStats().dailyPnl > 0 ? 1200 : 200),
+      csat,
+      overall,
+      emblem: state.airline_emblem || 'wing',
+    };
+  }
+
+  function buildLeagueTable() {
+    if (!state) return [];
+    const entries = [playerLeagueEntry(), ...leagueAirlineNames().map((n) => competitorLeagueEntry(n))];
+    entries.sort((a, b) => b.overall - a.overall);
+    return entries.map((e, i) => ({ ...e, rank: i + 1 }));
+  }
+
+  function pillarMeter(score) {
+    const filled = Math.max(0, Math.min(5, Math.round(score / 20)));
+    return Array.from({ length: 5 }, (_, i) => `<span class="pillar-dot${i < filled ? ' on' : ''}"></span>`).join('');
+  }
+
+  function metricLeverTip(pillar) {
+    const tips = {
+      profit: 'Routes · fares · utilization · burn',
+      riders: 'Marketing · OTAs · frequency · new routes',
+      csat: 'Load factor · AOG · reputation · fare fairness',
+    };
+    return tips[pillar] || '';
+  }
+
+  function updateDailyMetrics(econ) {
+    if (!state) return;
+    ensureMetrics();
+    let dayPax = 0;
+    const share = { ...state.metrics.airport_share };
+    state.routes.forEach((route) => {
+      const r = simulateRouteDay(route);
+      dayPax += r.pax || 0;
+      if (r.pax > 0) {
+        share[route.origin] = (share[route.origin] || 0) + r.pax * 0.6;
+        share[route.dest] = (share[route.dest] || 0) + r.pax * 0.4;
+      }
+    });
+    state.metrics.passengers_mtd += dayPax;
+    state.metrics.op_revenue_mtd += econ.dayRev || 0;
+    state.metrics.op_cost_mtd += (econ.dayCost || 0) + (econ.dailyFixed || 0);
+    Object.keys(share).forEach((k) => {
+      share[k] = Math.min(100, share[k] / 80);
+    });
+    state.metrics.airport_share = share;
+    state.metrics.csat = computeCsat();
+  }
+
+  function processMonthlyScoreboard() {
+    if (!state) return;
+    ensureMetrics();
+    const table = buildLeagueTable();
+    const prev = state.metrics.prev_ranks || {};
+    const player = table.find((e) => e.isPlayer);
+    const region = leagueRegionKey() === 'ohio' ? 'Ohio' : 'National';
+
+    table.forEach((entry) => {
+      const oldRank = prev[entry.id];
+      entry.trend = oldRank != null ? oldRank - entry.rank : 0;
+    });
+
+    if (player && prev.player != null && player.rank < prev.player) {
+      pushEvent(`League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> overall.`);
+    } else if (player && prev.player != null && player.rank > prev.player) {
+      pushEvent(`League (${region}): ${state.airline_name} slipped to <b>#${player.rank}</b> — rivals gained ground.`);
+    }
+
+    ['profit', 'riders', 'csat'].forEach((key) => {
+      const sorted = [...table].sort((a, b) => {
+        const av = key === 'riders' ? a.riders : a[key];
+        const bv = key === 'riders' ? b.riders : b[key];
+        return bv - av;
+      });
+      const p = sorted.findIndex((e) => e.isPlayer) + 1;
+      const old = prev[`player_${key}`];
+      if (old != null && p < old) {
+        const label = key === 'riders' ? 'Riders' : key === 'csat' ? 'Satisfaction' : 'Profitability';
+        pushPlayerEvent(`${label} rank improved to #${p} in ${region} league.`);
+      }
+      prev[`player_${key}`] = p;
+    });
+
+    state.metrics.passengers_month = state.metrics.passengers_mtd;
+    state.metrics.prev_ranks = table.reduce((acc, e) => {
+      acc[e.id] = e.rank;
+      return acc;
+    }, { ...prev });
+    state.metrics.league_snapshot = table;
+    state.metrics.month_index += 1;
+    state.metrics.passengers_mtd = 0;
+    state.metrics.op_revenue_mtd = 0;
+    state.metrics.op_cost_mtd = 0;
+  }
+
+  function playerShareAtAirport(iata) {
+    if (!state || !state.metrics) return (state.brand_awareness && state.brand_awareness[iata]) / 100 || 0;
+    const share = state.metrics.airport_share[iata];
+    if (share != null) return Math.min(1, share / 100);
+    return ((state.brand_awareness && state.brand_awareness[iata]) || 0) / 100;
+  }
+
+  function renderScoreboardBar() {
+    const bar = $('scoreboard-bar');
+    if (!bar || !state) return;
+    ensureMetrics();
+    const table = state.metrics.league_snapshot.length ? state.metrics.league_snapshot : buildLeagueTable();
+    const player = table.find((e) => e.isPlayer) || playerLeagueEntry();
+    const region = leagueRegionKey() === 'ohio' ? 'Ohio' : 'US';
+    const profitRank =
+      [...table].sort((a, b) => b.profit - a.profit).findIndex((e) => e.isPlayer) + 1;
+    const ridersRank =
+      [...table].sort((a, b) => b.riders - a.riders).findIndex((e) => e.isPlayer) + 1;
+    const csatRank = [...table].sort((a, b) => b.csat - a.csat).findIndex((e) => e.isPlayer) + 1;
+
+    const brand = $('scoreboard-brand');
+    if (brand) {
+      brand.innerHTML = `
+        ${airlineLogoHtml(state.airline_name, state.airline_emblem, 40)}
+        <span class="scoreboard-brand-text">
+          <strong>${state.airline_name || 'Airline'}</strong>
+          <span class="muted">#${player.rank} of ${table.length} · ${region}</span>
+        </span>`;
+    }
+
+    const pillars = $('scoreboard-pillars');
+    if (pillars) {
+      pillars.innerHTML = `
+        <div class="pillar" title="${metricLeverTip('profit')}">
+          <span class="pillar-label">Profit</span>${pillarMeter(player.profit)}
+          <span class="pillar-rank">#${profitRank}</span>
+        </div>
+        <div class="pillar" title="${metricLeverTip('riders')}">
+          <span class="pillar-label">Riders</span>${pillarMeter(Math.min(100, player.riders / 250))}
+          <span class="pillar-rank">${(state.metrics.passengers_mtd || player.riders).toLocaleString()} · #${ridersRank}</span>
+        </div>
+        <div class="pillar" title="${metricLeverTip('csat')}">
+          <span class="pillar-label">CSAT</span>${pillarMeter(player.csat)}
+          <span class="pillar-rank">${player.csat} · #${csatRank}</span>
+        </div>`;
+    }
+
+    const rivals = $('scoreboard-rivals');
+    if (rivals) {
+      rivals.innerHTML = table
+        .filter((e) => !e.isPlayer)
+        .slice(0, 6)
+        .map(
+          (e) =>
+            `<span class="rival-logo" title="${e.name} — #${e.rank}">${airlineLogoHtml(e.name, null, 28)}</span>`
+        )
+        .join('');
+    }
+
+    renderScoreboardPanel(table);
+  }
+
+  function renderScoreboardPanel(table) {
+    const panel = $('scoreboard-panel');
+    if (!panel || !state) return;
+    const data = table || buildLeagueTable();
+    if (!scoreboardOpen) {
+      panel.classList.remove('open');
+      panel.innerHTML = '';
+      return;
+    }
+    panel.classList.add('open');
+    const rows = data
+      .map((e) => {
+        const trend =
+          e.trend > 0 ? `<span class="trend-up">▲${e.trend}</span>` : e.trend < 0 ? `<span class="trend-down">▼${Math.abs(e.trend)}</span>` : '<span class="muted">—</span>';
+        return `<tr class="${e.isPlayer ? 'you' : ''}">
+          <td>${e.rank}</td>
+          <td>${airlineLogoHtml(e.name, e.emblem, 26)} <span>${e.name}</span></td>
+          <td>${e.profit}</td>
+          <td>${e.riders.toLocaleString()}</td>
+          <td>${e.csat}</td>
+          <td><b>${e.overall}</b></td>
+          <td>${trend}</td>
+        </tr>`;
+      })
+      .join('');
+    panel.innerHTML = `
+      <div class="scoreboard-panel-inner">
+        <h3>League scoreboard</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Profitability · monthly riders · customer satisfaction. Click competitor logos above to compare symbols.</p>
+        <table class="scoreboard-table">
+          <thead><tr><th>#</th><th>Airline</th><th>Profit</th><th>Riders/mo</th><th>CSAT</th><th>Overall</th><th>Trend</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route mix & costs. Riders — marketing, OTAs, frequency. CSAT — reliability, load, fair fares.</p>
+      </div>`;
+  }
+
+  function toggleScoreboard() {
+    scoreboardOpen = !scoreboardOpen;
+    renderScoreboardBar();
+  }
+
   function normalizeGameState() {
     if (!state) return;
     sanitizeAirportGateCounts();
@@ -1542,6 +1881,8 @@
     }
     if (state.hour == null) state.hour = 8;
     if (!state.player_name) state.player_name = 'CEO';
+    if (!state.airline_emblem) state.airline_emblem = 'wing';
+    ensureMetrics();
     ensureMacro();
     ensureFleet();
   }
@@ -1998,6 +2339,7 @@
       if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
         state.reputation = Math.min(100, state.reputation + 0.3);
       }
+      processMonthlyScoreboard();
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
         if (f.leased) return true;
@@ -2067,6 +2409,7 @@
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
+      updateDailyMetrics(econ);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       if (state.game_over || state.paused_reason) break;
@@ -2592,9 +2935,14 @@
       const p = projectMap(ap.lat, ap.lon);
       const owned = state && hasGateAt(ap.iata);
       const selected = selectedAirport === ap.iata;
+      const share = playerShareAtAirport(ap.iata);
       const fill = owned ? '#00e4a8' : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
       const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
       const stroke = selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)';
+      if (share > 0.08) {
+        const halo = r + 3 + share * 8;
+        html += `<circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="none" stroke="rgba(0,228,168,${0.15 + share * 0.45})" stroke-width="2" class="ap-share-ring"/>`;
+      }
       html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
       if (owned || selected || labelAll) {
         html += `<text x="${p.x + 8}" y="${p.y + 4}" fill="#f0f8ff" font-size="${labelAll ? 11 : 10}" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${ap.iata}</text>`;
@@ -3272,6 +3620,7 @@
   function renderAll() {
     if (!state) return;
     const panels = [
+      renderScoreboardBar,
       renderHud,
       drawMap,
       renderFinance,
@@ -3364,6 +3713,20 @@
     if (nameStep) nameStep.classList.remove('active');
   }
 
+  function renderEmblemPicker() {
+    const box = $('emblem-picker');
+    if (!box || !bootstrap.emblem_options) return;
+    box.innerHTML = bootstrap.emblem_options
+      .map(
+        (o) =>
+          `<button type="button" class="emblem-opt${pendingEmblem === o.id ? ' active' : ''}" data-emblem="${o.id}" title="${o.label}" onclick="Runway.setEmblem('${o.id}')">
+            <span class="emblem-glyph">${o.glyph}</span>
+            <span class="emblem-label">${o.label}</span>
+          </button>`
+      )
+      .join('');
+  }
+
   function showScenarioNameStep(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId];
     if (!sc) return;
@@ -3380,6 +3743,7 @@
     if (brief) brief.textContent = sc.briefing;
     if (playerInput) playerInput.value = sc.player_name || '';
     if (airlineInput) airlineInput.value = sc.airline_name || '';
+    renderEmblemPicker();
     if (playerInput) {
       playerInput.focus();
       playerInput.select();
@@ -3441,8 +3805,13 @@
         usa: {
           src: '/static/runway/us-map-styled.png',
           width: 1920,
-          height: 1188,
-          bounds: { lonMin: -124.85, lonMax: -66.7, latMin: 24.3, latMax: 49.55 },
+          height: 1053,
+          bounds: {
+            lonMin: -125.597014,
+            lonMax: -64.626797,
+            latMin: 16.929556,
+            latMax: 50.383625,
+          },
         },
       };
     }
@@ -3471,6 +3840,9 @@
     const hudEco = $('hud-toggle-economy');
     if (hudFin) hudFin.addEventListener('click', () => toggleHudPanel('financials'));
     if (hudEco) hudEco.addEventListener('click', () => toggleHudPanel('economy'));
+
+    const sbToggle = $('scoreboard-brand');
+    if (sbToggle) sbToggle.addEventListener('click', toggleScoreboard);
 
     if (loadGame()) {
       showScreen('screen-game');
@@ -3521,6 +3893,13 @@
     resetRouteFare,
     toggleOta: toggleOtaListing,
     toggleFleetShop,
+    toggleScoreboard,
+    setEmblem: (id) => {
+      pendingEmblem = id;
+      document.querySelectorAll('[data-emblem]').forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.emblem === id);
+      });
+    },
     toggleAirportSection: (section) => {
       if (!airportSections.hasOwnProperty(section)) return;
       airportSections[section] = !airportSections[section];

@@ -66,6 +66,137 @@
     gap: 8px 12px;
   }
   .game-header h1 { font-size: 1.1rem; color: var(--gold); }
+
+  .scoreboard-bar {
+    flex: 1 1 100%;
+    order: -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 14px;
+    padding-bottom: 10px;
+    margin-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  #scoreboard-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 10px;
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+  #scoreboard-brand:hover { border-color: var(--accent); }
+  .scoreboard-brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+  .scoreboard-brand-text strong { font-size: 0.88rem; color: #fff; }
+  .scoreboard-brand-text .muted { font-size: 0.68rem; }
+  .airline-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    border: 1px solid rgba(255,255,255,0.18);
+    position: relative;
+    flex-shrink: 0;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+  }
+  .airline-logo-glyph { font-size: 1rem; line-height: 1; opacity: 0.95; }
+  .airline-logo-init {
+    position: absolute;
+    bottom: 2px;
+    right: 3px;
+    font-size: 0.48rem;
+    font-weight: 800;
+    color: rgba(255,255,255,0.85);
+    letter-spacing: -0.02em;
+  }
+  .scoreboard-pillars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex: 1 1 220px;
+  }
+  .pillar {
+    background: rgba(6, 13, 24, 0.55);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 9px;
+    min-width: 88px;
+    font-size: 0.68rem;
+    cursor: help;
+  }
+  .pillar-label { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 3px; }
+  .pillar-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--border); margin-right: 3px; }
+  .pillar-dot.on { background: var(--accent); box-shadow: 0 0 6px rgba(0,200,150,0.35); }
+  .pillar-rank { display: block; color: var(--text); margin-top: 3px; font-size: 0.66rem; }
+  .scoreboard-rivals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .rival-logo { display: inline-flex; opacity: 0.92; }
+  .rival-logo:hover { opacity: 1; transform: scale(1.05); }
+  .scoreboard-panel {
+    display: none;
+    flex: 1 1 100%;
+    order: 9;
+  }
+  .scoreboard-panel.open { display: block; }
+  .scoreboard-panel-inner {
+    background: rgba(6, 13, 24, 0.65);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-top: 4px;
+  }
+  .scoreboard-panel-inner h3 { font-size: 0.9rem; color: var(--gold); margin-bottom: 6px; }
+  .scoreboard-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.72rem;
+  }
+  .scoreboard-table th, .scoreboard-table td {
+    padding: 6px 5px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: middle;
+  }
+  .scoreboard-table tr.you { background: rgba(0, 200, 150, 0.06); }
+  .scoreboard-table td span { margin-left: 6px; }
+  .trend-up { color: #5dffa8; font-weight: 700; }
+  .trend-down { color: var(--danger); font-weight: 700; }
+
+  .emblem-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0 4px;
+  }
+  .emblem-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    min-width: 72px;
+    padding: 10px 8px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.72rem;
+  }
+  .emblem-opt:hover { border-color: var(--accent); }
+  .emblem-opt.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(0,200,150,0.06); }
+  .emblem-glyph { font-size: 1.35rem; line-height: 1; }
+  .emblem-label { color: var(--muted); }
   .hud-identity { flex: 1 1 140px; min-width: 120px; }
   .hud-primary {
     display: flex;
@@ -727,6 +858,8 @@
         <label for="airline-name-input">Airline name
           <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Buckeye Air">
         </label>
+        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Choose your emblem (logo mark)</p>
+        <div class="emblem-picker" id="emblem-picker"></div>
         <div class="btn-row">
           <button type="button" class="btn" id="btn-start-game">Start airline</button>
           <button type="button" class="btn secondary" id="btn-back-scenarios">Back</button>
@@ -742,6 +875,12 @@
 <div id="screen-game" class="screen">
   <div id="pause-banner"></div>
   <header class="game-header">
+    <div class="scoreboard-bar" id="scoreboard-bar">
+      <button type="button" id="scoreboard-brand" aria-expanded="false" title="Open league scoreboard"></button>
+      <div class="scoreboard-pillars" id="scoreboard-pillars"></div>
+      <div class="scoreboard-rivals" id="scoreboard-rivals" aria-label="Competitor airlines"></div>
+    </div>
+    <div id="scoreboard-panel" class="scoreboard-panel"></div>
     <div class="hud-identity">
       <h1 id="hud-airline">Airline</h1>
     </div>
@@ -817,6 +956,6 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=15"></script>
+<script src="/static/runway/game.js?v=16"></script>
 </body>
 </html>

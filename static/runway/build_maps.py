@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Build Runway map PNGs with state borders baked in (GeoJSON aligned to raster bounds)."""
+"""
+Build Runway map PNGs from us-land.json — one projection for land, borders, and airport dots.
+
+Basic principle: geography (GeoJSON) and gameplay (lat/lon → pixel) share identical bounds
+and equirectangular math. No Wikimedia pixel guessing.
+"""
 from __future__ import annotations
 
 import json
@@ -8,13 +13,6 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 BASE = Path(__file__).resolve().parent
-
-USA_BOUNDS = {
-    "lonMin": -124.85,
-    "lonMax": -66.70,
-    "latMin": 24.30,
-    "latMax": 49.55,
-}
 
 OHIO_BOUNDS = {
     "lonMin": -87.35,
@@ -25,9 +23,22 @@ OHIO_BOUNDS = {
 
 OCEAN = (7, 21, 37)
 LAND = (52, 98, 82)
-LAND_EDGE = (42, 78, 66)
 BORDER = (186, 232, 205)
-COAST = (140, 195, 170)
+COAST = (125, 178, 155)
+
+TARGET_WIDTH = 1920
+
+
+def load_geo() -> dict:
+    path = BASE / "us-land.json"
+    with open(path) as f:
+        return json.load(f)
+
+
+def map_height(bounds: dict, width: int) -> int:
+    lat_span = bounds["latMax"] - bounds["latMin"]
+    lon_span = bounds["lonMax"] - bounds["lonMin"]
+    return max(400, round(width * lat_span / lon_span))
 
 
 def project(lat: float, lon: float, bounds: dict, w: int, h: int) -> tuple[float, float]:
@@ -36,67 +47,40 @@ def project(lat: float, lon: float, bounds: dict, w: int, h: int) -> tuple[float
     return x, y
 
 
-def style_us_map(src: Image.Image) -> Image.Image:
-    """Classify Wikimedia land/ocean; state lines drawn separately from GeoJSON."""
-    src = src.convert("RGBA")
-    w, h = src.size
-    out = Image.new("RGBA", (w, h), OCEAN + (255,))
-    spx = src.load()
-    opx = out.load()
-
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = spx[x, y]
-            if a < 25:
-                continue
-            lum = (r + g + b) / 3
-            if lum >= 200:
-                opx[x, y] = LAND + (255,)
-            elif lum >= 150:
-                opx[x, y] = COAST + (255,)
-            elif lum >= 90:
-                opx[x, y] = LAND_EDGE + (255,)
-            else:
-                opx[x, y] = LAND_EDGE + (255,)
-
-    return out
+def ring_to_pixels(ring: list, bounds: dict, w: int, h: int) -> list[tuple[int, int]]:
+    pts = []
+    for lon, lat in ring:
+        x, y = project(lat, lon, bounds, w, h)
+        pts.append((int(round(x)), int(round(y))))
+    return pts
 
 
-def draw_state_borders(img: Image.Image, bounds: dict) -> Image.Image:
-    """Overlay state boundaries from us-states.json using the same projection as airport dots."""
-    states_path = BASE / "us-states.json"
-    if not states_path.exists():
-        return img
-
-    with open(states_path) as f:
-        data = json.load(f)
-
-    w, h = img.size
+def render_map(bounds: dict, geo: dict, width: int) -> Image.Image:
+    height = map_height(bounds, width)
+    img = Image.new("RGBA", (width, height), OCEAN + (255,))
     draw = ImageDraw.Draw(img)
-    stroke = max(1, int(w / 1100))
 
-    for ring in data.get("paths", []):
-        if not ring or len(ring) < 2:
+    for ring in geo.get("silhouette", []):
+        if len(ring) < 3:
             continue
-        pts = []
-        for lon, lat in ring:
-            if lat < bounds["latMin"] - 2 or lat > bounds["latMax"] + 2:
-                continue
-            if lon < bounds["lonMin"] - 2 or lon > bounds["lonMax"] + 2:
-                continue
-            x, y = project(lat, lon, bounds, w, h)
-            pts.append((x, y))
-        if len(pts) >= 2:
-            draw.line(pts, fill=BORDER + (255,), width=stroke, joint="curve")
+        pts = ring_to_pixels(ring, bounds, width, height)
+        draw.polygon(pts, fill=LAND + (255,), outline=COAST + (255,))
+
+    stroke = max(1, int(width / 1400))
+    for ring in geo.get("borders", []):
+        if len(ring) < 2:
+            continue
+        pts = ring_to_pixels(ring, bounds, width, height)
+        draw.line(pts, fill=BORDER + (255,), width=stroke, joint="curve")
 
     return img
 
 
-def crop_region(img: Image.Image, bounds: dict, full_bounds: dict) -> Image.Image:
+def crop_region(img: Image.Image, crop_bounds: dict, full_bounds: dict) -> Image.Image:
     w, h = img.size
-    x1, y1 = project(bounds["latMin"], bounds["lonMin"], full_bounds, w, h)
-    x2, y2 = project(bounds["latMax"], bounds["lonMax"], full_bounds, w, h)
-    pad = 20
+    x1, y1 = project(crop_bounds["latMin"], crop_bounds["lonMin"], full_bounds, w, h)
+    x2, y2 = project(crop_bounds["latMax"], crop_bounds["lonMax"], full_bounds, w, h)
+    pad = 18
     left = int(max(0, min(x1, x2) - pad))
     top = int(max(0, min(y1, y2) - pad))
     right = int(min(w, max(x1, x2) + pad))
@@ -108,18 +92,28 @@ def crop_region(img: Image.Image, bounds: dict, full_bounds: dict) -> Image.Imag
     return crop
 
 
+def verify_airports(bounds: dict, w: int, h: int) -> None:
+    checks = [
+        ("CMH", 39.99, -82.89),
+        ("LUK", 39.10, -84.42),
+        ("DAY", 39.90, -84.22),
+        ("MIA", 25.79, -80.29),
+        ("SEA", 47.45, -122.31),
+    ]
+    for code, lat, lon in checks:
+        x, y = project(lat, lon, bounds, w, h)
+        print(f"  {code}: ({x:.0f}, {y:.0f})")
+
+
 def main() -> None:
-    src_path = BASE / "us-map-wikimedia.png"
-    if not src_path.exists():
-        raise SystemExit(f"Missing {src_path} — download Wikimedia blank US map first.")
+    geo = load_geo()
+    usa_bounds = geo["bounds"]
 
-    styled = style_us_map(Image.open(src_path))
-    styled = draw_state_borders(styled, USA_BOUNDS)
-
+    styled = render_map(usa_bounds, geo, TARGET_WIDTH)
     usa_path = BASE / "us-map-styled.png"
     styled.save(usa_path, optimize=True)
 
-    ohio = crop_region(styled, OHIO_BOUNDS, USA_BOUNDS)
+    ohio = crop_region(styled, OHIO_BOUNDS, usa_bounds)
     ohio_path = BASE / "ohio-region-map.png"
     ohio.save(ohio_path, optimize=True)
 
@@ -128,20 +122,24 @@ def main() -> None:
             "src": "/static/runway/us-map-styled.png",
             "width": styled.width,
             "height": styled.height,
-            "bounds": USA_BOUNDS,
+            "bounds": usa_bounds,
+            "geoSource": "us-land.json",
         },
         "ohio": {
             "src": "/static/runway/ohio-region-map.png",
             "width": ohio.width,
             "height": ohio.height,
             "bounds": OHIO_BOUNDS,
+            "geoSource": "us-land.json",
         },
     }
     with open(BASE / "map-config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    print("usa", styled.size, "->", usa_path.name)
-    print("ohio", ohio.size, "->", ohio_path.name)
+    print("usa", styled.size, "bounds", usa_bounds)
+    print("ohio", ohio.size)
+    print("airport projection check:")
+    verify_airports(usa_bounds, styled.width, styled.height)
 
 
 if __name__ == "__main__":
