@@ -359,6 +359,42 @@
   }
   .hud-expand-row.open { display: flex; }
   .hud-expand-row .stat-pill { min-width: 88px; }
+  .hud-fin-toggle {
+    flex: 1 1 100%;
+    display: flex;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .hud-fin-tab {
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .hud-fin-tab:hover { color: var(--text); border-color: var(--accent); }
+  .hud-fin-tab.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(0, 200, 150, 0.08);
+  }
+  .hud-fin-body {
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .hud-fin-note {
+    flex: 1 1 100%;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    margin: 2px 0 0;
+  }
   .hud-macro-line {
     flex: 1 1 100%;
     font-size: 0.72rem;
@@ -1286,13 +1322,7 @@
       <button type="button" class="hud-chip" id="hud-toggle-economy" aria-expanded="false">Economy</button>
     </div>
     <button class="btn secondary" onclick="Runway.reset()">New game</button>
-    <div class="hud-expand-row" id="hud-panel-financials">
-      <div class="stat-pill"><span class="stat-pill-label">Net worth</span><b id="hud-networth">$0</b></div>
-      <div class="stat-pill"><span class="stat-pill-label">Equity</span><b id="hud-equity">—</b></div>
-      <div class="stat-pill"><span class="stat-pill-label">Reputation</span><b id="hud-rep">0</b></div>
-      <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b id="hud-fuel">—</b></div>
-      <div class="stat-pill"><span class="stat-pill-label">LTM revenue</span><b id="hud-ltm">$0</b></div>
-    </div>
+    <div class="hud-expand-row" id="hud-panel-financials"></div>
     <div class="hud-expand-row" id="hud-panel-economy">
       <p class="hud-macro-line" id="hud-macro">—</p>
     </div>
@@ -1336,6 +1366,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=34"></script>
+<script src="/static/runway/game.js?v=35"></script>
 </body>
 </html>

@@ -17,6 +17,7 @@
   let tutorialGlowTarget = null;
   let fleetShopOpen = false;
   let hudPanels = { financials: false, economy: false };
+  let hudFinancialsView = 'company';
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
   let scoreboardOpen = false;
@@ -1873,6 +1874,11 @@
     return b ? b.total : 0;
   }
 
+  function computePersonalNetWorth() {
+    const b = computeNetWorthBreakdown();
+    return b ? b.equity_value : 0;
+  }
+
   function pushPlayerEvent(msg) {
     const who = (state && state.player_name) || 'CEO';
     pushEvent(`${who} — ${msg}`);
@@ -2407,8 +2413,8 @@
     const tips = {
       profit: 'Scoped monthly operating profit — click to rank league by profit',
       riders: 'Estimated monthly passengers in scope — click to rank league',
-      csat: 'Customer Satisfaction — reputation, load factor, reliability — click to rank',
-      overall: 'Blended league score — click airline name for full table',
+      csat: 'Passenger satisfaction — reputation, load factor, reliability — click to rank',
+      overall: 'League score 0–100 (higher is better). Rank #1 is best — not the same number as this score.',
     };
     return tips[pillar] || '';
   }
@@ -2417,8 +2423,8 @@
     const labels = {
       profit: 'Profit',
       riders: 'Riders',
-      csat: 'CSAT',
-      overall: 'Overall',
+      csat: 'Satisfaction',
+      overall: 'League score',
     };
     return labels[key] || key;
   }
@@ -2836,7 +2842,7 @@
     });
 
     if (player && prev.player != null && player.rank < prev.player) {
-      pushEvent(`League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> overall.`);
+      pushEvent(`League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> in the league.`);
     } else if (player && prev.player != null && player.rank > prev.player) {
       pushEvent(`League (${region}): ${state.airline_name} slipped to <b>#${player.rank}</b> — rivals gained ground.`);
     }
@@ -2953,7 +2959,7 @@
         <dl class="stat-dl rival-stats">
           <dt>Est. monthly profit</dt><dd class="${stats.profit >= 0 ? '' : 'danger'}">${fmtMoney(stats.profit)}</dd>
           <dt>Est. monthly riders</dt><dd>${stats.riders.toLocaleString()}</dd>
-          <dt>CSAT (est.)</dt><dd>${stats.csat}</dd>
+          <dt>Satisfaction (est.)</dt><dd>${stats.csat}</dd>
           <dt>Gross revenue (scope)</dt><dd>${fmtMoney(stats.gross)}</dd>
           <dt>Brand & overhead</dt><dd>${fmtMoney(stats.overhead)}/mo</dd>
           <dt>Financial health</dt><dd>${health}%</dd>
@@ -3019,7 +3025,7 @@
       pillars.innerHTML =
         pillarBtn('profit', 'Profit', profitMeter, `${fmtMoney(player.profit)}/mo · #${profitRank}`) +
         pillarBtn('riders', 'Riders', riderMeter, `${player.riders.toLocaleString()}/mo · #${ridersRank}`) +
-        pillarBtn('csat', 'CSAT', csatMeter, `${player.csat} · #${csatRank}`);
+        pillarBtn('csat', 'Satisfaction', csatMeter, `${player.csat} · #${csatRank}`);
     }
 
     const rivals = $('scoreboard-rivals');
@@ -3076,20 +3082,25 @@
         </tr>`;
       })
       .join('');
-    const csatNote =
+    const satNote =
       scoreboardSortBy === 'csat'
-        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>CSAT</b> = Customer Satisfaction — blends reputation, average load factor, and penalties when aircraft are AOG (out of service).</p>'
+        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>Satisfaction</b> blends reputation, average load factor, and penalties when aircraft are out of service (AOG).</p>'
+        : '';
+    const leagueScoreNote =
+      scoreboardSortBy === 'overall'
+        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>#1 is best rank.</b> The league score (0–100) is a blended index — profit standing, riders, and satisfaction. Your score can be 47 while Delta is 94; check the <b>#</b> column for actual rank.</p>'
         : '';
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
         <h3>League — ${scope} · by ${pillarSortLabel(scoreboardSortBy)}</h3>
-        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. Click Profit, Riders, or CSAT above to re-sort. Click a rival for intel.</p>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. <b>#1 is best.</b> Click Profit, Riders, or Satisfaction above to re-sort. Click a rival for intel.</p>
         <table class="scoreboard-table">
-          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'CSAT')}${sortCol('overall', 'Overall')}<th>Trend</th></tr></thead>
+          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'Satisfaction')}${sortCol('overall', 'League score')}<th>Trend</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. CSAT — reliability, load, fair fares.</p>
-        ${csatNote}
+        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. Satisfaction — reliability, load, fair fares.</p>
+        ${leagueScoreNote}
+        ${satNote}
         ${yourRoutesRankHtml(scoreboardSortBy)}
       </div>`;
     bindRivalClicks();
@@ -5504,6 +5515,7 @@
       btn.setAttribute('aria-expanded', hudPanels[name] ? 'true' : 'false');
     }
     if (name === 'financials' && hudPanels.financials) {
+      renderFinancialsPanel();
       hudPanels.economy = false;
       const ecoPanel = $('hud-panel-economy');
       const ecoBtn = $('hud-toggle-economy');
@@ -5648,6 +5660,49 @@
     if (tone) pill.classList.add(`stat-pill-${tone}`);
   }
 
+  function setHudFinancialsView(view) {
+    hudFinancialsView = view === 'personal' ? 'personal' : 'company';
+    renderFinancialsPanel();
+  }
+
+  function renderFinancialsPanel() {
+    const panel = $('hud-panel-financials');
+    if (!panel || !state) return;
+    const b = computeNetWorthBreakdown() || {
+      total: 0,
+      equity_value: 0,
+      cash: 0,
+    };
+    const pct = state.equity_pct || 100;
+    const personalCash = Math.round((b.cash || 0) * (pct / 100));
+    const companyBtn = hudFinancialsView === 'company' ? ' active' : '';
+    const personalBtn = hudFinancialsView === 'personal' ? ' active' : '';
+    const toggle = `<div class="hud-fin-toggle" role="tablist" aria-label="Financials view">
+      <button type="button" class="hud-fin-tab${companyBtn}" data-fin-view="company" role="tab" aria-selected="${hudFinancialsView === 'company'}">Company</button>
+      <button type="button" class="hud-fin-tab${personalBtn}" data-fin-view="personal" role="tab" aria-selected="${hudFinancialsView === 'personal'}">Your stake</button>
+    </div>`;
+    let pills = '';
+    if (hudFinancialsView === 'personal') {
+      pills = `
+        <div class="stat-pill"><span class="stat-pill-label">Your stake value</span><b>${fmtMoney(b.equity_value)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Ownership</span><b>${pct.toFixed(1)}%</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Your share of cash</span><b>${fmtMoney(personalCash)}</b></div>
+        <p class="hud-fin-note muted">Personal view is your equity slice of company net worth — not separate cash you can spend. Company cash pays the bills.</p>`;
+    } else {
+      pills = `
+        <div class="stat-pill"><span class="stat-pill-label">Company net worth</span><b>${fmtMoney(b.total)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Cash</span><b>${fmtMoney(b.cash)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Monthly burn</span><b>${fmtMoney(burnMonthly())}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">LTM revenue</span><b>${fmtMoney(state.ltm_revenue)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Reputation</span><b>${(state.reputation || 0).toFixed(0)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b>$${(state.fuel_price || 0).toFixed(2)}/gal</b></div>`;
+    }
+    panel.innerHTML = toggle + `<div class="hud-fin-body">${pills}</div>`;
+    panel.querySelectorAll('[data-fin-view]').forEach((btn) => {
+      btn.addEventListener('click', () => setHudFinancialsView(btn.dataset.finView));
+    });
+  }
+
   function renderHud() {
     if (!state) return;
     setText('hud-cash', fmtMoney(state.cash));
@@ -5655,16 +5710,12 @@
     setText('hud-runway', runwayText);
     const showClock = state.speed === 'slow' || state.hour != null;
     setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
-    setText('hud-equity', `${(state.equity_pct || 0).toFixed(1)}%`);
-    setText('hud-rep', (state.reputation || 0).toFixed(0));
-    setText('hud-fuel', `$${(state.fuel_price || 0).toFixed(2)}/gal`);
     setText('hud-pnl', fmtMoney(state.daily_pnl));
     const identity = state.player_name
       ? `CEO ${state.player_name} · ${state.airline_name || 'Airline'}`
       : state.airline_name || 'Airline';
     setText('hud-airline', identity);
-    setText('hud-networth', fmtMoney(computeNetWorth()));
-    setText('hud-ltm', fmtMoney(state.ltm_revenue));
+    renderFinancialsPanel();
 
     const runwayMo = runwayMonths();
     if (state.cash < 0) setStatPillTone('hud-pill-runway', 'danger');

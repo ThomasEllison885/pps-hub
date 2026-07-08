@@ -92,9 +92,25 @@ Per-route metrics (30-day history when available, else today’s sim):
 - **Riders** — avg daily pax × 30.
 - **CSAT** — load × 28 + reputation share + base − AOG penalty (route-level approximation).
 
-## CSAT (scoreboard)
+## Reputation
 
-Customer Satisfaction 0–100: reputation × 0.45 + avg load × 28 + 18 − AOG×6. Click **CSAT** pillar to sort league.
+0–100 brand trust score. **Starts** from scenario (`runway_game_data.py` scenarios). **Grows** when:
+
+- You run routes profitably while reputation is under 50 (+0.3/month)
+- You choose “Hold premium” in a competitor decision (+2)
+
+**Used for:** passenger demand (`1 + reputation/200`), and satisfaction score (`reputation × 0.45 + …`).
+
+Does not decay in the current build.
+
+## Satisfaction (scoreboard pillar)
+
+Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + avg load × 28 + 18 − AOG×6. Click **Satisfaction** pillar to sort league.
+
+## League score vs rank
+
+- **# column** = rank (**1 is best**).
+- **League score** = blended index 0–100 (profit percentile × 0.45 + riders × 0.35 + satisfaction × 0.2). Higher is better, but it is **not** the same as rank — a startup can score 47 while Delta scores 94.
 
 ## Files
 
