@@ -939,16 +939,15 @@ SCENARIOS = {
     'beginner_winning_2026': {
         'id': 'beginner_winning_2026',
         'name': '2026 — Winning Path (Ohio Coach)',
-        'tagline': 'Same Ohio tutorial — tuned economics + timed coach for profit.',
+        'tagline': 'Same Ohio tutorial — tuned for profit with a light coach.',
         'year': 2026,
         'region': 'ohio',
         'tutorial': True,
         'winning_track': True,
         'tutorial_overhead_scale': 0.78,
         'briefing': (
-            'Gateway Air starts on a <b>winning track</b>: CMH–Dayton is tuned for profit, CMH marketing '
-            'is already running, and a <b>timed coach</b> walks you through fare, frequency, marketing, '
-            'and when to add aircraft — at day 14, 45, 90, and 120. Finish the UI tour, then follow the coach.'
+            'Gateway Air starts on a <b>winning track</b>: CMH–Dayton is tuned for profit and CMH marketing '
+            'is already running. Take the short UI tour, then press ▶ — a coach will check in when it matters.'
         ),
         'cash': 8_500_000,
         'debt': [],

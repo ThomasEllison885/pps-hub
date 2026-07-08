@@ -104,7 +104,32 @@
 
   function scrollToSidePanel() {
     const panel = document.querySelector('.side-panel');
-    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!panel) return;
+    // Mobile: bring the panel into the viewport. Desktop: map is fixed — only scroll the panel itself.
+    if (isMobileLayout()) {
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      panel.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  /** Scroll a node into view inside the side panel without moving the map/page. */
+  function scrollSidePanelTo(el, opts) {
+    if (!el) return;
+    opts = opts || {};
+    if (isMobileLayout()) {
+      el.scrollIntoView({ behavior: opts.behavior || 'smooth', block: opts.block || 'nearest' });
+      return;
+    }
+    const panel = document.querySelector('.side-panel');
+    if (!panel) {
+      el.scrollIntoView({ behavior: opts.behavior || 'smooth', block: 'nearest' });
+      return;
+    }
+    const pRect = panel.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const delta = eRect.top - pRect.top - (panel.clientHeight * 0.08);
+    panel.scrollBy({ top: delta, behavior: opts.behavior || 'smooth' });
   }
 
   function setMapCollapsed(collapsed) {
@@ -2186,165 +2211,136 @@
     }
   }
 
+  /**
+   * Compact welcome snapshot — does not restate scenario briefing from the previous screen.
+   * Only what matters to act: cash, assets, and urgent gaps.
+   */
   function formatBriefingSections(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId] || {};
-    const parts = [];
-    const teach = [];
+    const cards = [];
 
-    parts.push(
-      `<p><b>${state.airline_name}</b> begins with <b>${fmtMoney(state.cash)}</b> cash. ` +
-        `The simulation clock is <b>paused</b> until you press ▶.</p>`
-    );
-
+    // Fleet card
     if (state.fleet.length) {
-      const fleetLines = state.fleet.map((f) => {
-        const ac = aircraftType(f.type);
-        const name = ac ? ac.name : f.type;
-        return `${name} · ${fleetSeatCount(f)} seats · ${f.leased ? 'leased' : 'owned'}`;
+      const f = state.fleet[0];
+      const ac = aircraftType(f.type);
+      const more = state.fleet.length > 1 ? ` +${state.fleet.length - 1}` : '';
+      cards.push({
+        label: 'Fleet',
+        value: `${ac ? ac.name : f.type}${more}`,
+        sub: `${fleetSeatCount(f)} seats · ${f.leased ? 'leased' : 'owned'}`,
       });
-      parts.push(`<p><b>Fleet</b></p><ul class="list briefing-list">${fleetLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
     } else {
-      parts.push('<p class="danger"><b>No aircraft yet</b> — open Fleet and lease or buy before you can launch.</p>');
-      teach.push('Fleet tab first if you have no planes.');
+      cards.push({ label: 'Fleet', value: 'None yet', sub: 'Lease in Fleet tab', warn: true });
     }
 
+    // Gate card
     if (state.gates.length) {
-      const gateLines = state.gates.map((g) => {
-        const cap = gateCapacityLabel(g.airport);
-        return `${g.airport} (${g.tier}, ${fmtMoney(g.monthly)}/mo) · ${cap.used}/${cap.max} departures/wk used · <b>${cap.remaining} free</b>`;
+      const g = state.gates[0];
+      const more = state.gates.length > 1 ? ` +${state.gates.length - 1}` : '';
+      cards.push({
+        label: 'Gate',
+        value: `${g.airport}${more}`,
+        sub: `${g.tier} · ${fmtMoney(g.monthly)}/mo`,
       });
-      parts.push(`<p><b>Your gates</b></p><ul class="list briefing-list">${gateLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
     } else {
-      parts.push('<p class="danger"><b>No gates leased</b> — click an airport on the map and lease before launching routes.</p>');
-      teach.push('Map → airport panel → lease a gate.');
+      cards.push({ label: 'Gate', value: 'None yet', sub: 'Click map → lease', warn: true });
     }
 
+    // Route card
     if (state.routes.length) {
-      const routeLines = state.routes.map((r) => {
-        const sim = simulateRouteDay(r);
-        const pnl = sim.revenue - sim.cost;
-        const load = sim.grounded ? 'AOG' : `${(sim.load * 100).toFixed(0)}% load`;
-        const cap = gateCapacityLabel(r.origin);
-        const capNote = cap.remaining <= 0 ? ' · <span class="danger">origin at gate cap</span>' : '';
-        return `<b>${r.origin}–${r.dest}</b> ${r.frequency_week}x/wk @ $${r.fare} · ${load} · ${fmtMoney(pnl)}/day est.${capNote}`;
+      const r = state.routes[0];
+      const more = state.routes.length > 1 ? ` +${state.routes.length - 1}` : '';
+      cards.push({
+        label: 'Route',
+        value: `${r.origin}–${r.dest}${more}`,
+        sub: `${r.frequency_week}x/wk · $${r.fare}`,
       });
-      parts.push(`<p><b>Routes already flying</b></p><ul class="list briefing-list">${routeLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
-      teach.push('Tune fares on running routes before adding frequency at the same gate.');
     } else {
-      const hub = (state.gates[0] && state.gates[0].airport) || 'your gate';
-      parts.push(
-        `<p><b>No routes yet</b> — open <b>Routes</b>, pick a destination from <b>${hub}</b>, then <b>Plan &amp; launch route…</b></p>`
-      );
-      teach.push('Use route suggestions for demand estimates; confirm launch sets station build-out and marketing.');
+      cards.push({ label: 'Route', value: 'None yet', sub: 'Open Routes to launch', warn: true });
     }
 
+    const cardsHtml = cards
+      .map(
+        (c) =>
+          `<div class="brief-card${c.warn ? ' brief-card-warn' : ''}">
+            <span class="brief-card-label">${c.label}</span>
+            <strong class="brief-card-value">${c.value}</strong>
+            <span class="brief-card-sub">${c.sub}</span>
+          </div>`
+      )
+      .join('');
+
+    let alertHtml = '';
     if (state.debt.length) {
-      const debtLines = state.debt.map(
-        (d) =>
-          `${d.name}: ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment)}/mo due`
-      );
-      parts.push(`<p><b>Needs attention — debt</b></p><ul class="list briefing-list">${debtLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
-      teach.push('Debt service drains cash every month — restructure or grow revenue early.');
+      const d = state.debt[0];
+      alertHtml = `<p class="brief-alert danger"><b>Debt pressure</b> — ${d.name}: ${fmtMoney(d.principal)} · ${fmtMoney(d.monthly_payment)}/mo. Capital tab is your first stop.</p>`;
+    } else if (!state.fleet.length && !state.gates.length) {
+      alertHtml = `<p class="brief-alert"><b>Cold start</b> — lease a gate on the map, then an aircraft, then a route.</p>`;
+    } else if (!state.routes.length && state.gates.length && state.fleet.length) {
+      alertHtml = `<p class="brief-alert"><b>Ready to launch</b> — open Routes and pick a destination from ${state.gates[0].airport}.</p>`;
     }
 
-    const gateIatas = new Set((state.gates || []).map((g) => g.airport));
-    (state.routes || []).forEach((r) => {
-      gateIatas.add(r.origin);
-      gateIatas.add(r.dest);
-    });
-    const compRoutes = (state.competitor_routes || []).filter(
-      (cr) => gateIatas.has(cr.origin) || gateIatas.has(cr.dest)
-    );
-    if (compRoutes.length) {
-      const compLines = compRoutes.slice(0, 8).map(
-        (cr) => `${cr.airline}: ${cr.origin}–${cr.dest} · ${cr.frequency_week}x/wk from $${cr.fare}`
-      );
-      parts.push(
-        `<p><b>Competitor routes near your network</b></p><ul class="list briefing-list">${compLines.map((l) => `<li>${l}</li>`).join('')}</ul>`
-      );
-      teach.push('Rivals react when you enter their markets — watch Events after launching.');
-    }
+    const coachNote = sc.winning_track
+      ? `<p class="brief-coach muted">A short coach may check in as you grow — nothing to prepare for now.</p>`
+      : '';
 
-    if (sc.briefing && (!state.routes.length || sc.winning_track)) {
-      parts.push(`<p class="muted" style="font-size:0.76rem;margin-top:8px;">${sc.briefing}</p>`);
-    }
+    const html = `
+      <div class="brief-snapshot">
+        <p class="brief-hero"><b>${state.airline_name}</b> · <b>${fmtMoney(state.cash)}</b> cash · clock <b>paused</b></p>
+        <div class="brief-cards">${cardsHtml}</div>
+        ${alertHtml}
+        ${coachNote}
+      </div>`;
 
-    const mktLines = Object.entries(state.marketing_spend_monthly || {})
-      .filter(([, v]) => clampMoney(v) > 0)
-      .map(([ap, v]) => `${ap}: ${fmtMoney(clampMoney(v))}/mo`);
-    if (mktLines.length) {
-      parts.push(`<p><b>Marketing spend</b></p><ul class="list briefing-list">${mktLines.map((l) => `<li>${l}</li>`).join('')}</ul>`);
-    }
+    let teach = 'Map left · controls right. Press ▶ when you are ready.';
+    if (!state.fleet.length) teach = 'Start in Fleet (or Capital if you need cash), then lease a gate on the map.';
+    else if (!state.gates.length) teach = 'Click an airport on the map and lease a gate before launching routes.';
+    else if (!state.routes.length) teach = 'Open Routes, pick a destination, then press ▶.';
+    else if (state.debt.length) teach = 'Watch monthly debt service in Capital — grow cash or restructure early.';
 
-    if (sc.winning_track) {
-      teach.push(
-        'After the UI tour, a timed coach walks you through fare, marketing, frequency, and fleet at days 14, 45, 90, and 120.'
-      );
-    }
-
-    return {
-      html: parts.join(''),
-      teach: teach.join(' ') || 'Scout airports, launch when gate capacity allows, then unpause.',
-    };
+    return { html, teach };
   }
 
   function buildNewGameBriefing(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId] || {};
     const sections = formatBriefingSections(scenarioId);
-    const firstGate = (state.gates[0] && state.gates[0].airport) || null;
-    const options = [
-      {
-        id: 'routes',
-        label: firstGate ? `A — Plan a route from ${firstGate}` : 'A — Open Routes tab',
-        hint: 'Pick destination, aircraft, then confirm launch.',
-        effect: 'tab_routes',
-        airport: firstGate,
-      },
-      {
-        id: 'map',
-        label: firstGate ? `B — Scout ${firstGate} on the map` : 'B — Pick an airport on the map',
-        hint: 'Competitors, gates, and marketing live here.',
-        effect: 'select_airport',
-        airport: firstGate,
-      },
-    ];
-    if (sc.tutorial || scenarioId === 'beginner_2026' || sc.winning_track) {
-      const tourLabel = sc.winning_track
-        ? 'C — Take the guided tour (recommended)'
-        : 'C — Take the guided tour';
-      const tourHint = sc.winning_track
-        ? 'UI walkthrough, then the timed profit coach takes over.'
-        : 'Step-by-step walkthrough (optional).';
-      options.push({
-        id: 'tour',
-        label: tourLabel,
-        hint: tourHint,
-        effect: 'start_tutorial',
-      });
-      options.push({
-        id: 'play',
-        label: 'D — Got it — let me play',
-        hint: sc.winning_track ? 'Skip tour; profit coach still appears on schedule.' : 'Dismiss and use the UI freely.',
-        effect: 'explore',
-      });
-    } else {
-      options.push({
-        id: 'tour',
-        label: 'C — Quick UI tour (optional)',
-        hint: 'Short walkthrough of map, fleet, and routes.',
-        effect: 'start_tutorial',
-      });
-      options.push({
-        id: 'play',
-        label: 'D — Got it — let me play',
-        hint: 'Dismiss and use the guide strip at the top of the panel.',
-        effect: 'explore',
-      });
-    }
+    const guided = !!(sc.tutorial || sc.winning_track || scenarioId === 'beginner_2026');
+
+    // Only two clear choices — tour vs jump in. No overlapping A/B that open the same UI.
+    const options = guided
+      ? [
+          {
+            id: 'tour',
+            label: 'A — Show me around',
+            hint: 'Recommended — short tour of map, fleet, and routes.',
+            effect: 'start_tutorial',
+          },
+          {
+            id: 'play',
+            label: 'B — Jump in',
+            hint: 'Skip the tour. Clock stays paused until you press ▶.',
+            effect: 'explore',
+          },
+        ]
+      : [
+          {
+            id: 'play',
+            label: 'A — Jump in',
+            hint: 'Clock stays paused until you press ▶.',
+            effect: 'explore',
+          },
+          {
+            id: 'tour',
+            label: 'B — Quick tour',
+            hint: 'Optional walkthrough of map, fleet, and routes.',
+            effect: 'start_tutorial',
+          },
+        ];
+
     return {
       onboarding: true,
       briefing: true,
-      kicker: `${sc.name || 'New game'} · Situation report`,
+      kicker: 'You are cleared in',
       title: `Welcome, ${state.player_name}`,
       body: sections.html,
       teach: sections.teach,
@@ -2424,11 +2420,9 @@
             `You have <b>${fmtMoney(state.cash)}</b>, one leased <b>${planeLabel}</b>, and a tuned <b>${routeLabel}</b> route` +
             (winning ? ` (<b>${freq}/wk</b> @ <b>$${fare}</b>, CMH marketing already on).` : '.') +
             ' The clock is <b>paused</b> until you finish this walkthrough.' +
-            (winning
-              ? ' After the tour, a <b>timed profit coach</b> guides marketing, fares, frequency, and fleet at days 14, 45, 90, and 120.'
-              : ''),
+            (winning ? ' A short coach may check in as you grow.' : ''),
           winning
-            ? 'Tour the UI first, then follow the coach — do not fast-forward until Daily P&L stays green.'
+            ? 'Tour the UI first — do not fast-forward until Daily P&L stays green.'
             : 'This tutorial covers the four core loops: map → fleet → routes → fares. Press ▶ only when you are ready to run days.',
           'Start with the map →',
           'select_airport',
@@ -2455,12 +2449,8 @@
           total,
           'Fleet — lease or buy aircraft',
           `Your <b>${planeLabel}</b> is leased (monthly payment, no big upfront cost). Open <b>Fleet</b> to see range and seats. ` +
-            (winning
-              ? 'Do <b>not</b> lease a second plane yet — the profit coach will suggest a <b>PC-12</b> around <b>day 90</b> when P&L and cash runway look healthy.'
-              : 'Do <b>not</b> lease a second plane until <b>Daily P&L</b> stays positive on your first route — overhead bills every day whether seats are full or empty.'),
-          winning
-            ? 'Grow frequency on CMH–DAY before adding aircraft. Leasing a second jet early is the fastest way to burn cash.'
-            : 'Leasing preserves cash; buying builds asset value. Match aircraft size to demand — one profitable route before two planes.',
+            'Do <b>not</b> lease a second plane until <b>Daily P&L</b> stays positive on your first route — overhead bills every day whether seats are full or empty.',
+          'Leasing preserves cash; buying builds asset value. Match aircraft size to demand — one profitable route before two planes.',
           'Open Fleet tab →',
           'tab_fleet',
           null,
@@ -2518,12 +2508,8 @@
           total,
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
-            (winning
-              ? 'The <b>profit coach</b> opens next — follow it before fast-forwarding.'
-              : 'Competitor alerts pause the clock — use the <b>Resume ▶</b> chip or finish the alert, then run at day speed again.'),
-          winning
-            ? 'Coach steps cover marketing, fares, frequency, and when to add a second aircraft — watch Avg load and Daily P&L in the HUD.'
-            : 'Watch cash runway in the HUD. If load factor stays above ~70%, consider more frequency or modest marketing at your origin.',
+            'Competitor alerts pause the clock — finish the alert, then run at day speed again.',
+          'Watch cash runway and Daily P&L in the HUD. If load stays healthy, consider more frequency or modest marketing at your origin.',
           'Got it — let me play →',
           'tutorial_finish',
           null,
@@ -6634,7 +6620,7 @@
     });
     renderRoutes({ forceForm: true });
     const form = $('route-launch-form');
-    if (form) form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (form) scrollSidePanelTo(form, { block: 'nearest' });
   }
 
   function bumpRouteFrequency(routeId, delta) {
@@ -8919,16 +8905,7 @@
     requestAnimationFrame(() => {
       const el = document.querySelector(selector);
       if (!el) return;
-      if (scrollParent) {
-        const parent = document.querySelector(scrollParent);
-        if (parent && parent.scrollIntoView) {
-          try {
-            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          } catch (e) {
-            el.scrollIntoView();
-          }
-        }
-      }
+      if (scrollParent) scrollSidePanelTo(el, { block: 'nearest' });
       el.classList.remove('context-pulse');
       void el.offsetWidth;
       el.classList.add('context-pulse');
@@ -9003,10 +8980,8 @@
       renderRoutes();
       if (routesFrom.length) scheduleContextPulse(`.route-card[data-origin="${iata}"]`, '#panel-routes');
     }
-    if (isMobileLayout()) {
-      const apPanel = $('airport-panel');
-      if (apPanel) apPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
+    const apPanel = $('airport-panel');
+    if (apPanel) scrollSidePanelTo(apPanel, { block: 'nearest' });
   }
 
   function renderAirportPanel(iata) {
@@ -10223,9 +10198,9 @@
       showRouteFormError(`${origin} → ${destIata} ready — click Plan & launch route… below.`);
     }
     const preview = $('route-preview');
-    if (preview) preview.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (preview) scrollSidePanelTo(preview, { block: 'nearest' });
     const submitBtn = $('btn-submit-route');
-    if (submitBtn) submitBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (submitBtn) scrollSidePanelTo(submitBtn, { block: 'nearest' });
   }
 
   function bindRouteAirportInputs() {
