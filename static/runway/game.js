@@ -3005,6 +3005,21 @@
     return `<span class="muted">Health ${health}% · This airport ~${impPct}% of their focus · ${pain}</span>`;
   }
 
+  function planeSeatLoadToday(planeId) {
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === planeId);
+    if (!routes.length) return null;
+    let sum = 0;
+    let n = 0;
+    routes.forEach((route) => {
+      const r = simulateRouteDay(route);
+      if (!r.grounded && Number.isFinite(r.load)) {
+        sum += r.load;
+        n += 1;
+      }
+    });
+    return n ? sum / n : null;
+  }
+
   function networkRouteStats() {
     if (!state || !state.routes.length) {
       return { count: 0, profitable: 0, dailyPnl: 0, avgLoad: 0 };
@@ -8202,6 +8217,16 @@
     const showClock = state.speed === 'slow' || state.hour != null;
     setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
     setText('hud-pnl', fmtMoney(state.daily_pnl));
+    const net = networkRouteStats();
+    const loadPct = net.count ? Math.round(net.avgLoad * 100) : null;
+    setText('hud-load', loadPct != null ? `${loadPct}%` : '—');
+    if (loadPct != null) {
+      if (loadPct >= 70) setStatPillTone('hud-pill-load', 'good');
+      else if (loadPct >= 45) setStatPillTone('hud-pill-load', 'warn');
+      else setStatPillTone('hud-pill-load', 'danger');
+    } else {
+      setStatPillTone('hud-pill-load', null);
+    }
     const rb = bootstrap.routelab || {};
     const productName = rb.name || 'Route Lab';
     setText('hud-product-name', productName);
@@ -8342,16 +8367,23 @@
           : `${Math.ceil((f.life_months_left || 0) / 12)} yr life`;
         const util = planeMonthUtilizationPct(f);
         const utilToday = planeUtilizationPct(f);
+        const assigned = state.routes.filter((r) => r.aircraft_id === f.id).length;
+        const seatLoad = planeSeatLoadToday(f.id);
+        const seatLoadLabel =
+          seatLoad != null
+            ? `<b class="${seatLoad >= 0.7 ? 'chip-load-good' : seatLoad >= 0.45 ? 'chip-load-warn' : 'chip-load-bad'}">${(seatLoad * 100).toFixed(0)}%</b> seats full today`
+            : assigned
+              ? '—'
+              : 'idle';
         const aog = f.aog_days_left > 0 ? ` <span class="danger">AOG ${f.aog_days_left}d</span>` : '';
         const utilBarClass = util < 40 ? 'util-bad' : util > 85 ? '' : 'util-warn';
-        const assigned = state.routes.filter((r) => r.aircraft_id === f.id).length;
         const blockCap = planeWeeklyBlockHoursCapacity(f);
         const blockUsed = planeWeeklyBlockHoursUsed(f.id);
         html += `<div class="fleet-owned-card">
           <strong>${ac.name}</strong>${aog}
           <span class="muted">${seats} seats · ${f.leased ? 'Leased' : 'Owned'} · ${life}</span>
           <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'} · <b>${blockUsed.toFixed(1)}/${blockCap.toFixed(1)}</b> block-hr/wk scheduled</span>
-          <span class="muted" style="font-size:0.7rem;">Util ${util.toFixed(0)}% MTD · ${utilToday.toFixed(0)}% today — one aircraft, one place at a time</span>
+          <span class="muted" style="font-size:0.7rem;">Seat load: ${seatLoadLabel} · Schedule util ${utilToday.toFixed(0)}% today / ${util.toFixed(0)}% MTD</span>
           <div class="util-bar ${utilBarClass}"><span style="width:${Math.min(100, util)}%"></span></div>
         </div>`;
       });
