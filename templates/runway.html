@@ -140,8 +140,11 @@
 
   .game-layout {
     display: grid;
-    grid-template-columns: 1fr 340px;
+    grid-template-columns: 1fr minmax(260px, 300px);
     min-height: calc(100vh - 120px);
+  }
+  @media (min-width: 1100px) {
+    .game-layout { grid-template-columns: 1.4fr minmax(280px, 320px); }
   }
   @media (max-width: 900px) {
     .game-layout { grid-template-columns: 1fr; }
@@ -179,7 +182,7 @@
   #map-zoom-reset { font-size: 10px; font-weight: 600; }
   #runway-map {
     width: 100%;
-    min-height: 360px;
+    min-height: 420px;
     height: auto;
     display: block;
     border-radius: 10px;
