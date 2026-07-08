@@ -1,0 +1,24 @@
+{
+  "usa": {
+    "src": "/static/runway/us-map-styled.png",
+    "width": 1920,
+    "height": 1188,
+    "bounds": {
+      "lonMin": -124.85,
+      "lonMax": -66.7,
+      "latMin": 24.3,
+      "latMax": 49.55
+    }
+  },
+  "ohio": {
+    "src": "/static/runway/ohio-region-map.png",
+    "width": 960,
+    "height": 1266,
+    "bounds": {
+      "lonMin": -87.35,
+      "lonMax": -78.75,
+      "latMin": 36.15,
+      "latMax": 44.35
+    }
+  }
+}

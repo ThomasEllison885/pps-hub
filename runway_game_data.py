@@ -243,20 +243,31 @@ def _build_airport(r):
     if incumbents:
         hub_airline = incumbents[0]['airline']
         hub_strength = max(x['share'] for x in incumbents)
+    metro = r[5]
+    pax = r[6]
+    wealth_index = round(min(1.0, max(0.06, 0.06 + metro * 0.11 + pax * 0.012)), 3)
+    luxury_share = round(min(0.45, max(0.02, 0.04 + metro * 0.028 + (0.14 if r[9] else 0.02))), 3)
+    if pax < 2.0:
+        luxury_share = round(luxury_share * 0.55, 3)
+    if pax < 0.6:
+        wealth_index = round(wealth_index * 0.62, 3)
+        luxury_share = round(luxury_share * 0.45, 3)
     return {
         'iata': iata,
         'name': r[1],
         'city': r[2],
         'lat': r[3],
         'lon': r[4],
-        'metro_pop_m': r[5],
-        'annual_pax_m': r[6],
+        'metro_pop_m': metro,
+        'annual_pax_m': pax,
         'gates_total': r[7],
         'gates_available': r[8],
         'slot_controlled': r[9],
         'hub_airline': hub_airline,
         'hub_strength': hub_strength,
         'incumbents': incumbents,
+        'wealth_index': wealth_index,
+        'luxury_share': luxury_share,
         'state': r[12] if len(r) > 12 else None,
         'lease_exclusive_monthly': int(12_000 + r[6] * 800 + (20 if r[9] else 0)),
         'lease_common_monthly': int(5_000 + r[6] * 350),
