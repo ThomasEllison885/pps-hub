@@ -3821,6 +3821,214 @@
     );
   }
 
+  function gateUtilizationAt(iata) {
+    const cap = gateCapacityLabel(iata);
+    const ap = airport(iata);
+    const gates = gateCountAt(iata);
+    const pct = cap.max > 0 ? (cap.used / cap.max) * 100 : 0;
+    const routesFrom = (state.routes || []).filter((r) => r.origin === iata);
+    const perGate = gates > 0 && ap ? airportGateWeeklyCapacity(ap) : 0;
+    const idle = gates > 0 && cap.used === 0;
+    const underutilized =
+      gates > 0 &&
+      cap.remaining >= 3 &&
+      (pct < 70 || (routesFrom.length === 1 && pct < 85) || routesFrom.length === 0);
+    const tight = cap.max > 0 && cap.remaining <= Math.max(1, Math.floor(cap.max * 0.08));
+    return {
+      iata,
+      ap,
+      ...cap,
+      pct,
+      gates,
+      perGate,
+      routesFrom,
+      routeCount: routesFrom.length,
+      idle,
+      underutilized,
+      tight,
+    };
+  }
+
+  function allGateUtilizations() {
+    const iatas = [...new Set((state.gates || []).map((g) => g.airport))];
+    return iatas.map((iata) => gateUtilizationAt(iata)).sort((a, b) => a.pct - b.pct);
+  }
+
+  function primaryUnderutilizedHub() {
+    return allGateUtilizations().find((u) => u.underutilized) || null;
+  }
+
+  function gateUtilPctClass(pct, util) {
+    if (util && util.idle) return 'low';
+    if (pct >= 78) return 'high';
+    if (pct >= 45) return 'mid';
+    return 'low';
+  }
+
+  function gateCapacityBarHtml(util, opts) {
+    opts = opts || {};
+    if (!util || !util.gates) return '';
+    const pct = Math.min(100, util.pct || 0);
+    const barClass =
+      util.idle || util.pct < 35 ? 'util-bad' : util.underutilized ? 'util-warn' : util.tight ? 'util-warn' : 'util-good';
+    const pctClass = gateUtilPctClass(pct, util);
+    const label = opts.compact
+      ? `${util.used}/${util.max}/wk`
+      : `${util.used} of ${util.max} departures/wk scheduled`;
+    return `<div class="gate-cap-head">
+        <strong>${opts.title || util.iata + ' gate capacity'}</strong>
+        <span class="gate-cap-pct ${pctClass}">${pct.toFixed(0)}% used</span>
+      </div>
+      <div class="util-bar ${barClass}" title="${label}"><span style="width:${pct}%"></span></div>
+      <p class="gate-cap-note">${label} · <b>${util.remaining}</b> open · ${util.gates} gate${util.gates !== 1 ? 's' : ''} × ${util.perGate}/wk</p>`;
+  }
+
+  function gateUtilizationSuggestions(util) {
+    if (!util || !util.underutilized) return [];
+    const out = [];
+    if (util.routeCount === 0) {
+      out.push({
+        text: `No flights use your gate at <b>${util.iata}</b> yet — you're paying lease on empty capacity.`,
+        action: 'add_route',
+      });
+      return out;
+    }
+    if (util.routeCount === 1) {
+      const r = util.routesFrom[0];
+      const routeMax = maxFrequencyForRoute(r.origin, r.dest, r.aircraft_type);
+      const freqHeadroom = Math.min(util.remaining, Math.max(0, routeMax - (r.frequency_week || 0)));
+      if (freqHeadroom >= 2) {
+        out.push({
+          text: `Only one route at <b>${util.iata}</b> (${util.pct.toFixed(0)}% of gate time). You could add <b>+${freqHeadroom}</b> weekly departures on <b>${r.origin}–${r.dest}</b>.`,
+          action: 'bump_freq',
+          routeId: r.id,
+          delta: Math.min(7, freqHeadroom),
+        });
+      }
+    }
+    out.push({
+      text: `<b>${util.remaining}</b> departures/wk still open at <b>${util.iata}</b> — add another destination or raise frequency.`,
+      action: 'add_route',
+    });
+    return out;
+  }
+
+  function gateUtilizationPromptHtml(util, opts) {
+    opts = opts || {};
+    if (!util || (!util.underutilized && !util.idle)) return '';
+    const cardClass = util.idle ? 'gate-cap-card idle' : 'gate-cap-card warn';
+    const suggestions = gateUtilizationSuggestions(util);
+    const sugHtml = suggestions
+      .map((s) => `<li>${s.text}</li>`)
+      .join('');
+    const actions = [];
+    if (suggestions.some((s) => s.action === 'add_route')) {
+      actions.push(
+        `<button type="button" class="btn" data-hub-routes="${util.iata}">Plan route from ${util.iata}</button>`
+      );
+    }
+    const bump = suggestions.find((s) => s.action === 'bump_freq');
+    if (bump) {
+      actions.push(
+        `<button type="button" class="btn secondary" data-bump-freq="${bump.routeId}" data-bump-delta="${bump.delta}">+${bump.delta}/wk on ${util.routesFrom[0].origin}–${util.routesFrom[0].dest}</button>`
+      );
+    }
+    if (opts.showScout) {
+      actions.push(
+        `<button type="button" class="btn secondary" data-hub-scout="${util.iata}">View ${util.iata} on map</button>`
+      );
+    }
+    return `<div class="${cardClass}">
+      ${gateCapacityBarHtml(util, opts)}
+      <ul class="list" style="margin:8px 0 0;font-size:0.72rem;">${sugHtml}</ul>
+      ${actions.length ? `<div class="gate-cap-actions">${actions.join('')}</div>` : ''}
+    </div>`;
+  }
+
+  function gateCapacityNetworkHtml() {
+    const utils = allGateUtilizations();
+    if (!utils.length) return '';
+    const under = utils.filter((u) => u.underutilized || u.idle);
+    let html = `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
+      <p style="font-size:0.78rem;margin:0 0 8px;color:var(--gold);font-weight:600;">Gate capacity</p>`;
+    utils.forEach((u) => {
+      html += `<div class="gate-hub-row">
+        <strong style="font-size:0.76rem;min-width:42px;">${u.iata}</strong>
+        <div class="util-bar ${u.underutilized ? 'util-warn' : u.tight ? 'util-warn' : 'util-good'}" style="flex:1;">
+          <span style="width:${Math.min(100, u.pct)}%"></span>
+        </div>
+        <span class="gate-cap-pct ${gateUtilPctClass(u.pct, u)}" style="min-width:52px;text-align:right;">${u.pct.toFixed(0)}%</span>
+        <span class="muted" style="font-size:0.68rem;">${u.used}/${u.max}</span>
+      </div>`;
+    });
+    html += `<p class="muted" style="font-size:0.66rem;margin:8px 0 0;">Departures/week per gate — limited by airport hours and turnaround. Open slots = room for new routes or more frequency.</p>`;
+    if (under.length) {
+      html += under
+        .slice(0, 2)
+        .map((u) => gateUtilizationPromptHtml(u, { compact: true, showScout: false }))
+        .join('');
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function bindGateCapacityActions(root) {
+    const scope = root || document;
+    scope.querySelectorAll('[data-hub-routes]').forEach((btn) => {
+      if (btn._gateCapBound) return;
+      btn._gateCapBound = true;
+      btn.addEventListener('click', () => focusHubForRoutes(btn.dataset.hubRoutes));
+    });
+    scope.querySelectorAll('[data-hub-scout]').forEach((btn) => {
+      if (btn._gateCapBound) return;
+      btn._gateCapBound = true;
+      btn.addEventListener('click', () => selectAirport(btn.dataset.hubScout));
+    });
+    scope.querySelectorAll('[data-bump-freq]').forEach((btn) => {
+      if (btn._gateCapBound) return;
+      btn._gateCapBound = true;
+      btn.addEventListener('click', () => {
+        bumpRouteFrequency(btn.dataset.bumpFreq, +btn.dataset.bumpDelta || 1);
+      });
+    });
+  }
+
+  function focusHubForRoutes(iata) {
+    if (!iata || !state) return;
+    selectAirport(iata);
+    switchTab('routes');
+    const ap = airport(iata);
+    setRouteFormDraft({
+      origin: iata,
+      originLabel: ap ? airportLabel(ap) : iata,
+      dest: '',
+      destLabel: '',
+    });
+    renderRoutes({ forceForm: true });
+    const form = $('route-launch-form');
+    if (form) form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function bumpRouteFrequency(routeId, delta) {
+    const route = routeById(routeId);
+    if (!route || !delta) return;
+    const add = Math.max(1, Math.round(delta));
+    const newFreq = (route.frequency_week || 0) + add;
+    const routeMax = maxFrequencyForRoute(route.origin, route.dest, route.aircraft_type);
+    const capped = Math.min(newFreq, routeMax);
+    const capErr = gateCapacityError(route.origin, capped, route.id);
+    if (capErr) {
+      pushPlayerEvent(capErr);
+      return;
+    }
+    route.frequency_week = capped;
+    pushPlayerEvent(`increased ${route.origin}–${route.dest} to ${capped}x/wk — using more gate capacity at ${route.origin}.`);
+    saveGame();
+    renderRoutes();
+    if (selectedAirport === route.origin) renderAirportPanel(route.origin);
+    renderOpsGuide();
+  }
+
   function ensureMarketingInvestments() {
     if (!state) return;
     if (!state.marketing_investments) {
@@ -5629,15 +5837,22 @@
     const gateSummary = myGates.length
       ? `${myGates.length} gate${myGates.length > 1 ? 's' : ''} · ${myGates.map((g) => `${g.tier} $${g.monthly.toLocaleString()}/mo`).join(' · ')}`
       : '<span class="danger">None — lease below</span>';
-    const cap = gateCapacityLabel(iata);
-    const capLine = myGates.length
-      ? `${cap.used}/${cap.max} departures/wk used · <b>${cap.remaining}</b> remaining (${airportGateWeeklyCapacity(ap)}/gate · ${ap.ops_hours_per_day || 14}h/day)`
-      : '—';
+    const util = myGates.length ? gateUtilizationAt(iata) : null;
+    const capPrompt = util ? gateUtilizationPromptHtml(util, { title: `${iata} — your gate`, showScout: false }) : '';
+    const routesFromList =
+      util && util.routesFrom.length
+        ? `<p class="muted" style="font-size:0.68rem;margin-top:6px;">Routes from ${iata}: ${util.routesFrom
+            .map((r) => `${r.origin}–${r.dest} ${r.frequency_week}/wk`)
+            .join(' · ')}</p>`
+        : util && myGates.length
+          ? `<p class="muted" style="font-size:0.68rem;margin-top:6px;">No departures scheduled from ${iata} yet.</p>`
+          : '';
     const canLeaseMore = ap.gates_available > 0;
     const positionBody = `
+      ${capPrompt}
+      ${routesFromList}
       <dl class="stat-dl">
         <dt>Your gates</dt><dd>${gateSummary}</dd>
-        <dt>Departure capacity</dt><dd>${capLine}</dd>
         <dt>Brand awareness</dt><dd>${(state.brand_awareness[iata] || 0).toFixed(0)}%</dd>
       </dl>
       ${
@@ -5661,6 +5876,7 @@
       ${panelSectionHtml('position', gate ? 'Your position' : 'Lease a gate', airportSections.position, positionBody)}
     `;
     bindAirportPanelToggles();
+    bindGateCapacityActions(panel);
   }
 
   function setText(id, text) {
@@ -5748,12 +5964,39 @@
       };
     }
     if (!state.routes.length) {
+      const idle = firstGate ? gateUtilizationAt(firstGate) : null;
+      const idleNote =
+        idle && idle.gates
+          ? ` Your gate allows <b>${idle.max}</b> departures/wk — none scheduled yet.`
+          : '';
       return {
         step: 3,
-        text: `Launch your first route from <b>${firstGate}</b> — use suggestions in the Routes tab.`,
+        text: `Launch your first route from <b>${firstGate}</b> — use suggestions in the Routes tab.${idleNote}`,
         actions: [
-          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+          { label: `Plan route from ${firstGate}`, effect: 'hub_routes', airport: firstGate },
           { label: `Scout ${firstGate}`, effect: 'airport', airport: firstGate },
+        ],
+      };
+    }
+    const underHub = primaryUnderutilizedHub();
+    if (underHub) {
+      const sug = gateUtilizationSuggestions(underHub)[0];
+      return {
+        step: 0,
+        text: sug ? sug.text : `Gate at <b>${underHub.iata}</b> is only <b>${underHub.pct.toFixed(0)}%</b> used (${underHub.remaining} departures/wk open).`,
+        actions: [
+          { label: `Use ${underHub.iata} capacity`, effect: 'hub_routes', airport: underHub.iata },
+          ...(underHub.routesFrom.length === 1 &&
+          gateUtilizationSuggestions(underHub).find((s) => s.action === 'bump_freq')
+            ? [
+                {
+                  label: `+freq ${underHub.routesFrom[0].origin}–${underHub.routesFrom[0].dest}`,
+                  effect: 'bump_freq',
+                  routeId: underHub.routesFrom[0].id,
+                  delta: gateUtilizationSuggestions(underHub).find((s) => s.action === 'bump_freq').delta,
+                },
+              ]
+            : []),
         ],
       };
     }
@@ -5794,6 +6037,12 @@
               if (a.effect === 'focus_map') {
                 return `<button type="button" class="btn secondary" data-ops-map="1">${a.label}</button>`;
               }
+              if (a.effect === 'hub_routes' && a.airport) {
+                return `<button type="button" class="btn secondary" data-ops-hub-routes="${a.airport}">${a.label}</button>`;
+              }
+              if (a.effect === 'bump_freq' && a.routeId) {
+                return `<button type="button" class="btn secondary" data-ops-bump-freq="${a.routeId}" data-ops-bump-delta="${a.delta || 1}">${a.label}</button>`;
+              }
               return '';
             })
             .join('')}</div>`
@@ -5827,6 +6076,12 @@
         if (map) map.scrollIntoView({ block: 'center', behavior: 'smooth' });
       });
     }
+    el.querySelectorAll('[data-ops-hub-routes]').forEach((btn) => {
+      btn.addEventListener('click', () => focusHubForRoutes(btn.dataset.opsHubRoutes));
+    });
+    el.querySelectorAll('[data-ops-bump-freq]').forEach((btn) => {
+      btn.addEventListener('click', () => bumpRouteFrequency(btn.dataset.opsBumpFreq, +btn.dataset.opsBumpDelta || 1));
+    });
   }
 
   function setHudFinancialsView(view) {
@@ -6080,18 +6335,21 @@
   }
 
   function networkSnapshotHtml() {
+    const gateBlock = gateCapacityNetworkHtml();
     const net = networkRouteStats();
-    if (!net.count) return '';
+    if (!net.count && !gateBlock) return '';
     const pnlClass = net.dailyPnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
-    return `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
+    const routeBlock = net.count
+      ? `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
         <p style="font-size:0.78rem;margin:0 0 6px;color:var(--gold);font-weight:600;">Network snapshot</p>
         <p style="font-size:0.75rem;margin:0;line-height:1.45;">
           <span class="${pnlClass}"><b>${fmtMoney(net.dailyPnl)}/day</b></span> route P&L ·
           <b>${net.profitable}/${net.count}</b> profitable ·
           avg load <b>${(net.avgLoad * 100).toFixed(0)}%</b>
         </p>
-        <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">Unprofitable routes can still make sense short-term to pressure weak competitors — check their health in the airport Competition card.</p>
-      </div>`;
+      </div>`
+      : '';
+    return gateBlock + routeBlock;
   }
 
   function runningRoutesHtml() {
@@ -6155,6 +6413,22 @@
                 : '';
           forecastHtml = `<p class="${forecastClass}">Planned ${(forecastLoad * 100).toFixed(0)}% → Actual ${actualLabel}${paxNote}</p>`;
         }
+        const originUtil = gateUtilizationAt(route.origin);
+        const routeMaxFreq = maxFrequencyForRoute(route.origin, route.dest, route.aircraft_type);
+        const freqHeadroom = Math.min(
+          originUtil.remaining,
+          Math.max(0, routeMaxFreq - (route.frequency_week || 0))
+        );
+        const gateSharePct =
+          originUtil.max > 0 ? ((route.frequency_week || 0) / originUtil.max) * 100 : 0;
+        let capActionHtml = '';
+        if (freqHeadroom >= 2 && originUtil.underutilized) {
+          const bump = Math.min(7, freqHeadroom);
+          capActionHtml = `<button type="button" class="btn secondary" style="font-size:0.66rem;padding:4px 8px;margin-top:6px;" data-bump-freq="${route.id}" data-bump-delta="${bump}">Use more gate time (+${bump}/wk)</button>`;
+        }
+        const gateNote = originUtil.gates
+          ? `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">${route.origin} gate: <b>${route.frequency_week}</b> of <b>${originUtil.max}</b>/wk (${gateSharePct.toFixed(0)}% of hub) · <b>${originUtil.remaining}</b> open at origin</p>${capActionHtml}`
+          : '';
         html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
           <div class="route-card-head">
             <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
@@ -6163,6 +6437,7 @@
             <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
           </div>
           ${forecastHtml}
+          ${gateNote}
           <div class="route-card-meta">
             <span>${route.frequency_week}/wk</span>
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
@@ -6189,6 +6464,11 @@
     return html;
   }
 
+  function bindRunningRouteActions() {
+    const running = $('route-list-running');
+    if (running) bindGateCapacityActions(running);
+  }
+
   function fleetOptionsHtml(selectedId) {
     if (!state.fleet.length) {
       return '<option value="">— add aircraft in Fleet tab —</option>';
@@ -6213,10 +6493,15 @@
     const freq = draft.freq || '7';
     const fare = draft.fare || '129';
 
+    const util = hasGateAt(defOrigin) ? gateUtilizationAt(defOrigin) : null;
     const gateNote = hasGateAt(defOrigin)
-      ? '<span class="muted"> · gate leased</span>'
+      ? util
+        ? ` · <b>${util.used}/${util.max}</b> departures/wk used (<b>${util.remaining}</b> open)`
+        : '<span class="muted"> · gate leased</span>'
       : '<span class="danger"> · lease a gate here first</span>';
+    const capBanner = util && util.underutilized ? gateUtilizationPromptHtml(util, { compact: true }) : '';
     return `<p class="ops-section-title">Launch route</p>
+      ${capBanner}
       <p class="muted route-origin-hint" style="font-size:0.75rem;">Launching from <b>${defOrigin}</b>${gateNote} — click map airports to change origin, or edit the field below.</p>
       <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
@@ -6292,6 +6577,9 @@
     if (snapshotEl && runningEl && formEl && !forceForm) {
       snapshotEl.innerHTML = networkSnapshotHtml();
       runningEl.innerHTML = runningRoutesHtml();
+      bindRunningRouteActions();
+      bindGateCapacityActions(snapshotEl);
+      bindGateCapacityActions(formEl);
       refreshRouteLaunchFormSections(draft);
       return;
     }
@@ -6303,6 +6591,8 @@
     html += `<div id="route-launch-form">${routeLaunchFormHtml(draft)}</div>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
+    bindGateCapacityActions(el);
+    bindRunningRouteActions();
     renderRouteSuggestions();
     updateRoutePreview();
   }
@@ -6318,11 +6608,22 @@
     const oAp = airport(origin);
     const hasGate = hasGateAt(origin);
     const ideas = routeSuggestionsFrom(origin);
+    const util = hasGateAt(origin) ? gateUtilizationAt(origin) : null;
+    let capLead = '';
+    if (util && util.underutilized) {
+      capLead = gateUtilizationPromptHtml(util, { title: `${origin} has open capacity`, compact: true });
+    } else if (util && util.gates) {
+      capLead = `<div class="gate-cap-card" style="margin-bottom:10px;">${gateCapacityBarHtml(util, { title: `${origin} gate capacity`, compact: true })}</div>`;
+    }
     if (!ideas.length) {
-      box.innerHTML = '<p class="muted">No viable destinations in range from this airport.</p>';
+      box.innerHTML =
+        capLead + '<p class="muted">No viable destinations in range from this airport.</p>';
+      bindGateCapacityActions(box);
       return;
     }
-    let html = `<h4 style="margin:12px 0 6px;font-size:0.88rem;color:var(--gold);">Popular from ${origin}${oAp ? ` (${oAp.city})` : ''}</h4>`;
+    let html =
+      capLead +
+      `<h4 style="margin:12px 0 6px;font-size:0.88rem;color:var(--gold);">Popular from ${origin}${oAp ? ` (${oAp.city})` : ''}</h4>`;
     if (!hasGate) {
       html += `<p class="muted" style="font-size:0.75rem;margin-bottom:8px;">You need a gate at ${origin} before launching.</p>`;
     }
@@ -6347,6 +6648,7 @@
     });
     html += '</ul>';
     box.innerHTML = html;
+    bindGateCapacityActions(box);
   }
 
   function updateRoutePreview() {
@@ -6896,6 +7198,8 @@
     applyMarketing,
     applyMarketingInvestments,
     applyRouteSuggestion,
+    focusHubForRoutes,
+    bumpRouteFrequency,
     setRouteFare,
     setRouteAncillary,
     resetRouteFare,

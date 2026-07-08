@@ -1171,6 +1171,53 @@
   }
   .util-bar.util-warn span { background: var(--gold); }
   .util-bar.util-bad span { background: var(--danger); }
+  .util-bar.util-good span { background: var(--accent); }
+  .gate-cap-card {
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.45);
+    font-size: 0.74rem;
+    line-height: 1.45;
+  }
+  .gate-cap-card.warn {
+    border-color: rgba(255, 209, 102, 0.45);
+    background: rgba(255, 209, 102, 0.07);
+  }
+  .gate-cap-card.idle {
+    border-color: rgba(255, 107, 107, 0.4);
+    background: rgba(255, 107, 107, 0.06);
+  }
+  .gate-cap-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .gate-cap-head strong { color: #fff; font-size: 0.78rem; }
+  .gate-cap-pct {
+    font-weight: 700;
+    font-size: 0.72rem;
+    color: var(--gold);
+  }
+  .gate-cap-pct.low { color: var(--danger); }
+  .gate-cap-pct.mid { color: var(--gold); }
+  .gate-cap-pct.high { color: var(--accent); }
+  .gate-cap-note { font-size: 0.68rem; color: var(--muted); margin-top: 6px; }
+  .gate-cap-actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .gate-cap-actions .btn { font-size: 0.68rem; padding: 5px 10px; }
+  .gate-hub-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .gate-hub-row:last-child { border-bottom: none; }
+  .gate-hub-row .util-bar { flex: 1 1 120px; margin-top: 0; min-width: 100px; }
   .fleet-shop-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
   .ops-section-title {
     font-size: 0.82rem;
@@ -1498,6 +1545,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=37"></script>
+<script src="/static/runway/game.js?v=38"></script>
 </body>
 </html>
