@@ -65,7 +65,7 @@
   .status-btn.na.active   { background:#EEF; border-color:#99A; color:#667; }
   .check-notes { display:none; padding:8px 14px 12px; background:#FAFCFF; border-top:1px solid var(--border); }
   .check-notes.visible { display:block; }
-  .check-notes input { width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:14px; font-family:'DM Sans',sans-serif; outline:none; }
+  .check-notes input { width:100%; padding:8px 10px; border:1.5px solid var(--border); border-radius:6px; font-size:16px; font-family:'DM Sans',sans-serif; outline:none; }
   .check-notes input:focus { border-color:var(--blue); }
   .notes-toggle { font-size:12px; color:var(--blue); cursor:pointer; margin-top:4px; display:inline-block; }
 
@@ -83,24 +83,34 @@
   .status-opt.issue.active  { background:#FEF0EE; border-color:var(--red); color:var(--red); font-weight:600; }
 
   /* SUBMIT BAR */
-  .submit-bar { position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid var(--border); padding:12px 16px; display:flex; gap:8px; z-index:200; box-shadow:0 -2px 12px rgba(0,0,0,0.08); }
-  .btn-save { flex:1; padding:12px; background:white; border:1.5px solid var(--dark-blue); border-radius:8px; color:var(--dark-blue); font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
-  .btn-download { flex:1; padding:12px; background:var(--blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
-  .btn-both { flex:2; padding:12px; background:var(--dark-blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .submit-bar { position:fixed; bottom:0; left:0; right:0; background:white; border-top:1px solid var(--border); padding:12px 16px; display:flex; flex-wrap:wrap; gap:8px; z-index:200; box-shadow:0 -2px 12px rgba(0,0,0,0.08); }
+  .btn-save { flex:1; min-height:44px; padding:12px; background:white; border:1.5px solid var(--dark-blue); border-radius:8px; color:var(--dark-blue); font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-download { flex:1; min-height:44px; padding:12px; background:var(--blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-both { flex:2; min-height:44px; padding:12px; background:var(--dark-blue); border:none; border-radius:8px; color:white; font-size:14px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
   .btn-save:active, .btn-download:active, .btn-both:active { opacity:0.8; }
+  @media (max-width:480px) {
+    .btn-save, .btn-download, .btn-both { flex-basis:calc(50% - 4px); }
+  }
 
   /* TOAST */
-  .toast { position:fixed; top:70px; left:50%; transform:translateX(-50%); background:#222; color:white; padding:10px 20px; border-radius:8px; font-size:13px; z-index:999; display:none; white-space:nowrap; }
+  .toast { position:fixed; top:70px; left:50%; transform:translateX(-50%); background:#222; color:white; padding:10px 20px; border-radius:8px; font-size:13px; z-index:999; display:none; max-width:calc(100vw - 32px); text-align:center; cursor:pointer; }
   .toast.visible { display:block; }
   .toast.success { background:var(--green); }
   .toast.error { background:var(--red); }
+
+  /* DRAFT BANNER */
+  .draft-banner { display:none; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; background:#FFFBF0; border:1px solid #FFE082; border-radius:var(--radius); padding:12px 14px; margin-bottom:14px; font-size:13px; color:#5c4200; }
+  .draft-banner.visible { display:flex; }
+  .draft-banner-actions { display:flex; gap:8px; flex-shrink:0; }
+  .draft-banner-actions button { min-height:36px; padding:8px 14px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; border:1.5px solid #5c4200; background:white; color:#5c4200; font-family:'DM Sans',sans-serif; }
+  .draft-banner-actions button.primary { background:#5c4200; color:white; }
 
   .email-overlay { display:none; position:fixed; inset:0; background:rgba(0,40,80,0.45); z-index:300; align-items:center; justify-content:center; padding:20px; }
   .email-overlay.open { display:flex; }
   .email-panel-sv { background:white; border-radius:var(--radius); max-width:400px; width:100%; padding:20px; box-shadow:0 8px 32px rgba(0,0,0,0.15); }
   .email-panel-sv h3 { font-size:16px; color:var(--dark-blue); margin-bottom:12px; }
   .email-warning-sv { background:#FFFBF0; border:1px solid #FFE082; border-radius:8px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#5c4200; line-height:1.5; }
-  .email-panel-sv input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:15px; margin-bottom:12px; }
+  .email-panel-sv input { width:100%; padding:10px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:16px; margin-bottom:12px; }
   .email-panel-actions { display:flex; gap:8px; justify-content:flex-end; }
   .email-panel-actions button { padding:10px 16px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; border:none; font-family:'DM Sans',sans-serif; }
   .email-cancel { background:white; border:1.5px solid var(--border)!important; color:#666; }
@@ -129,6 +139,14 @@
 </header>
 
 <div class="main">
+
+  <div class="draft-banner" id="draftBanner">
+    <span id="draftBannerText"></span>
+    <div class="draft-banner-actions">
+      <button type="button" onclick="discardDraft()">Discard</button>
+      <button type="button" class="primary" onclick="restoreDraft()">Restore</button>
+    </div>
+  </div>
 
   <!-- 1. PROJECT INFO -->
   <div class="section-card">
@@ -371,6 +389,7 @@ function setCheck(idx, val, btn) {
     document.getElementById(`notes_${idx}`).classList.add('visible');
     document.getElementById(`noteinput_${idx}`).focus();
   }
+  scheduleDraftSave();
 }
 
 function toggleNotes(idx) {
@@ -395,6 +414,7 @@ function toggle(btn, fieldId, val) {
     const el = document.getElementById(slideMap[fieldId]);
     el.classList.toggle('visible', val === 'yes');
   }
+  scheduleDraftSave();
 }
 
 // ── STATUS OPTS ────────────────────────────────────────────────────────
@@ -403,17 +423,129 @@ function selectStatus(btn, fieldId, val) {
   const group = btn.closest('.status-opts');
   group.querySelectorAll('.status-opt').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  scheduleDraftSave();
 }
 
 // ── DEFAULT DATE ───────────────────────────────────────────────────────
 document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
 
 // ── SUBMIT ─────────────────────────────────────────────────────────────
+let _toastTimer = null;
 function showToast(msg, type='') {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast visible ' + type;
-  setTimeout(() => t.className = 'toast', 3000);
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => t.className = 'toast', type === 'error' ? 6000 : 3000);
 }
+document.getElementById('toast').addEventListener('click', function() {
+  clearTimeout(_toastTimer);
+  this.className = 'toast';
+});
+
+// ── DRAFT SAVE / RESTORE ────────────────────────────────────────────────
+const DRAFT_KEY = 'pps_site_visit_draft_v1';
+let _draftSaveTimer = null;
+let _pendingDraftData = null;
+
+function scheduleDraftSave() {
+  clearTimeout(_draftSaveTimer);
+  _draftSaveTimer = setTimeout(saveDraft, 600);
+}
+
+function saveDraft() {
+  try {
+    const data = collectFormData();
+    if (!data.property_name && !data.property_address && !data.observations) return;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ts: Date.now(), data }));
+  } catch (e) { /* localStorage unavailable or full — draft save is best-effort */ }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+}
+
+function clickButtonWithOnclickContaining(substr) {
+  const btns = document.querySelectorAll('button[onclick]');
+  for (const b of btns) {
+    if (b.getAttribute('onclick').includes(substr)) { b.click(); return true; }
+  }
+  return false;
+}
+
+function populateForm(d) {
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  setVal('propertyName', d.property_name);
+  setVal('propertyAddress', d.property_address);
+  setVal('visitDate', d.visit_date);
+  setVal('visitTime', d.visit_time);
+  setVal('visitedBy', d.visited_by);
+  setVal('poNumber', d.po_number);
+  setVal('tpCompany', d.trade_partner_company);
+  setVal('crewLead', d.crew_lead);
+  setVal('crewCount', d.crew_count);
+  setVal('staffContact', d.staff_contact);
+  setVal('topicsDiscussed', d.topics_discussed);
+  setVal('complaintDetailsText', d.complaint_details);
+  setVal('observations', d.observations);
+  setVal('nextVisitDate', d.next_visit_date);
+
+  if (d.trade_partner_present) clickButtonWithOnclickContaining(`'tpPresent','${d.trade_partner_present}')`);
+  if (d.met_with_staff) clickButtonWithOnclickContaining(`'metStaff','${d.met_with_staff}')`);
+  if (d.complaints_received) clickButtonWithOnclickContaining(`'complaintsReceived','${d.complaints_received}')`);
+  if (d.photos_taken != null) clickButtonWithOnclickContaining(`'photosTaken','${d.photos_taken ? 'yes' : 'no'}')`);
+  if (d.overall_status) clickButtonWithOnclickContaining(`'overallStatus','${d.overall_status}')`);
+  if (d.quality_status) clickButtonWithOnclickContaining(`'qualityStatus','${d.quality_status}')`);
+  if (d.schedule_status) clickButtonWithOnclickContaining(`'scheduleStatus','${d.schedule_status}')`);
+
+  if (Array.isArray(d.checklist)) {
+    d.checklist.forEach((item, idx) => {
+      if (item.status) clickButtonWithOnclickContaining(`setCheck(${idx},'${item.status}',`);
+      if (item.notes) {
+        const noteInput = document.getElementById(`noteinput_${idx}`);
+        if (noteInput) {
+          noteInput.value = item.notes;
+          checklistState[idx].notes = item.notes;
+          document.getElementById(`notes_${idx}`).classList.add('visible');
+        }
+      }
+    });
+  }
+}
+
+function showDraftBanner(when, data) {
+  _pendingDraftData = data;
+  document.getElementById('draftBannerText').textContent = `Unsaved report found from ${when}.`;
+  document.getElementById('draftBanner').classList.add('visible');
+}
+
+function restoreDraft() {
+  if (_pendingDraftData) populateForm(_pendingDraftData);
+  document.getElementById('draftBanner').classList.remove('visible');
+  _pendingDraftData = null;
+  showToast('Draft restored', 'success');
+}
+
+function discardDraft() {
+  clearDraft();
+  document.getElementById('draftBanner').classList.remove('visible');
+  _pendingDraftData = null;
+}
+
+function checkForDraft() {
+  let raw;
+  try { raw = localStorage.getItem(DRAFT_KEY); } catch (e) { return; }
+  if (!raw) return;
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch (e) { return; }
+  if (!parsed || !parsed.data) return;
+  if (document.getElementById('propertyName').value.trim()) return;
+  const when = new Date(parsed.ts).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  showDraftBanner(when, parsed.data);
+}
+
+document.querySelector('.main').addEventListener('input', scheduleDraftSave);
+document.querySelector('.main').addEventListener('change', scheduleDraftSave);
+checkForDraft();
 
 function blobToBase64(blob) {
   return new Promise((res, rej) => {
@@ -459,9 +591,8 @@ async function confirmEmail() {
   _pendingEmailData = null;
 }
 
-async function submitSV(action) {
-  const data = {
-    action,
+function collectFormData() {
+  return {
     property_name:      document.getElementById('propertyName').value.trim(),
     property_address:   document.getElementById('propertyAddress').value.trim(),
     visit_date:         document.getElementById('visitDate').value,
@@ -485,6 +616,10 @@ async function submitSV(action) {
     photos_taken:       document.getElementById('photosTaken').value === 'yes',
     next_visit_date:    document.getElementById('nextVisitDate').value,
   };
+}
+
+async function submitSV(action) {
+  const data = { action, ...collectFormData() };
 
   if (!data.property_name) { showToast('Please enter a property name', 'error'); return; }
 
@@ -525,7 +660,7 @@ async function submitSV(action) {
         credentials: 'same-origin',
       });
       const result = await resp.json();
-      if (result.success) showToast('Saved to Hub ✓', 'success');
+      if (result.success) { showToast('Saved to Hub ✓', 'success'); clearDraft(); }
       else showToast('Save failed: ' + result.error, 'error');
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
     return;
@@ -545,6 +680,7 @@ async function submitSV(action) {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(saveData), credentials:'same-origin'
       });
+      const saveResult = saveResp.ok ? await saveResp.json() : { success: false };
 
       const dlData = {...data, action:'download'};
       const dlResp = await fetch('/site-visit/generate', {
@@ -560,7 +696,12 @@ async function submitSV(action) {
       const date = (data.visit_date||'').replace(/-/g,'');
       a.download = `PPS_Site_Visit_${prop}_${date}.docx`;
       a.click(); URL.revokeObjectURL(url);
-      showToast('Saved & downloading ✓', 'success');
+      if (saveResult.success) {
+        showToast('Saved & downloading ✓', 'success');
+        clearDraft();
+      } else {
+        showToast('Downloaded, but save to Hub failed — try Save again', 'error');
+      }
     } catch(e) { showToast('Error: ' + e.message, 'error'); }
   }
 }

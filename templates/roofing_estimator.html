@@ -10,7 +10,7 @@
   .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
   .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
   .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
-  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font-body);outline:none;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:16px;font-family:var(--font-body);outline:none;}
   .upload-zone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;background:white;}
   .upload-zone:hover{border-color:var(--blue);background:#f8fcff;}
   .upload-zone input{display:none;}
@@ -36,6 +36,10 @@
 </header>
 
 <div class="pps-main-narrow">
+  <div class="pps-step-progress" id="stepProgress" data-step-selector=".form-section">
+    <span class="pps-step-progress-text" id="stepProgressText">Step 1</span>
+    <div class="pps-step-progress-bar"><div class="pps-step-progress-fill" id="stepProgressFill"></div></div>
+  </div>
   <div class="pps-page-title">Roofing Estimator</div>
   <p class="pps-page-sub">Upload EagleView (Bid Perfect or Premium) or Roofr. Default product line: <strong>GAF Timberline</strong>. Bid Perfect → quick bid; Premium/Roofr → full material list.</p>
 
@@ -102,9 +106,11 @@
   </div>
 
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+  <div id="errorMsg" style="color:#C00;font-size:14px;margin-top:10px;display:none;"></div>
 </div>
 
 <script src="/static/estimate-reliability.js"></script>
+<script src="/static/step-progress.js"></script>
 <script>
 let measurements = {};
 let reportType = '';
@@ -173,8 +179,11 @@ function getInputs() {
 }
 
 async function generate() {
+  const err = document.getElementById('errorMsg');
+  err.style.display = 'none';
   if (!Object.keys(measurements).length) {
-    alert('Upload a roof report PDF first.');
+    err.textContent = 'Upload a roof report PDF first.';
+    err.style.display = 'block';
     return;
   }
   const job = {
@@ -205,7 +214,8 @@ async function generate() {
     if (!r.ok || d.error) throw new Error(d.error || 'Failed');
     window.location.href = d.redirect_url;
   } catch (e) {
-    alert('Error: ' + e.message);
+    err.textContent = 'Error: ' + e.message;
+    err.style.display = 'block';
     btn.disabled = false;
     btn.textContent = 'Generate Estimate →';
   }

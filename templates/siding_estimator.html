@@ -10,7 +10,7 @@
   .form-section{background:white;border-radius:var(--radius-lg);box-shadow:var(--shadow);border:1px solid var(--border-light);padding:22px;margin-bottom:16px;}
   .form-section-title{font-family:var(--font-serif);font-size:17px;color:var(--dark-blue);margin-bottom:16px;padding-bottom:10px;border-bottom:1.5px solid var(--border);}
   .field label{display:block;font-size:11px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px;}
-  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font-body);outline:none;}
+  .field input,.field select{width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:16px;font-family:var(--font-body);outline:none;}
   .field input:focus,.field select:focus{border-color:var(--blue);}
   .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .field-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;}
@@ -51,6 +51,10 @@
 </header>
 
 <div class="pps-main-narrow">
+  <div class="pps-step-progress" id="stepProgress" data-step-selector=".form-section">
+    <span class="pps-step-progress-text" id="stepProgressText">Step 1</span>
+    <div class="pps-step-progress-bar"><div class="pps-step-progress-fill" id="stepProgressFill"></div></div>
+  </div>
   <div class="pps-page-title">Siding Estimator</div>
   <p class="pps-page-sub">Upload your EagleView report first — property details fill in automatically. Add more buildings or switch to field measurements as needed.</p>
 
@@ -174,6 +178,7 @@
   </div>
 
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+  <div id="errorMsg" style="color:#C00;font-size:14px;margin-top:10px;display:none;"></div>
 
   <div class="pps-footer" style="margin-top:20px;">
     <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™">
@@ -181,6 +186,7 @@
 </div>
 
 <script src="/static/estimate-reliability.js"></script>
+<script src="/static/step-progress.js"></script>
 <script>
 const BUILDING_TYPES = ['Building', 'Garage', 'Clubhouse', 'Carport / Shed', 'Other'];
 let lastJobConfidence = null;
@@ -449,18 +455,27 @@ async function previewPricing(file) {
   }
 }
 
+function showGenerateError(msg) {
+  const err = document.getElementById('errorMsg');
+  err.textContent = msg;
+  err.style.display = 'block';
+  err.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function generate() {
+  const err = document.getElementById('errorMsg');
+  err.style.display = 'none';
   const cards = [...document.querySelectorAll('.building-card')];
-  if (!cards.length) { alert('Add at least one building.'); return; }
+  if (!cards.length) { showGenerateError('Add at least one building.'); return; }
 
   const buildings = cards.map(collectBuilding);
   for (const b of buildings) {
     if (b.source !== 'field' && !Object.keys(b.measurements).length) {
-      alert(`Upload a PDF or switch "${b.label}" to field measurements.`);
+      showGenerateError(`Upload a PDF or switch "${b.label}" to field measurements.`);
       return;
     }
     if (b.source === 'field' && !b.measurements.wall_area_net) {
-      alert(`Enter net wall area for "${b.label}".`);
+      showGenerateError(`Enter net wall area for "${b.label}".`);
       return;
     }
   }
@@ -503,7 +518,7 @@ async function generate() {
     if (!r.ok || d.error) throw new Error(d.error || 'Generation failed');
     window.location.href = d.redirect_url;
   } catch (e) {
-    alert('Error: ' + e.message);
+    showGenerateError('Error: ' + e.message);
     btn.disabled = false;
     btn.textContent = 'Generate Estimate →';
   }

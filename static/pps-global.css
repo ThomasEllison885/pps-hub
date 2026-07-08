@@ -565,6 +565,11 @@ body {
   padding: 2px;
   border-radius: 4px;
   transition: color var(--transition-fast);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .pps-modal-close:hover { color: var(--gray); }
 
@@ -858,4 +863,18 @@ body {
 @media (max-width: 600px) {
   .pps-reliability-row { grid-template-columns: 1fr; text-align: left; }
   .pps-reliability-value { text-align: left; }
+}
+
+.pps-step-progress { display: none; }
+@media (max-width: 768px) {
+  .pps-step-progress {
+    display: flex; align-items: center; gap: 10px;
+    position: sticky; top: var(--header-h); z-index: 150;
+    background: rgba(255,255,255,0.97); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    padding: 10px 14px; margin-bottom: 16px; border-radius: 8px; border: 1px solid var(--border-light);
+    font-size: 12px; font-weight: 600; color: var(--dark-blue);
+  }
+  .pps-step-progress-bar { flex: 1; height: 5px; background: var(--border-light); border-radius: 3px; overflow: hidden; }
+  .pps-step-progress-fill { height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.2s ease; width: 0%; }
+  .pps-step-progress-text { white-space: nowrap; flex-shrink: 0; }
 }
