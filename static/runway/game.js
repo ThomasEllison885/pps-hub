@@ -5,8 +5,11 @@
   'use strict';
 
   const SAVE_KEY = 'runway_save_v1';
+  const MAP_W = 960;
+  const MAP_H = 520;
   let bootstrap = null;
   let initialAirports = null;
+  let usMap = null;
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -460,39 +463,78 @@
     renderHud();
   }
 
+  function mapBounds() {
+    if (usMap && usMap.bounds) return usMap.bounds;
+    return { lonMin: -130, lonMax: -60, latMin: 22, latMax: 52 };
+  }
+
+  function projectMap(lat, lon) {
+    const b = mapBounds();
+    return {
+      x: ((lon - b.lonMin) / (b.lonMax - b.lonMin)) * MAP_W,
+      y: ((b.latMax - lat) / (b.latMax - b.latMin)) * MAP_H,
+    };
+  }
+
+  function statePathD(coords) {
+    return (
+      coords
+        .map((pair, i) => {
+          const pt = projectMap(pair[1], pair[0]);
+          return `${i ? 'L' : 'M'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+        })
+        .join(' ') + ' Z'
+    );
+  }
+
+  function drawMapLandmass() {
+    if (!usMap || !usMap.paths) return '';
+    let html = '<g class="us-land">';
+    usMap.paths.forEach((ring) => {
+      html += `<path d="${statePathD(ring)}" fill="#1e4a6e" stroke="#3d7ab5" stroke-width="0.7" stroke-linejoin="round"/>`;
+    });
+    html += '</g>';
+    return html;
+  }
+
   function drawMap() {
     const svg = $('runway-map');
     if (!svg) return;
-    const w = 960;
-    const h = 480;
-    const project = (lat, lon) => ({
-      x: ((lon + 180) / 360) * w,
-      y: ((90 - lat) / 180) * h,
-    });
 
-    let html = `<rect width="${w}" height="${h}" fill="#0a1628"/>`;
-    html += `<text x="12" y="20" fill="#5a8ab0" font-size="11">CONUS + select airports (MVP)</text>`;
+    let html = `<defs>
+      <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#081420"/>
+        <stop offset="100%" stop-color="#0c2238"/>
+      </linearGradient>
+    </defs>`;
+    html += `<rect width="${MAP_W}" height="${MAP_H}" fill="url(#ocean)"/>`;
+    html += drawMapLandmass();
+
+    if (state && state.routes) {
+      state.routes.forEach((route) => {
+        const o = airport(route.origin);
+        const d = airport(route.dest);
+        const p1 = projectMap(o.lat, o.lon);
+        const p2 = projectMap(d.lat, d.lon);
+        html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ffd166" stroke-width="1.4" opacity="0.55"/>`;
+      });
+    }
 
     bootstrap.airports.forEach((ap) => {
-      const p = project(ap.lat, ap.lon);
+      const p = projectMap(ap.lat, ap.lon);
       const owned = hasGateAt(ap.iata);
       const fill = owned ? '#00c896' : ap.hub_strength > 0.7 ? '#e85d4c' : '#4da3ff';
       const r = owned ? 5 : 3 + Math.min(4, ap.annual_pax_m / 25);
-      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" opacity="0.9" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" opacity="0.95" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
       if (owned || selectedAirport === ap.iata) {
-        html += `<text x="${p.x + 6}" y="${p.y + 3}" fill="#cde4f7" font-size="9">${ap.iata}</text>`;
+        html += `<text x="${p.x + 6}" y="${p.y + 3}" fill="#e8f4ff" font-size="9" font-weight="600">${ap.iata}</text>`;
       }
     });
 
-    state.routes.forEach((route) => {
-      const o = airport(route.origin);
-      const d = airport(route.dest);
-      const p1 = project(o.lat, o.lon);
-      const p2 = project(d.lat, d.lon);
-      html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ffd166" stroke-width="1.2" opacity="0.55"/>`;
-    });
+    html += `<text x="14" y="22" fill="#6a9fc0" font-size="11" opacity="0.85">United States · airport network</text>`;
 
-    svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    svg.setAttribute('viewBox', `0 0 ${MAP_W} ${MAP_H}`);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.innerHTML = html;
     svg.querySelectorAll('.ap-dot').forEach((el) => {
       el.addEventListener('click', () => selectAirport(el.dataset.iata));
@@ -666,10 +708,20 @@
     $(id).classList.add('active');
   }
 
-  function init() {
+  async function loadUsMap() {
+    try {
+      const resp = await fetch('/static/runway/us-states.json');
+      if (resp.ok) usMap = await resp.json();
+    } catch (e) {
+      console.warn('Runway: US map data failed to load', e);
+    }
+  }
+
+  async function init() {
     bootstrap = window.RUNWAY_BOOTSTRAP;
     if (!bootstrap) return;
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
+    await loadUsMap();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.addEventListener('click', () => setSpeed(btn.dataset.speed));
