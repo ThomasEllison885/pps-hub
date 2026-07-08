@@ -272,13 +272,23 @@
     let h = spanY + padY * 2;
     if (w * aspect > h) h = w * aspect;
     else w = h / aspect;
-    w = Math.min(MAP_W, Math.max(MAP_W * 0.32, w));
+    w = Math.min(MAP_W * 0.9, Math.max(MAP_W * 0.32, w));
     h = w * aspect;
     let x = (minX + maxX) / 2 - w / 2;
     let y = (minY + maxY) / 2 - h / 2;
     mapView = { x, y, w, h };
     clampMapView();
     applyMapView();
+  }
+
+  function ensureMapboxSize() {
+    if (mapboxMap) {
+      try {
+        mapboxMap.resize();
+      } catch (e) {
+        /* ignore resize races during teardown */
+      }
+    }
   }
 
   function airportWealth(ap) {
@@ -2873,11 +2883,18 @@
     });
   }
 
+  function mapboxFatalError(err) {
+    const msg = err && err.message ? String(err.message) : String(err || '');
+    return /unauthorized|invalid token|401|403|forbidden/i.test(msg);
+  }
+
   function abandonMapbox(reason) {
     console.warn('Runway: Mapbox unavailable — using raster fallback.', reason);
     mapboxReady = false;
     mapboxInitStarted = false;
     window.RUNWAY_MAPBOX_TOKEN = '';
+    const wrap = document.querySelector('.map-wrap');
+    if (wrap) wrap.classList.remove('mapbox-active');
     if (mapboxMap) {
       try {
         mapboxMap.remove();
@@ -2904,6 +2921,9 @@
       [-66.0, 49.55],
     ];
     let loadTimeout = null;
+    const wrap = document.querySelector('.map-wrap');
+    if (wrap) wrap.classList.add('mapbox-active');
+
     try {
       mapboxMap = new mapboxgl.Map({
         container: 'runway-map',
@@ -2914,6 +2934,9 @@
         dragRotate: false,
         pitchWithRotate: false,
         touchPitch: false,
+        dragPan: true,
+        scrollZoom: true,
+        boxZoom: false,
       });
     } catch (err) {
       abandonMapbox(err);
@@ -2922,17 +2945,18 @@
 
     loadTimeout = window.setTimeout(() => {
       if (!mapboxReady) abandonMapbox('load timeout');
-    }, 15000);
+    }, 45000);
 
     mapboxMap.on('error', (e) => {
-      if (!mapboxReady) abandonMapbox(e && e.error ? e.error : e);
+      const err = e && e.error ? e.error : e;
+      if (!mapboxReady && mapboxFatalError(err)) abandonMapbox(err);
     });
 
     mapboxMap.on('load', () => {
       if (loadTimeout) window.clearTimeout(loadTimeout);
       setupMapboxLayers();
       mapboxReady = true;
-      mapboxMap.resize();
+      ensureMapboxSize();
       drawMap();
       fitMapToManagedArea();
 
@@ -3040,13 +3064,6 @@
     const aspect = MAP_H / MAP_W;
     mapView.w = Math.min(MAP_ZOOM_MAX_W, Math.max(MAP_ZOOM_MIN_W, mapView.w));
     mapView.h = mapView.w * aspect;
-    if (mapView.w >= MAP_W) {
-      mapView.w = MAP_W;
-      mapView.h = MAP_H;
-      mapView.x = 0;
-      mapView.y = 0;
-      return;
-    }
     mapView.x = Math.max(0, Math.min(MAP_W - mapView.w, mapView.x));
     mapView.y = Math.max(0, Math.min(MAP_H - mapView.h, mapView.y));
   }
@@ -4054,6 +4071,12 @@
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
     const screen = $(id);
     if (screen) screen.classList.add('active');
+    if (id === 'screen-game') {
+      requestAnimationFrame(() => {
+        ensureMapboxSize();
+        if (useMapbox() && !mapboxMap && state) drawMap();
+      });
+    }
   }
 
   function showScenarioPicker() {
@@ -4172,6 +4195,7 @@
     await loadMapConfig();
     sanitizeAirportGateCounts();
     setupMapInteraction();
+    window.addEventListener('resize', ensureMapboxSize);
     setupStartScreen();
     setupKeyboardShortcuts();
 

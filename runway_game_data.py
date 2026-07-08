@@ -1,6 +1,11 @@
 """Runway — startup airline simulation data (MVP v0.1)."""
 
+import os
+
 RUNWAY_OWNER = 'thomas_ellison'
+
+# Public Mapbox client token — set MAPBOX_ACCESS_TOKEN in Render/local .env.
+RUNWAY_MAPBOX_TOKEN = os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip()
 
 AIRCRAFT_TYPES = {
     'pc12': {

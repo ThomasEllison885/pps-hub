@@ -26,7 +26,7 @@ from auth_helpers import (
     consume_password_reset_token, reset_url_for_token,
 )
 import ask_pps
-from runway_game_data import RUNWAY_OWNER, get_runway_bootstrap
+from runway_game_data import RUNWAY_OWNER, RUNWAY_MAPBOX_TOKEN, get_runway_bootstrap
 
 
 def _load_dotenv():
@@ -2882,7 +2882,7 @@ def runway_game():
     return render_template(
         'runway.html',
         bootstrap_json=json.dumps(get_runway_bootstrap()),
-        mapbox_token=os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip(),
+        mapbox_token=RUNWAY_MAPBOX_TOKEN,
     )
 
 
