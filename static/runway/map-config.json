@@ -2,25 +2,39 @@
   "usa": {
     "src": "/static/runway/us-map-styled.png",
     "width": 1920,
-    "height": 1053,
+    "height": 1188,
     "bounds": {
-      "lonMin": -125.597014,
-      "lonMax": -64.626797,
-      "latMin": 16.929556,
-      "latMax": 50.383625
+      "lonMin": -125.5,
+      "lonMax": -66.0,
+      "latMin": 24.0,
+      "latMax": 49.55
     },
-    "geoSource": "us-land.json"
+    "padding": {
+      "left": 20,
+      "top": 40,
+      "right": 20,
+      "bottom": 4
+    },
+    "projection": "equirectangular+padded",
+    "borderSource": "us-map-wikimedia.png native pixels"
   },
   "ohio": {
     "src": "/static/runway/ohio-region-map.png",
-    "width": 1228,
-    "height": 1180,
+    "width": 960,
+    "height": 1245,
     "bounds": {
       "lonMin": -87.35,
       "lonMax": -78.75,
       "latMin": 36.15,
       "latMax": 44.35
     },
-    "geoSource": "us-land.json"
+    "padding": {
+      "left": 0,
+      "top": 0,
+      "right": 0,
+      "bottom": 0
+    },
+    "projection": "crop",
+    "parent": "usa"
   }
 }

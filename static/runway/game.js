@@ -2881,14 +2881,28 @@
   function mapBounds() {
     const cfg = getActiveMapConfig();
     if (cfg && cfg.bounds) return cfg.bounds;
-    return { lonMin: -125, lonMax: -66, latMin: 24, latMax: 50 };
+    return { lonMin: -125.5, lonMax: -66.0, latMin: 24.0, latMax: 49.55 };
+  }
+
+  function mapPadding() {
+    const cfg = getActiveMapConfig();
+    if (!cfg) return { left: 20, top: 40, right: 20, bottom: 4 };
+    if (cfg.padding) return cfg.padding;
+    return { left: 0, top: 0, right: 0, bottom: 0 };
   }
 
   function projectMap(lat, lon) {
     const b = mapBounds();
+    const pad = mapPadding();
+    const left = pad.left || 0;
+    const top = pad.top || 0;
+    const right = pad.right || 0;
+    const bottom = pad.bottom || 0;
+    const uw = MAP_W - left - right;
+    const uh = MAP_H - top - bottom;
     return {
-      x: ((lon - b.lonMin) / (b.lonMax - b.lonMin)) * MAP_W,
-      y: ((b.latMax - lat) / (b.latMax - b.latMin)) * MAP_H,
+      x: left + ((lon - b.lonMin) / (b.lonMax - b.lonMin)) * uw,
+      y: top + ((b.latMax - lat) / (b.latMax - b.latMin)) * uh,
     };
   }
 
@@ -3805,13 +3819,9 @@
         usa: {
           src: '/static/runway/us-map-styled.png',
           width: 1920,
-          height: 1053,
-          bounds: {
-            lonMin: -125.597014,
-            lonMax: -64.626797,
-            latMin: 16.929556,
-            latMax: 50.383625,
-          },
+          height: 1188,
+          bounds: { lonMin: -125.5, lonMax: -66.0, latMin: 24.0, latMax: 49.55 },
+          padding: { left: 20, top: 40, right: 20, bottom: 4 },
         },
       };
     }
