@@ -49,10 +49,15 @@
     return `${n < 0 ? '-' : ''}$${abs.toFixed(0)}`;
   }
 
-  function fmtDate(day) {
-    const start = new Date(2026, 0, 1);
+  function fmtDate(day, hour) {
+    const start = new Date(2026, 0, 1, hour ?? 0, 0, 0);
     start.setDate(start.getDate() + day);
-    return start.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    const opts = { year: 'numeric', month: 'short', day: 'numeric' };
+    if (hour != null) {
+      opts.hour = 'numeric';
+      opts.minute = '2-digit';
+    }
+    return start.toLocaleString('en-US', opts);
   }
 
   function uid(prefix) {
@@ -151,6 +156,7 @@
       scenario_id: scenarioId,
       airline_name: airlineName || base.airline_name,
       day: 0,
+      hour: 8,
       speed: 'pause',
       cash: base.cash,
       debt: base.debt,
@@ -248,6 +254,7 @@
     if (!Number.isFinite(state.fuel_price)) {
       state.fuel_price = bootstrap.fuel_base || 2.85;
     }
+    if (state.hour == null) state.hour = 8;
     ensureMacro();
     ensureFleet();
   }
@@ -511,115 +518,170 @@
     return { revenue, cost: variable, pax, load };
   }
 
+  function simulateDayEconomics() {
+    let dayRev = 0;
+    let dayCost = 0;
+    state.routes.forEach((route) => {
+      const r = simulateRouteDay(route);
+      dayRev += r.revenue;
+      dayCost += r.cost;
+    });
+    const dailyFixed =
+      (fleetMonthlyCosts() + gateLeaseMonthly() + monthlyDebtService()) / 30 +
+      marketingMonthly() / 30;
+    const pnl = dayRev - dayCost - dailyFixed;
+    return { dayRev, dayCost, dailyFixed, pnl };
+  }
+
+  function processDayRollover(dayRev, dayCost) {
+    if (state.day % 30 === 0) {
+      state.ltm_revenue = state.revenue_history.slice(-365).reduce((a, b) => a + b, 0) + dayRev * 30;
+      Object.keys(state.brand_awareness).forEach((ap) => {
+        const spend = clampMoney(state.marketing_spend_monthly[ap]);
+        state.marketing_spend_monthly[ap] = spend;
+        if (spend > 0) {
+          const amp = otaEffects().marketingAmplify;
+          state.brand_awareness[ap] = Math.min(
+            100,
+            (state.brand_awareness[ap] || 0) + (spend / 50000) * amp
+          );
+        }
+      });
+      const otaCost = otaListingMonthly();
+      if (otaCost > 0) state.cash -= otaCost;
+      if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
+        state.reputation = Math.min(100, state.reputation + 0.3);
+      }
+      const retired = [];
+      state.fleet = state.fleet.filter((f) => {
+        if (f.leased) return true;
+        f.life_months_left = (f.life_months_left || 0) - 1;
+        if (f.life_months_left <= 0) {
+          retired.push(f);
+          return false;
+        }
+        return true;
+      });
+      retired.forEach((f) => {
+        const ac = aircraftType(f.type);
+        pushEvent(`Retired ${ac ? ac.name : f.type} (${f.id}) — useful life ended.`);
+      });
+    }
+
+    if (state.day % 90 === 0 && state.bonds.length) {
+      const coupon = quarterlyBondCoupons();
+      state.cash -= coupon;
+      pushEvent(`Bond coupon paid: ${fmtMoney(-coupon)}`);
+    }
+
+    state.revenue_history.push(dayRev);
+    if (state.revenue_history.length > 400) state.revenue_history.shift();
+
+    if (state.day % 7 === 0) updateFuelPrice();
+
+    if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
+
+    state.gates.forEach((g) => {
+      if (state.day % 30 === 0) g.months_left = (g.months_left || g.years_left * 12) - 1;
+    });
+  }
+
+  function checkSurvivalTriggers() {
+    if (state.cash < 0 && !state.milestones.includes('chapter11_warn')) {
+      state.milestones.push('chapter11_warn');
+      pushEvent('CRITICAL: Negative cash. Raise capital or cut burn.');
+      setSpeed('pause');
+      state.paused_reason = 'Cash below zero';
+    }
+    if (state.cash < -2_000_000) {
+      state.game_over = true;
+      pushEvent('BANKRUPTCY — game over.');
+      setSpeed('pause');
+    }
+    if (runwayMonths() < 2 && state.cash > 0 && !state.milestones.includes('runway_warn')) {
+      state.milestones.push('runway_warn');
+      pushEvent(`Cash runway under 2 months (${runwayMonths().toFixed(1)} mo).`);
+      setSpeed('pause');
+      state.paused_reason = 'Low runway';
+    }
+  }
+
   function tickDays(n) {
     if (!state || state.game_over || n <= 0) return;
 
     for (let i = 0; i < n; i++) {
       state.day += 1;
-      let dayRev = 0;
-      let dayCost = 0;
-
-      state.routes.forEach((route) => {
-        const r = simulateRouteDay(route);
-        dayRev += r.revenue;
-        dayCost += r.cost;
-      });
-
-      const dailyFixed =
-        (fleetMonthlyCosts() + gateLeaseMonthly() + monthlyDebtService()) / 30 +
-        marketingMonthly() / 30;
-
-      state.daily_pnl = dayRev - dayCost - dailyFixed;
-      state.cash += state.daily_pnl;
-
-      if (state.day % 30 === 0) {
-        state.ltm_revenue = state.revenue_history.slice(-365).reduce((a, b) => a + b, 0) + dayRev * 30;
-        Object.keys(state.brand_awareness).forEach((ap) => {
-          const spend = clampMoney(state.marketing_spend_monthly[ap]);
-          state.marketing_spend_monthly[ap] = spend;
-          if (spend > 0) {
-            const amp = otaEffects().marketingAmplify;
-            state.brand_awareness[ap] = Math.min(
-              100,
-              (state.brand_awareness[ap] || 0) + (spend / 50000) * amp
-            );
-          }
-        });
-        const otaCost = otaListingMonthly();
-        if (otaCost > 0) state.cash -= otaCost;
-        if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
-          state.reputation = Math.min(100, state.reputation + 0.3);
-        }
-        const retired = [];
-        state.fleet = state.fleet.filter((f) => {
-          if (f.leased) return true;
-          f.life_months_left = (f.life_months_left || 0) - 1;
-          if (f.life_months_left <= 0) {
-            retired.push(f);
-            return false;
-          }
-          return true;
-        });
-        retired.forEach((f) => {
-          const ac = aircraftType(f.type);
-          pushEvent(`Retired ${ac ? ac.name : f.type} (${f.id}) — useful life ended.`);
-        });
-      }
-
-      if (state.day % 90 === 0 && state.bonds.length) {
-        const coupon = quarterlyBondCoupons();
-        state.cash -= coupon;
-        pushEvent(`Bond coupon paid: ${fmtMoney(-coupon)}`);
-      }
-
-      state.revenue_history.push(dayRev);
-      if (state.revenue_history.length > 400) state.revenue_history.shift();
-
-      if (state.day % 7 === 0) updateFuelPrice();
-
-      if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
-
-      state.gates.forEach((g) => {
-        if (state.day % 30 === 0) g.months_left = (g.months_left || g.years_left * 12) - 1;
-      });
-
-      if (state.cash < 0 && !state.milestones.includes('chapter11_warn')) {
-        state.milestones.push('chapter11_warn');
-        pushEvent('CRITICAL: Negative cash. Raise capital or cut burn.');
-        setSpeed('pause');
-        state.paused_reason = 'Cash below zero';
-      }
-      if (state.cash < -2_000_000) {
-        state.game_over = true;
-        pushEvent('BANKRUPTCY — game over.');
-        setSpeed('pause');
-      }
-      if (runwayMonths() < 2 && state.cash > 0 && !state.milestones.includes('runway_warn')) {
-        state.milestones.push('runway_warn');
-        pushEvent(`Cash runway under 2 months (${runwayMonths().toFixed(1)} mo).`);
-        setSpeed('pause');
-        state.paused_reason = 'Low runway';
-      }
+      const econ = simulateDayEconomics();
+      state.daily_pnl = econ.pnl;
+      state.cash += econ.pnl;
+      processDayRollover(econ.dayRev, econ.dayCost);
+      checkSurvivalTriggers();
+      if (state.game_over || state.paused_reason) break;
     }
     saveGame();
     renderAll();
   }
 
+  function tickHours(hours) {
+    if (!state || state.game_over || hours <= 0) return;
+    if (state.hour == null) state.hour = 8;
+
+    const econ = simulateDayEconomics();
+    state.daily_pnl = econ.pnl;
+    state.cash += econ.pnl * (hours / 24);
+
+    state.hour += hours;
+    let dayAdvanced = false;
+    while (state.hour >= 24) {
+      state.hour -= 24;
+      state.day += 1;
+      dayAdvanced = true;
+      processDayRollover(econ.dayRev, econ.dayCost);
+      checkSurvivalTriggers();
+      if (state.game_over || state.paused_reason) break;
+    }
+
+    saveGame();
+    if (dayAdvanced) renderAll();
+    else renderHud();
+  }
+
+  function resolveSpeedId(speedId) {
+    if (speedId === 'year') return 'month';
+    return speedId;
+  }
+
   function setSpeed(speedId) {
     if (!state) return;
+    speedId = resolveSpeedId(speedId);
     state.speed = speedId;
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = null;
     const tickMs = bootstrap.tick_ms || {};
     const ms = tickMs[speedId] || 0;
     const speeds = bootstrap.time_speeds || [];
-    const days = speeds.find((t) => t.id === speedId)?.days_per_tick || 0;
-    if (days > 0 && ms > 0) {
+    const spec = speeds.find((t) => t.id === speedId) || {};
+    const days = spec.days_per_tick || 0;
+    const hours = spec.hours_per_tick || 0;
+    if (hours > 0 && ms > 0) {
+      tickTimer = setInterval(() => tickHours(hours), ms);
+    } else if (days > 0 && ms > 0) {
       tickTimer = setInterval(() => tickDays(days), ms);
     }
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.speed === speedId);
     });
+    const hint = $('speed-hint');
+    if (hint) {
+      const labels = {
+        pause: 'Paused',
+        slow: '4-hour steps',
+        day: '1 day / tick',
+        week: '1 week / tick',
+        month: '1 month / tick',
+      };
+      hint.textContent = labels[speedId] || '';
+    }
   }
 
   function hasGateAt(iata) {
@@ -1000,35 +1062,67 @@
     );
   }
 
+  function mapLandPathsHtml() {
+    if (!usMap || !usMap.paths) return '';
+    return usMap.paths
+      .map(
+        (coords) =>
+          `<path d="${statePathD(coords)}" class="map-land" />`
+      )
+      .join('');
+  }
+
   function drawMap() {
     const svg = $('runway-map');
     if (!svg) return;
 
-    let html = '';
-    html += `<image href="/static/runway/usa-map.png" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none" opacity="0.98"/>`;
+    let html = `
+      <defs>
+        <linearGradient id="map-ocean" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#071525"/>
+          <stop offset="45%" stop-color="#0c2842"/>
+          <stop offset="100%" stop-color="#133552"/>
+        </linearGradient>
+        <linearGradient id="map-land" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#5f8f72"/>
+          <stop offset="100%" stop-color="#3f6d56"/>
+        </linearGradient>
+        <filter id="map-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="2.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect class="map-ocean" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="url(#map-ocean)"/>
+      <g class="map-states" filter="url(#map-glow)">${mapLandPathsHtml()}</g>
+    `;
 
     if (state && state.routes) {
+      html += '<g class="map-routes">';
       state.routes.forEach((route) => {
         const o = airport(route.origin);
         const d = airport(route.dest);
+        if (!o || !d) return;
         const p1 = projectMap(o.lat, o.lon);
         const p2 = projectMap(d.lat, d.lon);
-        html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ffd166" stroke-width="1.4" opacity="0.55"/>`;
+        html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ffd166" stroke-width="2" opacity="0.7" stroke-linecap="round"/>`;
       });
+      html += '</g>';
     }
 
+    html += '<g class="map-airports">';
     bootstrap.airports.forEach((ap) => {
       const p = projectMap(ap.lat, ap.lon);
-      const owned = hasGateAt(ap.iata);
-      const fill = owned ? '#00c896' : ap.hub_strength > 0.7 ? '#e85d4c' : '#4da3ff';
-      const r = owned ? 5 : 3 + Math.min(4, ap.annual_pax_m / 25);
-      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" opacity="0.95" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
-      if (owned || selectedAirport === ap.iata) {
-        html += `<text x="${p.x + 6}" y="${p.y + 3}" fill="#e8f4ff" font-size="9" font-weight="600">${ap.iata}</text>`;
+      const owned = state && hasGateAt(ap.iata);
+      const selected = selectedAirport === ap.iata;
+      const fill = owned ? '#00e4a8' : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
+      const r = owned || selected ? 5.5 : 3 + Math.min(3.5, ap.annual_pax_m / 30);
+      const stroke = selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.35)';
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 1.8 : 1}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
+      if (owned || selected) {
+        html += `<text x="${p.x + 7}" y="${p.y + 4}" fill="#f0f8ff" font-size="10" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${ap.iata}</text>`;
       }
     });
-
-    html += `<text x="14" y="22" fill="#6a9fc0" font-size="11" opacity="0.85">United States · airport network</text>`;
+    html += '</g>';
 
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.innerHTML = html;
@@ -1081,7 +1175,8 @@
     if (!state) return;
     setText('hud-cash', fmtMoney(state.cash));
     setText('hud-runway', state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`);
-    setText('hud-date', fmtDate(state.day));
+    const showClock = state.speed === 'slow' || state.hour != null;
+    setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
     setText('hud-equity', `${(state.equity_pct || 0).toFixed(1)}%`);
     setText('hud-rep', (state.reputation || 0).toFixed(0));
     setText('hud-fuel', `$${(state.fuel_price || 0).toFixed(2)}/gal`);

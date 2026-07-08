@@ -467,14 +467,14 @@ OTA_PLATFORMS = [
 ]
 
 TIME_SPEEDS = [
-    {'id': 'pause', 'label': 'Pause', 'days_per_tick': 0},
-    {'id': 'day', 'label': 'Day', 'days_per_tick': 1},
-    {'id': 'week', 'label': 'Week', 'days_per_tick': 7},
-    {'id': 'month', 'label': 'Month', 'days_per_tick': 30},
-    {'id': 'year', 'label': 'Year', 'days_per_tick': 365},
+    {'id': 'pause', 'label': 'Pause', 'days_per_tick': 0, 'hours_per_tick': 0},
+    {'id': 'slow', 'label': 'Slow (4 hr)', 'days_per_tick': 0, 'hours_per_tick': 4},
+    {'id': 'day', 'label': 'Normal (1 day)', 'days_per_tick': 1, 'hours_per_tick': 0},
+    {'id': 'week', 'label': 'Fast (1 week)', 'days_per_tick': 7, 'hours_per_tick': 0},
+    {'id': 'month', 'label': 'Faster (1 month)', 'days_per_tick': 30, 'hours_per_tick': 0},
 ]
 
-TICK_MS = {'pause': 0, 'day': 800, 'week': 600, 'month': 500, 'year': 400}
+TICK_MS = {'pause': 0, 'slow': 1100, 'day': 750, 'week': 580, 'month': 460}
 
 
 def get_runway_bootstrap():
