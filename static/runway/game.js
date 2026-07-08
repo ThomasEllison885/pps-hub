@@ -512,14 +512,17 @@
         cr.fare = target;
         const pct = 1 - target / oldFare;
         bumpCompetitorMarket(cr.origin, cr.airline, { fare_index: 1 - pct });
-        return {
-          msg: `${cr.airline} matched your pricing on ${cr.origin}–${cr.dest} ($${oldFare}→$${cr.fare})`,
-          big,
-          airport: cr.origin,
-          airline: cr.airline,
-          type: 'fare_cut',
-          pct,
-        };
+        return enrichCompetitorLog(
+          {
+            msg: `${cr.airline} matched your pricing on ${cr.origin}–${cr.dest} ($${oldFare}→$${cr.fare})`,
+            big,
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'fare_cut',
+            pct,
+          },
+          cr
+        );
       }
     }
 
@@ -529,13 +532,16 @@
       cr.frequency_week = Math.min(28, cr.frequency_week + delta);
       if (cr.frequency_week - old >= 2) {
         bumpCompetitorMarket(cr.origin, cr.airline, { capacity_index: 1 + (cr.frequency_week - old) / 28 });
-        return {
-          msg: `${cr.airline} added capacity on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}x/wk)`,
-          big,
-          airport: cr.origin,
-          airline: cr.airline,
-          type: 'capacity',
-        };
+        return enrichCompetitorLog(
+          {
+            msg: `${cr.airline} added capacity on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}x/wk)`,
+            big,
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'capacity',
+          },
+          cr
+        );
       }
     }
 
@@ -543,13 +549,16 @@
       const idx = state.competitor_routes.indexOf(cr);
       if (idx >= 0) {
         state.competitor_routes.splice(idx, 1);
-        return {
-          msg: `${cr.airline} pulled out of thin ${cr.origin}–${cr.dest} market`,
-          big,
-          airport: cr.origin,
-          airline: cr.airline,
-          type: 'exit',
-        };
+        return enrichCompetitorLog(
+          {
+            msg: `${cr.airline} pulled out of thin ${cr.origin}–${cr.dest} market`,
+            big,
+            airport: cr.origin,
+            airline: cr.airline,
+            type: 'exit',
+          },
+          cr
+        );
       }
     }
 
@@ -560,12 +569,13 @@
     if (!log || !log.big) return;
     if (state.day - (state.last_competitor_event_day || 0) < 30) return;
     state.last_competitor_event_day = state.day;
+    const impact = competitorImpactHtml(log);
     if (log.type === 'fare_cut') {
       queueDecision({
         airport: log.airport,
         kicker: `${fmtDate(state.day)} · Competitor pricing`,
         title: `${log.airline} responds to your route`,
-        body: `${log.msg}. They are defending share on a market you entered.`,
+        body: `${log.msg}. They are defending share on a market you entered.${impact}`,
         teach: 'Match only if the market is price-sensitive; otherwise lean on marketing, schedule, or ancillaries.',
         logLine: log.msg,
         options: [
@@ -579,7 +589,7 @@
         airport: log.airport,
         kicker: `${fmtDate(state.day)} · Competitor capacity`,
         title: `${log.airline} adds seats against you`,
-        body: `${log.msg}. Extra seats usually mean fare pressure unless you differentiate.`,
+        body: `${log.msg}. Extra seats usually mean fare pressure unless you differentiate.${impact}`,
         teach: 'Trim fares selectively or invest in awareness — not every route needs a response.',
         logLine: log.msg,
         options: [
@@ -628,7 +638,7 @@
     }
     if (!logs.length) return;
 
-    logs.forEach((l) => pushEvent(l.msg));
+    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l)));
     queueReactiveCompetitorDecision(logs.find((l) => l.big && (l.type === 'fare_cut' || l.type === 'capacity')));
     state.last_reactive_competitor_day = state.day;
   }
@@ -663,15 +673,20 @@
           tier: inc.tier,
           started_day: state.day,
         });
-        logs.push({
-          msg: `${inc.airline} launched ${ap.iata}–${dest.iata} (${freq}x/wk from $${fare})`,
-          big: invested.has(ap.iata) || invested.has(dest.iata),
-          airport: ap.iata,
-          airline: inc.airline,
-          type: 'new_route',
-          freq,
-          fare,
-        });
+        logs.push(
+          enrichCompetitorLog(
+            {
+              msg: `${inc.airline} launched ${ap.iata}–${dest.iata} (${freq}x/wk from $${fare})`,
+              big: invested.has(ap.iata) || invested.has(dest.iata),
+              airport: ap.iata,
+              airline: inc.airline,
+              type: 'new_route',
+              freq,
+              fare,
+            },
+            { origin: ap.iata, dest: dest.iata }
+          )
+        );
       } else if (roll < 0.68) {
         const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
         if (!cr) continue;
@@ -680,13 +695,18 @@
         cr.frequency_week = Math.min(28, cr.frequency_week + delta);
         if (cr.frequency_week - old >= 4) {
           bumpCompetitorMarket(cr.origin, cr.airline, { capacity_index: 1 + (cr.frequency_week - old) / 28 });
-          logs.push({
-            msg: `${cr.airline} added capacity on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}x/wk)`,
-            big: invested.has(cr.origin) || invested.has(cr.dest),
-            airport: cr.origin,
-            airline: cr.airline,
-            type: 'capacity',
-          });
+          logs.push(
+            enrichCompetitorLog(
+              {
+                msg: `${cr.airline} added capacity on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}x/wk)`,
+                big: invested.has(cr.origin) || invested.has(cr.dest),
+                airport: cr.origin,
+                airline: cr.airline,
+                type: 'capacity',
+              },
+              cr
+            )
+          );
         }
       } else if (roll < 0.88) {
         const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
@@ -696,43 +716,54 @@
         cr.fare = Math.max(49, Math.round(cr.fare * (1 - cut)));
         if (oldFare - cr.fare >= 12) {
           bumpCompetitorMarket(cr.origin, cr.airline, { fare_index: 1 - cut });
-          logs.push({
-            msg: `${cr.airline} cut ${cr.origin}–${cr.dest} fares ~${Math.round(cut * 100)}% (now from $${cr.fare})`,
-            big: invested.has(cr.origin) || invested.has(cr.dest),
-            airport: cr.origin,
-            airline: cr.airline,
-            type: 'fare_cut',
-            pct: cut,
-          });
+          logs.push(
+            enrichCompetitorLog(
+              {
+                msg: `${cr.airline} cut ${cr.origin}–${cr.dest} fares ~${Math.round(cut * 100)}% (now from $${cr.fare})`,
+                big: invested.has(cr.origin) || invested.has(cr.dest),
+                airport: cr.origin,
+                airline: cr.airline,
+                type: 'fare_cut',
+                pct: cut,
+              },
+              cr
+            )
+          );
         }
       } else if (state.competitor_routes.length > 6) {
         const idx = Math.floor(Math.random() * state.competitor_routes.length);
         const cr = state.competitor_routes[idx];
         if (cr.frequency_week <= 3) {
           state.competitor_routes.splice(idx, 1);
-          logs.push({
-            msg: `${cr.airline} exited ${cr.origin}–${cr.dest}`,
-            big: invested.has(cr.origin) || invested.has(cr.dest),
-            airport: cr.origin,
-            airline: cr.airline,
-            type: 'exit',
-          });
+          logs.push(
+            enrichCompetitorLog(
+              {
+                msg: `${cr.airline} exited ${cr.origin}–${cr.dest}`,
+                big: invested.has(cr.origin) || invested.has(cr.dest),
+                airport: cr.origin,
+                airline: cr.airline,
+                type: 'exit',
+              },
+              cr
+            )
+          );
         } else {
           cr.frequency_week = Math.max(2, cr.frequency_week - 3);
         }
       }
     }
 
-    logs.forEach((l) => pushEvent(l.msg));
+    logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l)));
     const big = logs.find((l) => l.big);
     if (big && state.day - (state.last_competitor_event_day || 0) >= 45) {
       state.last_competitor_event_day = state.day;
+      const impact = competitorImpactHtml(big);
       if (big.type === 'new_route') {
         queueDecision({
           airport: big.airport,
           kicker: `${fmtDate(state.day)} · Competitor network`,
           title: `${big.airline} enters ${big.airport}`,
-          body: `${big.msg}. This overlaps markets you may want.`,
+          body: `${big.msg}. This overlaps markets you may want.${impact}`,
           teach: 'Check Routes for load impact. Match only if the market is price-sensitive; otherwise lean on marketing or ancillaries.',
           logLine: big.msg,
           options: [
@@ -746,7 +777,7 @@
           airport: big.airport,
           kicker: `${fmtDate(state.day)} · Competitor pricing`,
           title: `${big.airline} fare cut at ${big.airport}`,
-          body: `${big.msg}.`,
+          body: `${big.msg}.${impact}`,
           teach: 'Ancillary-heavy pricing can hold ticket low while protecting margin — or hold fare and spend on awareness.',
           logLine: big.msg,
           options: [
@@ -910,6 +941,10 @@
         (state.marketing_spend_monthly[option.airport] || 0) + (option.amount || 12000)
       );
       pushPlayerEvent(`boosted marketing at ${option.airport} to ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo.`);
+    } else if (option.effect === 'hub_routes' && option.airport) {
+      focusHubForRoutes(option.airport);
+    } else if (option.effect === 'bump_route_freq' && option.routeId) {
+      bumpRouteFrequency(option.routeId, option.delta || 1);
     } else if (option.effect === 'hold_premium') {
       state.reputation = Math.min(100, (state.reputation || 0) + 2);
       pushPlayerEvent(`held premium positioning at ${option.airport} — reputation +2.`);
@@ -1218,6 +1253,10 @@
       switchTab('fleet');
     } else if (option.effect === 'select_airport' && option.airport) {
       selectAirport(option.airport);
+    } else if (option.effect === 'hub_routes' && option.airport) {
+      focusHubForRoutes(option.airport);
+    } else if (option.effect === 'bump_route_freq' && option.routeId) {
+      bumpRouteFrequency(option.routeId, option.delta || 1);
     }
   }
 
@@ -1695,7 +1734,9 @@
         airport: iata,
         kicker: `${fmtDate(state.day)} · ${ap.city}`,
         title: `${incumbent.airline} cuts fares at ${iata}`,
-        body: `${incumbent.airline} dropped average fares about <b>${Math.round(pct * 100)}%</b> on overlapping city pairs. Shoppers are comparing every dollar — small moves won't matter; this one will.`,
+        body:
+          `${incumbent.airline} dropped average fares about <b>${Math.round(pct * 100)}%</b> on overlapping city pairs. Shoppers are comparing every dollar — small moves won't matter; this one will.` +
+          competitorImpactHtml({ airport: iata, type: 'fare_cut', airline: incumbent.airline }),
         teach: 'Price-sensitive markets (lower wealth index) punish blind matching. Holding fare and buying awareness can protect margin on premium cabins.',
         logLine: `${incumbent.airline} fare war at ${iata} (−${Math.round(pct * 100)}%)`,
         options: [
@@ -1765,7 +1806,9 @@
         airport: iata,
         kicker: `${fmtDate(state.day)} · Capacity`,
         title: `${incumbent.airline} adds seats at ${iata}`,
-        body: `${incumbent.airline} filed <b>+${Math.round(pct * 100)}% capacity</b> on key markets from ${iata}. More seats usually mean fare pressure unless you differentiate.`,
+        body:
+          `${incumbent.airline} filed <b>+${Math.round(pct * 100)}% capacity</b> on key markets from ${iata}. More seats usually mean fare pressure unless you differentiate.` +
+          competitorImpactHtml({ airport: iata, type: 'capacity', airline: incumbent.airline }),
         teach: 'When competitors dump seats, either lean into service/schedule niche or compete on price selectively — not every route needs a response.',
         logLine: `${incumbent.airline} capacity increase at ${iata}`,
         options: [
@@ -3148,6 +3191,7 @@
     if (!state.player_name) state.player_name = 'CEO';
     if (!state.airline_emblem) state.airline_emblem = 'wing';
     if (!state.ancillary_strategy) state.ancillary_strategy = 'auto';
+    if (!state.gate_nudge_day) state.gate_nudge_day = {};
     ensureMetrics();
     ensureMacro();
     ensureFleet();
@@ -3624,6 +3668,7 @@
         state.reputation = Math.min(100, state.reputation + 0.3);
       }
       processMonthlyScoreboard();
+      processMonthlyGateEfficiency();
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
         if (f.leased) return true;
@@ -3884,33 +3929,22 @@
   }
 
   function gateUtilizationSuggestions(util) {
-    if (!util || !util.underutilized) return [];
-    const out = [];
-    if (util.routeCount === 0) {
-      out.push({
-        text: `No flights use your gate at <b>${util.iata}</b> yet — you're paying lease on empty capacity.`,
-        action: 'add_route',
-      });
-      return out;
-    }
-    if (util.routeCount === 1) {
-      const r = util.routesFrom[0];
-      const routeMax = maxFrequencyForRoute(r.origin, r.dest, r.aircraft_type);
-      const freqHeadroom = Math.min(util.remaining, Math.max(0, routeMax - (r.frequency_week || 0)));
-      if (freqHeadroom >= 2) {
-        out.push({
-          text: `Only one route at <b>${util.iata}</b> (${util.pct.toFixed(0)}% of gate time). You could add <b>+${freqHeadroom}</b> weekly departures on <b>${r.origin}–${r.dest}</b>.`,
-          action: 'bump_freq',
-          routeId: r.id,
-          delta: Math.min(7, freqHeadroom),
-        });
-      }
-    }
-    out.push({
-      text: `<b>${util.remaining}</b> departures/wk still open at <b>${util.iata}</b> — add another destination or raise frequency.`,
-      action: 'add_route',
-    });
-    return out;
+    if (!util || (!util.underutilized && !util.idle)) return [];
+    return gateInefficiencyAlternatives(util).map((alt) => ({
+      text: alt.text,
+      action:
+        alt.action === 'hub_routes'
+          ? 'add_route'
+          : alt.action === 'bump_freq'
+            ? 'bump_freq'
+            : alt.action === 'tab'
+              ? 'fleet_tab'
+              : alt.type || 'info',
+      routeId: alt.routeId,
+      delta: alt.delta,
+      airport: alt.airport || util.iata,
+      tab: alt.tab,
+    }));
   }
 
   function gateUtilizationPromptHtml(util, opts) {
@@ -3931,6 +3965,11 @@
     if (bump) {
       actions.push(
         `<button type="button" class="btn secondary" data-bump-freq="${bump.routeId}" data-bump-delta="${bump.delta}">+${bump.delta}/wk on ${util.routesFrom[0].origin}–${util.routesFrom[0].dest}</button>`
+      );
+    }
+    if (suggestions.some((s) => s.action === 'fleet_tab')) {
+      actions.push(
+        `<button type="button" class="btn secondary" data-ops-tab="fleet">Open Fleet</button>`
       );
     }
     if (opts.showScout) {
@@ -3991,6 +4030,11 @@
         bumpRouteFrequency(btn.dataset.bumpFreq, +btn.dataset.bumpDelta || 1);
       });
     });
+    scope.querySelectorAll('[data-ops-tab]').forEach((btn) => {
+      if (btn._gateCapBound) return;
+      btn._gateCapBound = true;
+      btn.addEventListener('click', () => switchTab(btn.dataset.opsTab));
+    });
   }
 
   function focusHubForRoutes(iata) {
@@ -4027,6 +4071,361 @@
     renderRoutes();
     if (selectedAirport === route.origin) renderAirportPanel(route.origin);
     renderOpsGuide();
+  }
+
+  function fleetMaxRangeNm() {
+    let max = 0;
+    (state.fleet || []).forEach((f) => {
+      const ac = aircraftType(f.type);
+      if (ac) max = Math.max(max, ac.range_nm || 0);
+    });
+    return max;
+  }
+
+  function reachableDestinationsFrom(originIata, opts) {
+    opts = opts || {};
+    const o = airport(originIata);
+    if (!o) return [];
+    const maxRange = opts.maxRange != null ? opts.maxRange : fleetMaxRangeNm();
+    const excludeExisting = opts.excludeExisting !== false;
+    const existing = new Set(
+      (state.routes || []).filter((r) => r.origin === originIata).map((r) => r.dest)
+    );
+    const out = [];
+    bootstrap.airports.forEach((dest) => {
+      if (dest.iata === originIata) return;
+      const dist = Math.round(haversineNm(o.lat, o.lon, dest.lat, dest.lon));
+      if (maxRange > 0 && dist > maxRange) return;
+      if (excludeExisting && existing.has(dest.iata)) return;
+      out.push({ dest: dest.iata, city: dest.city, dist });
+    });
+    return out.sort((a, b) => a.dist - b.dist);
+  }
+
+  function gateInefficiencyAlternatives(util) {
+    if (!util || !state) return [];
+    const alts = [];
+    const leaseMo = (state.gates || [])
+      .filter((g) => g.airport === util.iata)
+      .reduce((s, g) => s + (g.monthly || 0), 0);
+
+    if (!state.fleet.length) {
+      alts.push({
+        type: 'fleet',
+        text: `Paying <b>${fmtMoney(leaseMo)}/mo</b> for an empty gate — lease aircraft in <b>Fleet</b> first.`,
+        action: 'tab',
+        tab: 'fleet',
+      });
+      return alts;
+    }
+
+    const maxRange = fleetMaxRangeNm();
+    const reachable = reachableDestinationsFrom(util.iata);
+    const ideas = routeSuggestionsFrom(util.iata).filter(
+      (s) => !(state.routes || []).some((r) => r.origin === util.iata && r.dest === s.dest)
+    );
+    const idlePlanes = state.fleet.filter((f) => !(state.routes || []).some((r) => r.aircraft_id === f.id));
+
+    if (idlePlanes.length) {
+      const ac = aircraftType(idlePlanes[0].type);
+      alts.push({
+        type: 'idle_plane',
+        text: `<b>${ac ? ac.name : 'Aircraft'}</b> has no route — assign it from <b>${util.iata}</b> or elsewhere.`,
+        action: 'hub_routes',
+        airport: util.iata,
+      });
+    }
+
+    if (ideas.length) {
+      const top = ideas
+        .slice(0, 3)
+        .map((s) => s.dest)
+        .join(', ');
+      alts.push({
+        type: 'add_route',
+        text: `<b>${reachable.length}</b> airports in range (${maxRange} nm) · top demand: <b>${top}</b>.`,
+        action: 'hub_routes',
+        airport: util.iata,
+      });
+    } else if (util.routeCount > 0 && util.remaining >= 3) {
+      const r = util.routesFrom[0];
+      if (r) {
+        const routeMax = maxFrequencyForRoute(r.origin, r.dest, r.aircraft_type);
+        const headroom = Math.min(util.remaining, Math.max(0, routeMax - (r.frequency_week || 0)));
+        if (headroom >= 2) {
+          alts.push({
+            type: 'bump_freq',
+            text: `No strong new markets in range — add <b>+${Math.min(7, headroom)}</b>/wk on <b>${r.origin}–${r.dest}</b> instead.`,
+            action: 'bump_freq',
+            routeId: r.id,
+            delta: Math.min(7, headroom),
+          });
+        } else {
+          alts.push({
+            type: 'freq_maxed',
+            text: `${r.origin}–${r.dest} is near schedule max for your aircraft — need another route or longer-range plane.`,
+          });
+        }
+      }
+    } else if (reachable.length === 0 && maxRange > 0) {
+      const longer = Object.values(bootstrap.aircraft_types || {})
+        .filter((ac) => ac.range_nm > maxRange)
+        .sort((a, b) => (a.lease_monthly || 0) - (b.lease_monthly || 0))[0];
+      if (longer) {
+        alts.push({
+          type: 'range',
+          text: `Fleet max <b>${maxRange} nm</b> — can't reach new markets from ${util.iata}. <b>${longer.name}</b> (${longer.range_nm} nm) opens more routes.`,
+          action: 'tab',
+          tab: 'fleet',
+        });
+      } else {
+        alts.push({
+          type: 'range',
+          text: `Nothing in range with current aircraft (${maxRange} nm max from ${util.iata}).`,
+        });
+      }
+    }
+
+    if (leaseMo > 0 && util.pct < 55) {
+      alts.push({
+        type: 'cost',
+        text: `~<b>${fmtMoney(leaseMo * (util.remaining / Math.max(1, util.max)))}/mo</b> of lease buys unused departure slots.`,
+      });
+    }
+
+    return alts;
+  }
+
+  function enrichCompetitorLog(log, cr) {
+    if (!log) return log;
+    if (cr) {
+      log.routeOrigin = cr.origin;
+      log.routeDest = cr.dest;
+    }
+    return log;
+  }
+
+  function routesAffectedByCompetitor(log) {
+    if (!log || !state || !state.routes.length) return [];
+    const hits = [];
+    state.routes.forEach((route) => {
+      let reason = null;
+      let severity = 1;
+      if (
+        log.routeOrigin &&
+        log.routeDest &&
+        ((route.origin === log.routeOrigin && route.dest === log.routeDest) ||
+          (route.origin === log.routeDest && route.dest === log.routeOrigin))
+      ) {
+        reason = 'same city pair';
+        severity = 3;
+      } else if (log.airport && route.origin === log.airport) {
+        reason = `origin ${log.airport}`;
+        severity = 2;
+      } else if (log.airport && route.dest === log.airport) {
+        reason = `serves ${log.airport}`;
+        severity = 1.5;
+      } else if (
+        log.routeOrigin &&
+        (route.origin === log.routeOrigin ||
+          route.dest === log.routeOrigin ||
+          route.origin === log.routeDest ||
+          route.dest === log.routeDest)
+      ) {
+        reason = 'overlapping market';
+        severity = 2;
+      }
+      if (!reason) return;
+      const sim = simulateRouteDay(route);
+      hits.push({
+        route,
+        reason,
+        severity,
+        load: sim.grounded ? null : sim.load,
+        pnl: (sim.revenue || 0) - (sim.cost || 0),
+      });
+    });
+    return hits.sort((a, b) => b.severity - a.severity);
+  }
+
+  function competitorImpactHtml(log) {
+    const hits = routesAffectedByCompetitor(log);
+    if (!hits.length) {
+      return '<div class="competitor-impact"><h4>Your routes</h4><p class="muted">No direct overlap with active routes — monitor loads if you expand into this market.</p></div>';
+    }
+    const rows = hits
+      .map((h) => {
+        const load =
+          h.load != null ? `${(h.load * 100).toFixed(0)}% load` : 'AOG';
+        const pnlClass = h.pnl >= 0 ? '' : 'danger';
+        return `<li><b>${h.route.origin}–${h.route.dest}</b> <span class="muted">(${h.reason})</span> · ${load} · <span class="${pnlClass}">${fmtMoney(h.pnl)}/day</span></li>`;
+      })
+      .join('');
+    return `<div class="competitor-impact"><h4>Your routes affected</h4><ul class="list">${rows}</ul></div>`;
+  }
+
+  function formatCompetitorEventMsg(log) {
+    const hits = routesAffectedByCompetitor(log);
+    if (!hits.length) return log.msg;
+    const names = hits
+      .slice(0, 3)
+      .map((h) => `${h.route.origin}–${h.route.dest}`)
+      .join(', ');
+    return `${log.msg} — affects <b>${names}</b>`;
+  }
+
+  function processMonthlyGateEfficiency() {
+    if (!state || state.game_over || state.day < 30) return;
+    const utils = allGateUtilizations().filter((u) => u.underutilized || u.idle);
+    if (!utils.length) return;
+    if (!state.gate_nudge_day) state.gate_nudge_day = {};
+
+    utils.forEach((util) => {
+      if (state.day - (state.gate_nudge_day[util.iata] || 0) < 28) return;
+      state.gate_nudge_day[util.iata] = state.day;
+      const leaseMo = state.gates
+        .filter((g) => g.airport === util.iata)
+        .reduce((s, g) => s + (g.monthly || 0), 0);
+      const alts = gateInefficiencyAlternatives(util);
+      let msg = `<b>${util.iata}</b> gate <b>${util.pct.toFixed(0)}%</b> used (${util.used}/${util.max} departures/wk) — <b>${util.remaining}</b> open · ${fmtMoney(leaseMo)}/mo lease.`;
+      if (alts[0]) msg += ` ${alts[0].text}`;
+      pushEvent(msg);
+    });
+
+    const worst = utils[0];
+    if (
+      !worst ||
+      worst.pct >= 58 ||
+      activeDecision ||
+      decisionQueue.length ||
+      state.day - (state.last_gate_efficiency_decision_day || 0) < 45
+    ) {
+      return;
+    }
+
+    const alts = gateInefficiencyAlternatives(worst);
+    const leaseMo = state.gates
+      .filter((g) => g.airport === worst.iata)
+      .reduce((s, g) => s + (g.monthly || 0), 0);
+    const options = [];
+    const bump = alts.find((a) => a.action === 'bump_freq');
+    if (bump) {
+      options.push({
+        id: 'bump',
+        label: `A — Add +${bump.delta}/wk on existing route`,
+        hint: 'Use open gate time without a new destination.',
+        effect: 'bump_route_freq',
+        routeId: bump.routeId,
+        delta: bump.delta,
+      });
+    }
+    if (alts.some((a) => a.action === 'hub_routes')) {
+      options.push({
+        id: 'route',
+        label: `B — Plan a new route from ${worst.iata}`,
+        hint: 'Open Routes with suggestions for in-range markets.',
+        effect: 'hub_routes',
+        airport: worst.iata,
+      });
+    }
+    if (alts.some((a) => a.action === 'tab' && a.tab === 'fleet')) {
+      options.push({
+        id: 'fleet',
+        label: 'C — Review Fleet (range / idle aircraft)',
+        hint: 'Longer range or spare aircraft may unlock routes.',
+        effect: 'tab_fleet',
+      });
+    }
+    options.push({
+      id: 'ignore',
+      label: `${options.length ? 'D' : 'A'} — Ignore for now`,
+      hint: 'Idle gate time still costs lease every month.',
+      effect: 'none',
+    });
+
+    state.last_gate_efficiency_decision_day = state.day;
+    queueDecision({
+      airport: worst.iata,
+      kicker: `${fmtDate(state.day)} · Gate efficiency`,
+      title: `${worst.iata} gate underused (${worst.pct.toFixed(0)}%)`,
+      body:
+        `You lease <b>${fmtMoney(leaseMo)}/mo</b> at <b>${worst.iata}</b> but only schedule <b>${worst.used}/${worst.max}</b> weekly departures (<b>${worst.remaining}</b> open).` +
+        (alts.length
+          ? `<ul class="list" style="margin:10px 0;font-size:0.78rem;">${alts
+              .slice(0, 3)
+              .map((a) => `<li>${a.text}</li>`)
+              .join('')}</ul>`
+          : ''),
+      teach: 'Gate time is perishable — unused slots do not roll over. Match aircraft range to markets before blaming demand.',
+      logLine: `${worst.iata} gate ${worst.pct.toFixed(0)}% utilized`,
+      options,
+    });
+  }
+
+  function fareOptimizerChartHtml(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    if (!plane) return '';
+    const market = marketFareForPair(draft.origin, draft.dest, plane.type);
+    const points = [];
+    for (
+      let f = Math.max(49, Math.round(market * 0.68));
+      f <= Math.min(899, Math.round(market * 1.32));
+      f += 5
+    ) {
+      const econ = projectRouteBusinessCase({ ...draft, fare: f });
+      if (!econ) continue;
+      points.push({ fare: f, monthlyNet: econ.monthlyNet, load: econ.via.load || 0 });
+    }
+    if (points.length < 4) return '';
+
+    const width = 320;
+    const height = 96;
+    const margin = { l: 44, r: 12, t: 8, b: 22 };
+    const innerW = width - margin.l - margin.r;
+    const innerH = height - margin.t - margin.b;
+    const minF = points[0].fare;
+    const maxF = points[points.length - 1].fare;
+    const nets = points.map((p) => p.monthlyNet);
+    let minN = Math.min(...nets);
+    let maxN = Math.max(...nets);
+    if (minN === maxN) {
+      minN -= 5000;
+      maxN += 5000;
+    }
+    const pad = (maxN - minN) * 0.12;
+    minN -= pad;
+    maxN += pad;
+    const xAt = (fare) => margin.l + ((fare - minF) / (maxF - minF || 1)) * innerW;
+    const yAt = (v) => margin.t + innerH - ((v - minN) / (maxN - minN)) * innerH;
+
+    let pathD = '';
+    points.forEach((p, i) => {
+      const seg = `${xAt(p.fare).toFixed(1)},${yAt(p.monthlyNet).toFixed(1)}`;
+      pathD += pathD ? ` L${seg}` : `M${seg}`;
+    });
+
+    const cur = projectRouteBusinessCase(draft);
+    const curX = xAt(draft.fare).toFixed(1);
+    const curY = cur ? yAt(cur.monthlyNet).toFixed(1) : yAt(0).toFixed(1);
+    const mktX = xAt(market).toFixed(1);
+    const zeroY = yAt(0).toFixed(1);
+
+    const best = points.reduce((a, b) => (b.monthlyNet > a.monthlyNet ? b : a), points[0]);
+
+    return `<div class="judgment-fare-chart">
+      <p class="muted" style="font-size:0.66rem;margin:0 0 6px;">Fare vs burdened net/mo (static rivals) — dot is your fare; peak near <b>$${best.fare}</b>.</p>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Fare optimizer chart">
+        <line x1="${margin.l}" y1="${zeroY}" x2="${width - margin.r}" y2="${zeroY}" class="chart-grid"/>
+        <line x1="${mktX}" y1="${margin.t}" x2="${mktX}" y2="${height - margin.b}" class="chart-fare-market"/>
+        <path d="${pathD}" fill="none" stroke="#00c896" stroke-width="2"/>
+        <line x1="${curX}" y1="${margin.t}" x2="${curX}" y2="${height - margin.b}" class="chart-fare-cursor"/>
+        <circle cx="${curX}" cy="${curY}" r="4" fill="#ffd166" stroke="#041018" stroke-width="1"/>
+        <text x="${margin.l}" y="${height - 6}" class="chart-axis">$${minF}</text>
+        <text x="${width - margin.r}" y="${height - 6}" class="chart-axis" text-anchor="end">$${maxF}</text>
+        <text x="${margin.l - 4}" y="${yAt(maxN).toFixed(1)}" class="chart-axis" text-anchor="end">${fmtMoney(maxN)}</text>
+        <text x="${margin.l - 4}" y="${zeroY}" class="chart-axis" text-anchor="end">$0</text>
+      </svg>
+    </div>`;
   }
 
   function ensureMarketingInvestments() {
@@ -4222,12 +4621,21 @@
 
     let breakEvenMonths = null;
     let breakEvenYears = null;
+    let breakEvenMonthsRoute = null;
+    let breakEvenYearsRoute = null;
     if (monthlyNet > 0 && upfront > 0) {
       breakEvenMonths = upfront / monthlyNet;
       breakEvenYears = breakEvenMonths / 12;
     } else if (monthlyNet > 0 && upfront <= 0) {
       breakEvenMonths = 0;
       breakEvenYears = 0;
+    }
+    if (monthlyVariable > 0 && upfront > 0) {
+      breakEvenMonthsRoute = upfront / monthlyVariable;
+      breakEvenYearsRoute = breakEvenMonthsRoute / 12;
+    } else if (monthlyVariable > 0 && upfront <= 0) {
+      breakEvenMonthsRoute = 0;
+      breakEvenYearsRoute = 0;
     }
 
     let verdict = 'poor';
@@ -4263,6 +4671,9 @@
       upfront,
       breakEvenMonths,
       breakEvenYears,
+      breakEvenMonthsRoute,
+      breakEvenYearsRoute,
+      monthlyNetRouteOnly: monthlyVariable,
       verdict,
       verdictLabel,
       verdictClass,
@@ -4346,12 +4757,18 @@
     const yearly = projectRouteYearlyOutlook(draft);
     const loadPct = (econ.via.load * 100).toFixed(0);
     const hubTarget = cfg.hub_profit_target_years || 2.5;
-    const paybackLine =
+    const paybackBurdened =
       econ.monthlyNet <= 0
-        ? `<span class="danger">Never</span> — projected to lose <b>${fmtMoney(Math.abs(econ.monthlyNet))}/mo</b> after allocated fixed costs.`
+        ? `<span class="danger">Never</span> — loses <b>${fmtMoney(Math.abs(econ.monthlyNet))}/mo</b> after gate, aircraft, HQ &amp; launch costs.`
         : econ.breakEvenYears <= 0
-          ? '<b>Immediate</b> — upfront costs recovered from day-one margin.'
-          : `<b>~${econ.breakEvenYears.toFixed(1)} years</b> (${Math.round(econ.breakEvenMonths)} months) to recover <b>${fmtMoney(econ.upfront)}</b> upfront.`;
+          ? '<b>Immediate</b>'
+          : `<b>~${econ.breakEvenYears.toFixed(1)} yr</b> (${Math.round(econ.breakEvenMonths)} mo)`;
+    const paybackRoute =
+      econ.monthlyNetRouteOnly <= 0
+        ? `<span class="danger">Never</span> on route margin alone`
+        : econ.breakEvenYearsRoute <= 0
+          ? '<b>Immediate</b>'
+          : `<b>~${econ.breakEvenYearsRoute.toFixed(1)} yr</b> (${Math.round(econ.breakEvenMonthsRoute)} mo)`;
 
     let patienceNote = '';
     if (econ.monthlyNet > 0 && econ.breakEvenYears >= 2) {
@@ -4386,11 +4803,14 @@
       <dl class="stat-dl judgment-stats">
         <dt>Est. route margin (steady-state)</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day · ${(bootstrap.ancillary_modes || []).find((m) => m.id === (state.ancillary_strategy || 'auto'))?.label || 'Balanced'} strategy)</span></dd>
         <dt>Allocated fixed costs</dt><dd>${fmtMoney(econ.monthlyFixed)}/mo <span class="muted">(gate ${fmtMoney(econ.gateShare)} · aircraft ${fmtMoney(econ.fleetShare)} · mkt/OTA ${fmtMoney(econ.marketingMonthly + econ.otaMonthly)} · HQ ${fmtMoney(econ.corpShare)})</span></dd>
-        <dt>Net contribution</dt><dd class="${econ.monthlyNet >= 0 ? '' : 'danger'}">${fmtMoney(econ.monthlyNet)}/mo</dd>
+        <dt>Route margin only</dt><dd class="${econ.monthlyNetRouteOnly >= 0 ? '' : 'danger'}">${fmtMoney(econ.monthlyNetRouteOnly)}/mo <span class="muted">(fuel, crew, fees — no gate/HQ split)</span></dd>
+        <dt>Net contribution</dt><dd class="${econ.monthlyNet >= 0 ? '' : 'danger'}">${fmtMoney(econ.monthlyNet)}/mo <span class="muted">(fully burdened)</span></dd>
         <dt>Upfront at launch</dt><dd>${fmtMoney(econ.upfront)}</dd>
-        <dt>Payback (steady-state)</dt><dd>${paybackLine}</dd>
+        <dt>Payback — route margin</dt><dd>${paybackRoute} <span class="muted">to recover ${fmtMoney(econ.upfront)}</span></dd>
+        <dt>Payback — fully burdened</dt><dd>${paybackBurdened} <span class="muted">to recover ${fmtMoney(econ.upfront)}</span></dd>
       </dl>
       ${hqNote}
+      ${fareOptimizerChartHtml(draft)}
       ${yearTable}
       ${fareSensitivityHtml(draft)}
       ${patienceNote}
@@ -5218,6 +5638,48 @@
         'text-halo-width': 2,
       },
     });
+    mapboxMap.addLayer({
+      id: 'airport-cap-labels-layer',
+      type: 'symbol',
+      source: 'airports',
+      filter: ['==', ['get', 'showCapBadge'], true],
+      layout: {
+        'text-field': ['get', 'capLabel'],
+        'text-size': 9,
+        'text-offset': [0, -1.35],
+        'text-anchor': 'bottom',
+        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+      },
+      paint: {
+        'text-color': [
+          'case',
+          ['<', ['get', 'gateUtilPct'], 50],
+          '#ff9b7a',
+          ['<', ['get', 'gateUtilPct'], 75],
+          '#ffd166',
+          '#5dffa8',
+        ],
+        'text-halo-color': '#041018',
+        'text-halo-width': 1.5,
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'airport-cap-sub-layer',
+      type: 'symbol',
+      source: 'airports',
+      filter: ['all', ['==', ['get', 'showCapBadge'], true], ['>', ['get', 'gateRemaining'], 0]],
+      layout: {
+        'text-field': ['get', 'capSub'],
+        'text-size': 8,
+        'text-offset': [0, -2.1],
+        'text-anchor': 'bottom',
+      },
+      paint: {
+        'text-color': '#a8c4e0',
+        'text-halo-color': '#041018',
+        'text-halo-width': 1.2,
+      },
+    });
   }
 
   function mapboxFatalError(err) {
@@ -5341,8 +5803,12 @@
       const owned = state && hasGateAt(ap.iata);
       const selected = selectedAirport === ap.iata;
       const share = playerShareAtAirport(ap.iata);
-      const fill = owned ? '#00e4a8' : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
+      const util = owned && state ? gateUtilizationAt(ap.iata) : null;
+      const underCap = util && (util.underutilized || util.idle);
+      const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
       const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
+      const capLabel = util ? `${Math.round(util.pct)}%` : '';
+      const capSub = util && util.remaining > 0 ? `${util.remaining}o` : '';
 
       if (share > 0.08) {
         haloFeatures.push({
@@ -5365,6 +5831,11 @@
           stroke: selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)',
           strokeWidth: selected ? 2 : 1.2,
           showLabel: owned || selected || labelAll,
+          showCapBadge: !!owned && !!util,
+          capLabel,
+          capSub,
+          gateUtilPct: util ? util.pct : 0,
+          gateRemaining: util ? util.remaining : 0,
         },
       });
     });
@@ -5630,7 +6101,9 @@
       const owned = state && hasGateAt(ap.iata);
       const selected = selectedAirport === ap.iata;
       const share = playerShareAtAirport(ap.iata);
-      const fill = owned ? '#00e4a8' : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
+      const util = owned && state ? gateUtilizationAt(ap.iata) : null;
+      const underCap = util && (util.underutilized || util.idle);
+      const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
       const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
       const stroke = selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)';
       if (share > 0.08) {
@@ -5638,6 +6111,13 @@
         html += `<circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="none" stroke="rgba(0,228,168,${0.15 + share * 0.45})" stroke-width="2" class="ap-share-ring"/>`;
       }
       html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
+      if (owned && util) {
+        const capClass = util.pct < 50 ? 'low' : '';
+        html += `<text x="${p.x}" y="${p.y - 10}" text-anchor="middle" class="map-cap-badge ${capClass}">${Math.round(util.pct)}%</text>`;
+        if (util.remaining > 0) {
+          html += `<text x="${p.x}" y="${p.y - 18}" text-anchor="middle" class="map-cap-badge" fill="#a8c4e0" font-size="7">${util.remaining} open</text>`;
+        }
+      }
       if (owned || selected || labelAll) {
         html += `<text x="${p.x + 8}" y="${p.y + 4}" fill="#f0f8ff" font-size="${labelAll ? 11 : 10}" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${ap.iata}</text>`;
       }
