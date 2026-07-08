@@ -18,6 +18,8 @@
   const MAP_ZOOM_MAX_W = MAP_W * 2.2;
   let fleetPending = null;
   let pendingScenarioId = null;
+  let speedBeforePause = 'day';
+  let usLand = null;
   let mapDrag = {
     active: false,
     moved: false,
@@ -440,6 +442,120 @@
     return Object.values(state.marketing_spend_monthly).reduce((a, b) => a + clampMoney(b), 0);
   }
 
+  function cashInterestAnnualRate() {
+    ensureMacro();
+    const infl = state.macro.inflation_pct / 100;
+    return Math.max(0.0025, infl * 0.85 + 0.004);
+  }
+
+  function accrueCashInterest(dayFraction) {
+    if (!state || state.cash <= 0 || dayFraction <= 0) return 0;
+    const earned = state.cash * (cashInterestAnnualRate() / 365) * dayFraction;
+    state.cash += earned;
+    return earned;
+  }
+
+  function isCommonRoutePair(a, b) {
+    const pairs = bootstrap.common_route_pairs || [];
+    return pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
+  }
+
+  function recommendAircraftTypeForPair(originIata, destIata) {
+    const o = airport(originIata);
+    const d = airport(destIata);
+    if (!o || !d) return 'e175';
+    const dist = haversineNm(o.lat, o.lon, d.lat, d.lon);
+    const pop = Math.sqrt(o.metro_pop_m * d.metro_pop_m);
+    const regional =
+      o.regional || d.regional || o.metro_pop_m < 2.5 || d.metro_pop_m < 2.5;
+    let order;
+    if (regional || pop < 1.2) order = ['pc12', 'e145', 'e175', 'a320', 'b737'];
+    else if (pop < 3.5) order = ['e145', 'e175', 'a320', 'b737', 'pc12'];
+    else if (pop < 8) order = ['e175', 'a320', 'b737', 'e145', 'pc12'];
+    else order = ['a320', 'b737', 'e175', 'e145', 'pc12'];
+    for (const tid of order) {
+      const ac = aircraftType(tid);
+      if (ac && dist <= ac.range_nm) return tid;
+    }
+    return 'e175';
+  }
+
+  function suggestFareForPair(originIata, destIata) {
+    const mock = { origin: originIata, dest: destIata };
+    const dist = routeDistance(mock);
+    const o = airport(originIata);
+    const d = airport(destIata);
+    const pop = o && d ? Math.sqrt(o.metro_pop_m * d.metro_pop_m) : 2;
+    return Math.min(299, Math.max(79, Math.round(84 + dist / 14 + pop * 6)));
+  }
+
+  function estimateRouteViability(originIata, destIata, aircraftTypeId, freq, fare) {
+    const ac = aircraftType(aircraftTypeId);
+    if (!ac) return { label: 'Unknown', tier: 'bad', load: 0, dailyPax: 0 };
+    const mock = {
+      origin: originIata,
+      dest: destIata,
+      aircraft_type: aircraftTypeId,
+      frequency_week: freq,
+      fare,
+    };
+    let demand = demandForRoute(mock);
+    if (isCommonRoutePair(originIata, destIata)) demand *= 1.12;
+    const seats = ac.seats_max || ac.seats;
+    const dailySeats = seats * (freq / 7);
+    const load = Math.min(0.95, demand / Math.max(dailySeats, 1));
+    const dailyPax = Math.floor(dailySeats * load);
+    let label = 'Poor fit';
+    let tier = 'bad';
+    if (load >= 0.72) {
+      label = 'Strong demand';
+      tier = 'good';
+    } else if (load >= 0.45) {
+      label = 'Moderate';
+      tier = 'ok';
+    } else if (load >= 0.22) {
+      label = 'Thin';
+      tier = 'warn';
+    }
+    if ((ac.seats_max || ac.seats) >= 150 && load < 0.35) {
+      label = 'Too much aircraft';
+      tier = 'bad';
+    }
+    return { label, tier, load, dailyPax, seats };
+  }
+
+  function routeSuggestionsFrom(originIata) {
+    if (!originIata || !state) return [];
+    const o = airport(originIata);
+    if (!o) return [];
+    const suggestions = [];
+    bootstrap.airports.forEach((dest) => {
+      if (dest.iata === originIata) return;
+      const dist = Math.round(haversineNm(o.lat, o.lon, dest.lat, dest.lon));
+      const acType = recommendAircraftTypeForPair(originIata, dest.iata);
+      const ac = aircraftType(acType);
+      if (!ac || dist > ac.range_nm) return;
+      const freq = dist < 350 ? 14 : 7;
+      const fare = suggestFareForPair(originIata, dest.iata);
+      const via = estimateRouteViability(originIata, dest.iata, acType, freq, fare);
+      const common = isCommonRoutePair(originIata, dest.iata);
+      const score = via.load * (common ? 1.15 : 1) * (dest.annual_pax_m + 1);
+      suggestions.push({
+        dest: dest.iata,
+        destCity: dest.city,
+        dist,
+        acType,
+        acName: ac.name,
+        freq,
+        fare,
+        common,
+        score,
+        ...via,
+      });
+    });
+    return suggestions.sort((a, b) => b.score - a.score).slice(0, 8);
+  }
+
   function burnMonthly() {
     return (
       fleetMonthlyCosts() +
@@ -490,7 +606,10 @@
     const ota = otaEffects();
     const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
 
-    return base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult * comfortFactor;
+    let demand =
+      base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult * comfortFactor;
+    if (isCommonRoutePair(route.origin, route.dest)) demand *= 1.08;
+    return demand;
   }
 
   function simulateRouteDay(route) {
@@ -612,7 +731,8 @@
     for (let i = 0; i < n; i++) {
       state.day += 1;
       const econ = simulateDayEconomics();
-      state.daily_pnl = econ.pnl;
+      const interest = accrueCashInterest(1);
+      state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
@@ -627,8 +747,10 @@
     if (state.hour == null) state.hour = 8;
 
     const econ = simulateDayEconomics();
-    state.daily_pnl = econ.pnl;
-    state.cash += econ.pnl * (hours / 24);
+    const frac = hours / 24;
+    const interest = accrueCashInterest(frac);
+    state.daily_pnl = econ.pnl + interest;
+    state.cash += econ.pnl * frac;
 
     state.hour += hours;
     let dayAdvanced = false;
@@ -651,9 +773,19 @@
     return speedId;
   }
 
+  function togglePause() {
+    if (!state || state.game_over) return;
+    if (state.speed === 'pause') {
+      setSpeed(speedBeforePause || 'day');
+    } else {
+      setSpeed('pause');
+    }
+  }
+
   function setSpeed(speedId) {
     if (!state) return;
     speedId = resolveSpeedId(speedId);
+    if (speedId !== 'pause') speedBeforePause = speedId;
     state.speed = speedId;
     if (tickTimer) clearInterval(tickTimer);
     tickTimer = null;
@@ -913,11 +1045,14 @@
     renderAll();
   }
 
-  function setMarketing(iata, monthly) {
-    const v = clampMoney(monthly);
+  function applyMarketing(iata) {
+    const input = $(`mkt-input-${iata}`);
+    const v = clampMoney(input ? input.valueAsNumber : 0);
     state.marketing_spend_monthly[iata] = v;
     saveGame();
-    renderHud();
+    renderAirportPanel(iata);
+    pushEvent(`Marketing budget at ${iata}: ${fmtMoney(v)}/mo`);
+    renderEvents();
     return v;
   }
 
@@ -1039,6 +1174,7 @@
   }
 
   function mapBounds() {
+    if (usLand && usLand.bounds) return usLand.bounds;
     if (usMap && usMap.bounds) return usMap.bounds;
     return { lonMin: -130, lonMax: -60, latMin: 22, latMax: 52 };
   }
@@ -1062,14 +1198,9 @@
     );
   }
 
-  function mapLandPathsHtml() {
-    if (!usMap || !usMap.paths) return '';
-    return usMap.paths
-      .map(
-        (coords) =>
-          `<path d="${statePathD(coords)}" class="map-land" />`
-      )
-      .join('');
+  function mapPathsHtml(paths, className) {
+    if (!paths || !paths.length) return '';
+    return paths.map((coords) => `<path d="${statePathD(coords)}" class="${className}" />`).join('');
   }
 
   function drawMap() {
@@ -1087,13 +1218,10 @@
           <stop offset="0%" stop-color="#5f8f72"/>
           <stop offset="100%" stop-color="#3f6d56"/>
         </linearGradient>
-        <filter id="map-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="2.5" result="blur"/>
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
       </defs>
       <rect class="map-ocean" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="url(#map-ocean)"/>
-      <g class="map-states" filter="url(#map-glow)">${mapLandPathsHtml()}</g>
+      <g class="map-landmass">${mapPathsHtml(usLand && usLand.silhouette, 'map-silhouette')}</g>
+      <g class="map-borders">${mapPathsHtml(usLand && usLand.borders, 'map-border')}</g>
     `;
 
     if (state && state.routes) {
@@ -1158,10 +1286,13 @@
         <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">Lease common-use (3yr)</button>
         <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">Lease exclusive (5yr)</button>
       `}
-      <label>Marketing $/mo
-        <input type="number" min="0" step="1000" value="${clampMoney(state.marketing_spend_monthly[iata])}"
-          oninput="var v=Math.max(0,this.valueAsNumber||0);this.value=v;Runway.setMarketing('${iata}', v)">
-      </label>
+      <div class="mkt-box">
+        <label for="mkt-input-${iata}">Marketing budget $/mo
+          <input type="number" id="mkt-input-${iata}" min="0" step="1000" value="${clampMoney(state.marketing_spend_monthly[iata])}">
+        </label>
+        <p class="muted" style="font-size:0.75rem;margin:6px 0;">Active spend: <b>${fmtMoney(clampMoney(state.marketing_spend_monthly[iata]))}/mo</b></p>
+        <button type="button" class="btn" onclick="Runway.applyMarketing('${iata}')">Apply budget</button>
+      </div>
       <p class="muted" style="margin-top:8px;font-size:0.75rem;">OTA amplify: ${otaEffects().marketingAmplify.toFixed(2)}× · Country demand: ${(macroDemandMultiplier() * 100).toFixed(0)}%</p>
     `;
   }
@@ -1186,8 +1317,9 @@
     const macroEl = $('hud-macro');
     if (macroEl && state.macro) {
       ensureMacro();
+      const cashYield = state.cash > 0 ? (cashInterestAnnualRate() * 100).toFixed(2) : '0.00';
       macroEl.textContent =
-        `Infl ${state.macro.inflation_pct.toFixed(1)}% · GDP ${state.macro.gdp_growth_pct >= 0 ? '+' : ''}${state.macro.gdp_growth_pct.toFixed(1)}% · Travel ${state.macro.travel_spend_growth_pct >= 0 ? '+' : ''}${state.macro.travel_spend_growth_pct.toFixed(1)}% · US ${state.macro.country_health.toFixed(0)}`;
+        `Infl ${state.macro.inflation_pct.toFixed(1)}% · GDP ${state.macro.gdp_growth_pct >= 0 ? '+' : ''}${state.macro.gdp_growth_pct.toFixed(1)}% · Travel ${state.macro.travel_spend_growth_pct >= 0 ? '+' : ''}${state.macro.travel_spend_growth_pct.toFixed(1)}% · US ${state.macro.country_health.toFixed(0)} · Cash yield ${cashYield}%`;
     }
   }
 
@@ -1232,6 +1364,7 @@
       <p>Debt: ${state.debt.map((d) => `${d.name} ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p>Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p class="muted">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
+      <p class="muted">Idle cash yield: <b>${(cashInterestAnnualRate() * 100).toFixed(2)}%</b>/yr (nominal, inflation-linked, never negative)</p>
       <div class="btn-row">`;
     if (tier === 'startup') {
       html += `<button class="btn" onclick="Runway.raiseSeed()">Close seed round (~$4.5M)</button>`;
@@ -1342,8 +1475,10 @@
       : '<option value="">— add aircraft in Fleet tab —</option>';
 
     html += `<h4>Open route</h4>
-      <p class="muted">Search by code or city (e.g. DAY, Dayton, LUK). Origin defaults to map selection.</p>
+      <p class="muted">Pick a suggested destination or search manually. Origin defaults to your map selection.</p>
+      <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
+      <div id="route-preview" class="route-preview muted"></div>
       <div class="form-grid">
         <label>Origin
           <input type="text" id="rt-origin-search" list="airport-list" placeholder="DAY — Dayton" value="${defLabel}">
@@ -1362,22 +1497,134 @@
       <button class="btn" onclick="Runway.submitRoute()">Launch route</button>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
+    renderRouteSuggestions();
+    updateRoutePreview();
+  }
+
+  function renderRouteSuggestions() {
+    const box = $('route-suggestions');
+    if (!box) return;
+    const origin = $('rt-origin-code') && $('rt-origin-code').value;
+    if (!origin) {
+      box.innerHTML = '<p class="muted">Select an origin to see demand suggestions.</p>';
+      return;
+    }
+    const oAp = airport(origin);
+    const hasGate = hasGateAt(origin);
+    const ideas = routeSuggestionsFrom(origin);
+    if (!ideas.length) {
+      box.innerHTML = '<p class="muted">No viable destinations in range from this airport.</p>';
+      return;
+    }
+    let html = `<h4 style="margin:12px 0 6px;font-size:0.88rem;color:var(--gold);">Popular from ${origin}${oAp ? ` (${oAp.city})` : ''}</h4>`;
+    if (!hasGate) {
+      html += `<p class="muted" style="font-size:0.75rem;margin-bottom:8px;">You need a gate at ${origin} before launching.</p>`;
+    }
+    html += '<ul class="route-suggest-list">';
+    ideas.forEach((s) => {
+      const fleetPlane = state.fleet.find((f) => f.type === s.acType);
+      const fleetNote = fleetPlane ? '' : ' <span class="muted">(not in fleet)</span>';
+      html += `<li>
+        <button type="button" class="route-suggest-btn" data-tier="${s.tier}"
+          onclick="Runway.applyRouteSuggestion('${s.dest}','${s.acType}',${s.fare},${s.freq})">
+          <span class="rs-route">${origin} → ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
+          <span class="rs-meta">${s.dist} nm · ${s.acName}${fleetNote} · ~${s.dailyPax} pax/day</span>
+          <span class="rs-via via-${s.tier}">${s.label} (${(s.load * 100).toFixed(0)}% est. load)</span>
+        </button>
+      </li>`;
+    });
+    html += '</ul>';
+    box.innerHTML = html;
+  }
+
+  function updateRoutePreview() {
+    const el = $('route-preview');
+    if (!el) return;
+    const oCode = $('rt-origin-code') && $('rt-origin-code').value;
+    const dCode = $('rt-dest-code') && $('rt-dest-code').value;
+    if (!oCode || !dCode) {
+      el.textContent = '';
+      return;
+    }
+    const plane = state.fleet.find((f) => f.id === ($('rt-aircraft') && $('rt-aircraft').value));
+    const acType = plane ? plane.type : recommendAircraftTypeForPair(oCode, dCode);
+    const freq = +($('rt-freq') && $('rt-freq').value) || 7;
+    const fare = +($('rt-fare') && $('rt-fare').value) || suggestFareForPair(oCode, dCode);
+    const via = estimateRouteViability(oCode, dCode, acType, freq, fare);
+    const ac = aircraftType(acType);
+    const oAp = airport(oCode);
+    const dAp = airport(dCode);
+    if (!oAp || !dAp) {
+      el.textContent = '';
+      return;
+    }
+    const dist = Math.round(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon));
+    el.innerHTML = `<strong>Preview:</strong> ${dist} nm · ${ac ? ac.name : acType} · ${via.label} · ~${via.dailyPax} passengers/day at $${fare} (${(via.load * 100).toFixed(0)}% load)`;
+  }
+
+  function applyRouteSuggestion(destIata, acType, fare, freq) {
+    const dAp = airport(destIata);
+    if (!dAp) return;
+    const destInput = $('rt-dest-search');
+    const destCode = $('rt-dest-code');
+    if (destInput) destInput.value = airportLabel(dAp);
+    if (destCode) destCode.value = destIata;
+    const fareInput = $('rt-fare');
+    const freqInput = $('rt-freq');
+    if (fareInput) fareInput.value = fare;
+    if (freqInput) freqInput.value = freq;
+    const plane = state.fleet.find((f) => f.type === acType);
+    const acSelect = $('rt-aircraft');
+    if (acSelect && plane) acSelect.value = plane.id;
+    updateRoutePreview();
+    document.querySelector('[data-tab="routes"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function bindRouteAirportInputs() {
-    const bind = (inputId, hiddenId) => {
+    const bind = (inputId, hiddenId, onSync) => {
       const input = $(inputId);
       const hidden = $(hiddenId);
       if (!input || !hidden) return;
       const sync = () => {
         const ap = resolveAirportQuery(input.value);
         hidden.value = ap ? ap.iata : '';
+        if (onSync) onSync();
       };
       input.addEventListener('change', sync);
       input.addEventListener('blur', sync);
+      input.addEventListener('input', () => {
+        window.clearTimeout(input._rtDebounce);
+        input._rtDebounce = window.setTimeout(sync, 280);
+      });
     };
-    bind('rt-origin-search', 'rt-origin-code');
-    bind('rt-dest-search', 'rt-dest-code');
+    const refresh = () => {
+      renderRouteSuggestions();
+      updateRoutePreview();
+    };
+    bind('rt-origin-search', 'rt-origin-code', refresh);
+    bind('rt-dest-search', 'rt-dest-code', updateRoutePreview);
+    ['rt-aircraft', 'rt-freq', 'rt-fare'].forEach((id) => {
+      const el = $(id);
+      if (el) el.addEventListener('input', updateRoutePreview);
+      if (el) el.addEventListener('change', updateRoutePreview);
+    });
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+  }
+
+  function setupKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'Space' || e.repeat) return;
+      const game = $('screen-game');
+      if (!game || !game.classList.contains('active') || !state) return;
+      if (isTypingTarget(document.activeElement)) return;
+      e.preventDefault();
+      togglePause();
+    });
   }
 
   function renderEvents() {
@@ -1528,8 +1775,15 @@
 
   async function loadUsMap() {
     try {
-      const resp = await fetch('/static/runway/us-states.json');
-      if (resp.ok) usMap = await resp.json();
+      const landResp = await fetch('/static/runway/us-land.json');
+      if (landResp.ok) {
+        usLand = await landResp.json();
+        usMap = usLand;
+      }
+      if (!usLand) {
+        const resp = await fetch('/static/runway/us-states.json');
+        if (resp.ok) usMap = await resp.json();
+      }
     } catch (e) {
       console.warn('Runway: US map data failed to load', e);
     }
@@ -1542,6 +1796,7 @@
     await loadUsMap();
     setupMapInteraction();
     setupStartScreen();
+    setupKeyboardShortcuts();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.addEventListener('click', () => setSpeed(btn.dataset.speed));
@@ -1599,7 +1854,8 @@
     issueCorporateBonds,
     issueAssetBackedBonds,
     restructureDebt,
-    setMarketing,
+    applyMarketing,
+    applyRouteSuggestion,
     toggleOta: toggleOtaListing,
     newGame: (id) => {
       showScreen('screen-game');

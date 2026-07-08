@@ -476,6 +476,14 @@ TIME_SPEEDS = [
 
 TICK_MS = {'pause': 0, 'slow': 1100, 'day': 750, 'week': 580, 'month': 460}
 
+# Well-traveled city pairs (either direction) — boosts route suggestions & demand hint.
+COMMON_ROUTE_PAIRS = [
+    ('DAY', 'CMH'), ('DAY', 'CVG'), ('DAY', 'IND'), ('CVG', 'CMH'), ('CVG', 'IND'),
+    ('CMH', 'IND'), ('CMH', 'BNA'), ('IND', 'ORD'), ('BNA', 'ATL'), ('CMH', 'ORD'),
+    ('DAY', 'ORD'), ('LUK', 'CVG'), ('LUK', 'CMH'), ('CAK', 'CMH'), ('TOL', 'ORD'),
+    ('GRR', 'ORD'), ('DSM', 'ORD'), ('OMA', 'DEN'), ('RDU', 'ATL'), ('AUS', 'DFW'),
+]
+
 
 def get_runway_bootstrap():
     """JSON-safe payload for the browser game."""
@@ -491,4 +499,5 @@ def get_runway_bootstrap():
         'ota_platforms': OTA_PLATFORMS,
         'time_speeds': TIME_SPEEDS,
         'tick_ms': TICK_MS,
+        'common_route_pairs': COMMON_ROUTE_PAIRS,
     }

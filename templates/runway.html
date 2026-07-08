@@ -187,14 +187,54 @@
     background: #071525;
     box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
   }
-  #runway-map .map-land {
+  #runway-map .map-silhouette {
     fill: url(#map-land);
-    stroke: #8ec4a8;
-    stroke-width: 0.65;
+    stroke: none;
+    opacity: 1;
+  }
+  #runway-map .map-border {
+    fill: none;
+    stroke: rgba(142, 196, 168, 0.35);
+    stroke-width: 0.45;
     stroke-linejoin: round;
-    opacity: 0.96;
+    pointer-events: none;
   }
   #runway-map .map-ocean { pointer-events: none; }
+
+  .route-suggest-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+  .route-suggest-btn {
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    display: grid;
+    gap: 2px;
+  }
+  .route-suggest-btn:hover { border-color: var(--accent); background: rgba(0, 200, 150, 0.05); }
+  .route-suggest-btn .rs-route { font-weight: 600; color: #fff; }
+  .route-suggest-btn .rs-meta { color: var(--muted); font-size: 0.72rem; }
+  .via-good { color: #5dffa8; }
+  .via-ok { color: var(--accent); }
+  .via-warn { color: var(--gold); }
+  .via-bad { color: var(--danger); }
+  .route-preview {
+    font-size: 0.78rem;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.15);
+    margin-bottom: 10px;
+    min-height: 20px;
+  }
+  .mkt-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .mkt-box .btn { margin-top: 8px; }
 
   .side-panel {
     border-left: 1px solid var(--border);
@@ -394,7 +434,7 @@
       <button type="button" class="speed-btn" data-speed="week" title="Fast — 1 week per step">▶▶</button>
       <button type="button" class="speed-btn" data-speed="month" title="Faster — 1 month per step">▶▶▶</button>
     </div>
-    <span class="speed-hint" id="speed-hint">1 day / tick</span>
+    <span class="speed-hint" id="speed-hint">1 day / tick · Space toggles pause</span>
   </div>
   <div class="game-layout">
     <div class="map-wrap">
@@ -424,6 +464,6 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=5"></script>
+<script src="/static/runway/game.js?v=6"></script>
 </body>
 </html>
