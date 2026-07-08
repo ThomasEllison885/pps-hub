@@ -129,10 +129,17 @@
 
   function resolveAirportQuery(q) {
     if (!q) return null;
-    const t = q.trim().toLowerCase();
-    if (!t) return null;
+    const raw = String(q).trim();
+    if (!raw) return null;
+    const t = raw.toLowerCase();
     const exact = bootstrap.airports.find((a) => a.iata.toLowerCase() === t);
     if (exact) return exact;
+    const dashParts = raw.split(/\s*[—–-]\s*/);
+    if (dashParts[0] && dashParts[0].length >= 3) {
+      const head = dashParts[0].trim().slice(0, 3).toLowerCase();
+      const byDash = bootstrap.airports.find((a) => a.iata.toLowerCase() === head);
+      if (byDash) return byDash;
+    }
     const m = t.match(/^([a-z0-9]{3})\b/);
     if (m) {
       const byCode = bootstrap.airports.find((a) => a.iata.toLowerCase() === m[1]);
@@ -143,7 +150,8 @@
         (a) =>
           a.city.toLowerCase().includes(t) ||
           a.name.toLowerCase().includes(t) ||
-          `${a.iata} ${a.city}`.toLowerCase().includes(t)
+          `${a.iata} ${a.city}`.toLowerCase().includes(t) ||
+          `${a.iata} — ${a.city}`.toLowerCase().includes(t)
       ) || null
     );
   }
@@ -885,6 +893,28 @@
     }
   }
 
+  function dismissDecisionsForRouteLaunch() {
+    if (!activeDecision && !decisionQueue.length) return;
+    activeDecision = null;
+    decisionQueue = [];
+    state.paused_reason = null;
+    state.onboarding_done = true;
+    renderDecisionModal();
+    clearTutorialHighlight();
+    const banner = $('pause-banner');
+    if (banner) banner.style.display = 'none';
+  }
+
+  function showRouteFormError(msg) {
+    const el = $('route-form-error');
+    if (el) {
+      el.textContent = msg;
+      el.style.display = msg ? 'block' : 'none';
+    } else if (msg) {
+      alert(msg);
+    }
+  }
+
   function switchTab(tabId) {
     const btn = document.querySelector(`[data-tab="${tabId}"]`);
     if (!btn) return;
@@ -893,7 +923,10 @@
     btn.classList.add('active');
     const panel = $(`panel-${tabId}`);
     if (panel) panel.classList.add('active');
-    if (tabId === 'routes') renderRoutes();
+    if (tabId === 'routes') {
+      dismissDecisionsForRouteLaunch();
+      renderRoutes();
+    }
     if (tabId === 'finance') renderFinance();
     if (tabId === 'fleet') renderFleet();
     if (tabId === 'economy') renderEconomy();
@@ -3416,8 +3449,24 @@
     routeLaunchActive = !!active;
     const overlay = $('route-launch-modal');
     const dm = $('decision-modal');
+    const th = $('tutorial-highlight');
     if (overlay) overlay.classList.toggle('route-launch-open', routeLaunchActive);
     if (dm) dm.classList.toggle('suppressed', routeLaunchActive);
+    if (th && routeLaunchActive) {
+      th.classList.remove('active');
+      th.innerHTML = '';
+    }
+    document.body.classList.toggle('route-launch-active', routeLaunchActive);
+  }
+
+  function ensureRouteLaunchOta(draft) {
+    if (!draft.ota) draft.ota = {};
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      if (!draft.ota[p.id]) {
+        draft.ota[p.id] = { list: false, feature: false, hubPush: false };
+      }
+    });
+    return draft.ota;
   }
 
   function renderRouteLaunchModal() {
@@ -3430,6 +3479,7 @@
       return;
     }
     const d = routeLaunchDraft;
+    ensureRouteLaunchOta(d);
     const oAp = airport(d.origin);
     const channels = bootstrap.marketing_channels || [];
     const channelRows = channels
@@ -3467,19 +3517,28 @@
       .join('');
 
     const otaRows = (bootstrap.ota_platforms || [])
-      .map(
-        (p) => `<div class="invest-row">
-          <label><input type="checkbox" data-ota-list="${p.id}" ${d.ota[p.id].list ? 'checked' : ''}> <strong>${p.name}</strong> — list airline
+      .map((p) => {
+        const o = d.ota[p.id] || { list: false, feature: false, hubPush: false };
+        return `<div class="invest-row">
+          <label><input type="checkbox" data-ota-list="${p.id}" ${o.list ? 'checked' : ''}> <strong>${p.name}</strong> — list airline
             <span class="invest-hint">${fmtMoney(p.listing_monthly)}/mo + ${p.commission_pct}% commission · ${p.note || ''}</span></label>
         </div>
         <div class="invest-row" style="padding-left:18px;">
-          <label><input type="checkbox" data-ota-feature="${p.id}" ${d.ota[p.id].feature ? 'checked' : ''}> Route featured placement (+${fmtMoney(p.route_feature_monthly || 0)}/mo)</label>
+          <label><input type="checkbox" data-ota-feature="${p.id}" ${o.feature ? 'checked' : ''}> Route featured placement (+${fmtMoney(p.route_feature_monthly || 0)}/mo)</label>
         </div>
         <div class="invest-row" style="padding-left:18px;">
-          <label><input type="checkbox" data-ota-hub="${p.id}" ${d.ota[p.id].hubPush ? 'checked' : ''}> Hub push at ${d.origin} (+${fmtMoney(p.hub_push_monthly || 0)}/mo)</label>
-        </div>`
-      )
+          <label><input type="checkbox" data-ota-hub="${p.id}" ${o.hubPush ? 'checked' : ''}> Hub push at ${d.origin} (+${fmtMoney(p.hub_push_monthly || 0)}/mo)</label>
+        </div>`;
+      })
       .join('');
+
+    let previewHtml = '';
+    try {
+      previewHtml = routeLaunchPreviewHtml(d);
+    } catch (err) {
+      console.error('Runway: route launch preview failed', err);
+      previewHtml = '<span class="danger">Preview unavailable — you can still confirm launch.</span>';
+    }
 
     overlay.innerHTML = `
       <div class="route-launch-card" role="dialog" aria-modal="true">
@@ -3493,7 +3552,7 @@
             <input type="number" id="rl-freq" min="1" max="28" value="${d.freq}">
           </label>
         </div>
-        <div class="route-launch-preview" id="rl-preview">${routeLaunchPreviewHtml(d)}</div>
+        <div class="route-launch-preview" id="rl-preview">${previewHtml}</div>
         <p class="route-launch-section">Station build-out (one-time)</p>
         <p style="font-size:0.76rem;line-height:1.4;">Counters, signage, ground ops setup at <b>${d.origin}</b> — <b>${fmtMoney(d.stationCost)}</b> due at launch. Additional gates let you run more simultaneous departures.</p>
         <p class="route-launch-section">Marketing investments</p>
@@ -3507,6 +3566,12 @@
       </div>`;
     overlay.classList.add('active');
     setRouteLaunchActive(true);
+    dismissDecisionsForRouteLaunch();
+    overlay.scrollTop = 0;
+    requestAnimationFrame(() => {
+      const card = overlay.querySelector('.route-launch-card');
+      if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
 
     const refreshPreview = () => {
       const prev = $('rl-preview');
@@ -3556,6 +3621,8 @@
   }
 
   function openRouteLaunchModal(origin, dest, aircraftId, freq, fare) {
+    dismissDecisionsForRouteLaunch();
+    showRouteFormError('');
     if (!hasGateAt(origin)) {
       alert(`Lease a gate at ${origin} first (Airport panel). You can hold multiple gates where available.`);
       selectAirport(origin);
@@ -3569,8 +3636,18 @@
       alert('Origin and destination must differ.');
       return;
     }
-    routeLaunchDraft = buildRouteLaunchDraft(origin, dest, aircraftId, freq, fare);
-    renderRouteLaunchModal();
+    try {
+      routeLaunchDraft = buildRouteLaunchDraft(origin, dest, aircraftId, freq, fare);
+      renderRouteLaunchModal();
+      if (!$('route-launch-modal')?.classList.contains('active')) {
+        showRouteFormError('Could not open launch dialog — try again or hard-refresh.');
+      }
+    } catch (err) {
+      console.error('Runway: openRouteLaunchModal failed', err);
+      routeLaunchDraft = null;
+      showRouteFormError('Route launch failed to open. Hard-refresh (Cmd+Shift+R) and try again.');
+      alert('Route launch failed to open. Check the browser console for details.');
+    }
   }
 
   function cancelRouteLaunch() {
@@ -5092,6 +5169,7 @@
       <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
       <div id="route-preview" class="route-preview muted"></div>
+      <p id="route-form-error" class="route-form-error" style="display:none;" role="alert"></p>
       <div class="form-grid">
         <label>Origin
           <input type="text" id="rt-origin-search" list="airport-list" placeholder="DAY — Dayton" value="${defLabel}">
@@ -5110,7 +5188,7 @@
         </label>
       </div>
       <div class="launch-route-sticky">
-        <button type="button" class="btn" onclick="Runway.submitRoute()">Plan &amp; launch route…</button>
+        <button type="button" class="btn" id="btn-submit-route" data-action="submit-route">Plan &amp; launch route…</button>
       </div>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
@@ -5144,7 +5222,12 @@
       const launchLabel = hasGate && fleetPlane ? 'Launch' : 'Plan';
       html += `<li>
         <button type="button" class="route-suggest-btn" data-tier="${s.tier}"
-          onclick="Runway.applyRouteSuggestion('${s.dest}','${s.acType}',${s.fare},${s.freq},${hasGate && fleetPlane ? 'true' : 'false'})">
+          data-route-suggest="1"
+          data-dest="${s.dest}"
+          data-ac-type="${s.acType}"
+          data-fare="${s.fare}"
+          data-freq="${s.freq}"
+          data-auto-launch="${hasGate && fleetPlane ? 'true' : 'false'}">
           <span class="rs-route">${launchLabel}: ${origin} → ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
           <span class="rs-meta">${s.dist} nm · ${s.acName}${fleetNote} · ~${s.dailyPax} pax/day</span>
           <span class="rs-via via-${s.tier}">${s.label} (${(s.load * 100).toFixed(0)}% est. load)</span>
@@ -5189,6 +5272,8 @@
   }
 
   function applyRouteSuggestion(destIata, acType, fare, freq, autoLaunch) {
+    dismissDecisionsForRouteLaunch();
+    showRouteFormError('');
     const dAp = airport(destIata);
     if (!dAp) return;
     const origin = ($('rt-origin-code') && $('rt-origin-code').value) || defaultRouteOrigin();
@@ -5303,6 +5388,8 @@
   }
 
   function submitRoute() {
+    dismissDecisionsForRouteLaunch();
+    showRouteFormError('');
     syncRouteFormFields();
     const oIn = $('rt-origin-search');
     const dIn = $('rt-dest-search');
@@ -5313,35 +5400,35 @@
     if (oAp && oHidden) oHidden.value = oAp.iata;
     if (dAp && dHidden) dHidden.value = dAp.iata;
     if (!oAp) {
-      alert('Pick a valid origin (IATA code or city from the list, e.g. DAY — Dayton).');
+      showRouteFormError('Pick a valid origin (e.g. DAY — Dayton).');
       return;
     }
     if (!dAp) {
       const typed = dIn && dIn.value.trim();
-      alert(
+      showRouteFormError(
         typed
           ? `Could not find "${typed}". Pick a destination from the list (e.g. CMH — Columbus).`
-          : 'Enter a destination airport before launching.'
+          : 'Enter a destination — or click a suggested route above first.'
       );
       return;
     }
     if (oAp.iata === dAp.iata) {
-      alert('Origin and destination must be different.');
+      showRouteFormError('Origin and destination must be different.');
       return;
     }
     const acEl = $('rt-aircraft');
     const freqEl = $('rt-freq');
     const fareEl = $('rt-fare');
     if (!state.fleet.length) {
-      alert('No aircraft in your fleet — open Fleet and lease or buy a plane first.');
+      showRouteFormError('No aircraft — open Fleet and lease or buy a plane first.');
       return;
     }
     if (!acEl || !acEl.value) {
-      alert('Select an aircraft from your fleet.');
+      showRouteFormError('Select an aircraft from your fleet.');
       return;
     }
     if (!hasGateAt(oAp.iata)) {
-      alert(`Lease a gate at ${oAp.iata} first (click the airport on the map → Your position).`);
+      showRouteFormError(`Lease a gate at ${oAp.iata} first (map → airport panel → Your position).`);
       selectAirport(oAp.iata);
       return;
     }
@@ -5474,6 +5561,31 @@
     }
   }
 
+  function setupRoutePanelDelegation() {
+    const panel = $('panel-routes');
+    if (!panel || panel._routeDelegation) return;
+    panel._routeDelegation = true;
+    panel.addEventListener('click', (e) => {
+      const submitBtn = e.target.closest('[data-action="submit-route"]');
+      if (submitBtn) {
+        e.preventDefault();
+        submitRoute();
+        return;
+      }
+      const sugBtn = e.target.closest('[data-route-suggest]');
+      if (sugBtn) {
+        e.preventDefault();
+        applyRouteSuggestion(
+          sugBtn.dataset.dest,
+          sugBtn.dataset.acType,
+          +sugBtn.dataset.fare,
+          +sugBtn.dataset.freq,
+          sugBtn.dataset.autoLaunch === 'true'
+        );
+      }
+    });
+  }
+
   function setupStartScreen() {
     const startBtn = $('btn-start-game');
     const backBtn = $('btn-back-scenarios');
@@ -5522,6 +5634,7 @@
     setupMapInteraction();
     window.addEventListener('resize', ensureMapboxSize);
     setupStartScreen();
+    setupRoutePanelDelegation();
     setupKeyboardShortcuts();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
