@@ -26,7 +26,13 @@ from auth_helpers import (
     consume_password_reset_token, reset_url_for_token,
 )
 import ask_pps
-from runway_game_data import RUNWAY_OWNER, RUNWAY_MAPBOX_TOKEN, get_runway_bootstrap
+from runway_game_data import (
+    RUNWAY_OWNER,
+    RUNWAY_MAPBOX_TOKEN,
+    RUNWAY_PUBLIC_ACCESS,
+    RUNWAY_SHARE_TOKEN,
+    get_runway_bootstrap,
+)
 
 
 def _load_dotenv():
@@ -1099,16 +1105,33 @@ def require_admin(f):
     return decorated
 
 
-def require_runway_owner(f):
+def _runway_share_access_granted():
+    """True if request includes a valid share token (sets session for return visits)."""
+    if not RUNWAY_SHARE_TOKEN:
+        return False
+    token = (request.args.get('access') or '').strip()
+    if token and token == RUNWAY_SHARE_TOKEN:
+        session['runway_guest'] = True
+        return True
+    return bool(session.get('runway_guest'))
+
+
+def require_runway_access(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
+        if RUNWAY_PUBLIC_ACCESS or _runway_share_access_granted():
+            return f(*args, **kwargs)
         if not session.get('user_key'):
             return redirect(url_for('login', next=request.url))
         if session.get('user_key') != RUNWAY_OWNER:
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
+
+
+# Back-compat alias
+require_runway_owner = require_runway_access
 
 
 def get_user_proposal_access(user_key):
@@ -2876,9 +2899,10 @@ def dashboard():
 
 
 @app.route('/runway')
-@require_runway_owner
+@app.route('/airline')
+@require_runway_access
 def runway_game():
-    """Runway airline sim — unlisted route; not linked from Hub UI."""
+    """Airline startup sim — public when RUNWAY_PUBLIC_ACCESS or share token is set."""
     return render_template(
         'runway.html',
         bootstrap_json=json.dumps(get_runway_bootstrap()),

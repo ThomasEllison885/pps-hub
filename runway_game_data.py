@@ -7,6 +7,14 @@ RUNWAY_OWNER = 'thomas_ellison'
 # Public Mapbox client token — set MAPBOX_ACCESS_TOKEN in Render/local .env.
 RUNWAY_MAPBOX_TOKEN = os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip()
 
+# When true, /airline and /runway are playable without Hub login (shareable link).
+RUNWAY_PUBLIC_ACCESS = os.environ.get('RUNWAY_PUBLIC_ACCESS', '').strip().lower() in (
+    '1', 'true', 'yes', 'on',
+)
+
+# Optional share link: https://yoursite/airline?access=<token> (no Hub account required).
+RUNWAY_SHARE_TOKEN = os.environ.get('RUNWAY_SHARE_TOKEN', '').strip()
+
 AIRCRAFT_TYPES = {
     'pc12': {
         'name': 'Pilatus PC-12',

@@ -43,6 +43,12 @@ services:
         sync: false
       - key: MAPBOX_ACCESS_TOKEN
         sync: false
+      # Set RUNWAY_PUBLIC_ACCESS=true to share /airline without Hub login.
+      - key: RUNWAY_PUBLIC_ACCESS
+        sync: false
+      # Or set RUNWAY_SHARE_TOKEN and share https://hub.../airline?access=<token>
+      - key: RUNWAY_SHARE_TOKEN
+        sync: false
 
   - type: cron
     name: pps-hub-daily-digest
