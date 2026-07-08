@@ -12,8 +12,9 @@
   let bootstrap = null;
   let initialAirports = null;
   let mapConfig = null;
-  let stateBorders = null;
   let activeMapKey = 'usa';
+  let tutorialHighlightResize = null;
+  let tutorialGlowTarget = null;
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -684,13 +685,14 @@
     }
   }
 
-  function tutorialStep(scenarioId, step, total, title, body, teach, goLabel, goEffect, goAirport, tutorialLast) {
+  function tutorialStep(scenarioId, step, total, title, body, teach, goLabel, goEffect, goAirport, tutorialLast, highlight) {
     return {
       onboarding: true,
       tutorial: true,
       tutorialStep: step,
       tutorialTotal: total,
       tutorialLast: !!tutorialLast,
+      highlight: highlight || null,
       kicker: `Tutorial · Step ${step} of ${total}`,
       title,
       body,
@@ -737,7 +739,8 @@
           'Start with the map →',
           'select_airport',
           'CMH',
-          false
+          false,
+          { selector: '.map-wrap', label: 'Ohio map — click airports here' }
         ),
         tutorialStep(
           scenarioId,
@@ -749,7 +752,8 @@
           'Show CMH on the map →',
           'select_airport',
           'CMH',
-          false
+          false,
+          { selector: '#airport-panel', label: 'Airport panel — competitors & gates' }
         ),
         tutorialStep(
           scenarioId,
@@ -762,7 +766,8 @@
           'Open Fleet tab →',
           'tab_fleet',
           null,
-          false
+          false,
+          { selector: '[data-tab="fleet"]', label: 'Fleet tab — lease or buy aircraft' }
         ),
         tutorialStep(
           scenarioId,
@@ -775,7 +780,8 @@
           'Open Routes tab →',
           'tab_routes',
           hub,
-          false
+          false,
+          { selector: '[data-tab="routes"]', label: 'Routes tab — launch new flights' }
         ),
         tutorialStep(
           scenarioId,
@@ -788,7 +794,8 @@
           'Open Routes & fares →',
           'tab_routes',
           hub,
-          false
+          false,
+          { selector: '#panel-routes', label: 'Fare buckets, ancillary mode & active routes' }
         ),
         tutorialStep(
           scenarioId,
@@ -801,7 +808,8 @@
           'Got it — let me play →',
           'tutorial_finish',
           null,
-          true
+          true,
+          { selector: '[data-speed="day"]', label: 'Press ▶ to advance time' }
         ),
       ];
     }
@@ -829,7 +837,8 @@
         'Show my gate on the map →',
         'select_airport',
         firstGate,
-        false
+        false,
+        { selector: '.map-wrap', label: 'Regional map — your airports' }
       ),
       tutorialStep(
         scenarioId,
@@ -841,7 +850,8 @@
         'Open CVG competitors →',
         'select_airport',
         'CVG',
-        false
+        false,
+        { selector: '#airport-panel', label: 'Competitors & market intel per airport' }
       ),
       tutorialStep(
         scenarioId,
@@ -853,7 +863,8 @@
         'Open Routes tab →',
         'tab_routes',
         firstGate,
-        false
+        false,
+        { selector: '[data-tab="routes"]', label: 'Routes tab — plan your first flight' }
       ),
       tutorialStep(
         scenarioId,
@@ -865,7 +876,8 @@
         'Got it →',
         'tutorial_finish',
         null,
-        true
+        true,
+        { selector: '[data-speed="day"]', label: 'Press ▶ to start the clock' }
       ),
     ];
   }
@@ -907,6 +919,98 @@
         { id: 'explore', label: 'C — Explore on my own', effect: 'explore' },
       ],
     };
+  }
+
+  function clearTutorialHighlight() {
+    const overlay = $('tutorial-highlight');
+    if (overlay) {
+      overlay.classList.remove('active');
+      overlay.innerHTML = '';
+    }
+    const modal = $('decision-modal');
+    if (modal) {
+      modal.classList.remove('tutorial-mode', 'tutorial-modal-left', 'tutorial-modal-right', 'tutorial-modal-bottom');
+    }
+    if (tutorialGlowTarget) {
+      tutorialGlowTarget.classList.remove('tutorial-target-glow');
+      tutorialGlowTarget = null;
+    }
+    if (tutorialHighlightResize) {
+      window.removeEventListener('resize', tutorialHighlightResize);
+      tutorialHighlightResize = null;
+    }
+  }
+
+  function pickTutorialModalSide(rect) {
+    const cx = rect.left + rect.width / 2;
+    if (cx > window.innerWidth * 0.58) return 'left';
+    if (rect.bottom > window.innerHeight * 0.72) return 'bottom';
+    return 'right';
+  }
+
+  function positionTutorialCallout(callout, rect, pad) {
+    const margin = 10;
+    if (rect.bottom + 44 < window.innerHeight - 120) {
+      callout.style.left = `${Math.max(margin, rect.left)}px`;
+      callout.style.top = `${rect.bottom + pad + 6}px`;
+    } else if (rect.top > 56) {
+      callout.style.left = `${Math.max(margin, rect.left)}px`;
+      callout.style.top = `${Math.max(margin, rect.top - pad - 38)}px`;
+    } else if (rect.right + 180 < window.innerWidth) {
+      callout.style.left = `${rect.right + pad + 8}px`;
+      callout.style.top = `${rect.top}px`;
+    } else {
+      callout.style.left = `${Math.max(margin, rect.left - 8)}px`;
+      callout.style.top = `${rect.bottom + pad + 6}px`;
+    }
+  }
+
+  function applyTutorialHighlight(highlight) {
+    clearTutorialHighlight();
+    if (!highlight || !highlight.selector) return;
+
+    const target = document.querySelector(highlight.selector);
+    const overlay = $('tutorial-highlight');
+    if (!target || !overlay) return;
+
+    const pad = highlight.pad != null ? highlight.pad : 8;
+    const rect = target.getBoundingClientRect();
+    const left = rect.left - pad;
+    const top = rect.top - pad;
+    const width = rect.width + pad * 2;
+    const height = rect.height + pad * 2;
+    const style = `left:${left}px;top:${top}px;width:${width}px;height:${height}px`;
+
+    overlay.innerHTML = `
+      <div class="tutorial-spotlight" style="${style}"></div>
+      <div class="tutorial-ring" style="${style}"></div>
+      <p class="tutorial-callout">${highlight.label || ''}</p>`;
+    overlay.classList.add('active');
+
+    const callout = overlay.querySelector('.tutorial-callout');
+    if (callout) positionTutorialCallout(callout, rect, pad);
+
+    const modal = $('decision-modal');
+    if (modal) {
+      modal.classList.add('tutorial-mode', `tutorial-modal-${pickTutorialModalSide(rect)}`);
+    }
+
+    target.classList.add('tutorial-target-glow');
+    tutorialGlowTarget = target;
+
+    const refresh = () => applyTutorialHighlight(highlight);
+    tutorialHighlightResize = refresh;
+    window.addEventListener('resize', refresh);
+  }
+
+  function scheduleTutorialHighlight(highlight) {
+    if (!highlight) {
+      clearTutorialHighlight();
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => applyTutorialHighlight(highlight));
+    });
   }
 
   function resolveDecision(choiceId) {
@@ -987,6 +1091,7 @@
     if (!activeDecision) {
       overlay.classList.remove('active');
       overlay.innerHTML = '';
+      clearTutorialHighlight();
       return;
     }
     const opts = activeDecision.options
@@ -1018,6 +1123,11 @@
     overlay.querySelectorAll('[data-choice]').forEach((btn) => {
       btn.addEventListener('click', () => resolveDecision(btn.dataset.choice));
     });
+    if (activeDecision.tutorial && activeDecision.highlight) {
+      scheduleTutorialHighlight(activeDecision.highlight);
+    } else {
+      clearTutorialHighlight();
+    }
   }
 
   function bumpCompetitorMarket(iata, airline, patch) {
@@ -2359,26 +2469,6 @@
     };
   }
 
-  function statePathD(coords) {
-    if (!coords || !coords.length) return '';
-    return (
-      coords
-        .map((pair, i) => {
-          const pt = projectMap(pair[1], pair[0]);
-          return `${i ? 'L' : 'M'}${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
-        })
-        .join(' ') + ' Z'
-    );
-  }
-
-  function stateBordersHtml() {
-    if (!stateBorders || !stateBorders.paths) return '';
-    const stroke = activeMapKey === 'ohio' ? 1.4 : 1.1;
-    return stateBorders.paths
-      .map((coords) => `<path d="${statePathD(coords)}" class="map-state-line" stroke-width="${stroke}"/>`)
-      .join('');
-  }
-
   function drawMap() {
     const svg = $('runway-map');
     if (!svg) return;
@@ -2387,7 +2477,6 @@
 
     let html = `
       <image class="map-raster" href="${mapSrc}" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"/>
-      <g class="map-state-borders">${stateBordersHtml()}</g>
       <rect class="map-pan-surface" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="transparent"/>
     `;
 
@@ -3045,15 +3134,6 @@
     });
   }
 
-  async function loadStateBorders() {
-    try {
-      const resp = await fetch('/static/runway/us-states.json');
-      if (resp.ok) stateBorders = await resp.json();
-    } catch (e) {
-      console.warn('Runway: state borders failed to load', e);
-    }
-  }
-
   async function loadMapConfig() {
     try {
       const resp = await fetch('/static/runway/map-config.json');
@@ -3078,7 +3158,7 @@
     bootstrap = window.RUNWAY_BOOTSTRAP;
     if (!bootstrap) return;
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
-    await Promise.all([loadMapConfig(), loadStateBorders()]);
+    await loadMapConfig();
     setupMapInteraction();
     setupStartScreen();
     setupKeyboardShortcuts();

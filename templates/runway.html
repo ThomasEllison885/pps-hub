@@ -192,13 +192,6 @@
     box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
   }
   #runway-map .map-raster { pointer-events: none; }
-  #runway-map .map-state-borders { pointer-events: none; }
-  #runway-map .map-state-line {
-    fill: none;
-    stroke: rgba(186, 228, 210, 0.52);
-    stroke-linejoin: round;
-    stroke-linecap: round;
-  }
   #runway-map .map-routes line { pointer-events: none; }
   #runway-map .map-competitor-routes line { pointer-events: none; }
   #runway-map .map-pan-surface { pointer-events: all; cursor: grab; }
@@ -248,6 +241,71 @@
   }
   .tutorial-dot.done { background: rgba(0, 200, 150, 0.45); }
   .tutorial-dot.current { background: var(--accent); box-shadow: 0 0 8px rgba(0, 200, 150, 0.5); }
+
+  #tutorial-highlight {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    pointer-events: none;
+  }
+  #tutorial-highlight.active { display: block; }
+  #tutorial-highlight .tutorial-spotlight {
+    position: absolute;
+    border-radius: 10px;
+    box-shadow: 0 0 0 9999px rgba(4, 10, 18, 0.74);
+  }
+  #tutorial-highlight .tutorial-ring {
+    position: absolute;
+    border-radius: 10px;
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 18px rgba(0, 200, 150, 0.45), inset 0 0 14px rgba(0, 200, 150, 0.1);
+    animation: tutorial-ring-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes tutorial-ring-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  #tutorial-highlight .tutorial-callout {
+    position: absolute;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: rgba(6, 13, 24, 0.94);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 7px 11px;
+    max-width: 240px;
+    line-height: 1.35;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  }
+  .tutorial-target-glow { position: relative; z-index: 198; }
+  #decision-modal.tutorial-mode {
+    background: transparent;
+    backdrop-filter: none;
+    pointer-events: none;
+  }
+  #decision-modal.tutorial-mode .decision-card {
+    pointer-events: all;
+    max-width: 400px;
+    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.65);
+  }
+  #decision-modal.tutorial-modal-left {
+    align-items: center;
+    justify-content: flex-start;
+    padding-left: 20px;
+  }
+  #decision-modal.tutorial-modal-right {
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 20px;
+  }
+  #decision-modal.tutorial-modal-bottom {
+    align-items: flex-end;
+    justify-content: center;
+    padding-bottom: 20px;
+  }
+
   .decision-opt[data-choice="skip"] { opacity: 0.82; border-style: dashed; }
   .decision-card h2 {
     font-family: 'DM Serif Display', Georgia, serif;
@@ -492,6 +550,7 @@
   </div>
 </div>
 
+<div id="tutorial-highlight" aria-hidden="true"></div>
 <div id="decision-modal" aria-live="polite"></div>
 
 <div id="screen-game" class="screen">
@@ -552,6 +611,6 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=12"></script>
+<script src="/static/runway/game.js?v=13"></script>
 </body>
 </html>

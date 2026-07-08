@@ -12,8 +12,8 @@
   },
   "ohio": {
     "src": "/static/runway/ohio-region-map.png",
-    "width": 960,
-    "height": 1266,
+    "width": 972,
+    "height": 1278,
     "bounds": {
       "lonMin": -87.35,
       "lonMax": -78.75,
