@@ -2840,14 +2840,13 @@ def dashboard():
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
-        runway_available=(user_key == RUNWAY_OWNER),
     )
 
 
 @app.route('/runway')
 @require_runway_owner
 def runway_game():
-    """Runway airline sim — private build for Thomas only."""
+    """Runway airline sim — unlisted route; not linked from Hub UI."""
     return render_template(
         'runway.html',
         bootstrap_json=json.dumps(get_runway_bootstrap()),
