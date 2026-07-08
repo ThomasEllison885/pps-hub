@@ -1455,8 +1455,78 @@
     }
   }
 
+  function sanitizeAirportGateCounts() {
+    if (!bootstrap || !bootstrap.airports) return;
+    bootstrap.airports.forEach((ap) => {
+      let total = Math.max(1, parseInt(ap.gates_total, 10) || 1);
+      let avail = Math.max(0, parseInt(ap.gates_available, 10) || 0);
+      if (avail > total) {
+        const swap = total;
+        total = avail;
+        avail = swap;
+      }
+      avail = Math.min(avail, total);
+      ap.gates_total = total;
+      ap.gates_available = avail;
+    });
+  }
+
+  function airlineProfile(name) {
+    return (bootstrap.airline_profiles && bootstrap.airline_profiles[name]) || null;
+  }
+
+  function incumbentAirportImportance(ap, incumbent) {
+    if (!ap || !incumbent) return 0;
+    const paxWeight = Math.min(1, ap.annual_pax_m / 12);
+    return incumbent.share * paxWeight;
+  }
+
+  function formatIncumbentIntel(ap, incumbent) {
+    const prof = airlineProfile(incumbent.airline);
+    const importance = incumbentAirportImportance(ap, incumbent);
+    const impPct = (importance * 100).toFixed(0);
+    if (!prof) {
+      return `<span class="muted">~${impPct}% network weight here</span>`;
+    }
+    const health = (prof.financial_health * 100).toFixed(0);
+    const sens = (prof.route_sensitivity * 100).toFixed(0);
+    let pain = 'moderate';
+    if (importance >= 0.12 && prof.financial_health < 0.55) pain = 'high — route losses hurt';
+    else if (importance >= 0.08 && prof.route_sensitivity >= 0.8) pain = 'high — thin margins';
+    else if (importance < 0.04) pain = 'low — airport is minor for them';
+    else if (prof.financial_health >= 0.75) pain = 'low — can absorb a fare war';
+    return `<span class="muted">Health ${health}% · This airport ~${impPct}% of their focus · ${pain}</span>`;
+  }
+
+  function networkRouteStats() {
+    if (!state || !state.routes.length) {
+      return { count: 0, profitable: 0, dailyPnl: 0, avgLoad: 0 };
+    }
+    let profitable = 0;
+    let dailyPnl = 0;
+    let loadSum = 0;
+    let loadN = 0;
+    state.routes.forEach((route) => {
+      const r = simulateRouteDay(route);
+      const pnl = r.revenue - r.cost;
+      dailyPnl += pnl;
+      if (pnl > 0) profitable += 1;
+      if (!r.grounded && Number.isFinite(r.load)) {
+        loadSum += r.load;
+        loadN += 1;
+      }
+    });
+    return {
+      count: state.routes.length,
+      profitable,
+      dailyPnl,
+      avgLoad: loadN ? loadSum / loadN : 0,
+    };
+  }
+
   function normalizeGameState() {
     if (!state) return;
+    sanitizeAirportGateCounts();
     state.fleet = Array.isArray(state.fleet) ? state.fleet : [];
     state.gates = Array.isArray(state.gates) ? state.gates : [];
     state.routes = Array.isArray(state.routes) ? state.routes : [];
@@ -2186,12 +2256,16 @@
 
   function openRoute(origin, dest, aircraftId, freq, fare) {
     if (!hasGateAt(origin)) {
-      alert(`You need a gate at ${origin} first.`);
+      alert(`You need a gate at ${origin} first. Lease one in the airport panel.`);
+      return;
+    }
+    if (state.routes.some((r) => r.origin === origin && r.dest === dest)) {
+      alert(`You already fly ${origin}–${dest}. Adjust frequency or fares on the active route card.`);
       return;
     }
     const plane = state.fleet.find((f) => f.id === aircraftId);
     if (!plane) {
-      alert('Select an aircraft from your fleet.');
+      alert('Select an aircraft from your fleet (Fleet tab → add a plane if needed).');
       return;
     }
     const dist = haversineNm(
@@ -2219,6 +2293,7 @@
       aircraft_id: aircraftId,
     });
     pushPlayerEvent(`opened ${origin}–${dest} (${freq}x/wk @ $${fare}).`);
+    selectAirport(origin);
     saveGame();
     renderAll();
   }
@@ -2668,7 +2743,7 @@
         <dt>Wealth index</dt><dd>${(airportWealth(ap) * 100).toFixed(0)}</dd>
         <dt>Metro pop</dt><dd>${ap.metro_pop_m}M</dd>
         <dt>Top carrier</dt><dd>${ap.hub_airline || '—'} (${(ap.hub_strength * 100).toFixed(0)}%)</dd>
-        <dt>Gates open</dt><dd>${ap.gates_available} / ${ap.gates_total}</dd>
+        <dt>Gates open</dt><dd>${ap.gates_available} of ${ap.gates_total}</dd>
       </dl>
       <p class="muted" style="font-size:0.72rem;margin-top:6px;">Annual pax ${ap.annual_pax_m}M · Luxury ${(airportLuxury(ap) * 100).toFixed(0)}% · Slots ${ap.slot_controlled ? 'controlled' : 'open'}</p>`;
 
@@ -2677,7 +2752,7 @@
       competitionBody += `<ul class="list incumbent-list">${ap.incumbents
         .map(
           (c) =>
-            `<li><strong>${c.airline}</strong> <span class="muted">${(c.share * 100).toFixed(0)}% · ${c.tier}</span></li>`
+            `<li><strong>${c.airline}</strong> <span class="muted">${(c.share * 100).toFixed(0)}% · ${c.tier}</span><br>${formatIncumbentIntel(ap, c)}</li>`
         )
         .join('')}</ul>`;
     } else {
@@ -2939,7 +3014,20 @@
     const defAp = airport(defOrigin);
     const defLabel = defAp ? airportLabel(defAp) : '';
 
+    const net = networkRouteStats();
     let html = '<h3>Routes</h3>';
+    if (net.count) {
+      const pnlClass = net.dailyPnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
+      html += `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
+        <p style="font-size:0.78rem;margin:0 0 6px;color:var(--gold);font-weight:600;">Network snapshot</p>
+        <p style="font-size:0.75rem;margin:0;line-height:1.45;">
+          <span class="${pnlClass}"><b>${fmtMoney(net.dailyPnl)}/day</b></span> route P&L ·
+          <b>${net.profitable}/${net.count}</b> profitable ·
+          avg load <b>${(net.avgLoad * 100).toFixed(0)}%</b>
+        </p>
+        <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">Unprofitable routes can still make sense short-term to pressure weak competitors — check their health in the airport Competition card.</p>
+      </div>`;
+    }
     html += '<p class="ops-section-title">Running now</p>';
     if (!state.routes.length) {
       html += '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
@@ -3057,10 +3145,11 @@
     ideas.forEach((s) => {
       const fleetPlane = state.fleet.find((f) => f.type === s.acType);
       const fleetNote = fleetPlane ? '' : ' <span class="muted">(not in fleet)</span>';
+      const launchLabel = hasGate && fleetPlane ? 'Launch' : 'Plan';
       html += `<li>
         <button type="button" class="route-suggest-btn" data-tier="${s.tier}"
-          onclick="Runway.applyRouteSuggestion('${s.dest}','${s.acType}',${s.fare},${s.freq})">
-          <span class="rs-route">${origin} → ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
+          onclick="Runway.applyRouteSuggestion('${s.dest}','${s.acType}',${s.fare},${s.freq},${hasGate && fleetPlane ? 'true' : 'false'})">
+          <span class="rs-route">${launchLabel}: ${origin} → ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
           <span class="rs-meta">${s.dist} nm · ${s.acName}${fleetNote} · ~${s.dailyPax} pax/day</span>
           <span class="rs-via via-${s.tier}">${s.label} (${(s.load * 100).toFixed(0)}% est. load)</span>
         </button>
@@ -3097,9 +3186,10 @@
     el.innerHTML = `<strong>Preview:</strong> ${dist} nm · ${ac ? ac.name : acType} · ${via.label} · ~${via.dailyPax} pax/day at $${fare} (${(via.load * 100).toFixed(0)}% load) · market $${market} · wealth ${wealth}`;
   }
 
-  function applyRouteSuggestion(destIata, acType, fare, freq) {
+  function applyRouteSuggestion(destIata, acType, fare, freq, autoLaunch) {
     const dAp = airport(destIata);
     if (!dAp) return;
+    const origin = ($('rt-origin-code') && $('rt-origin-code').value) || defaultRouteOrigin();
     const destInput = $('rt-dest-search');
     const destCode = $('rt-dest-code');
     if (destInput) destInput.value = airportLabel(dAp);
@@ -3108,10 +3198,21 @@
     const freqInput = $('rt-freq');
     if (fareInput) fareInput.value = fare;
     if (freqInput) freqInput.value = freq;
-    const plane = state.fleet.find((f) => f.type === acType);
+    const plane = state.fleet.find((f) => f.type === acType) || state.fleet[0];
     const acSelect = $('rt-aircraft');
     if (acSelect && plane) acSelect.value = plane.id;
     updateRoutePreview();
+
+    const shouldLaunch = autoLaunch === true || autoLaunch === 'true';
+    if (shouldLaunch && origin && plane) {
+      if (!hasGateAt(origin)) {
+        alert(`Lease a gate at ${origin} before launching this route.`);
+        selectAirport(origin);
+        return;
+      }
+      openRoute(origin, destIata, plane.id, freq, fare);
+      return;
+    }
     document.querySelector('[data-tab="routes"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
@@ -3206,13 +3307,22 @@
   function submitRoute() {
     const oIn = $('rt-origin-search');
     const dIn = $('rt-dest-search');
-    const oAp = resolveAirportQuery(oIn && oIn.value) || airport($('rt-origin-code').value);
-    const dAp = resolveAirportQuery(dIn && dIn.value);
+    const oCode = ($('rt-origin-code') && $('rt-origin-code').value) || '';
+    const dCode = ($('rt-dest-code') && $('rt-dest-code').value) || '';
+    const oAp = resolveAirportQuery(oIn && oIn.value) || airport(oCode);
+    const dAp = resolveAirportQuery(dIn && dIn.value) || airport(dCode);
     if (!oAp || !dAp) {
-      alert('Pick valid origin and destination from the list (IATA code or city).');
+      alert('Pick valid origin and destination (IATA code or city from the list).');
       return;
     }
-    openRoute(oAp.iata, dAp.iata, $('rt-aircraft').value, +$('rt-freq').value, +$('rt-fare').value);
+    const acEl = $('rt-aircraft');
+    const freqEl = $('rt-freq');
+    const fareEl = $('rt-fare');
+    if (!acEl || !acEl.value) {
+      alert('Select an aircraft from your fleet.');
+      return;
+    }
+    openRoute(oAp.iata, dAp.iata, acEl.value, +(freqEl && freqEl.value) || 7, +(fareEl && fareEl.value) || 129);
   }
 
   function saveGame() {
@@ -3344,6 +3454,7 @@
     if (!bootstrap) return;
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
     await loadMapConfig();
+    sanitizeAirportGateCounts();
     setupMapInteraction();
     setupStartScreen();
     setupKeyboardShortcuts();

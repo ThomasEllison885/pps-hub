@@ -171,11 +171,11 @@ _AIRPORT_ROWS = [
     ('LIT', 'Bill and Hillary Clinton', 'Little Rock', 34.73, -92.22, 0.7, 2, 14, 7, False, None, 0.05),
     # Ohio regionals — small terminals for turboprop / ERJ ops
     ('DAY', 'James M Cox Dayton Intl', 'Dayton', 39.90, -84.22, 0.85, 2.2, 18, 14, False, None, 0.06, 'OH'),
-    ('LUK', 'Cincinnati Lunken', 'Cincinnati', 39.10, -84.42, 2.2, 0.45, 8, 9, False, None, 0.04, 'OH'),
+    ('LUK', 'Cincinnati Lunken', 'Cincinnati', 39.10, -84.42, 2.2, 0.45, 9, 7, False, None, 0.04, 'OH'),
     ('TOL', 'Toledo Express', 'Toledo', 41.59, -83.81, 0.65, 0.8, 14, 11, False, None, 0.05, 'OH'),
     ('CAK', 'Akron-Canton', 'Akron', 40.92, -81.44, 0.70, 1.6, 16, 12, False, None, 0.06, 'OH'),
-    ('YNG', 'Youngstown-Warren', 'Youngstown', 41.26, -80.68, 0.45, 0.15, 6, 8, False, None, 0.03, 'OH'),
-    ('FDY', 'Findlay Airport', 'Findlay', 41.01, -83.67, 0.10, 0.05, 4, 6, False, None, 0.02, 'OH'),
+    ('YNG', 'Youngstown-Warren', 'Youngstown', 41.26, -80.68, 0.45, 0.15, 8, 6, False, None, 0.03, 'OH'),
+    ('FDY', 'Findlay Airport', 'Findlay', 41.01, -83.67, 0.10, 0.05, 6, 4, False, None, 0.02, 'OH'),
     # Ohio-region neighbors
     ('LEX', 'Blue Grass', 'Lexington', 38.04, -84.61, 0.75, 1.4, 12, 10, False, None, 0.06, 'KY'),
     ('SDF', 'Louisville Muhammad Ali Intl', 'Louisville', 38.17, -85.74, 1.2, 4.5, 22, 14, False, None, 0.10, 'KY'),
@@ -262,6 +262,35 @@ OHIO_REGION_IATA = [
     'IND', 'PIT', 'LEX', 'SDF', 'DTW',
 ]
 
+# Financial health / scale for competitor intel (approximate public-market flavor).
+AIRLINE_PROFILES = {
+    'Delta': {'tier': 'legacy', 'financial_health': 0.84, 'route_sensitivity': 0.38, 'cash_runway_years': 1.8},
+    'American': {'tier': 'legacy', 'financial_health': 0.72, 'route_sensitivity': 0.42, 'cash_runway_years': 1.4},
+    'United': {'tier': 'legacy', 'financial_health': 0.78, 'route_sensitivity': 0.40, 'cash_runway_years': 1.6},
+    'Southwest': {'tier': 'lcc', 'financial_health': 0.76, 'route_sensitivity': 0.55, 'cash_runway_years': 2.1},
+    'Allegiant': {'tier': 'lcc', 'financial_health': 0.81, 'route_sensitivity': 0.72, 'cash_runway_years': 2.4},
+    'Frontier': {'tier': 'lcc', 'financial_health': 0.58, 'route_sensitivity': 0.88, 'cash_runway_years': 1.1},
+    'Spirit': {'tier': 'lcc', 'financial_health': 0.41, 'route_sensitivity': 0.92, 'cash_runway_years': 0.7},
+    'JetBlue': {'tier': 'lcc', 'financial_health': 0.52, 'route_sensitivity': 0.78, 'cash_runway_years': 0.9},
+    'Sun Country': {'tier': 'lcc', 'financial_health': 0.64, 'route_sensitivity': 0.80, 'cash_runway_years': 1.2},
+    'Alaska': {'tier': 'legacy', 'financial_health': 0.70, 'route_sensitivity': 0.48, 'cash_runway_years': 1.5},
+    'Breeze': {'tier': 'lcc', 'financial_health': 0.48, 'route_sensitivity': 0.85, 'cash_runway_years': 0.8},
+    'Ultimate Air Shuttle': {'tier': 'shuttle', 'financial_health': 0.55, 'route_sensitivity': 0.95, 'cash_runway_years': 0.6},
+    'Southern Airways Express': {'tier': 'regional', 'financial_health': 0.50, 'route_sensitivity': 0.90, 'cash_runway_years': 0.7},
+    'Charter / GA': {'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4},
+}
+
+
+def _normalize_gate_counts(gates_total, gates_available):
+    """Ensure gates_available is never greater than gates_total (common data-entry swap)."""
+    total = max(1, int(gates_total))
+    avail = max(0, int(gates_available))
+    if avail > total:
+        total, avail = avail, total
+    avail = min(avail, total)
+    return total, avail
+
+
 def _build_airport(r):
     iata = r[0]
     incumbents = INCUMBENTS_BY_IATA.get(iata, [])
@@ -272,6 +301,7 @@ def _build_airport(r):
         hub_strength = max(x['share'] for x in incumbents)
     metro = r[5]
     pax = r[6]
+    gates_total, gates_available = _normalize_gate_counts(r[7], r[8])
     wealth_index = round(min(1.0, max(0.06, 0.06 + metro * 0.11 + pax * 0.012)), 3)
     luxury_share = round(min(0.45, max(0.02, 0.04 + metro * 0.028 + (0.14 if r[9] else 0.02))), 3)
     if pax < 2.0:
@@ -287,8 +317,8 @@ def _build_airport(r):
         'lon': r[4],
         'metro_pop_m': metro,
         'annual_pax_m': pax,
-        'gates_total': r[7],
-        'gates_available': r[8],
+        'gates_total': gates_total,
+        'gates_available': gates_available,
         'slot_controlled': r[9],
         'hub_airline': hub_airline,
         'hub_strength': hub_strength,
@@ -306,6 +336,20 @@ def _build_airport(r):
 AIRPORTS = [_build_airport(r) for r in _AIRPORT_ROWS]
 
 AIRPORT_BY_IATA = {a['iata']: a for a in AIRPORTS}
+
+
+def _validate_airport_gate_data():
+    for ap in AIRPORTS:
+        if ap['gates_available'] > ap['gates_total']:
+            raise ValueError(
+                f"Airport {ap['iata']}: gates_available ({ap['gates_available']}) "
+                f"exceeds gates_total ({ap['gates_total']})"
+            )
+        if ap['gates_total'] < 1 or ap['gates_available'] < 0:
+            raise ValueError(f"Airport {ap['iata']}: invalid gate counts")
+
+
+_validate_airport_gate_data()
 
 SCENARIOS = {
     'beginner_2026': {
@@ -655,6 +699,7 @@ def get_runway_bootstrap():
         'ohio_region_iata': OHIO_REGION_IATA,
         'ohio_competitor_route_seeds': OHIO_COMPETITOR_ROUTE_SEEDS,
         'ancillary_modes': ANCILLARY_MODES,
+        'airline_profiles': AIRLINE_PROFILES,
     }
 
 

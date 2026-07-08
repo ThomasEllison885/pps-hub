@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Build Runway map PNGs from Wikimedia blank US map (borders baked in, no SVG overlay)."""
+"""Build Runway map PNGs with state borders baked in (GeoJSON aligned to raster bounds)."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 BASE = Path(__file__).resolve().parent
 
-# Continental US on Wikimedia blank map (states_only) — aligned to raster pixels.
 USA_BOUNDS = {
     "lonMin": -124.85,
     "lonMax": -66.70,
@@ -27,12 +26,18 @@ OHIO_BOUNDS = {
 OCEAN = (7, 21, 37)
 LAND = (52, 98, 82)
 LAND_EDGE = (42, 78, 66)
-BORDER = (168, 215, 188)
+BORDER = (186, 232, 205)
 COAST = (140, 195, 170)
 
 
+def project(lat: float, lon: float, bounds: dict, w: int, h: int) -> tuple[float, float]:
+    x = (lon - bounds["lonMin"]) / (bounds["lonMax"] - bounds["lonMin"]) * w
+    y = (bounds["latMax"] - lat) / (bounds["latMax"] - bounds["latMin"]) * h
+    return x, y
+
+
 def style_us_map(src: Image.Image) -> Image.Image:
-    """Preserve Wikimedia's native state lines; do not draw GeoJSON overlays."""
+    """Classify Wikimedia land/ocean; state lines drawn separately from GeoJSON."""
     src = src.convert("RGBA")
     w, h = src.size
     out = Image.new("RGBA", (w, h), OCEAN + (255,))
@@ -45,23 +50,46 @@ def style_us_map(src: Image.Image) -> Image.Image:
             if a < 25:
                 continue
             lum = (r + g + b) / 3
-            # Wikimedia: bright gray = land interior, darker thin lines = state borders.
-            if lum >= 175:
+            if lum >= 200:
                 opx[x, y] = LAND + (255,)
-            elif lum >= 95:
-                opx[x, y] = BORDER + (255,)
-            elif lum >= 55:
+            elif lum >= 150:
                 opx[x, y] = COAST + (255,)
+            elif lum >= 90:
+                opx[x, y] = LAND_EDGE + (255,)
             else:
                 opx[x, y] = LAND_EDGE + (255,)
 
     return out
 
 
-def project(lat: float, lon: float, bounds: dict, w: int, h: int) -> tuple[float, float]:
-    x = (lon - bounds["lonMin"]) / (bounds["lonMax"] - bounds["lonMin"]) * w
-    y = (bounds["latMax"] - lat) / (bounds["latMax"] - bounds["latMin"]) * h
-    return x, y
+def draw_state_borders(img: Image.Image, bounds: dict) -> Image.Image:
+    """Overlay state boundaries from us-states.json using the same projection as airport dots."""
+    states_path = BASE / "us-states.json"
+    if not states_path.exists():
+        return img
+
+    with open(states_path) as f:
+        data = json.load(f)
+
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+    stroke = max(1, int(w / 1100))
+
+    for ring in data.get("paths", []):
+        if not ring or len(ring) < 2:
+            continue
+        pts = []
+        for lon, lat in ring:
+            if lat < bounds["latMin"] - 2 or lat > bounds["latMax"] + 2:
+                continue
+            if lon < bounds["lonMin"] - 2 or lon > bounds["lonMax"] + 2:
+                continue
+            x, y = project(lat, lon, bounds, w, h)
+            pts.append((x, y))
+        if len(pts) >= 2:
+            draw.line(pts, fill=BORDER + (255,), width=stroke, joint="curve")
+
+    return img
 
 
 def crop_region(img: Image.Image, bounds: dict, full_bounds: dict) -> Image.Image:
@@ -86,6 +114,8 @@ def main() -> None:
         raise SystemExit(f"Missing {src_path} — download Wikimedia blank US map first.")
 
     styled = style_us_map(Image.open(src_path))
+    styled = draw_state_borders(styled, USA_BOUNDS)
+
     usa_path = BASE / "us-map-styled.png"
     styled.save(usa_path, optimize=True)
 
