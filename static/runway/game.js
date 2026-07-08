@@ -23,6 +23,7 @@
   let selectedRival = null;
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
+  let routeFormDraft = null;
   let pendingEmblem = 'routes';
   let state = null;
   let tickTimer = null;
@@ -915,6 +916,67 @@
     }
   }
 
+  function captureRouteFormDraft() {
+    const oSearch = $('rt-origin-search');
+    const oCode = $('rt-origin-code');
+    const dSearch = $('rt-dest-search');
+    const dCode = $('rt-dest-code');
+    const ac = $('rt-aircraft');
+    const freq = $('rt-freq');
+    const fare = $('rt-fare');
+    if (!oSearch && routeFormDraft) return routeFormDraft;
+    const draft = {
+      origin: (oCode && oCode.value) || defaultRouteOrigin(),
+      originLabel: (oSearch && oSearch.value) || '',
+      dest: (dCode && dCode.value) || '',
+      destLabel: (dSearch && dSearch.value) || '',
+      aircraftId: (ac && ac.value) || '',
+      freq: (freq && freq.value) || '7',
+      fare: (fare && fare.value) || '129',
+    };
+    if (oSearch && oSearch.value.trim()) {
+      const oAp = resolveAirportQuery(oSearch.value);
+      if (oAp) {
+        draft.origin = oAp.iata;
+        draft.originLabel = airportLabel(oAp);
+      }
+    }
+    if (dSearch && dSearch.value.trim()) {
+      const dAp = resolveAirportQuery(dSearch.value);
+      if (dAp) {
+        draft.dest = dAp.iata;
+        draft.destLabel = airportLabel(dAp);
+      }
+    }
+    routeFormDraft = draft;
+    return draft;
+  }
+
+  function setRouteFormDraft(patch) {
+    routeFormDraft = { ...captureRouteFormDraft(), ...patch };
+    applyRouteFormDraftToDom();
+  }
+
+  function applyRouteFormDraftToDom() {
+    const draft = routeFormDraft || captureRouteFormDraft();
+    const oSearch = $('rt-origin-search');
+    const oCode = $('rt-origin-code');
+    const dSearch = $('rt-dest-search');
+    const dCode = $('rt-dest-code');
+    const ac = $('rt-aircraft');
+    const freq = $('rt-freq');
+    const fare = $('rt-fare');
+    if (oSearch) oSearch.value = draft.originLabel || '';
+    if (oCode) oCode.value = draft.origin || '';
+    if (dSearch) dSearch.value = draft.destLabel || '';
+    if (dCode) dCode.value = draft.dest || '';
+    if (ac && draft.aircraftId && [...ac.options].some((o) => o.value === draft.aircraftId)) {
+      ac.value = draft.aircraftId;
+    }
+    if (freq) freq.value = draft.freq || '7';
+    if (fare) fare.value = draft.fare || '129';
+  }
+
   function switchTab(tabId) {
     const btn = document.querySelector(`[data-tab="${tabId}"]`);
     if (!btn) return;
@@ -925,7 +987,7 @@
     if (panel) panel.classList.add('active');
     if (tabId === 'routes') {
       dismissDecisionsForRouteLaunch();
-      renderRoutes();
+      renderRoutes({ forceForm: !$('route-launch-form') });
     }
     if (tabId === 'finance') renderFinance();
     if (tabId === 'fleet') renderFleet();
@@ -3914,6 +3976,15 @@
     );
     processReactiveCompetitorThreats('player_route', origin, dest);
     selectAirport(origin);
+    routeFormDraft = {
+      origin,
+      originLabel: airport(origin) ? airportLabel(airport(origin)) : origin,
+      dest: '',
+      destLabel: '',
+      aircraftId: aircraftId,
+      freq: String(freq),
+      fare: String(finalFare),
+    };
     switchTab('routes');
     saveGame();
     renderAll();
@@ -5101,18 +5172,11 @@
     el.innerHTML = html;
   }
 
-  function renderRoutes() {
-    const el = $('tab-routes');
-    if (!el) return;
-    const defOrigin = defaultRouteOrigin();
-    const defAp = airport(defOrigin);
-    const defLabel = defAp ? airportLabel(defAp) : '';
-
+  function networkSnapshotHtml() {
     const net = networkRouteStats();
-    let html = '<h3>Routes</h3>';
-    if (net.count) {
-      const pnlClass = net.dailyPnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
-      html += `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
+    if (!net.count) return '';
+    const pnlClass = net.dailyPnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
+    return `<div class="panel-card" style="margin-bottom:10px;padding:10px 11px;">
         <p style="font-size:0.78rem;margin:0 0 6px;color:var(--gold);font-weight:600;">Network snapshot</p>
         <p style="font-size:0.75rem;margin:0;line-height:1.45;">
           <span class="${pnlClass}"><b>${fmtMoney(net.dailyPnl)}/day</b></span> route P&L ·
@@ -5121,13 +5185,14 @@
         </p>
         <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">Unprofitable routes can still make sense short-term to pressure weak competitors — check their health in the airport Competition card.</p>
       </div>`;
-    }
-    html += '<p class="ops-section-title">Running now</p>';
+  }
+
+  function runningRoutesHtml() {
     if (!state.routes.length) {
-      html += '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
-    } else {
-      html += '<div class="route-list">';
-      state.routes.forEach((route) => {
+      return '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
+    }
+    let html = '<div class="route-list">';
+    state.routes.forEach((route) => {
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
         const loadNum = r.grounded ? null : r.load;
@@ -5191,22 +5256,37 @@
           </div>
           <p class="route-card-hint muted">Buckets: ${bucketHint}</p>
         </div>`;
-      });
-      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function fleetOptionsHtml(selectedId) {
+    if (!state.fleet.length) {
+      return '<option value="">— add aircraft in Fleet tab —</option>';
     }
+    return state.fleet
+      .map((f) => {
+        const ac = aircraftType(f.type);
+        const label = ac ? ac.name : f.type || 'Aircraft';
+        const sel = selectedId === f.id ? ' selected' : '';
+        return `<option value="${f.id}"${sel}>${label} (${fleetSeatCount(f)} seats)</option>`;
+      })
+      .join('');
+  }
 
-    const fleetOpts = state.fleet.length
-      ? state.fleet
-          .map((f) => {
-            const ac = aircraftType(f.type);
-            const label = ac ? ac.name : f.type || 'Aircraft';
-            return `<option value="${f.id}">${label} (${fleetSeatCount(f)} seats)</option>`;
-          })
-          .join('')
-      : '<option value="">— add aircraft in Fleet tab —</option>';
+  function routeLaunchFormHtml(draft) {
+    const defOrigin = draft.origin || defaultRouteOrigin();
+    const defAp = airport(defOrigin);
+    const defLabel = draft.originLabel || (defAp ? airportLabel(defAp) : '');
+    const destAp = draft.dest ? airport(draft.dest) : null;
+    const destLabel = draft.destLabel || (destAp ? airportLabel(destAp) : '');
+    const aircraftId = draft.aircraftId || (state.fleet[0] && state.fleet[0].id) || '';
+    const freq = draft.freq || '7';
+    const fare = draft.fare || '129';
 
-    html += `<p class="ops-section-title">Launch route</p>
-      <p class="muted" style="font-size:0.75rem;">Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.</p>
+    return `<p class="ops-section-title">Launch route</p>
+      <p class="muted route-origin-hint" style="font-size:0.75rem;">Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.</p>
       <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
       <div id="route-preview" class="route-preview muted"></div>
@@ -5217,20 +5297,71 @@
           <input type="hidden" id="rt-origin-code" value="${defOrigin}">
         </label>
         <label>Destination
-          <input type="text" id="rt-dest-search" list="airport-list" placeholder="CVG — Cincinnati">
-          <input type="hidden" id="rt-dest-code" value="">
+          <input type="text" id="rt-dest-search" list="airport-list" placeholder="CVG — Cincinnati" value="${destLabel}">
+          <input type="hidden" id="rt-dest-code" value="${draft.dest || ''}">
         </label>
         <label>Aircraft
-          <select id="rt-aircraft">${fleetOpts}</select>
+          <select id="rt-aircraft">${fleetOptionsHtml(aircraftId)}</select>
         </label>
-        <label>Freq/wk <input id="rt-freq" type="number" value="7" min="1" max="28"></label>
+        <label>Freq/wk <input id="rt-freq" type="number" value="${freq}" min="1" max="28"></label>
         <label>Fare $
-          <input id="rt-fare" type="number" value="129" min="49" max="899">
+          <input id="rt-fare" type="number" value="${fare}" min="49" max="899">
         </label>
       </div>
       <div class="launch-route-sticky">
         <button type="button" class="btn" id="btn-submit-route" data-action="submit-route">Plan &amp; launch route…</button>
       </div>`;
+  }
+
+  function refreshRouteLaunchFormSections(draft) {
+    const form = $('route-launch-form');
+    if (!form) return;
+    const defOrigin = draft.origin || defaultRouteOrigin();
+    const originHint = form.querySelector('.route-origin-hint');
+    if (originHint) originHint.innerHTML = `Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.`;
+    const acSelect = $('rt-aircraft');
+    if (acSelect) {
+      const prev = acSelect.value;
+      const nextHtml = fleetOptionsHtml(draft.aircraftId || prev);
+      if (acSelect.innerHTML !== nextHtml) {
+        acSelect.innerHTML = nextHtml;
+        if (draft.aircraftId) acSelect.value = draft.aircraftId;
+        else if (prev && [...acSelect.options].some((o) => o.value === prev)) acSelect.value = prev;
+      }
+    }
+    renderRouteSuggestions();
+    updateRoutePreview();
+  }
+
+  function renderRoutes(opts) {
+    const el = $('tab-routes');
+    if (!el) return;
+    const forceForm = !!(opts && opts.forceForm);
+    const draft = captureRouteFormDraft();
+    const mapOrigin = defaultRouteOrigin();
+    const mapAp = airport(mapOrigin);
+    if (!draft.dest && (!draft.origin || draft.origin === mapOrigin || !routeFormDraft)) {
+      draft.origin = mapOrigin;
+      draft.originLabel = mapAp ? airportLabel(mapAp) : draft.originLabel;
+      routeFormDraft = draft;
+    }
+
+    const snapshotEl = $('route-network-snapshot');
+    const runningEl = $('route-list-running');
+    const formEl = $('route-launch-form');
+
+    if (snapshotEl && runningEl && formEl && !forceForm) {
+      snapshotEl.innerHTML = networkSnapshotHtml();
+      runningEl.innerHTML = runningRoutesHtml();
+      refreshRouteLaunchFormSections(draft);
+      return;
+    }
+
+    let html = '<h3>Routes</h3>';
+    html += `<div id="route-network-snapshot">${networkSnapshotHtml()}</div>`;
+    html += '<p class="ops-section-title">Running now</p>';
+    html += `<div id="route-list-running">${runningRoutesHtml()}</div>`;
+    html += `<div id="route-launch-form">${routeLaunchFormHtml(draft)}</div>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
     renderRouteSuggestions();
@@ -5318,17 +5449,16 @@
     const dAp = airport(destIata);
     if (!dAp) return;
     const origin = ($('rt-origin-code') && $('rt-origin-code').value) || defaultRouteOrigin();
-    const destInput = $('rt-dest-search');
-    const destCode = $('rt-dest-code');
-    if (destInput) destInput.value = airportLabel(dAp);
-    if (destCode) destCode.value = destIata;
-    const fareInput = $('rt-fare');
-    const freqInput = $('rt-freq');
-    if (fareInput) fareInput.value = fare;
-    if (freqInput) freqInput.value = freq;
     const plane = state.fleet.find((f) => f.type === acType) || state.fleet[0];
-    const acSelect = $('rt-aircraft');
-    if (acSelect && plane) acSelect.value = plane.id;
+    setRouteFormDraft({
+      origin,
+      originLabel: airport(origin) ? airportLabel(airport(origin)) : origin,
+      dest: destIata,
+      destLabel: airportLabel(dAp),
+      aircraftId: plane ? plane.id : '',
+      freq: String(freq),
+      fare: String(fare),
+    });
     updateRoutePreview();
 
     const shouldLaunch = autoLaunch === true || autoLaunch === 'true';
@@ -5336,10 +5466,24 @@
       openRouteLaunchModal(origin, destIata, plane.id, freq, fare);
       return;
     }
-    document.querySelector('[data-tab="routes"]')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (!hasGateAt(origin)) {
+      showRouteFormError(`Lease a gate at ${origin} first, then click Plan & launch route…`);
+      selectAirport(origin);
+    } else if (!plane) {
+      showRouteFormError('Add matching aircraft in Fleet, then click Plan & launch route…');
+    } else {
+      showRouteFormError(`${origin} → ${destIata} ready — click Plan & launch route… below.`);
+    }
+    const preview = $('route-preview');
+    if (preview) preview.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const submitBtn = $('btn-submit-route');
+    if (submitBtn) submitBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
 
   function bindRouteAirportInputs() {
+    const form = $('route-launch-form');
+    if (form && form._routeInputsBound) return;
+    if (form) form._routeInputsBound = true;
     const bind = (inputId, hiddenId, onSync) => {
       const input = $(inputId);
       const hidden = $(hiddenId);
@@ -5349,23 +5493,41 @@
         hidden.value = ap ? ap.iata : '';
         if (onSync) onSync();
       };
+      const syncNow = () => {
+        const ap = resolveAirportQuery(input.value);
+        if (ap) {
+          hidden.value = ap.iata;
+          if (onSync) onSync();
+        }
+      };
       input.addEventListener('change', sync);
       input.addEventListener('blur', sync);
       input.addEventListener('input', () => {
+        syncNow();
         window.clearTimeout(input._rtDebounce);
-        input._rtDebounce = window.setTimeout(sync, 280);
+        input._rtDebounce = window.setTimeout(sync, 180);
       });
     };
     const refresh = () => {
+      captureRouteFormDraft();
       renderRouteSuggestions();
       updateRoutePreview();
     };
+    const onDest = () => {
+      captureRouteFormDraft();
+      updateRoutePreview();
+    };
     bind('rt-origin-search', 'rt-origin-code', refresh);
-    bind('rt-dest-search', 'rt-dest-code', updateRoutePreview);
+    bind('rt-dest-search', 'rt-dest-code', onDest);
     ['rt-aircraft', 'rt-freq', 'rt-fare'].forEach((id) => {
       const el = $(id);
-      if (el) el.addEventListener('input', updateRoutePreview);
-      if (el) el.addEventListener('change', updateRoutePreview);
+      if (!el) return;
+      const sync = () => {
+        captureRouteFormDraft();
+        updateRoutePreview();
+      };
+      el.addEventListener('input', sync);
+      el.addEventListener('change', sync);
     });
   }
 
