@@ -20,6 +20,7 @@
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
   let scoreboardOpen = false;
+  let scoreboardSortBy = 'overall';
   let selectedRival = null;
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
@@ -2362,11 +2363,36 @@
 
   function metricLeverTip(pillar) {
     const tips = {
-      profit: 'Scoped route margin minus fleet, gates, and growing corporate overhead',
-      riders: 'Marketing · OTAs · frequency · new routes',
-      csat: 'Load factor · AOG · reputation · fare fairness',
+      profit: 'Scoped monthly operating profit — click to rank league by profit',
+      riders: 'Estimated monthly passengers in scope — click to rank league',
+      csat: 'Customer Satisfaction — reputation, load factor, reliability — click to rank',
+      overall: 'Blended league score — click airline name for full table',
     };
     return tips[pillar] || '';
+  }
+
+  function pillarSortLabel(key) {
+    const labels = {
+      profit: 'Profit',
+      riders: 'Riders',
+      csat: 'CSAT',
+      overall: 'Overall',
+    };
+    return labels[key] || key;
+  }
+
+  function sortLeagueByMetric(entries, sortKey) {
+    const key = sortKey || 'overall';
+    const sorted = [...entries].sort((a, b) => (b[key] || 0) - (a[key] || 0));
+    return sorted.map((e, i) => ({ ...e, rank: i + 1 }));
+  }
+
+  function openScoreboardSorted(sortKey) {
+    if (!state) return;
+    scoreboardSortBy = sortKey || 'overall';
+    scoreboardOpen = true;
+    selectedRival = null;
+    renderScoreboardBar();
   }
 
   function ensureRouteStats(route) {
@@ -2887,19 +2913,16 @@
     if (pillars) {
       const profitMeter = Math.max(0, Math.min(100, 50 + player.profit / 40000));
       const riderMeter = Math.min(100, Math.log10(Math.max(10, player.riders)) * 28);
-      pillars.innerHTML = `
-        <div class="pillar" title="${metricLeverTip('profit')}">
-          <span class="pillar-label">Profit</span>${pillarMeter(profitMeter)}
-          <span class="pillar-rank">${fmtMoney(player.profit)}/mo · #${profitRank}</span>
-        </div>
-        <div class="pillar" title="${metricLeverTip('riders')}">
-          <span class="pillar-label">Riders</span>${pillarMeter(riderMeter)}
-          <span class="pillar-rank">${player.riders.toLocaleString()}/mo · #${ridersRank}</span>
-        </div>
-        <div class="pillar" title="${metricLeverTip('csat')}">
-          <span class="pillar-label">CSAT</span>${pillarMeter(player.csat)}
-          <span class="pillar-rank">${player.csat} · #${csatRank}</span>
-        </div>`;
+      const csatMeter = Math.max(0, Math.min(100, player.csat));
+      const pillarBtn = (key, label, meter, rankLine) =>
+        `<button type="button" class="pillar pillar-btn${scoreboardSortBy === key ? ' active' : ''}" data-pillar-sort="${key}" title="${metricLeverTip(key)}" aria-pressed="${scoreboardSortBy === key}">
+          <span class="pillar-label">${label}</span>${pillarMeter(meter)}
+          <span class="pillar-rank">${rankLine}</span>
+        </button>`;
+      pillars.innerHTML =
+        pillarBtn('profit', 'Profit', profitMeter, `${fmtMoney(player.profit)}/mo · #${profitRank}`) +
+        pillarBtn('riders', 'Riders', riderMeter, `${player.riders.toLocaleString()}/mo · #${ridersRank}`) +
+        pillarBtn('csat', 'CSAT', csatMeter, `${player.csat} · #${csatRank}`);
     }
 
     const rivals = $('scoreboard-rivals');
@@ -2935,32 +2958,41 @@
       return;
     }
     const scope = leagueScopeLabel(getLeagueScope());
-    const rows = data
+    const sorted = sortLeagueByMetric(data, scoreboardSortBy);
+    const sortCol = (key, label) =>
+      `<th class="${scoreboardSortBy === key ? 'sort-active' : ''}">${label}</th>`;
+    const rows = sorted
       .map((e) => {
         const trend =
           e.trend > 0 ? `<span class="trend-up">▲${e.trend}</span>` : e.trend < 0 ? `<span class="trend-down">▼${Math.abs(e.trend)}</span>` : '<span class="muted">—</span>';
         const rowClass = e.isPlayer ? 'you' : 'rival-row';
         const dataAttr = e.isPlayer ? '' : ` data-rival-name="${e.name}"`;
+        const hl = (key) => (scoreboardSortBy === key ? ' sort-col' : '');
         return `<tr class="${rowClass}"${dataAttr}>
           <td>${e.rank}</td>
           <td>${airlineLogoHtml(e.name, e.emblem, 26)} <span>${e.name}</span></td>
-          <td class="${e.profit < 0 ? 'danger' : ''}">${fmtMoney(e.profit)}</td>
-          <td>${e.riders.toLocaleString()}</td>
-          <td>${e.csat}</td>
-          <td><b>${e.overall}</b></td>
+          <td class="${e.profit < 0 ? 'danger' : ''}${hl('profit')}">${fmtMoney(e.profit)}</td>
+          <td class="${hl('riders')}">${e.riders.toLocaleString()}</td>
+          <td class="${hl('csat')}">${e.csat}</td>
+          <td class="${hl('overall')}"><b>${e.overall}</b></td>
           <td>${trend}</td>
         </tr>`;
       })
       .join('');
+    const csatNote =
+      scoreboardSortBy === 'csat'
+        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>CSAT</b> = Customer Satisfaction — blends reputation, average load factor, and penalties when aircraft are AOG (out of service).</p>'
+        : '';
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
-        <h3>League — ${scope}</h3>
-        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Monthly operating profit (est.), riders, and CSAT within the selected scope. Click a rival for intel.</p>
+        <h3>League — ${scope} · by ${pillarSortLabel(scoreboardSortBy)}</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. Click Profit, Riders, or CSAT above to re-sort. Click a rival for intel.</p>
         <table class="scoreboard-table">
-          <thead><tr><th>#</th><th>Airline</th><th>Profit/mo</th><th>Riders/mo</th><th>CSAT</th><th>Overall</th><th>Trend</th></tr></thead>
+          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'CSAT')}${sortCol('overall', 'Overall')}<th>Trend</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing (giants win on brand). CSAT — reliability, load, fair fares.</p>
+        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. CSAT — reliability, load, fair fares.</p>
+        ${csatNote}
       </div>`;
     bindRivalClicks();
   }
@@ -3802,6 +3834,145 @@
     return draft;
   }
 
+  function projectRouteBusinessCase(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    const ac = plane ? aircraftType(plane.type) : null;
+    if (!plane || !ac) return null;
+
+    const mockRoute = {
+      origin: draft.origin,
+      dest: draft.dest,
+      aircraft_type: plane.type,
+      aircraft_id: draft.aircraftId,
+      frequency_week: draft.freq,
+      fare: draft.fare,
+      fare_mode: 'manual',
+      ancillary_mode: 'auto',
+    };
+    const sim = simulateRouteDay(mockRoute);
+    const via = estimateRouteViability(draft.origin, draft.dest, plane.type, draft.freq, draft.fare);
+    const dailyVariable = (sim.revenue || 0) - (sim.cost || 0);
+    const monthlyVariable = dailyVariable * 30;
+
+    let upfront = draft.stationCost || 0;
+    ensureMacro();
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      const o = draft.ota && draft.ota[p.id];
+      if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly || 0;
+    });
+
+    const routesAtOrigin = state.routes.filter((r) => r.origin === draft.origin).length;
+    const routesOnPlane = state.routes.filter((r) => r.aircraft_id === draft.aircraftId).length;
+    const gateMonthly = state.gates
+      .filter((g) => g.airport === draft.origin)
+      .reduce((s, g) => s + (g.monthly || 0), 0);
+    const gateShare = gateMonthly / Math.max(1, routesAtOrigin + 1);
+    const fleetShare = plane.leased ? (ac.lease_monthly || 0) / Math.max(1, routesOnPlane + 1) : 0;
+    const marketingMonthly =
+      clampMoney(draft.investments?.airport) +
+      clampMoney(draft.investments?.state) +
+      clampMoney(draft.investments?.national) +
+      clampMoney(draft.investments?.world);
+    let otaMonthly = 0;
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      const o = draft.ota && draft.ota[p.id];
+      if (!o) return;
+      if (o.list) otaMonthly += p.listing_monthly || 0;
+      if (o.feature) otaMonthly += p.route_feature_monthly || 0;
+      if (o.hubPush) otaMonthly += p.hub_push_monthly || 0;
+    });
+    const corpShare = playerNaturalOverheadMonthly() / Math.max(1, state.routes.length + 1);
+    const monthlyFixed = gateShare + fleetShare + marketingMonthly + otaMonthly + corpShare;
+    const monthlyNet = monthlyVariable - monthlyFixed;
+
+    let breakEvenMonths = null;
+    let breakEvenYears = null;
+    if (monthlyNet > 0 && upfront > 0) {
+      breakEvenMonths = upfront / monthlyNet;
+      breakEvenYears = breakEvenMonths / 12;
+    } else if (monthlyNet > 0 && upfront <= 0) {
+      breakEvenMonths = 0;
+      breakEvenYears = 0;
+    }
+
+    let verdict = 'poor';
+    let verdictLabel = 'Weak business case';
+    let verdictClass = 'judgment-poor';
+    if (monthlyNet <= 0) {
+      verdictLabel = 'Does not break even';
+      verdictClass = 'judgment-poor';
+    } else if (breakEvenYears <= 1) {
+      verdict = 'strong';
+      verdictLabel = 'Strong business case';
+      verdictClass = 'judgment-strong';
+    } else if (breakEvenYears <= 2) {
+      verdict = 'ok';
+      verdictLabel = 'Acceptable — patience required';
+      verdictClass = 'judgment-ok';
+    } else if (breakEvenYears <= 3.5) {
+      verdict = 'marginal';
+      verdictLabel = 'Marginal — long payback';
+      verdictClass = 'judgment-warn';
+    } else {
+      verdictLabel = `Poor — ~${breakEvenYears.toFixed(1)} years to recover launch costs`;
+      verdictClass = 'judgment-poor';
+    }
+
+    return {
+      sim,
+      via,
+      dailyVariable,
+      monthlyVariable,
+      monthlyFixed,
+      monthlyNet,
+      upfront,
+      breakEvenMonths,
+      breakEvenYears,
+      verdict,
+      verdictLabel,
+      verdictClass,
+      gateShare,
+      fleetShare,
+      marketingMonthly,
+      otaMonthly,
+      corpShare,
+    };
+  }
+
+  function routeBusinessJudgmentHtml(draft) {
+    const econ = projectRouteBusinessCase(draft);
+    if (!econ) return '<p class="muted">Select an aircraft to judge this route.</p>';
+    const loadPct = (econ.via.load * 100).toFixed(0);
+    const paybackLine =
+      econ.monthlyNet <= 0
+        ? `<span class="danger">Never</span> — projected to lose <b>${fmtMoney(Math.abs(econ.monthlyNet))}/mo</b> after allocated fixed costs.`
+        : econ.breakEvenYears <= 0
+          ? '<b>Immediate</b> — upfront costs recovered from day-one margin.'
+          : `<b>~${econ.breakEvenYears.toFixed(1)} years</b> (${Math.round(econ.breakEvenMonths)} months) to recover <b>${fmtMoney(econ.upfront)}</b> upfront.`;
+
+    let patienceNote = '';
+    if (econ.monthlyNet > 0 && econ.breakEvenYears >= 2) {
+      const yearsCeil = Math.max(2, Math.ceil(econ.breakEvenYears));
+      patienceNote = `<p class="judgment-note">Under these fares, frequency, and cost assumptions, you would need to operate this route for roughly <b>${yearsCeil} years</b> before cumulative profit covers station build-out and launch spending.</p>`;
+    } else if (econ.monthlyNet <= 0) {
+      patienceNote =
+        '<p class="judgment-note danger">Even a multi-year horizon does not turn positive unless load, fares, or costs improve.</p>';
+    }
+
+    return `<div class="route-judgment ${econ.verdictClass}">
+      <p class="judgment-kicker">Business judgment</p>
+      <p class="judgment-verdict"><strong>${econ.verdictLabel}</strong></p>
+      <dl class="stat-dl judgment-stats">
+        <dt>Est. route margin</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day)</span></dd>
+        <dt>Allocated fixed costs</dt><dd>${fmtMoney(econ.monthlyFixed)}/mo <span class="muted">(gate ${fmtMoney(econ.gateShare)} · aircraft ${fmtMoney(econ.fleetShare)} · mkt/OTA ${fmtMoney(econ.marketingMonthly + econ.otaMonthly)} · overhead ${fmtMoney(econ.corpShare)})</span></dd>
+        <dt>Net contribution</dt><dd class="${econ.monthlyNet >= 0 ? '' : 'danger'}">${fmtMoney(econ.monthlyNet)}/mo</dd>
+        <dt>Upfront at launch</dt><dd>${fmtMoney(econ.upfront)}</dd>
+        <dt>Payback</dt><dd>${paybackLine}</dd>
+      </dl>
+      ${patienceNote}
+    </div>`;
+  }
+
   function routeLaunchPreviewHtml(draft) {
     const plane = state.fleet.find((f) => f.id === draft.aircraftId);
     const acType = plane ? plane.type : null;
@@ -3918,11 +4089,14 @@
       .join('');
 
     let previewHtml = '';
+    let judgmentHtml = '';
     try {
       previewHtml = routeLaunchPreviewHtml(d);
+      judgmentHtml = routeBusinessJudgmentHtml(d);
     } catch (err) {
       console.error('Runway: route launch preview failed', err);
       previewHtml = '<span class="danger">Preview unavailable — you can still confirm launch.</span>';
+      judgmentHtml = '';
     }
 
     overlay.innerHTML = `
@@ -3938,6 +4112,7 @@
           </label>
         </div>
         <div class="route-launch-preview" id="rl-preview">${previewHtml}</div>
+        <div class="route-launch-judgment" id="rl-judgment">${judgmentHtml}</div>
         <p class="route-launch-section">Station build-out (one-time)</p>
         <p style="font-size:0.76rem;line-height:1.4;">Counters, signage, ground ops setup at <b>${d.origin}</b> — <b>${fmtMoney(d.stationCost)}</b> due at launch. Additional gates let you run more simultaneous departures.</p>
         <p class="route-launch-section">Marketing investments</p>
@@ -3960,7 +4135,9 @@
 
     const refreshPreview = () => {
       const prev = $('rl-preview');
+      const judgment = $('rl-judgment');
       if (prev) prev.innerHTML = routeLaunchPreviewHtml(routeLaunchDraft);
+      if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
     };
 
     const syncDraftFromForm = () => {
@@ -6074,6 +6251,19 @@
     }
   }
 
+  function setupScoreboardDelegation() {
+    const bar = $('scoreboard-bar');
+    if (!bar || bar._sbDelegation) return;
+    bar._sbDelegation = true;
+    bar.addEventListener('click', (e) => {
+      const pillar = e.target.closest('[data-pillar-sort]');
+      if (!pillar) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openScoreboardSorted(pillar.dataset.pillarSort);
+    });
+  }
+
   function setupRoutePanelDelegation() {
     const panel = $('panel-routes');
     if (!panel || panel._routeDelegation) return;
@@ -6155,6 +6345,7 @@
     window.addEventListener('resize', ensureMapboxSize);
     setupStartScreen();
     setupRoutePanelDelegation();
+    setupScoreboardDelegation();
     setupKeyboardShortcuts();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
@@ -6226,6 +6417,7 @@
     toggleOta: toggleOtaListing,
     toggleFleetShop,
     toggleScoreboard,
+    openScoreboardSorted,
     setLeagueScope,
     selectRival,
     closeRivalDetail,
