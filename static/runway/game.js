@@ -1982,7 +1982,9 @@
     } else if (option.effect === 'hub_routes' && option.airport) {
       focusHubForRoutes(option.airport);
     } else if (option.effect === 'bump_route_freq' && option.routeId) {
-      bumpRouteFrequency(option.routeId, option.delta || 1);
+      bumpRouteFrequency(option.routeId, option.delta || 1, {
+        mirrorReturn: option.mirrorReturn !== false,
+      });
     } else if (option.effect === 'hold_premium') {
       state.reputation = Math.min(100, (state.reputation || 0) + 2);
       pushPlayerEvent(`held premium positioning at ${option.airport} — reputation +2.`);
@@ -2704,34 +2706,37 @@
       {
         id: 'wp_day45',
         triggerDay: 45,
-        title: 'Phase 3 — Add frequency on CMH–DAY (day 45)',
+        title: 'Phase 3 — Fly the pair more often (both ways)',
         body:
-          'If <b>Daily P&L</b> is positive, add <b>+3/wk</b> on CMH–DAY before buying another plane. ' +
-          'More weekly departures = more airport market share = higher loads.',
-        teach: 'Gate and aircraft hours are the limits — the coach only bumps if capacity allows.',
+          'If <b>Daily P&L</b> is green, add <b>+3 departures/week each way</b> on <b>CMH⇄DAY</b> before leasing another plane. ' +
+          'That sells more seats <b>CMH→DAY and DAY→CMH</b> (return traffic from Dayton counts too) — more city-pair share, more revenue, still one aircraft. ' +
+          'This is not a new destination; it is denser service on the route you already fly.',
+        teach:
+          'Keep both legs matched when you can. One-way bumps leave the return thin and waste gate time at the other city. Gate + aircraft hours are the limits.',
         skipIf: (st) => simulateDayEconomics().pnl <= 0,
         options: [
           {
             id: 'freq',
-            label: 'A — CMH–DAY +3 departures/week',
-            hint: 'Uses spare gate time on your E145.',
+            label: 'A — CMH⇄DAY +3/wk both directions',
+            hint: 'Outbound and return — more pax both ways on the same E145.',
             effect: 'bump_route_freq',
             routeId,
             delta: 3,
+            mirrorReturn: true,
             origin: 'CMH',
             dest: 'DAY',
           },
           {
             id: 'routes',
             label: 'B — Open Routes to adjust manually',
-            hint: 'Review load % first.',
+            hint: 'Review load % on each leg first.',
             effect: 'tab_routes',
             airport: 'CMH',
           },
           {
             id: 'wait',
             label: 'C — Not profitable yet — fix fares first',
-            hint: 'Stay on one route; lower fare or marketing.',
+            hint: 'Stay at current frequency; tune fare or marketing.',
             effect: 'tab_routes',
             airport: 'CMH',
           },
@@ -2984,12 +2989,9 @@
       return;
     }
     if (option.effect === 'bump_route_freq' && option.routeId) {
-      bumpRouteFrequency(option.routeId, option.delta || 1);
-      const route = routeById(option.routeId);
-      const label = route ? `${route.origin}–${route.dest}` : 'route';
-      pushPlayerEvent(`coach: ${label} +${option.delta || 1}/wk departures`);
-      saveGame();
-      renderAll();
+      bumpRouteFrequency(option.routeId, option.delta || 1, {
+        mirrorReturn: option.mirrorReturn !== false,
+      });
       return;
     }
     applyOnboardingChoice(option);
@@ -6716,9 +6718,16 @@
     if (form) scrollSidePanelTo(form, { block: 'nearest' });
   }
 
-  function bumpRouteFrequency(routeId, delta) {
+  /**
+   * Raise weekly frequency on a route. By default also bumps the reverse leg
+   * by the same amount when it exists (keeps CMH⇄DAY balanced).
+   */
+  function bumpRouteFrequency(routeId, delta, opts) {
+    opts = opts || {};
+    const mirrorReturn = opts.mirrorReturn !== false;
+    const quiet = !!opts.quiet;
     const route = routeById(routeId);
-    if (!route || !delta) return;
+    if (!route || !delta) return false;
     const add = Math.max(1, Math.round(delta));
     const newFreq = (route.frequency_week || 0) + add;
     const routeMax = maxFrequencyForRoute(route.origin, route.dest, route.aircraft_type);
@@ -6731,10 +6740,18 @@
         route.id
       ) + (route.frequency_week || 0);
     const capped = Math.min(newFreq, routeMax, aircraftMax);
+    if (capped <= (route.frequency_week || 0)) {
+      if (!quiet) {
+        pushPlayerEvent(
+          `could not add frequency on ${route.origin}–${route.dest} — at gate or aircraft schedule limit.`
+        );
+      }
+      return false;
+    }
     const capErr = gateCapacityError(route.origin, capped, route.id);
     if (capErr) {
-      pushPlayerEvent(capErr);
-      return;
+      if (!quiet) pushPlayerEvent(capErr);
+      return false;
     }
     const schedErr = aircraftScheduleError(
       route.aircraft_id,
@@ -6745,15 +6762,50 @@
       route.id
     );
     if (schedErr) {
-      pushPlayerEvent(schedErr);
-      return;
+      if (!quiet) pushPlayerEvent(schedErr);
+      return false;
     }
+    const before = route.frequency_week || 0;
     route.frequency_week = capped;
-    pushPlayerEvent(`increased ${route.origin}–${route.dest} to ${capped}x/wk — more gate time and aircraft hours.`);
-    saveGame();
-    renderRoutes();
-    if (selectedAirport === route.origin) renderAirportPanel(route.origin);
-    renderOpsGuide();
+    const actualAdd = capped - before;
+    if (!quiet) {
+      pushPlayerEvent(
+        `increased ${route.origin}–${route.dest} to ${capped}x/wk (+${actualAdd}) — more seats sold that direction, more gate use at ${route.origin}.`
+      );
+    }
+
+    if (mirrorReturn && actualAdd > 0) {
+      const reverse = findReverseRoute(route);
+      if (reverse) {
+        const revOk = bumpRouteFrequency(reverse.id, actualAdd, { mirrorReturn: false, quiet: true });
+        if (revOk) {
+          pushPlayerEvent(
+            `matched return ${reverse.origin}–${reverse.dest} +${actualAdd}/wk — keep both legs balanced so Dayton traffic flies home paying, not empty.`
+          );
+        } else {
+          pushEvent(
+            `Could not fully match return ${reverse.origin}–${reverse.dest} (+${actualAdd}/wk) — check gate at ${reverse.origin} or aircraft hours.`,
+            'bad'
+          );
+        }
+      } else if (!quiet) {
+        pushEvent(
+          `No return leg for ${route.origin}–${route.dest}. Open ${route.dest}→${route.origin} so the plane does not ferry empty.`,
+          'bad'
+        );
+      }
+    }
+
+    if (!quiet) {
+      saveGame();
+      renderRoutes();
+      if (selectedAirport === route.origin || selectedAirport === route.dest) {
+        renderAirportPanel(selectedAirport);
+      }
+      renderOpsGuide();
+      renderHud();
+    }
+    return true;
   }
 
   function fleetMaxRangeNm() {
@@ -6785,6 +6837,27 @@
     return out.sort((a, b) => a.dist - b.dist);
   }
 
+  function bestFrequencyBumpFromGate(util) {
+    if (!util || !util.routesFrom || !util.routesFrom.length) return null;
+    // Prefer the thinnest leg or the one with most headroom — often the return from this city.
+    let best = null;
+    util.routesFrom.forEach((r) => {
+      const routeMax = maxFrequencyForRoute(r.origin, r.dest, r.aircraft_type);
+      const gateHead = util.remaining;
+      const acHead =
+        maxFrequencyForAircraft(r.aircraft_id, r.origin, r.dest, r.aircraft_type, r.id) || 0;
+      const headroom = Math.min(gateHead, Math.max(0, routeMax - (r.frequency_week || 0)), acHead || 99);
+      if (headroom < 1) return;
+      const delta = Math.min(7, Math.max(1, headroom));
+      const reverse = findReverseRoute(r);
+      const score = headroom + (reverse ? 2 : 0) + ((r.frequency_week || 0) < 10 ? 1 : 0);
+      if (!best || score > best.score) {
+        best = { route: r, delta, reverse, headroom, score };
+      }
+    });
+    return best;
+  }
+
   function gateInefficiencyAlternatives(util) {
     if (!util || !state) return [];
     const alts = [];
@@ -6809,6 +6882,24 @@
     );
     const idlePlanes = state.fleet.filter((f) => !(state.routes || []).some((r) => r.aircraft_id === f.id));
 
+    // 1) Prefer increasing frequency on existing service from this gate (e.g. DAY→CMH return).
+    const bump = bestFrequencyBumpFromGate(util);
+    if (bump) {
+      const r = bump.route;
+      const revNote = bump.reverse
+        ? ` Also matches return <b>${bump.reverse.origin}–${bump.reverse.dest}</b> when capacity allows.`
+        : ` No return leg yet — consider opening <b>${r.dest}→${r.origin}</b>.`;
+      alts.push({
+        type: 'bump_freq',
+        text:
+          `Add <b>+${bump.delta}/wk</b> on <b>${r.origin}–${r.dest}</b> (departures from <b>${util.iata}</b>) — sells more seats that direction and uses open gate time.${revNote}`,
+        action: 'bump_freq',
+        routeId: r.id,
+        delta: bump.delta,
+        mirrorReturn: true,
+      });
+    }
+
     if (idlePlanes.length) {
       const ac = aircraftType(idlePlanes[0].type);
       alts.push({
@@ -6817,7 +6908,7 @@
         action: 'hub_routes',
         airport: util.iata,
       });
-    } else if (state.fleet.length) {
+    } else if (state.fleet.length && !bump) {
       const busiest = state.fleet
         .map((f) => {
           const cap = planeWeeklyBlockHoursCapacity(f);
@@ -6830,11 +6921,14 @@
           type: 'plane_full',
           text:
             `Gate has open slots but <b>every aircraft is fully scheduled</b> (~${busiest.used.toFixed(0)}/${busiest.cap.toFixed(0)} block-hr/wk). ` +
-            `Bump frequency on an existing route or lease a second plane — one aircraft, one place at a time.`,
+            `Lease a second plane — one aircraft, one place at a time.`,
+          action: 'tab',
+          tab: 'fleet',
         });
       }
     }
 
+    // 2) New destinations are secondary — only after frequency on what you already fly.
     if (ideas.length) {
       const top = ideas
         .slice(0, 3)
@@ -6842,29 +6936,17 @@
         .join(', ');
       alts.push({
         type: 'add_route',
-        text: `<b>${reachable.length}</b> airports in range (${maxRange} nm) · top demand: <b>${top}</b>.`,
+        text: `Or open a <b>new</b> market from ${util.iata}: <b>${reachable.length}</b> in range · top demand <b>${top}</b>.`,
         action: 'hub_routes',
         airport: util.iata,
       });
-    } else if (util.routeCount > 0 && util.remaining >= 3) {
+    } else if (util.routeCount > 0 && util.remaining >= 3 && !bump) {
       const r = util.routesFrom[0];
       if (r) {
-        const routeMax = maxFrequencyForRoute(r.origin, r.dest, r.aircraft_type);
-        const headroom = Math.min(util.remaining, Math.max(0, routeMax - (r.frequency_week || 0)));
-        if (headroom >= 2) {
-          alts.push({
-            type: 'bump_freq',
-            text: `No strong new markets in range — add <b>+${Math.min(7, headroom)}</b>/wk on <b>${r.origin}–${r.dest}</b> instead.`,
-            action: 'bump_freq',
-            routeId: r.id,
-            delta: Math.min(7, headroom),
-          });
-        } else {
-          alts.push({
-            type: 'freq_maxed',
-            text: `${r.origin}–${r.dest} is near schedule max for your aircraft — need another route or longer-range plane.`,
-          });
-        }
+        alts.push({
+          type: 'freq_maxed',
+          text: `${r.origin}–${r.dest} is near schedule max for your aircraft — need another route or longer-range plane.`,
+        });
       }
     } else if (reachable.length === 0 && maxRange > 0) {
       const longer = Object.values(bootstrap.aircraft_types || {})
@@ -7011,22 +7093,32 @@
       .filter((g) => g.airport === worst.iata)
       .reduce((s, g) => s + (g.monthly || 0), 0);
     const options = [];
-    const bump = alts.find((a) => a.action === 'bump_freq');
-    if (bump) {
+    const letters = 'ABCDEFG';
+    let optIdx = 0;
+    const bump = alts.find((a) => a.action === 'bump_freq') || bestFrequencyBumpFromGate(worst);
+    if (bump && (bump.routeId || (bump.route && bump.route.id))) {
+      const routeId = bump.routeId || bump.route.id;
+      const r = routeById(routeId);
+      const delta = bump.delta || 3;
+      const leg = r ? `${r.origin}–${r.dest}` : 'existing route';
+      const hasRev = r && findReverseRoute(r);
       options.push({
         id: 'bump',
-        label: `A — Add +${bump.delta}/wk on existing route`,
-        hint: 'Use open gate time without a new destination.',
+        label: `${letters[optIdx++]} — Increase ${leg} +${delta}/wk${hasRev ? ' (match return)' : ''}`,
+        hint: hasRev
+          ? `More departures from ${worst.iata}; return leg bumps by the same amount when capacity allows.`
+          : `Uses open gate time at ${worst.iata} — open a return later so the plane does not ferry empty.`,
         effect: 'bump_route_freq',
-        routeId: bump.routeId,
-        delta: bump.delta,
+        routeId,
+        delta,
+        mirrorReturn: true,
       });
     }
     if (alts.some((a) => a.action === 'hub_routes')) {
       options.push({
         id: 'route',
-        label: `B — Plan a new route from ${worst.iata}`,
-        hint: 'Open Routes with suggestions for in-range markets.',
+        label: `${letters[optIdx++]} — Plan a new route from ${worst.iata}`,
+        hint: 'Only if frequency on current legs is already solid.',
         effect: 'hub_routes',
         airport: worst.iata,
       });
@@ -7034,32 +7126,37 @@
     if (alts.some((a) => a.action === 'tab' && a.tab === 'fleet')) {
       options.push({
         id: 'fleet',
-        label: 'C — Review Fleet (range / idle aircraft)',
+        label: `${letters[optIdx++]} — Review Fleet (range / idle aircraft)`,
         hint: 'Longer range or spare aircraft may unlock routes.',
         effect: 'tab_fleet',
       });
     }
     options.push({
       id: 'ignore',
-      label: `${options.length ? 'D' : 'A'} — Ignore for now`,
+      label: `${letters[optIdx] || 'A'} — Ignore for now`,
       hint: 'Idle gate time still costs lease every month.',
       effect: 'none',
     });
 
     state.last_gate_efficiency_decision_day = state.day;
+    const fromHere = (worst.routesFrom || []).map((r) => `${r.origin}–${r.dest} ${r.frequency_week}/wk`).join(' · ');
     queueDecision({
       airport: worst.iata,
       kicker: `${fmtDate(state.day)} · Gate efficiency`,
       title: `${worst.iata} gate underused (${worst.pct.toFixed(0)}%)`,
       body:
         `You lease <b>${fmtMoney(leaseMo)}/mo</b> at <b>${worst.iata}</b> but only schedule <b>${worst.used}/${worst.max}</b> weekly departures (<b>${worst.remaining}</b> open).` +
+        (fromHere
+          ? `<p class="muted" style="font-size:0.8rem;margin:8px 0 0;">Departures you already fly from ${worst.iata}: <b>${fromHere}</b>. Increasing frequency here is usually better than a brand-new city.</p>`
+          : '') +
         (alts.length
           ? `<ul class="list" style="margin:10px 0;font-size:0.78rem;">${alts
               .slice(0, 3)
               .map((a) => `<li>${a.text}</li>`)
               .join('')}</ul>`
           : ''),
-      teach: 'Gate time is perishable — unused slots do not roll over. But one aircraft can only be in one place at a time: check block hours before blaming demand.',
+      teach:
+        'Prefer adding frequency on the pair you already fly (both ways when possible). New destinations come after the current service is dense enough to use the gate you pay for.',
       logLine: `${worst.iata} gate ${worst.pct.toFixed(0)}% utilized`,
       options,
     });
