@@ -2873,6 +2873,25 @@
     });
   }
 
+  function abandonMapbox(reason) {
+    console.warn('Runway: Mapbox unavailable — using raster fallback.', reason);
+    mapboxReady = false;
+    mapboxInitStarted = false;
+    window.RUNWAY_MAPBOX_TOKEN = '';
+    if (mapboxMap) {
+      try {
+        mapboxMap.remove();
+      } catch (e) {
+        /* ignore teardown errors */
+      }
+      mapboxMap = null;
+    }
+    const container = $('runway-map');
+    if (container) container.innerHTML = '';
+    drawMapSvg();
+    fitMapToManagedArea();
+  }
+
   function initMapbox() {
     if (!useMapbox() || mapboxMap || mapboxInitStarted) return;
     const container = $('runway-map');
@@ -2884,35 +2903,50 @@
       [-125.5, 24.0],
       [-66.0, 49.55],
     ];
-    mapboxMap = new mapboxgl.Map({
-      container: 'runway-map',
-      style: MAPBOX_STYLE,
-      bounds,
-      fitBoundsOptions: { padding: 48 },
-      attributionControl: false,
-      dragRotate: false,
-      pitchWithRotate: false,
-      touchPitch: false,
+    let loadTimeout = null;
+    try {
+      mapboxMap = new mapboxgl.Map({
+        container: 'runway-map',
+        style: MAPBOX_STYLE,
+        bounds,
+        fitBoundsOptions: { padding: 48 },
+        attributionControl: false,
+        dragRotate: false,
+        pitchWithRotate: false,
+        touchPitch: false,
+      });
+    } catch (err) {
+      abandonMapbox(err);
+      return;
+    }
+
+    loadTimeout = window.setTimeout(() => {
+      if (!mapboxReady) abandonMapbox('load timeout');
+    }, 15000);
+
+    mapboxMap.on('error', (e) => {
+      if (!mapboxReady) abandonMapbox(e && e.error ? e.error : e);
     });
 
     mapboxMap.on('load', () => {
+      if (loadTimeout) window.clearTimeout(loadTimeout);
       setupMapboxLayers();
       mapboxReady = true;
       mapboxMap.resize();
       drawMap();
       fitMapToManagedArea();
-    });
 
-    mapboxMap.on('click', 'airports-layer', (e) => {
-      if (e.features && e.features[0] && e.features[0].properties) {
-        selectAirport(e.features[0].properties.iata);
-      }
-    });
-    mapboxMap.on('mouseenter', 'airports-layer', () => {
-      if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
-    });
-    mapboxMap.on('mouseleave', 'airports-layer', () => {
-      if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+      mapboxMap.on('click', 'airports-layer', (ev) => {
+        if (ev.features && ev.features[0] && ev.features[0].properties) {
+          selectAirport(ev.features[0].properties.iata);
+        }
+      });
+      mapboxMap.on('mouseenter', 'airports-layer', () => {
+        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
+      });
+      mapboxMap.on('mouseleave', 'airports-layer', () => {
+        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+      });
     });
   }
 

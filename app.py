@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import threading
 import base64
 from io import BytesIO
 from datetime import datetime, timedelta
@@ -514,7 +515,7 @@ CONSULTANTS = {
 def get_db():
     if not DATABASE_URL:
         return None
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=10)
     return conn
 
 
@@ -1029,33 +1030,45 @@ def init_db():
     conn.close()
 
 
-try:
-    init_db()
-except Exception as e:
-    print(f"DB init error: {e}")
+_db_startup_lock = threading.Lock()
+_db_startup_done = False
 
-# Safe migration — create auth_tokens if it doesn't exist yet
-try:
-    _conn = get_db()
-    if _conn:
-        _cur = _conn.cursor()
-        _cur.execute('''
-            CREATE TABLE IF NOT EXISTS auth_tokens (
-                token VARCHAR(64) PRIMARY KEY,
-                user_key VARCHAR(100) NOT NULL,
-                display_name VARCHAR(255) NOT NULL,
-                role VARCHAR(50),
-                created_at TIMESTAMP DEFAULT NOW(),
-                expires_at TIMESTAMP NOT NULL,
-                used BOOLEAN DEFAULT FALSE
-            )
-        ''')
-        _conn.commit()
-        _cur.close()
-        _conn.close()
-        print("auth_tokens table ready")
-except Exception as _e:
-    print(f"auth_tokens migration error: {_e}")
+
+def _run_db_startup():
+    """Run migrations once — gunicorn imports app in every worker."""
+    global _db_startup_done
+    with _db_startup_lock:
+        if _db_startup_done:
+            return
+        try:
+            init_db()
+        except Exception as e:
+            print(f"DB init error: {e}")
+        try:
+            _conn = get_db()
+            if _conn:
+                _cur = _conn.cursor()
+                _cur.execute('''
+                    CREATE TABLE IF NOT EXISTS auth_tokens (
+                        token VARCHAR(64) PRIMARY KEY,
+                        user_key VARCHAR(100) NOT NULL,
+                        display_name VARCHAR(255) NOT NULL,
+                        role VARCHAR(50),
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        expires_at TIMESTAMP NOT NULL,
+                        used BOOLEAN DEFAULT FALSE
+                    )
+                ''')
+                _conn.commit()
+                _cur.close()
+                _conn.close()
+                print("auth_tokens table ready")
+        except Exception as _e:
+            print(f"auth_tokens migration error: {_e}")
+        _db_startup_done = True
+
+
+_run_db_startup()
 
 
 # ── HELPERS ─────────────────────────────────────────────────────────────────────

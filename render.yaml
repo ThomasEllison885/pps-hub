@@ -41,6 +41,8 @@ services:
         value: thomas_ellison
       - key: DAILY_DIGEST_EMAIL
         sync: false
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
 
   - type: cron
     name: pps-hub-daily-digest
