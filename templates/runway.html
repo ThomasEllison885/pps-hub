@@ -261,6 +261,39 @@
     margin-left: 6px;
     vertical-align: middle;
   }
+
+  #scenario-name-step { display: none; }
+  #scenario-name-step.active { display: block; }
+  #scenario-picker.hidden { display: none; }
+  .name-step-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 22px;
+    margin-top: 8px;
+  }
+  .name-step-card h2 { font-size: 1.2rem; color: var(--gold); margin-bottom: 6px; }
+  .name-step-card label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 18px 0 14px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .name-step-card input {
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: 1rem;
+  }
+  .name-step-card input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
 </style>
 </head>
 <body>
@@ -270,7 +303,22 @@
     <h1>Runway</h1>
     <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
     <p class="muted" style="margin-bottom:24px;">MVP v0.1 · Present-day map · 61 airports · Ohio regionals · 3 scenarios · equity, debt, bonds</p>
-    <div id="scenario-list"></div>
+    <div id="scenario-picker">
+      <div id="scenario-list"></div>
+    </div>
+    <div id="scenario-name-step">
+      <div class="name-step-card">
+        <h2 id="name-step-title">Name your airline</h2>
+        <p class="muted" id="name-step-brief"></p>
+        <label for="airline-name-input">Airline name
+          <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Your Airline">
+        </label>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btn-start-game">Start airline</button>
+          <button type="button" class="btn secondary" id="btn-back-scenarios">Back</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 

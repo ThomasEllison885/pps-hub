@@ -17,6 +17,7 @@
   const MAP_ZOOM_MIN_W = MAP_W * 0.22;
   const MAP_ZOOM_MAX_W = MAP_W * 2.2;
   let fleetPending = null;
+  let pendingScenarioId = null;
   let mapDrag = {
     active: false,
     moved: false,
@@ -129,7 +130,9 @@
   }
 
   function cloneScenario(id) {
-    const s = JSON.parse(JSON.stringify(bootstrap.scenarios[id]));
+    const raw = bootstrap.scenarios[id];
+    if (!raw) throw new Error(`Unknown scenario: ${id}`);
+    const s = JSON.parse(JSON.stringify(raw));
     s.fleet = (s.fleet || []).map((f) => ({ ...f }));
     s.gates = (s.gates || []).map((g) => ({ ...g }));
     s.routes = (s.routes || []).map((r) => ({ ...r }));
@@ -231,6 +234,7 @@
     state.fleet.forEach((f) => {
       if (!f.id) f.id = uid('ac');
       const ac = aircraftType(f.type);
+      if (!ac) return;
       if (f.seats == null) f.seats = ac.seats;
       if (f.leased == null) f.leased = true;
       if (!f.leased && f.life_months_left == null) {
@@ -1298,7 +1302,71 @@
 
   function showScreen(id) {
     document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
-    $(id).classList.add('active');
+    const screen = $(id);
+    if (screen) screen.classList.add('active');
+  }
+
+  function showScenarioPicker() {
+    pendingScenarioId = null;
+    const picker = $('scenario-picker');
+    const nameStep = $('scenario-name-step');
+    if (picker) picker.classList.remove('hidden');
+    if (nameStep) nameStep.classList.remove('active');
+  }
+
+  function showScenarioNameStep(scenarioId) {
+    const sc = bootstrap.scenarios[scenarioId];
+    if (!sc) return;
+    pendingScenarioId = scenarioId;
+    const picker = $('scenario-picker');
+    const nameStep = $('scenario-name-step');
+    const title = $('name-step-title');
+    const brief = $('name-step-brief');
+    const input = $('airline-name-input');
+    if (picker) picker.classList.add('hidden');
+    if (nameStep) nameStep.classList.add('active');
+    if (title) title.textContent = sc.name;
+    if (brief) brief.textContent = sc.briefing;
+    if (input) {
+      input.value = sc.airline_name || '';
+      input.focus();
+      input.select();
+    }
+  }
+
+  function startPendingGame() {
+    if (!pendingScenarioId) return;
+    const sc = bootstrap.scenarios[pendingScenarioId];
+    const input = $('airline-name-input');
+    const raw = input ? input.value.trim() : '';
+    const name = raw || (sc && sc.airline_name) || 'Your Airline';
+    try {
+      showScreen('screen-game');
+      newGame(pendingScenarioId, name);
+      setSpeed('day');
+      pendingScenarioId = null;
+    } catch (err) {
+      console.error('Runway: failed to start game', err);
+      showScreen('screen-start');
+      showScenarioPicker();
+      alert('Could not start the game. Try again or use New game to clear your save.');
+    }
+  }
+
+  function setupStartScreen() {
+    const startBtn = $('btn-start-game');
+    const backBtn = $('btn-back-scenarios');
+    const input = $('airline-name-input');
+    if (startBtn) startBtn.addEventListener('click', startPendingGame);
+    if (backBtn) backBtn.addEventListener('click', showScenarioPicker);
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          startPendingGame();
+        }
+      });
+    }
   }
 
   async function loadUsMap() {
@@ -1316,6 +1384,7 @@
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
     await loadUsMap();
     setupMapInteraction();
+    setupStartScreen();
 
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.addEventListener('click', () => setSpeed(btn.dataset.speed));
@@ -1337,6 +1406,7 @@
       renderAll();
     } else {
       showScreen('screen-start');
+      showScenarioPicker();
       renderScenarioPicker();
     }
   }
@@ -1347,7 +1417,7 @@
     el.innerHTML = Object.values(bootstrap.scenarios)
       .map(
         (s) => `
-      <button class="scenario-card" data-scenario="${s.id}">
+      <button type="button" class="scenario-card" data-scenario="${s.id}">
         <strong>${s.name}</strong>
         <span>${s.tagline}</span>
         <p>${s.briefing}</p>
@@ -1355,13 +1425,7 @@
       )
       .join('');
     el.querySelectorAll('[data-scenario]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const sc = bootstrap.scenarios[btn.dataset.scenario];
-        const name = prompt('Airline name:', sc.airline_name) || sc.airline_name;
-        newGame(btn.dataset.scenario, name);
-        showScreen('screen-game');
-        setSpeed('day');
-      });
+      btn.addEventListener('click', () => showScenarioNameStep(btn.dataset.scenario));
     });
   }
 
@@ -1381,8 +1445,8 @@
     setMarketing,
     toggleOta: toggleOtaListing,
     newGame: (id) => {
-      newGame(id);
       showScreen('screen-game');
+      newGame(id);
     },
     reset: () => {
       localStorage.removeItem(SAVE_KEY);
