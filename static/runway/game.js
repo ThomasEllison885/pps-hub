@@ -31,6 +31,7 @@
     viewX: 0,
     viewY: 0,
     clickIata: null,
+    pointerId: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -194,7 +195,42 @@
     const sc = bootstrap.scenarios[scenarioId];
     activeMapKey = sc && sc.region === 'ohio' ? 'ohio' : 'usa';
     syncMapDimensions();
-    mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+  }
+
+  function fitMapToManagedArea(padRatio = 0.16) {
+    const airports = bootstrap.airports || [];
+    if (!airports.length) {
+      mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
+      applyMapView();
+      return;
+    }
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    airports.forEach((ap) => {
+      const p = projectMap(ap.lat, ap.lon);
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    });
+    const spanX = Math.max(100, maxX - minX);
+    const spanY = Math.max(100, maxY - minY);
+    const padX = spanX * padRatio + 55;
+    const padY = spanY * padRatio + 55;
+    const aspect = MAP_H / MAP_W;
+    let w = spanX + padX * 2;
+    let h = spanY + padY * 2;
+    if (w * aspect > h) h = w * aspect;
+    else w = h / aspect;
+    w = Math.min(MAP_W, Math.max(MAP_W * 0.32, w));
+    h = w * aspect;
+    let x = (minX + maxX) / 2 - w / 2;
+    let y = (minY + maxY) / 2 - h / 2;
+    mapView = { x, y, w, h };
+    clampMapView();
+    applyMapView();
   }
 
   function airportWealth(ap) {
@@ -1547,14 +1583,18 @@
   }
 
   function resetMapView() {
-    mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
-    applyMapView();
+    fitMapToManagedArea();
   }
 
   function clampMapView() {
+    const aspect = MAP_H / MAP_W;
+    mapView.w = Math.min(MAP_ZOOM_MAX_W, Math.max(MAP_ZOOM_MIN_W, mapView.w));
+    mapView.h = mapView.w * aspect;
     if (mapView.w >= MAP_W) {
-      mapView.x = -(mapView.w - MAP_W) / 2;
-      mapView.y = -(mapView.h - MAP_H) / 2;
+      mapView.w = MAP_W;
+      mapView.h = MAP_H;
+      mapView.x = 0;
+      mapView.y = 0;
       return;
     }
     mapView.x = Math.max(0, Math.min(MAP_W - mapView.w, mapView.x));
@@ -1598,43 +1638,54 @@
     if (!wrap || !svg || wrap.dataset.mapPanInit) return;
     wrap.dataset.mapPanInit = '1';
 
-    const endDrag = () => {
+    const endDrag = (e) => {
       if (!mapDrag.active) return;
+      if (mapDrag.pointerId != null && wrap.hasPointerCapture(mapDrag.pointerId)) {
+        wrap.releasePointerCapture(mapDrag.pointerId);
+      }
       if (!mapDrag.moved && mapDrag.clickIata) selectAirport(mapDrag.clickIata);
       mapDrag.active = false;
+      mapDrag.pointerId = null;
       wrap.classList.remove('dragging');
     };
 
-    svg.addEventListener('pointerdown', (e) => {
+    const onPointerDown = (e) => {
       if (e.button !== 0) return;
+      if (e.target.closest && e.target.closest('.map-controls')) return;
       mapDrag.active = true;
       mapDrag.moved = false;
       mapDrag.startX = e.clientX;
       mapDrag.startY = e.clientY;
       mapDrag.viewX = mapView.x;
       mapDrag.viewY = mapView.y;
+      mapDrag.pointerId = e.pointerId;
       const dot = e.target.closest && e.target.closest('.ap-dot');
       mapDrag.clickIata = dot ? dot.dataset.iata : null;
-      svg.setPointerCapture(e.pointerId);
+      wrap.setPointerCapture(e.pointerId);
       wrap.classList.add('dragging');
-    });
+      e.preventDefault();
+    };
 
-    svg.addEventListener('pointermove', (e) => {
-      if (!mapDrag.active) return;
+    const onPointerMove = (e) => {
+      if (!mapDrag.active || e.pointerId !== mapDrag.pointerId) return;
       const dx = e.clientX - mapDrag.startX;
       const dy = e.clientY - mapDrag.startY;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) mapDrag.moved = true;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) mapDrag.moved = true;
       if (!mapDrag.moved) return;
 
       const rect = svg.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
       mapView.x = mapDrag.viewX - (dx / rect.width) * mapView.w;
       mapView.y = mapDrag.viewY - (dy / rect.height) * mapView.h;
       clampMapView();
       applyMapView();
-    });
+      e.preventDefault();
+    };
 
-    svg.addEventListener('pointerup', endDrag);
-    svg.addEventListener('pointercancel', endDrag);
+    wrap.addEventListener('pointerdown', onPointerDown);
+    wrap.addEventListener('pointermove', onPointerMove);
+    wrap.addEventListener('pointerup', endDrag);
+    wrap.addEventListener('pointercancel', endDrag);
 
     wrap.addEventListener(
       'wheel',
@@ -1685,6 +1736,7 @@
 
     let html = `
       <image class="map-raster" href="${mapSrc}" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"/>
+      <rect class="map-pan-surface" x="0" y="0" width="${MAP_W}" height="${MAP_H}" fill="transparent"/>
     `;
 
     if (state && state.routes) {
@@ -2212,6 +2264,7 @@
       applyScenarioAirports(state.scenario_id);
       applyScenarioMap(state.scenario_id);
       syncMapDimensions();
+      fitMapToManagedArea();
       sanitizeMarketingSpend();
       normalizeGameState();
       return true;
