@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Runway · Airline Simulation</title>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
 <style>
   :root {
     --bg: #060d18;
@@ -336,7 +338,8 @@
     touch-action: none;
   }
   .map-wrap.dragging { cursor: grabbing; }
-  .map-wrap:not(.dragging) #runway-map { cursor: grab; }
+  .map-wrap:not(.dragging) #runway-map,
+  .map-wrap:not(.dragging) .mapboxgl-canvas { cursor: grab; }
   .map-controls {
     position: absolute;
     top: 20px;
@@ -364,19 +367,23 @@
     width: 100%;
     min-height: 420px;
     max-height: calc(100vh - 130px);
-    height: auto;
+    height: calc(100vh - 130px);
     display: block;
     border-radius: 10px;
     border: 1px solid #2a4d6e;
     background: #071525;
     box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.35);
   }
-  #runway-map .map-raster { pointer-events: none; }
-  #runway-map .map-routes line { pointer-events: none; }
-  #runway-map .map-competitor-routes line { pointer-events: none; }
-  #runway-map .map-pan-surface { pointer-events: all; cursor: grab; }
-  .map-wrap.dragging #runway-map .map-pan-surface { cursor: grabbing; }
-  #runway-map .ap-dot { pointer-events: all; cursor: pointer; }
+  #runway-map svg.map-fallback { width: 100%; height: 100%; display: block; }
+  #runway-map .mapboxgl-canvas { border-radius: 10px; }
+  #runway-map .mapboxgl-ctrl-bottom-left,
+  #runway-map .mapboxgl-ctrl-bottom-right { display: none; }
+  #runway-map svg.map-fallback .map-raster { pointer-events: none; }
+  #runway-map svg.map-fallback .map-routes line { pointer-events: none; }
+  #runway-map svg.map-fallback .map-competitor-routes line { pointer-events: none; }
+  #runway-map svg.map-fallback .map-pan-surface { pointer-events: all; cursor: grab; }
+  .map-wrap.dragging #runway-map svg.map-fallback .map-pan-surface { cursor: grabbing; }
+  #runway-map svg.map-fallback .ap-dot { pointer-events: all; cursor: pointer; }
 
   #decision-modal {
     display: none;
@@ -935,7 +942,7 @@
         <button type="button" id="map-zoom-out" title="Zoom out">−</button>
         <button type="button" id="map-zoom-reset" title="Reset view">Reset</button>
       </div>
-      <svg id="runway-map" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
     <aside class="side-panel">
       <div id="airport-panel"><p class="muted">Click an airport on the map.</p></div>
@@ -956,6 +963,7 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=17"></script>
+<script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
+<script src="/static/runway/game.js?v=18"></script>
 </body>
 </html>

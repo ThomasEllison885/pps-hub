@@ -41,6 +41,10 @@
     clickIata: null,
     pointerId: null,
   };
+  let mapboxMap = null;
+  let mapboxReady = false;
+  let mapboxInitStarted = false;
+  const MAPBOX_STYLE = 'mapbox://styles/mapbox/dark-v11';
 
   const $ = (id) => document.getElementById(id);
 
@@ -199,13 +203,49 @@
     mapView.h = MAP_H;
   }
 
+  function getMapboxToken() {
+    return (window.RUNWAY_MAPBOX_TOKEN || '').trim();
+  }
+
+  function useMapbox() {
+    return !!getMapboxToken() && typeof mapboxgl !== 'undefined';
+  }
+
   function applyScenarioMap(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId];
     activeMapKey = sc && sc.region === 'ohio' ? 'ohio' : 'usa';
     syncMapDimensions();
+    if (useMapbox() && mapboxMap && mapboxReady) fitMapToManagedArea();
+  }
+
+  function airportLngLatBounds(padRatio = 0.12) {
+    const airports = bootstrap.airports || [];
+    if (!airports.length) return null;
+    const lngs = airports.map((a) => a.lon);
+    const lats = airports.map((a) => a.lat);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const lngPad = Math.max(0.35, (maxLng - minLng) * padRatio);
+    const latPad = Math.max(0.25, (maxLat - minLat) * padRatio);
+    return [
+      [minLng - lngPad, minLat - latPad],
+      [maxLng + lngPad, maxLat + latPad],
+    ];
   }
 
   function fitMapToManagedArea(padRatio = 0.16) {
+    if (useMapbox() && mapboxMap && mapboxReady) {
+      const bounds = airportLngLatBounds(padRatio);
+      if (!bounds) return;
+      mapboxMap.fitBounds(bounds, {
+        padding: { top: 48, bottom: 32, left: 40, right: 40 },
+        maxZoom: activeMapKey === 'ohio' ? 8.5 : 5.5,
+        duration: 0,
+      });
+      return;
+    }
     const airports = bootstrap.airports || [];
     if (!airports.length) {
       mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
@@ -2750,6 +2790,218 @@
     fitMapToManagedArea();
   }
 
+  function setupMapboxLayers() {
+    if (!mapboxMap || mapboxMap.getSource('airports')) return;
+
+    mapboxMap.addSource('competitor-routes', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    mapboxMap.addSource('player-routes', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    mapboxMap.addSource('airport-halos', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    mapboxMap.addSource('airports', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+
+    mapboxMap.addLayer({
+      id: 'competitor-routes-layer',
+      type: 'line',
+      source: 'competitor-routes',
+      paint: {
+        'line-color': '#ff7b5a',
+        'line-width': 1.2,
+        'line-opacity': 0.35,
+        'line-dasharray': [2, 2],
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'player-routes-layer',
+      type: 'line',
+      source: 'player-routes',
+      paint: {
+        'line-color': '#ffd166',
+        'line-width': 2,
+        'line-opacity': 0.7,
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'airport-halos-layer',
+      type: 'circle',
+      source: 'airport-halos',
+      paint: {
+        'circle-radius': ['get', 'haloRadius'],
+        'circle-color': 'transparent',
+        'circle-stroke-color': '#00e4a8',
+        'circle-stroke-width': 2,
+        'circle-stroke-opacity': ['get', 'haloOpacity'],
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'airports-layer',
+      type: 'circle',
+      source: 'airports',
+      paint: {
+        'circle-radius': ['get', 'radius'],
+        'circle-color': ['get', 'fill'],
+        'circle-stroke-color': ['get', 'stroke'],
+        'circle-stroke-width': ['get', 'strokeWidth'],
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'airport-labels-layer',
+      type: 'symbol',
+      source: 'airports',
+      filter: ['==', ['get', 'showLabel'], true],
+      layout: {
+        'text-field': ['get', 'iata'],
+        'text-size': 11,
+        'text-offset': [0.9, 0],
+        'text-anchor': 'left',
+      },
+      paint: {
+        'text-color': '#f0f8ff',
+        'text-halo-color': '#041018',
+        'text-halo-width': 2,
+      },
+    });
+  }
+
+  function initMapbox() {
+    if (!useMapbox() || mapboxMap || mapboxInitStarted) return;
+    const container = $('runway-map');
+    if (!container) return;
+    mapboxInitStarted = true;
+
+    mapboxgl.accessToken = getMapboxToken();
+    const bounds = airportLngLatBounds(0.2) || [
+      [-125.5, 24.0],
+      [-66.0, 49.55],
+    ];
+    mapboxMap = new mapboxgl.Map({
+      container: 'runway-map',
+      style: MAPBOX_STYLE,
+      bounds,
+      fitBoundsOptions: { padding: 48 },
+      attributionControl: false,
+      dragRotate: false,
+      pitchWithRotate: false,
+      touchPitch: false,
+    });
+
+    mapboxMap.on('load', () => {
+      setupMapboxLayers();
+      mapboxReady = true;
+      mapboxMap.resize();
+      drawMap();
+      fitMapToManagedArea();
+    });
+
+    mapboxMap.on('click', 'airports-layer', (e) => {
+      if (e.features && e.features[0] && e.features[0].properties) {
+        selectAirport(e.features[0].properties.iata);
+      }
+    });
+    mapboxMap.on('mouseenter', 'airports-layer', () => {
+      if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
+    });
+    mapboxMap.on('mouseleave', 'airports-layer', () => {
+      if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+    });
+  }
+
+  function buildRoutesGeoJSON(routes) {
+    const features = [];
+    (routes || []).forEach((route) => {
+      const o = airport(route.origin);
+      const d = airport(route.dest);
+      if (!o || !d) return;
+      features.push({
+        type: 'Feature',
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            [o.lon, o.lat],
+            [d.lon, d.lat],
+          ],
+        },
+        properties: { origin: route.origin, dest: route.dest },
+      });
+    });
+    return { type: 'FeatureCollection', features };
+  }
+
+  function buildAirportsGeoJSON() {
+    const labelAll = activeMapKey === 'ohio';
+    const airportFeatures = [];
+    const haloFeatures = [];
+
+    bootstrap.airports.forEach((ap) => {
+      const owned = state && hasGateAt(ap.iata);
+      const selected = selectedAirport === ap.iata;
+      const share = playerShareAtAirport(ap.iata);
+      const fill = owned ? '#00e4a8' : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
+      const r = owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25);
+
+      if (share > 0.08) {
+        haloFeatures.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [ap.lon, ap.lat] },
+          properties: {
+            haloRadius: r + 3 + share * 8,
+            haloOpacity: 0.15 + share * 0.45,
+          },
+        });
+      }
+
+      airportFeatures.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [ap.lon, ap.lat] },
+        properties: {
+          iata: ap.iata,
+          radius: r,
+          fill,
+          stroke: selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)',
+          strokeWidth: selected ? 2 : 1.2,
+          showLabel: owned || selected || labelAll,
+        },
+      });
+    });
+
+    return { airportFeatures, haloFeatures };
+  }
+
+  function drawMapbox() {
+    if (!mapboxMap) {
+      initMapbox();
+      return;
+    }
+    if (!mapboxReady) return;
+
+    const { airportFeatures, haloFeatures } = buildAirportsGeoJSON();
+    mapboxMap.getSource('airports').setData({
+      type: 'FeatureCollection',
+      features: airportFeatures,
+    });
+    mapboxMap.getSource('airport-halos').setData({
+      type: 'FeatureCollection',
+      features: haloFeatures,
+    });
+
+    if (state) {
+      mapboxMap.getSource('player-routes').setData(buildRoutesGeoJSON(state.routes));
+      mapboxMap
+        .getSource('competitor-routes')
+        .setData(buildRoutesGeoJSON(state.competitor_routes));
+    }
+  }
+
   function clampMapView() {
     const aspect = MAP_H / MAP_W;
     mapView.w = Math.min(MAP_ZOOM_MAX_W, Math.max(MAP_ZOOM_MIN_W, mapView.w));
@@ -2766,7 +3018,7 @@
   }
 
   function applyMapView() {
-    const svg = $('runway-map');
+    const svg = document.querySelector('#runway-map svg.map-fallback');
     if (!svg) return;
     svg.setAttribute(
       'viewBox',
@@ -2775,7 +3027,7 @@
   }
 
   function zoomMapAt(factor, clientX, clientY) {
-    const svg = $('runway-map');
+    const svg = document.querySelector('#runway-map svg.map-fallback');
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -2796,11 +3048,54 @@
     applyMapView();
   }
 
-  function setupMapInteraction() {
+  function setupMapControls() {
     const wrap = document.querySelector('.map-wrap');
-    const svg = $('runway-map');
-    if (!wrap || !svg || wrap.dataset.mapPanInit) return;
-    wrap.dataset.mapPanInit = '1';
+    if (!wrap || wrap.dataset.mapControlsInit) return;
+    wrap.dataset.mapControlsInit = '1';
+
+    const zoomIn = $('map-zoom-in');
+    const zoomOut = $('map-zoom-out');
+    const zoomReset = $('map-zoom-reset');
+
+    if (useMapbox()) {
+      if (zoomIn) {
+        zoomIn.addEventListener('click', () => {
+          if (mapboxMap) mapboxMap.zoomIn({ duration: 200 });
+        });
+      }
+      if (zoomOut) {
+        zoomOut.addEventListener('click', () => {
+          if (mapboxMap) mapboxMap.zoomOut({ duration: 200 });
+        });
+      }
+      if (zoomReset) zoomReset.addEventListener('click', resetMapView);
+      return;
+    }
+
+    if (zoomIn) {
+      zoomIn.addEventListener('click', () => {
+        const svg = wrap.querySelector('svg.map-fallback');
+        if (!svg) return;
+        const r = svg.getBoundingClientRect();
+        zoomMapAt(0.82, r.left + r.width / 2, r.top + r.height / 2);
+      });
+    }
+    if (zoomOut) {
+      zoomOut.addEventListener('click', () => {
+        const svg = wrap.querySelector('svg.map-fallback');
+        if (!svg) return;
+        const r = svg.getBoundingClientRect();
+        zoomMapAt(1.22, r.left + r.width / 2, r.top + r.height / 2);
+      });
+    }
+    if (zoomReset) zoomReset.addEventListener('click', resetMapView);
+  }
+
+  function setupSvgMapInteraction() {
+    const wrap = document.querySelector('.map-wrap');
+    const svg = wrap && wrap.querySelector('svg.map-fallback');
+    if (!wrap || !svg || wrap.dataset.svgPanInit) return;
+    wrap.dataset.svgPanInit = '1';
 
     const endDrag = (e) => {
       if (!mapDrag.active) return;
@@ -2859,23 +3154,10 @@
       },
       { passive: false }
     );
+  }
 
-    const zoomIn = $('map-zoom-in');
-    const zoomOut = $('map-zoom-out');
-    const zoomReset = $('map-zoom-reset');
-    if (zoomIn) {
-      zoomIn.addEventListener('click', () => {
-        const r = svg.getBoundingClientRect();
-        zoomMapAt(0.82, r.left + r.width / 2, r.top + r.height / 2);
-      });
-    }
-    if (zoomOut) {
-      zoomOut.addEventListener('click', () => {
-        const r = svg.getBoundingClientRect();
-        zoomMapAt(1.22, r.left + r.width / 2, r.top + r.height / 2);
-      });
-    }
-    if (zoomReset) zoomReset.addEventListener('click', resetMapView);
+  function setupMapInteraction() {
+    setupMapControls();
   }
 
   function mapBounds() {
@@ -2906,11 +3188,21 @@
     };
   }
 
-  function drawMap() {
-    const svg = $('runway-map');
-    if (!svg) return;
+  function drawMapSvg() {
+    const container = $('runway-map');
+    if (!container) return;
     const cfg = getActiveMapConfig();
     const mapSrc = cfg ? cfg.src : '/static/runway/us-map-styled.png';
+
+    let svg = container.querySelector('svg.map-fallback');
+    if (!svg) {
+      container.innerHTML = '';
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('id', 'runway-map-svg');
+      svg.classList.add('map-fallback');
+      svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      container.appendChild(svg);
+    }
 
     let html = `
       <image class="map-raster" href="${mapSrc}" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none"/>
@@ -2964,9 +3256,20 @@
     });
     html += '</g>';
 
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     svg.innerHTML = html;
     applyMapView();
+    setupSvgMapInteraction();
+  }
+
+  function drawMap() {
+    if (useMapbox()) {
+      drawMapbox();
+      return;
+    }
+    drawMapSvg();
   }
 
   function panelSectionHtml(sectionId, title, expanded, bodyHtml) {

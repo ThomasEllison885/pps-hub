@@ -28,6 +28,24 @@ import ask_pps
 from runway_game_data import RUNWAY_OWNER, get_runway_bootstrap
 
 
+def _load_dotenv():
+    """Load .env into os.environ (keys already set in the environment win)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding='utf-8') as env_file:
+        for line in env_file:
+            line = line.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, _, val = line.partition('=')
+            key, val = key.strip(), val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+
+
+_load_dotenv()
+
 app = Flask(__name__)
 _secret = os.environ.get('SECRET_KEY', '').strip()
 if not _secret:
@@ -2851,6 +2869,7 @@ def runway_game():
     return render_template(
         'runway.html',
         bootstrap_json=json.dumps(get_runway_bootstrap()),
+        mapbox_token=os.environ.get('MAPBOX_ACCESS_TOKEN', '').strip(),
     )
 
 
