@@ -2,14 +2,16 @@
 
 Design framework stored from Thomas's v0.2 spec. **Playable MVP:** `/runway` — Thomas login only. Linked from **Hub Admin** (dashboard Admin lane + `/admin` page). Not in sales/production lanes, Ask PPS, or team-facing UI.
 
-## MVP shipped (v0.1)
+## MVP shipped (v0.1+)
 
-- 55 real US airports on geographic map
-- 3 scenarios: Greenfield 2026, Former CEO (The Exit), Inheritance (Lake State Air)
+- ~99 real US airports on geographic map (Ohio / Midwest / national scopes)
+- 7 scenarios including Ohio tutorials, Winning Path coach, regional, greenfield, exit CEO, inheritance
 - Financing: seed equity, growth equity, bank loans, corporate bonds, asset-backed bonds, debt restructure
-- Gate leasing, fleet lease (E175, A320, B737), routes with P&L, marketing per city
-- Time: Pause / Day / Week / Month / Year
-- Save: browser localStorage
+- Gate leasing, fleet (PC-12 through B737), routes with P&L, marketing per city
+- Time: Pause / Slow / Day / Week / Month / **Year (365 days per tick)**
+- Save: multi-slot + autosave + export/import JSON (`routelab_saves_v2`); start screen Continue/Load (no silent resume)
+- Chapter 11 creditor board when cash goes negative; reputation grows and decays
+- Competitor AI biased to scenario region and player markets
 
 ## v0.2+ (from original spec)
 

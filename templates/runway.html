@@ -222,8 +222,11 @@
     border: 1px solid rgba(255,255,255,0.18);
     position: relative;
     flex-shrink: 0;
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 2px 8px rgba(0,0,0,0.25);
   }
+  .airline-logo svg { display: block; width: 100%; height: 100%; }
+  .airline-logo-brand, .airline-logo-player { border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.35); }
   .airline-logo-glyph { font-size: 1rem; line-height: 1; opacity: 0.95; }
   .airline-logo-init {
     position: absolute;
@@ -234,6 +237,9 @@
     color: rgba(255,255,255,0.85);
     letter-spacing: -0.02em;
   }
+  .emblem-glyph-svg { display: flex; line-height: 0; }
+  .emblem-glyph-svg svg { width: 40px; height: 40px; border-radius: 10px; }
+  #name-step-brief b { color: var(--gold); font-weight: 700; }
   .scoreboard-pillars {
     display: flex;
     flex-wrap: wrap;
@@ -271,8 +277,7 @@
     color: var(--gold);
     background: rgba(255, 209, 102, 0.06);
   }
-  .scoreboard-rivals { display: none; }
-  .scoreboard-rivals.legacy-show {
+  .scoreboard-rivals {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -582,7 +587,87 @@
   .speed-hint { font-size: 0.72rem; color: var(--muted); min-width: 88px; }
   .btn { background: var(--accent); color: #042; border-color: var(--accent); }
   .btn.secondary { background: transparent; }
+  .btn.danger-outline { border-color: var(--danger); color: var(--danger); background: transparent; }
   .btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .hud-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .hud-actions .btn { font-size: 0.72rem; padding: 6px 10px; }
+  .start-saves {
+    margin: 0 0 22px;
+    padding: 16px 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(0, 200, 150, 0.06);
+  }
+  .start-saves h2 {
+    font-size: 1rem;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .start-saves p { font-size: 0.85rem; color: var(--muted); line-height: 1.45; margin-bottom: 12px; }
+  .start-saves.hidden { display: none; }
+  #save-load-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    background: rgba(4, 10, 18, 0.78);
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  #save-load-modal.open { display: flex; }
+  .save-modal-card {
+    width: min(520px, 100%);
+    max-height: min(88vh, 720px);
+    overflow: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 22px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+  .save-modal-card h2 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    color: var(--gold);
+    font-size: 1.35rem;
+    margin-bottom: 6px;
+  }
+  .save-modal-card .muted { font-size: 0.82rem; line-height: 1.45; margin-bottom: 14px; }
+  .save-slot {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px 12px;
+    align-items: center;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(6, 13, 24, 0.45);
+  }
+  .save-slot strong { display: block; color: #fff; font-size: 0.92rem; }
+  .save-slot .save-meta { font-size: 0.75rem; color: var(--muted); line-height: 1.4; margin-top: 3px; }
+  .save-slot.empty strong { color: var(--muted); font-weight: 500; }
+  .save-slot-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .save-slot-actions .btn { font-size: 0.72rem; padding: 5px 10px; margin: 0; }
+  .save-modal-footer {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .save-toast {
+    font-size: 0.78rem;
+    color: var(--accent);
+    min-height: 1.2em;
+  }
 
   .game-layout {
     display: grid;
@@ -596,7 +681,9 @@
     .game-layout { grid-template-columns: 1fr; min-height: 0; }
     #screen-game { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
     .game-header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
-    .game-header .btn.secondary { font-size: 0.68rem; padding: 6px 10px; }
+    .game-header .btn.secondary,
+    .hud-actions .btn { font-size: 0.68rem; padding: 6px 10px; }
+    .hud-actions { flex: 1 1 100%; justify-content: flex-end; }
     .game-product-brand { min-width: 0; flex: 1 1 120px; }
     .game-product-name { font-size: 1.1rem; }
     .scoreboard-bar { padding-bottom: 8px; margin-bottom: 2px; }
@@ -1872,14 +1959,16 @@
       </div>
     </div>
     <div id="scenario-picker">
+      <div id="start-saves" class="start-saves hidden" aria-live="polite"></div>
       <div class="start-intro" id="start-intro">
         <h2>Choose a starting situation</h2>
-        <p class="muted" style="font-size:0.88rem;line-height:1.5;">Each scenario starts you with different cash, aircraft, gates, and rivals. <b>New here?</b> Pick the Ohio tutorial — it walks you through the game.</p>
+        <p class="muted" style="font-size:0.88rem;line-height:1.5;">Each scenario starts you with different cash, aircraft, gates, and rivals. <b>New here?</b> Pick the Ohio tutorial — it walks you through the game. Use <b>Load game</b> to resume a saved airline instead of starting over.</p>
         <ol class="start-flow">
           <li><b>Map</b> — click airports, see competitors, lease gates</li>
           <li><b>Fleet</b> — lease aircraft for your routes</li>
           <li><b>Routes</b> — launch flights, set fares, review the business case</li>
           <li><b>▶</b> — run time forward; rivals react in the log</li>
+          <li><b>Save</b> — write to a slot anytime; Load resumes that airline</li>
         </ol>
       </div>
       <div id="scenario-list"></div>
@@ -1913,6 +2002,8 @@
 <div id="decision-modal" aria-live="polite"></div>
 <div id="route-launch-modal" aria-live="polite"></div>
 <div id="route-review-modal" aria-live="polite"></div>
+<div id="save-load-modal" role="dialog" aria-modal="true" aria-labelledby="save-load-title"></div>
+<input type="file" id="save-import-input" accept="application/json,.json" hidden>
 
 <div id="screen-game" class="screen">
   <div id="pause-banner"></div>
@@ -1956,7 +2047,11 @@
       <button type="button" class="hud-chip" id="hud-toggle-financials" aria-expanded="false">Financials</button>
       <button type="button" class="hud-chip" id="hud-toggle-economy" aria-expanded="false">Economy</button>
     </div>
-    <button class="btn secondary" onclick="Runway.reset()">New game</button>
+    <div class="hud-actions">
+      <button type="button" class="btn" id="btn-save-game" title="Save to a slot">Save</button>
+      <button type="button" class="btn secondary" id="btn-load-game" title="Load a saved airline">Load</button>
+      <button type="button" class="btn secondary" id="btn-new-game" title="Return to scenario picker">New game</button>
+    </div>
     <div class="hud-expand-row" id="hud-panel-financials"></div>
     <div class="hud-expand-row" id="hud-panel-economy">
       <p class="hud-macro-line" id="hud-macro">—</p>
@@ -1969,6 +2064,7 @@
       <button type="button" class="speed-btn speed-normal" data-speed="day" title="Normal — 1 day per step">▶</button>
       <button type="button" class="speed-btn" data-speed="week" title="Fast — 1 week per step">▶▶</button>
       <button type="button" class="speed-btn" data-speed="month" title="Faster — 1 month per step">▶▶▶</button>
+      <button type="button" class="speed-btn" data-speed="year" title="Year — advances 365 days per step (alerts still pause)">⏩Y</button>
     </div>
     <span class="speed-hint" id="speed-hint">1 day / tick · Space toggles pause</span>
   </div>
@@ -2015,7 +2111,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=53"></script>
-<script src="/static/runway/game.js?v=53"></script>
+<script src="/static/runway/economics.js?v=55"></script>
+<script src="/static/runway/game.js?v=55"></script>
 </body>
 </html>

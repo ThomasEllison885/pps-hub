@@ -152,14 +152,20 @@ Per-route metrics (30-day history when available, else today’s sim):
 
 ## Reputation
 
-0–100 brand trust score. **Starts** from scenario (`runway_game_data.py` scenarios). **Grows** when:
+0–100 brand trust score. **Starts** from scenario (`runway_game_data.py` scenarios).
+
+**Grows** when (monthly, only if no decay that month):
 
 - You run routes profitably while reputation is under 50 (+0.3/month)
 - You choose “Hold premium” in a competitor decision (+2)
 
-**Used for:** passenger demand (`1 + reputation/200`), and satisfaction score (`reputation × 0.45 + …`).
+**Decays** monthly from:
 
-Does not decay in the current build.
+- Aircraft AOG (−0.55 per AOG plane, cap −2.4)
+- Chronic losses (trailing ~14–30d P&L negative with active routes, −0.55)
+- Soft day underperformance while streak is broken (−0.15)
+
+**Used for:** passenger demand (`1 + reputation/200`), and satisfaction score (`reputation × 0.45 + …`).
 
 ## Satisfaction (scoreboard pillar)
 
@@ -170,6 +176,21 @@ Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + av
 - **# column** = rank (**1 is best**).
 - **Standing** = blended index 0–100 (profit percentile × 0.45 + riders × 0.35 + satisfaction × 0.2). Higher is better, but it is **not** the same as rank — a startup can be #4 with standing 47 while Delta is #1 at 94.
 
+## Saves (v2)
+
+- **Explicit Save / Load** in the HUD; start screen **Continue** / **Load game** (no silent auto-enter).
+- **5 manual slots** + **autosave** (background while playing).
+- **Export / Import JSON** for backup and move between browsers.
+- Payload is **state only** (no airport tables). Live airport ops always come from `runway_game_data.py` bootstrap.
+- localStorage keys: `routelab_saves_v2` (index); legacy `runway_save_v1` migrates once into autosave.
+
+## Survival / Chapter 11
+
+- Cash &lt; 0 → creditor board (restructure, sell gates, park fleet, or liquidate).
+- Cash &lt; −$2M without an active plan → emergency board.
+- Restructure: debt haircut, DIP cash, equity/reputation hit, 180-day court watch.
+- Exit when cash ≥ $1M and trailing P&L positive; deep failure after Chapter 11 can still liquidate.
+
 ## Files
 
 | Concern | Location |
@@ -178,6 +199,7 @@ Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + av
 | Pure capture / market math | `static/runway/economics.js` |
 | Node regression tests | `static/runway/test_economics.js` |
 | Sim + judgment UI | `static/runway/game.js` |
+| Save / load slots | `saveGame`, `openSaveLoadModal`, `routelab_saves_v2` |
 | `projectRouteBusinessCase`, `recommendLaunchFare` | game.js |
 | Gate capacity | `airportGateWeeklyCapacity`, `gateCapacityError` |
 | Route pillar ranking | `routePillarMetrics`, `sortPlayerRoutesByPillar` |

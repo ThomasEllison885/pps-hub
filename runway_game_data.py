@@ -702,21 +702,64 @@ OHIO_REGION_IATA = [
 ]
 
 # Financial health / scale for competitor intel (approximate public-market flavor).
+# Brand colors approximate real airline identities (stylized SVG marks in the UI — not official trademarks).
 AIRLINE_PROFILES = {
-    'Delta': {'tier': 'legacy', 'financial_health': 0.84, 'route_sensitivity': 0.38, 'cash_runway_years': 1.8},
-    'American': {'tier': 'legacy', 'financial_health': 0.72, 'route_sensitivity': 0.42, 'cash_runway_years': 1.4},
-    'United': {'tier': 'legacy', 'financial_health': 0.78, 'route_sensitivity': 0.40, 'cash_runway_years': 1.6},
-    'Southwest': {'tier': 'lcc', 'financial_health': 0.76, 'route_sensitivity': 0.55, 'cash_runway_years': 2.1},
-    'Allegiant': {'tier': 'lcc', 'financial_health': 0.81, 'route_sensitivity': 0.72, 'cash_runway_years': 2.4},
-    'Frontier': {'tier': 'lcc', 'financial_health': 0.58, 'route_sensitivity': 0.88, 'cash_runway_years': 1.1},
-    'Spirit': {'tier': 'lcc', 'financial_health': 0.41, 'route_sensitivity': 0.92, 'cash_runway_years': 0.7},
-    'JetBlue': {'tier': 'lcc', 'financial_health': 0.52, 'route_sensitivity': 0.78, 'cash_runway_years': 0.9},
-    'Sun Country': {'tier': 'lcc', 'financial_health': 0.64, 'route_sensitivity': 0.80, 'cash_runway_years': 1.2},
-    'Alaska': {'tier': 'legacy', 'financial_health': 0.70, 'route_sensitivity': 0.48, 'cash_runway_years': 1.5},
-    'Breeze': {'tier': 'lcc', 'financial_health': 0.48, 'route_sensitivity': 0.85, 'cash_runway_years': 0.8},
-    'Ultimate Air Shuttle': {'tier': 'shuttle', 'financial_health': 0.55, 'route_sensitivity': 0.95, 'cash_runway_years': 0.6},
-    'Southern Airways Express': {'tier': 'regional', 'financial_health': 0.50, 'route_sensitivity': 0.90, 'cash_runway_years': 0.7},
-    'Charter / GA': {'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4},
+    'Delta': {
+        'tier': 'legacy', 'financial_health': 0.84, 'route_sensitivity': 0.38, 'cash_runway_years': 1.8,
+        'brand': {'code': 'DL', 'primary': '#003268', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'delta'},
+    },
+    'American': {
+        'tier': 'legacy', 'financial_health': 0.72, 'route_sensitivity': 0.42, 'cash_runway_years': 1.4,
+        'brand': {'code': 'AA', 'primary': '#0078D2', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'american'},
+    },
+    'United': {
+        'tier': 'legacy', 'financial_health': 0.78, 'route_sensitivity': 0.40, 'cash_runway_years': 1.6,
+        'brand': {'code': 'UA', 'primary': '#002244', 'secondary': '#FFB81C', 'accent': '#FFFFFF', 'mark': 'united'},
+    },
+    'Southwest': {
+        'tier': 'lcc', 'financial_health': 0.76, 'route_sensitivity': 0.55, 'cash_runway_years': 2.1,
+        'brand': {'code': 'WN', 'primary': '#304CB2', 'secondary': '#FFBF27', 'accent': '#E31837', 'mark': 'southwest'},
+    },
+    'Allegiant': {
+        'tier': 'lcc', 'financial_health': 0.81, 'route_sensitivity': 0.72, 'cash_runway_years': 2.4,
+        'brand': {'code': 'G4', 'primary': '#003B70', 'secondary': '#FDB913', 'accent': '#FFFFFF', 'mark': 'allegiant'},
+    },
+    'Frontier': {
+        'tier': 'lcc', 'financial_health': 0.58, 'route_sensitivity': 0.88, 'cash_runway_years': 1.1,
+        'brand': {'code': 'F9', 'primary': '#006341', 'secondary': '#8DC63F', 'accent': '#FFFFFF', 'mark': 'frontier'},
+    },
+    'Spirit': {
+        'tier': 'lcc', 'financial_health': 0.41, 'route_sensitivity': 0.92, 'cash_runway_years': 0.7,
+        'brand': {'code': 'NK', 'primary': '#1B0A3D', 'secondary': '#FFE016', 'accent': '#FFFFFF', 'mark': 'spirit'},
+    },
+    'JetBlue': {
+        'tier': 'lcc', 'financial_health': 0.52, 'route_sensitivity': 0.78, 'cash_runway_years': 0.9,
+        'brand': {'code': 'B6', 'primary': '#003876', 'secondary': '#68BBE3', 'accent': '#FFFFFF', 'mark': 'jetblue'},
+    },
+    'Sun Country': {
+        'tier': 'lcc', 'financial_health': 0.64, 'route_sensitivity': 0.80, 'cash_runway_years': 1.2,
+        'brand': {'code': 'SY', 'primary': '#F15A22', 'secondary': '#FFC72C', 'accent': '#FFFFFF', 'mark': 'suncountry'},
+    },
+    'Alaska': {
+        'tier': 'legacy', 'financial_health': 0.70, 'route_sensitivity': 0.48, 'cash_runway_years': 1.5,
+        'brand': {'code': 'AS', 'primary': '#01426A', 'secondary': '#7CB82F', 'accent': '#FFFFFF', 'mark': 'alaska'},
+    },
+    'Breeze': {
+        'tier': 'lcc', 'financial_health': 0.48, 'route_sensitivity': 0.85, 'cash_runway_years': 0.8,
+        'brand': {'code': 'MX', 'primary': '#6C2EB9', 'secondary': '#00C2A8', 'accent': '#FFFFFF', 'mark': 'breeze'},
+    },
+    'Ultimate Air Shuttle': {
+        'tier': 'shuttle', 'financial_health': 0.55, 'route_sensitivity': 0.95, 'cash_runway_years': 0.6,
+        'brand': {'code': 'UE', 'primary': '#1A1A2E', 'secondary': '#E94560', 'accent': '#FFFFFF', 'mark': 'shuttle'},
+    },
+    'Southern Airways Express': {
+        'tier': 'regional', 'financial_health': 0.50, 'route_sensitivity': 0.90, 'cash_runway_years': 0.7,
+        'brand': {'code': '9X', 'primary': '#0B3D5C', 'secondary': '#D4A017', 'accent': '#FFFFFF', 'mark': 'southern'},
+    },
+    'Charter / GA': {
+        'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4,
+        'brand': {'code': 'GA', 'primary': '#3D3D3D', 'secondary': '#A0A0A0', 'accent': '#FFFFFF', 'mark': 'charter'},
+    },
 }
 
 # National scale (0–1) and est. monthly brand/marketing + corporate overhead for league economics.
@@ -1288,9 +1331,18 @@ TIME_SPEEDS = [
     {'id': 'day', 'label': 'Normal (1 day)', 'days_per_tick': 1, 'hours_per_tick': 0},
     {'id': 'week', 'label': 'Fast (1 week)', 'days_per_tick': 7, 'hours_per_tick': 0},
     {'id': 'month', 'label': 'Faster (1 month)', 'days_per_tick': 30, 'hours_per_tick': 0},
+    # Real year advance: one full year of day-sim per tick (alerts still pause mid-tick).
+    {'id': 'year', 'label': 'Year (365 days)', 'days_per_tick': 365, 'hours_per_tick': 0},
 ]
 
-TICK_MS = {'pause': 0, 'slow': 1100, 'day': 750, 'week': 580, 'month': 460}
+TICK_MS = {
+    'pause': 0,
+    'slow': 1100,
+    'day': 750,
+    'week': 580,
+    'month': 460,
+    'year': 1200,
+}
 
 # Well-traveled city pairs (either direction) — boosts route suggestions & demand hint.
 COMMON_ROUTE_PAIRS = [
@@ -1383,14 +1435,71 @@ LEAGUE_BY_REGION = {
     'national': LEAGUE_SCOPES['national']['airlines'],
 }
 
+# Player emblem marks — unique SVG shapes (rendered in game.js), not generic emoji.
 EMBLEM_OPTIONS = [
-    {'id': 'routes', 'label': 'Route network', 'glyph': '⛓'},
-    {'id': 'wing', 'label': 'Wing', 'glyph': '✈'},
-    {'id': 'compass', 'label': 'Compass', 'glyph': '◎'},
-    {'id': 'star', 'label': 'Star', 'glyph': '★'},
-    {'id': 'bolt', 'label': 'Bolt', 'glyph': '⚡'},
-    {'id': 'globe', 'label': 'Globe', 'glyph': '◉'},
-    {'id': 'stripe', 'label': 'Stripe', 'glyph': '▮'},
+    {
+        'id': 'routes',
+        'label': 'Route network',
+        'glyph': '◎',
+        'colors': ['#00c896', '#1e3a5f', '#ffd166'],
+        'mark': 'routes',
+    },
+    {
+        'id': 'wing',
+        'label': 'Swept wing',
+        'glyph': '✈',
+        'colors': ['#4da3ff', '#0a1628', '#d4e4f4'],
+        'mark': 'wing',
+    },
+    {
+        'id': 'compass',
+        'label': 'Compass rose',
+        'glyph': '✦',
+        'colors': ['#ffd166', '#1e3a5f', '#00c896'],
+        'mark': 'compass',
+    },
+    {
+        'id': 'star',
+        'label': 'Polaris',
+        'glyph': '★',
+        'colors': ['#ffd166', '#2a1a4a', '#ffffff'],
+        'mark': 'star',
+    },
+    {
+        'id': 'bolt',
+        'label': 'Jetstream',
+        'glyph': '⚡',
+        'colors': ['#5dffa8', '#062818', '#00c896'],
+        'mark': 'bolt',
+    },
+    {
+        'id': 'globe',
+        'label': 'Meridian',
+        'glyph': '◌',
+        'colors': ['#68bbe3', '#003876', '#ffffff'],
+        'mark': 'globe',
+    },
+    {
+        'id': 'stripe',
+        'label': 'Livery bar',
+        'glyph': '▮',
+        'colors': ['#c8102e', '#0078d2', '#ffffff'],
+        'mark': 'stripe',
+    },
+    {
+        'id': 'talon',
+        'label': 'Talon',
+        'glyph': '⌃',
+        'colors': ['#e94560', '#1a1a2e', '#ffd166'],
+        'mark': 'talon',
+    },
+    {
+        'id': 'contrail',
+        'label': 'Contrail',
+        'glyph': '⟶',
+        'colors': ['#d4e4f4', '#1e3a5f', '#00c896'],
+        'mark': 'contrail',
+    },
 ]
 
 

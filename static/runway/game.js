@@ -4,7 +4,15 @@
 (function () {
   'use strict';
 
-  const SAVE_KEY = 'runway_save_v1';
+  /** Legacy single-blob key (migrated into v2 slot index on first load). */
+  const SAVE_KEY_LEGACY = 'runway_save_v1';
+  /** Multi-slot save index: state only (no airport tables). */
+  const SAVE_INDEX_KEY = 'routelab_saves_v2';
+  const SAVE_FORMAT_VERSION = 2;
+  const MANUAL_SLOT_IDS = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5'];
+  const AUTOSAVE_SLOT_ID = 'autosave';
+  let activeSaveSlotId = AUTOSAVE_SLOT_ID;
+  let saveModalMode = null; // 'save' | 'load'
   let MAP_W = 960;
   let MAP_H = 520;
   let MAP_ZOOM_MIN_W = MAP_W * 0.22;
@@ -1466,10 +1474,55 @@
     state.last_reactive_competitor_day = state.day;
   }
 
+  function competitorAirportPool(preferInvested) {
+    const all = bootstrap.airports || [];
+    if (!all.length) return [];
+    const region = scenarioRegionAirportSet(state && state.scenario_id);
+    let pool = region ? all.filter((a) => region.has(a.iata)) : all.slice();
+    if (!pool.length) pool = all.slice();
+    if (preferInvested) {
+      const invested = new Set(investedAirports());
+      const focused = pool.filter((a) => invested.has(a.iata));
+      if (focused.length) {
+        // Weight player markets: 70% chance pick from invested when available.
+        if (Math.random() < 0.7) return focused;
+      }
+    }
+    return pool;
+  }
+
+  function pickCompetitorAirport(preferInvested) {
+    const pool = competitorAirportPool(preferInvested);
+    if (!pool.length) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function pickCompetitorDest(originIata) {
+    const pool = competitorAirportPool(true).filter((x) => x.iata !== originIata);
+    if (!pool.length) {
+      const fallback = (bootstrap.airports || []).filter((x) => x.iata !== originIata);
+      return fallback[Math.floor(Math.random() * fallback.length)] || null;
+    }
+    const o = airport(originIata);
+    // Prefer shorter regional pairs (under ~1200 nm) when lat/lon available.
+    const scored = pool.map((d) => {
+      let dist = 500;
+      if (o && d.lat != null && o.lat != null) {
+        dist = haversineNm(o.lat, o.lon, d.lat, d.lon);
+      }
+      const invested = new Set(investedAirports());
+      const touch = invested.has(d.iata) ? 0.35 : 1;
+      const rangePenalty = dist > 1200 ? 3 : dist > 800 ? 1.6 : 1;
+      return { d, w: touch * rangePenalty * (0.6 + Math.random()) };
+    });
+    scored.sort((a, b) => a.w - b.w);
+    return scored[0] ? scored[0].d : pool[0];
+  }
+
   function processCompetitorAI() {
     if (!state || !state.competitor_routes) return;
     processReactiveCompetitorThreats('periodic');
-    const airports = bootstrap.airports || [];
+    const airports = competitorAirportPool(true);
     if (!airports.length) return;
     const invested = new Set(investedAirports());
     const actions = 1 + Math.floor(Math.random() * 2);
@@ -1478,11 +1531,10 @@
     for (let i = 0; i < actions; i++) {
       const roll = Math.random();
       if (roll < 0.38) {
-        const ap = airports[Math.floor(Math.random() * airports.length)];
-        if (!ap.incumbents || !ap.incumbents.length) continue;
+        const ap = pickCompetitorAirport(true);
+        if (!ap || !ap.incumbents || !ap.incumbents.length) continue;
         const inc = ap.incumbents[Math.floor(Math.random() * ap.incumbents.length)];
-        const others = airports.filter((x) => x.iata !== ap.iata);
-        const dest = others[Math.floor(Math.random() * others.length)];
+        const dest = pickCompetitorDest(ap.iata);
         if (!dest || hasCompetitorRoute(inc.airline, ap.iata, dest.iata)) continue;
         const freq = inc.tier === 'lcc' ? 3 + Math.floor(Math.random() * 4) : 7 + Math.floor(Math.random() * 14);
         const fare = Math.round(marketFareForPair(ap.iata, dest.iata, 'e175') * (inc.tier === 'lcc' ? 0.78 : 1.05));
@@ -1766,6 +1818,24 @@
     return (state.routes || []).filter((r) => r.origin === iata || r.dest === iata);
   }
 
+  /**
+   * Rough airport revenue proxy — does NOT call simulateRouteDay.
+   * Used by marketing demand (which is itself used inside demand/sim) to avoid stack overflow.
+   */
+  function airportGrossProxyMonthly(iata) {
+    let monthly = 0;
+    (state.routes || []).forEach((route) => {
+      if (route.origin !== iata && route.dest !== iata) return;
+      const ac = aircraftType(route.aircraft_type);
+      const plane = route.aircraft_id ? (state.fleet || []).find((f) => f.id === route.aircraft_id) : null;
+      const seats = plane ? fleetSeatCount(plane) : ac ? ac.seats : 50;
+      // Conservative 55% load · daily flights · fare (ticket only)
+      const dailyPax = seats * ((route.frequency_week || 0) / 7) * 0.55;
+      monthly += dailyPax * (route.fare || 129) * 30;
+    });
+    return Math.max(0, Math.round(monthly));
+  }
+
   function airportScopedDailyEconomics(iata) {
     let dayRev = 0;
     let dayCost = 0;
@@ -1784,7 +1854,15 @@
 
   /** Marketing $ scaled to ~3–5% of airport route revenue (regional airline benchmark). */
   function scaledMarketingAmount(iata, purpose) {
-    const econ = airportScopedDailyEconomics(iata);
+    // Prefer full sim when available, but never recurse through demand→marketing.
+    let monthlyGross = airportGrossProxyMonthly(iata);
+    try {
+      if (!simulatingDemandDepth) {
+        monthlyGross = Math.max(monthlyGross, airportScopedDailyEconomics(iata).monthlyGross);
+      }
+    } catch (e) {
+      /* keep proxy */
+    }
     const routes = routesTouchingAirport(iata).length || 1;
     const pctByPurpose = {
       response: 0.045,
@@ -1796,7 +1874,7 @@
     };
     const pct = pctByPurpose[purpose] || 0.04;
     const grossFloor = routes === 1 ? 55_000 : 80_000;
-    const monthlyGross = Math.max(econ.monthlyGross, grossFloor);
+    monthlyGross = Math.max(monthlyGross, grossFloor);
     let amount = Math.round(monthlyGross * pct);
     const min = routes === 1 ? 4_000 : 6_000;
     const max = routes === 1 ? 14_000 : Math.min(40_000, Math.round(monthlyGross * 0.1));
@@ -1923,6 +2001,14 @@
       pushPlayerEvent(
         `travel demand surge at ${option.airport} — +${Math.round(((option.mult || 1.12) - 1) * 100)}% local demand for ${option.days || 45} days.`
       );
+    } else if (option.effect === 'chapter11_restructure') {
+      applyChapter11Restructure();
+    } else if (option.effect === 'chapter11_sell_gates') {
+      applyChapter11SellGates();
+    } else if (option.effect === 'chapter11_park_fleet') {
+      applyChapter11ParkFleet();
+    } else if (option.effect === 'chapter11_liquidate') {
+      applyChapter11Liquidate();
     }
   }
 
@@ -3191,14 +3277,22 @@
   }
 
   function queueDecision(decision) {
-    if (!decision.onboarding && !decision.tutorial && !decision.winningPlaybook && (activeDecision || decisionQueue.length)) {
+    // Chapter 11 / tutorials / playbook must never be collapsed into the log.
+    const critical =
+      decision.onboarding || decision.tutorial || decision.winningPlaybook || decision.chapter11;
+    if (!critical && (activeDecision || decisionQueue.length)) {
       const note = decision.logLine || decision.title || 'Market event';
       pushEvent(`${note} <span class="muted">(logged while you handle another alert)</span>`);
       coalescedDecisionCount += 1;
       renderPauseBanner();
       return;
     }
-    decisionQueue.push(decision);
+    if (decision.chapter11) {
+      // Front of queue — cash crisis beats market noise.
+      decisionQueue.unshift(decision);
+    } else {
+      decisionQueue.push(decision);
+    }
     showNextDecision();
   }
 
@@ -3919,10 +4013,105 @@
     return h % 360;
   }
 
-  function emblemGlyph(id) {
+  function emblemOption(id) {
     const opts = bootstrap.emblem_options || [];
-    const hit = opts.find((o) => o.id === id);
+    return opts.find((o) => o.id === id) || opts[0] || null;
+  }
+
+  function emblemGlyph(id) {
+    const hit = emblemOption(id);
     return hit ? hit.glyph : '✈';
+  }
+
+  /** Unique SVG player emblem marks (not generic emoji). */
+  function emblemSvgMarkup(mark, colors, size) {
+    const c = colors || ['#00c896', '#1e3a5f', '#ffd166'];
+    const a = c[0] || '#00c896';
+    const b = c[1] || '#1e3a5f';
+    const d = c[2] || '#ffd166';
+    const s = size || 36;
+    const common = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="${s}" height="${s}" aria-hidden="true"`;
+    switch (mark) {
+      case 'routes':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="10" cy="12" r="3.2" fill="${a}"/><circle cx="30" cy="10" r="2.6" fill="${d}"/><circle cx="28" cy="28" r="3.4" fill="${a}"/><circle cx="12" cy="30" r="2.4" fill="${d}"/><path d="M12 13.5 L27 11 M13 28 L26.5 26.5 M11.5 15 L12.5 27" stroke="${a}" stroke-width="1.6" fill="none" opacity="0.9"/></svg>`;
+      case 'wing':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M6 24 C14 10, 22 8, 34 12 L28 16 C22 14, 16 16, 12 22 Z" fill="${a}"/><path d="M10 26 L30 18" stroke="${d}" stroke-width="1.5" opacity="0.7"/><circle cx="30" cy="17" r="2" fill="${d}"/></svg>`;
+      case 'compass':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="20" cy="20" r="12" fill="none" stroke="${a}" stroke-width="1.4"/><path d="M20 8 L23 20 L20 32 L17 20 Z" fill="${d}"/><path d="M8 20 L20 17 L32 20 L20 23 Z" fill="${a}" opacity="0.85"/><circle cx="20" cy="20" r="2.2" fill="#fff"/></svg>`;
+      case 'star':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M20 6 L23.2 15.2 L33 15.5 L25.2 21.2 L28 30.5 L20 25.2 L12 30.5 L14.8 21.2 L7 15.5 L16.8 15.2 Z" fill="${a}"/><circle cx="20" cy="20" r="2" fill="${d}"/></svg>`;
+      case 'bolt':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M22 6 L12 22 H19 L16 34 L30 16 H23 Z" fill="${a}"/><path d="M8 28 Q20 24 32 30" stroke="${d}" stroke-width="1.4" fill="none" opacity="0.75"/></svg>`;
+      case 'globe':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="20" cy="20" r="12" fill="none" stroke="${a}" stroke-width="1.8"/><ellipse cx="20" cy="20" rx="6" ry="12" fill="none" stroke="${d}" stroke-width="1.2"/><path d="M8 20 H32 M12 13 H28 M12 27 H28" stroke="${a}" stroke-width="1" opacity="0.7"/></svg>`;
+      case 'stripe':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><rect x="6" y="10" width="28" height="5" rx="1" fill="${a}"/><rect x="6" y="17.5" width="28" height="5" rx="1" fill="${d}"/><rect x="6" y="25" width="28" height="5" rx="1" fill="${a}" opacity="0.7"/></svg>`;
+      case 'talon':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M10 28 L20 8 L24 18 L30 10 L28 30 L18 24 Z" fill="${a}"/><path d="M14 30 L22 22" stroke="${d}" stroke-width="1.6"/></svg>`;
+      case 'contrail':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M6 28 C14 26, 18 18, 22 14 L34 10" stroke="${a}" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M6 30 C16 28, 20 22, 26 16" stroke="${d}" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M28 12 L34 10 L30 16 Z" fill="${a}"/></svg>`;
+      default:
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><text x="20" y="25" text-anchor="middle" fill="${a}" font-size="14" font-weight="700" font-family="system-ui,sans-serif">✈</text></svg>`;
+    }
+  }
+
+  /** Stylized competitor brand marks (colors match real airline identities). */
+  function competitorBrandSvg(name, brand, size) {
+    const s = size || 36;
+    const p = (brand && brand.primary) || '#1e3a5f';
+    const sec = (brand && brand.secondary) || '#00c896';
+    const acc = (brand && brand.accent) || '#ffffff';
+    const code = (brand && brand.code) || String(name || '?').slice(0, 2).toUpperCase();
+    const mark = (brand && brand.mark) || 'generic';
+    const common = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="${s}" height="${s}" aria-hidden="true"`;
+    switch (mark) {
+      case 'delta':
+        // Red widget triangle on deep blue — Delta-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M20 7 L33 31 H7 Z" fill="${sec}"/><path d="M20 14 L27 28 H13 Z" fill="${p}"/></svg>`;
+      case 'american':
+        // AA + red/blue bar — American-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M8 28 L14 10 H18 L12 28 Z" fill="${acc}"/><path d="M22 10 L28 28 H24 L21 18 L18 28 H14 L20 10 Z" fill="${acc}"/><rect x="6" y="31" width="28" height="3" fill="${sec}"/></svg>`;
+      case 'united':
+        // Globe ring + gold arc — United-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><circle cx="20" cy="20" r="11" fill="none" stroke="${acc}" stroke-width="1.6"/><ellipse cx="20" cy="20" rx="5" ry="11" fill="none" stroke="${acc}" stroke-width="1.1"/><path d="M9 20 H31" stroke="${acc}" stroke-width="1"/><path d="M8 14 Q20 8 32 14" stroke="${sec}" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg>`;
+      case 'southwest':
+        // Heart-ish blue with gold/red accents — Southwest-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M20 30 C12 24, 10 18, 14 14 C16 12, 19 13, 20 16 C21 13, 24 12, 26 14 C30 18, 28 24, 20 30 Z" fill="${acc}"/><circle cx="14" cy="32" r="2" fill="${sec}"/><circle cx="20" cy="33" r="2" fill="#E31837"/><circle cx="26" cy="32" r="2" fill="${sec}"/></svg>`;
+      case 'allegiant':
+        // Sun disc on navy — Allegiant-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><circle cx="20" cy="20" r="9" fill="${sec}"/><circle cx="20" cy="20" r="4.5" fill="${p}"/><g stroke="${sec}" stroke-width="1.6">${[0, 45, 90, 135]
+          .map((deg) => {
+            const r = (deg * Math.PI) / 180;
+            const x1 = 20 + Math.cos(r) * 11;
+            const y1 = 20 + Math.sin(r) * 11;
+            const x2 = 20 + Math.cos(r) * 15;
+            const y2 = 20 + Math.sin(r) * 15;
+            return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`;
+          })
+          .join('')}</g></svg>`;
+      case 'frontier':
+        // Green leaf/animal silhouette cue — Frontier-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><ellipse cx="20" cy="22" rx="11" ry="9" fill="${sec}"/><circle cx="15" cy="14" r="4" fill="${sec}"/><circle cx="16.5" cy="13.5" r="1.1" fill="${p}"/><path d="M28 18 Q34 22 30 28" stroke="${acc}" stroke-width="1.5" fill="none"/></svg>`;
+      case 'spirit':
+        // Yellow on deep purple — Spirit-inspired
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><text x="20" y="26" text-anchor="middle" fill="${sec}" font-size="13" font-weight="800" font-family="Arial Black, system-ui, sans-serif">S</text><path d="M8 31 H32" stroke="${sec}" stroke-width="2"/></svg>`;
+      case 'jetblue':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M8 24 C14 10, 26 10, 32 24 L28 24 C24 16, 16 16, 12 24 Z" fill="${sec}"/><circle cx="20" cy="28" r="2.5" fill="${acc}"/></svg>`;
+      case 'suncountry':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><circle cx="20" cy="18" r="8" fill="${sec}"/><path d="M10 30 Q20 24 30 30" stroke="${acc}" stroke-width="2" fill="none"/></svg>`;
+      case 'alaska':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M12 28 L20 8 L28 28 Z" fill="${acc}"/><path d="M16 28 L20 16 L24 28" fill="${p}"/><path d="M8 30 H32" stroke="${sec}" stroke-width="2.5"/></svg>`;
+      case 'breeze':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M8 22 C14 12, 22 12, 32 18" stroke="${sec}" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M10 28 C18 20, 26 20, 34 26" stroke="${acc}" stroke-width="1.6" fill="none" opacity="0.8"/></svg>`;
+      case 'shuttle':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><rect x="8" y="14" width="24" height="12" rx="3" fill="${sec}"/><circle cx="14" cy="28" r="2.5" fill="${acc}"/><circle cx="26" cy="28" r="2.5" fill="${acc}"/></svg>`;
+      case 'southern':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M8 26 L20 10 L32 26" stroke="${sec}" stroke-width="2.4" fill="none"/><text x="20" y="30" text-anchor="middle" fill="${acc}" font-size="8" font-weight="700" font-family="system-ui,sans-serif">SAE</text></svg>`;
+      case 'charter':
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><path d="M10 26 L20 12 L30 26" fill="${sec}"/><rect x="17" y="24" width="6" height="8" fill="${sec}"/></svg>`;
+      default:
+        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${p}"/><text x="20" y="25" text-anchor="middle" fill="${acc}" font-size="11" font-weight="800" font-family="system-ui,sans-serif">${code}</text></svg>`;
+    }
   }
 
   function getRoutelabBrand() {
@@ -3967,18 +4156,38 @@
   }
 
   function airlineLogoHtml(name, emblemId, size) {
-    const hue = hashHue(name);
-    const glyph = emblemGlyph(emblemId);
     const sz = size || 36;
+    const safeName = String(name || 'Airline').replace(/"/g, '&quot;');
+    const prof = airlineProfile(name);
+    // Known competitor → brand-accurate stylized mark
+    if (prof && prof.brand && !emblemId) {
+      return `<span class="airline-logo airline-logo-brand" style="width:${sz}px;height:${sz}px" title="${safeName}">${competitorBrandSvg(
+        name,
+        prof.brand,
+        sz
+      )}</span>`;
+    }
+    // Player airline → unique emblem SVG
+    if (emblemId) {
+      const opt = emblemOption(emblemId);
+      const mark = (opt && opt.mark) || emblemId;
+      const colors = (opt && opt.colors) || ['#00c896', '#1e3a5f', '#ffd166'];
+      return `<span class="airline-logo airline-logo-player" style="width:${sz}px;height:${sz}px" title="${safeName}">${emblemSvgMarkup(
+        mark,
+        colors,
+        sz
+      )}</span>`;
+    }
+    // Fallback initials on hashed hue
+    const hue = hashHue(name);
     const initials = String(name || 'A')
       .split(/\s+/)
       .map((w) => w[0])
       .join('')
       .slice(0, 2)
       .toUpperCase();
-    return `<span class="airline-logo" style="width:${sz}px;height:${sz}px;background:linear-gradient(145deg,hsl(${hue},52%,38%),hsl(${hue},48%,24%))" title="${name}">
-      <span class="airline-logo-glyph">${glyph}</span>
-      <span class="airline-logo-init">${initials}</span>
+    return `<span class="airline-logo" style="width:${sz}px;height:${sz}px;background:linear-gradient(145deg,hsl(${hue},52%,38%),hsl(${hue},48%,24%))" title="${safeName}">
+      <span class="airline-logo-init" style="position:static;font-size:${Math.max(10, sz * 0.32)}px">${initials}</span>
     </span>`;
   }
 
@@ -5053,6 +5262,9 @@
     if (state.last_competitor_event_day == null) state.last_competitor_event_day = 0;
     if (!state.airport_demand_surges) state.airport_demand_surges = {};
     if (state.onboarding_done == null) state.onboarding_done = true;
+    if (state.ff_year_confirmed == null) state.ff_year_confirmed = false;
+    if (state.chapter11 == null) state.chapter11 = { active: false };
+    if (!Array.isArray(state.pnl_history)) state.pnl_history = [];
   }
 
   function mergeAirportsFromBootstrap() {
@@ -5606,6 +5818,9 @@
     return demand;
   }
 
+  /** Depth guard: demand path must never re-enter full route simulation. */
+  let simulatingDemandDepth = 0;
+
   function simulateRouteDay(route) {
     const ac = aircraftType(route.aircraft_type);
     if (!ac) return { revenue: 0, cost: 0, pax: 0, load: 0, ticketRev: 0, ancillaryRev: 0, grounded: false };
@@ -5623,7 +5838,13 @@
     const flightsToday = (route.frequency_week / 7) * schedScale;
     const dailySeats = seats * flightsToday;
     const mkt = routeMarketContext(route);
-    const demand = demandForRoute(route);
+    simulatingDemandDepth += 1;
+    let demand;
+    try {
+      demand = demandForRoute(route);
+    } finally {
+      simulatingDemandDepth -= 1;
+    }
     const load = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const pax = Math.floor(dailySeats * load);
     const ota = otaEffects();
@@ -5695,9 +5916,7 @@
       });
       const otaCost = otaListingMonthly();
       if (otaCost > 0) state.cash -= otaCost;
-      if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
-        state.reputation = Math.min(100, state.reputation + 0.3);
-      }
+      applyMonthlyReputation(dayRev, dayCost);
       processMonthlyScoreboard();
       if (!decisionPending) processMonthlyGateEfficiency();
       const retired = [];
@@ -5748,24 +5967,236 @@
     processAirportDemandSurges();
   }
 
+  function applyMonthlyReputation(dayRev, dayCost) {
+    if (!state) return;
+    let delta = 0;
+    const notes = [];
+    const aogPlanes = (state.fleet || []).filter((f) => (f.aog_days_left || 0) > 0).length;
+    if (aogPlanes > 0) {
+      const hit = Math.min(2.4, 0.55 * aogPlanes);
+      delta -= hit;
+      notes.push(`AOG reliability −${hit.toFixed(1)}`);
+    }
+    const trail = (state.pnl_history || []).reduce((a, b) => a + b, 0);
+    if ((state.pnl_history || []).length >= 14 && trail < 0 && (state.routes || []).length > 0) {
+      delta -= 0.55;
+      notes.push('chronic losses −0.6');
+    }
+    if ((state.positive_day_streak || 0) === 0 && dayRev < dayCost * 0.85 && (state.routes || []).length > 0) {
+      delta -= 0.15;
+    }
+    if (delta < 0) {
+      const before = state.reputation || 0;
+      state.reputation = Math.max(0, before + delta);
+      if (before - state.reputation >= 0.4) {
+        pushEvent(
+          `Reputation softens to ${state.reputation.toFixed(0)} (${notes.join('; ') || 'ops pressure'}).`,
+          'bad'
+        );
+      }
+      return;
+    }
+    if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
+      state.reputation = Math.min(100, state.reputation + 0.3);
+    }
+  }
+
+  function chapter11Active() {
+    return !!(state && state.chapter11 && state.chapter11.active);
+  }
+
+  function queueChapter11Decision(force) {
+    if (!state || state.game_over) return;
+    if (activeDecision && activeDecision.chapter11) return;
+    if (decisionQueue.some((d) => d && d.chapter11)) return;
+    if (!force && state.milestones.includes('chapter11_board') && chapter11Active()) return;
+
+    const debtPrin = (state.debt || []).reduce((s, d) => s + (d.principal || 0), 0);
+    const gateN = (state.gates || []).length;
+    const fleetN = (state.fleet || []).length;
+    const body =
+      `<p>Cash is <b class="danger">${fmtMoney(state.cash)}</b>. Creditors and lessors are circling.</p>` +
+      `<p class="muted" style="font-size:0.85rem;margin-top:8px;">Debt principal ~${fmtMoney(debtPrin)} · ${gateN} gate(s) · ${fleetN} aircraft. ` +
+      `Chapter 11 is a <b>playable rescue</b> — not instant liquidation. Choose a path; you can still raise capital afterward.</p>`;
+
+    queueDecision({
+      chapter11: true,
+      kicker: `${fmtDate(state.day)} · Creditor board`,
+      title: force ? 'Emergency — deep insolvency' : 'Cash crisis — creditor board',
+      body,
+      teach:
+        'Restructure cuts debt service but dilutes ownership and reputation. Selling gates/fleet buys time. Liquidation ends the game.',
+      logLine: 'Creditor board convened over cash crisis',
+      options: [
+        {
+          id: 'c11_restructure',
+          label: 'A — Chapter 11 restructure',
+          hint: 'Cut ~40% debt principal, DIP cash, equity & reputation hit.',
+          effect: 'chapter11_restructure',
+        },
+        {
+          id: 'c11_gates',
+          label: 'B — Sell gates for liquidity',
+          hint: gateN ? 'Monetize gate deposits; drop stations you cannot fund.' : 'No gates to sell — try restructure.',
+          effect: 'chapter11_sell_gates',
+        },
+        {
+          id: 'c11_fleet',
+          label: 'C — Park / return fleet',
+          hint: fleetN ? 'Return leases; routes on those jets cancel.' : 'No fleet left.',
+          effect: 'chapter11_park_fleet',
+        },
+        {
+          id: 'c11_out',
+          label: 'D — Liquidate airline',
+          hint: 'Game over — creditors take the keys.',
+          effect: 'chapter11_liquidate',
+        },
+      ],
+    });
+    if (!state.milestones.includes('chapter11_board')) state.milestones.push('chapter11_board');
+  }
+
+  function applyChapter11Restructure() {
+    if (!state) return;
+    let principalCut = 0;
+    (state.debt || []).forEach((d) => {
+      const cut = Math.round((d.principal || 0) * 0.4);
+      d.principal = Math.max(0, (d.principal || 0) - cut);
+      principalCut += cut;
+      if (d.monthly_payment) d.monthly_payment = Math.max(0, Math.round(d.monthly_payment * 0.65));
+      if (d.rate) d.rate = Math.max(0.04, d.rate * 0.9);
+    });
+    const dip = 2_500_000;
+    state.cash += dip;
+    state.equity_pct = Math.max(5, (state.equity_pct || 100) * 0.72);
+    state.reputation = Math.max(0, (state.reputation || 0) - 10);
+    state.financing_tier = 'distressed';
+    state.bond_rating = 'CCC';
+    state.chapter11 = {
+      active: true,
+      entered_day: state.day,
+      exit_by_day: state.day + 180,
+    };
+    if (state.cash < 0) state.cash = Math.min(500_000, state.cash + 1_500_000);
+    pushEvent(
+      `Chapter 11 restructure: −${fmtMoney(principalCut)} debt principal, DIP ${fmtMoney(dip)}, ` +
+        `equity now ${state.equity_pct.toFixed(0)}%. Court watch for 180 days.`,
+      'milestone'
+    );
+    pushPlayerEvent('entered Chapter 11 — prove a plan or liquidate later.');
+    markMilestoneOnce('chapter11_filed', `${state.airline_name} filed <b>Chapter 11</b> — restructuring in progress.`);
+  }
+
+  function applyChapter11SellGates() {
+    if (!state || !(state.gates || []).length) {
+      pushEvent('No gates left to sell — restructure or park fleet instead.', 'bad');
+      queueChapter11Decision(true);
+      return;
+    }
+    let raised = 0;
+    const sold = state.gates.splice(0, Math.max(1, Math.ceil(state.gates.length / 2)));
+    sold.forEach((g) => {
+      const refund = Math.round((g.monthly || 10000) * 4);
+      raised += refund;
+      (state.routes || [])
+        .filter((r) => r.origin === g.airport)
+        .forEach((r) => {
+          r._drop = true;
+        });
+    });
+    state.routes = (state.routes || []).filter((r) => !r._drop);
+    state.cash += raised;
+    state.reputation = Math.max(0, (state.reputation || 0) - 4);
+    pushEvent(`Emergency gate sale: +${fmtMoney(raised)} · ${sold.length} gate(s) returned · related routes closed.`, 'bad');
+    if (state.cash < 0) queueChapter11Decision(true);
+  }
+
+  function applyChapter11ParkFleet() {
+    if (!state || !(state.fleet || []).length) {
+      pushEvent('No aircraft to park.', 'bad');
+      queueChapter11Decision(true);
+      return;
+    }
+    const keep = Math.max(0, Math.ceil(state.fleet.length / 3));
+    const drop = state.fleet.splice(keep);
+    const dropIds = new Set(drop.map((f) => f.id));
+    state.routes = (state.routes || []).filter((r) => !dropIds.has(r.aircraft_id));
+    const credit = drop.length * 180_000;
+    state.cash += credit;
+    state.reputation = Math.max(0, (state.reputation || 0) - 5);
+    pushEvent(
+      `Fleet contraction: returned ${drop.length} aircraft · routes pruned · lessor credit ${fmtMoney(credit)}.`,
+      'bad'
+    );
+    if (state.cash < 0) queueChapter11Decision(true);
+  }
+
+  function applyChapter11Liquidate() {
+    if (!state) return;
+    state.game_over = true;
+    state.chapter11 = { active: false, liquidated: true, day: state.day };
+    state.cash = 0;
+    pushEvent('LIQUIDATION — creditors take the keys. Game over.', 'bad');
+    setSpeed('pause');
+    state.paused_reason = 'Airline liquidated';
+  }
+
+  function checkChapter11Exit() {
+    if (!chapter11Active()) return;
+    const c11 = state.chapter11;
+    if (state.cash >= 1_000_000 && (state.pnl_history || []).length >= 14) {
+      const trail = state.pnl_history.reduce((a, b) => a + b, 0);
+      if (trail > 0) {
+        c11.active = false;
+        c11.exited_day = state.day;
+        state.reputation = Math.min(100, (state.reputation || 0) + 3);
+        pushEvent('Chapter 11 plan confirmed — exited restructuring with positive trail P&L.', 'good');
+        markMilestoneOnce('chapter11_exit', `${state.airline_name} <b>emerged from Chapter 11</b>.`);
+        return;
+      }
+    }
+    if (state.day >= (c11.exit_by_day || 0) && state.cash < 0) {
+      pushEvent('Court deadline missed with negative cash — forced liquidation path.', 'bad');
+      queueChapter11Decision(true);
+    }
+  }
+
   function checkSurvivalTriggers() {
-    if (state.cash < 0 && !state.milestones.includes('chapter11_warn')) {
-      state.milestones.push('chapter11_warn');
-      pushEvent('CRITICAL: Negative cash. Raise capital or cut burn.', 'bad');
-      setSpeed('pause');
-      state.paused_reason = 'Cash below zero';
-    }
-    if (state.cash < -2_000_000) {
-      state.game_over = true;
-      pushEvent('BANKRUPTCY — game over.', 'bad');
-      setSpeed('pause');
-    }
+    if (!state || state.game_over) return;
+
     if (runwayMonths() < 2 && state.cash > 0 && !state.milestones.includes('runway_warn')) {
       state.milestones.push('runway_warn');
       pushEvent(`Cash runway under 2 months (${runwayMonths().toFixed(1)} mo).`, 'bad');
       setSpeed('pause');
       state.paused_reason = 'Low runway';
     }
+
+    if (state.cash < 0 && !state.milestones.includes('chapter11_warn')) {
+      state.milestones.push('chapter11_warn');
+      pushEvent('CRITICAL: Negative cash. Creditor board will convene — restructure, sell assets, or liquidate.', 'bad');
+      setSpeed('pause');
+      state.paused_reason = 'Cash below zero';
+      queueChapter11Decision(false);
+      return;
+    }
+
+    if (state.cash < -2_000_000 && !chapter11Active()) {
+      setSpeed('pause');
+      state.paused_reason = 'Deep insolvency — emergency board';
+      queueChapter11Decision(true);
+      return;
+    }
+
+    if (chapter11Active() && state.cash < -8_000_000) {
+      state.game_over = true;
+      pushEvent('BANKRUPTCY — Chapter 11 failed; estate liquidated. Game over.', 'bad');
+      setSpeed('pause');
+      state.paused_reason = 'Chapter 11 failed';
+      return;
+    }
+
+    if (state.day > 0 && state.day % 30 === 0) checkChapter11Exit();
   }
 
   function markMilestoneOnce(id, msg) {
@@ -5868,7 +6299,7 @@
   }
 
   function resolveSpeedId(speedId) {
-    if (speedId === 'year') return 'month';
+    // Keep unknown aliases honest — do not silently remap year→month.
     return speedId;
   }
 
@@ -5890,6 +6321,14 @@
       );
       if (!ok) return;
       state.ff_month_confirmed = true;
+      saveGame();
+    }
+    if (speedId === 'year' && !state.ff_year_confirmed) {
+      const ok = window.confirm(
+        'Year speed advances 365 simulated days per tick (full day economics). Alerts and crises still pause mid-year. Continue?'
+      );
+      if (!ok) return;
+      state.ff_year_confirmed = true;
       saveGame();
     }
     if (speedId !== 'pause') speedBeforePause = speedId;
@@ -5919,6 +6358,7 @@
             day: '1 day / tick',
             week: '1 week / tick',
             month: '1 month / tick',
+            year: '1 year / tick',
           }
         : {
             pause: 'Paused',
@@ -5926,6 +6366,7 @@
             day: '1 day / tick',
             week: '1 week / tick — alerts will pause & slow you',
             month: '1 month / tick — alerts will pause & slow you',
+            year: '365 days / tick — alerts still pause mid-year',
           };
       hint.textContent = labels[speedId] || '';
     }
@@ -6689,7 +7130,8 @@
   }
 
   function airportMarketingDemandLift(iata) {
-    const gross = Math.max(airportScopedDailyEconomics(iata).monthlyGross, 40_000);
+    // Must not call simulateRouteDay / airportScopedDailyEconomics (infinite recursion via demandForRoute).
+    const gross = Math.max(airportGrossProxyMonthly(iata), 40_000);
     const spend = clampMoney(state.marketing_spend_monthly[iata]);
     if (spend <= 0) return 0;
     return Math.min(0.28, (spend / gross) * 3.0);
@@ -9961,29 +10403,545 @@
     );
   }
 
-  function saveGame() {
-    if (!state) return;
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ state, airports: bootstrap.airports }));
+  function emptySaveIndex() {
+    const slots = {};
+    slots[AUTOSAVE_SLOT_ID] = null;
+    MANUAL_SLOT_IDS.forEach((id) => {
+      slots[id] = null;
+    });
+    return { version: SAVE_FORMAT_VERSION, slots, lastSlotId: null };
   }
 
-  function loadGame() {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
+  function readSaveIndex() {
+    try {
+      const raw = localStorage.getItem(SAVE_INDEX_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data && data.slots) {
+          MANUAL_SLOT_IDS.forEach((id) => {
+            if (!(id in data.slots)) data.slots[id] = null;
+          });
+          if (!(AUTOSAVE_SLOT_ID in data.slots)) data.slots[AUTOSAVE_SLOT_ID] = null;
+          data.version = SAVE_FORMAT_VERSION;
+          return data;
+        }
+      }
+    } catch (e) {
+      /* fall through to migrate */
+    }
+    const migrated = migrateLegacySave();
+    if (migrated) return migrated;
+    return emptySaveIndex();
+  }
+
+  function writeSaveIndex(index) {
+    try {
+      localStorage.setItem(SAVE_INDEX_KEY, JSON.stringify(index));
+    } catch (e) {
+      console.warn('Route Lab: save failed', e);
+      alert('Could not write save (browser storage full or blocked). Try Export JSON.');
+    }
+  }
+
+  function migrateLegacySave() {
+    const raw = localStorage.getItem(SAVE_KEY_LEGACY);
+    if (!raw) return null;
     try {
       const data = JSON.parse(raw);
-      state = data.state;
-      if (data.airports) bootstrap.airports = data.airports;
-      mergeAirportsFromBootstrap();
-      applyScenarioAirports(state.scenario_id);
-      applyScenarioMap(state.scenario_id);
-      syncMapDimensions();
-      fitMapToManagedArea();
-      sanitizeMarketingSpend();
-      normalizeGameState();
-      return true;
+      if (!data || !data.state) return null;
+      const index = emptySaveIndex();
+      const entry = buildSaveEntry(data.state, 'Migrated autosave');
+      index.slots[AUTOSAVE_SLOT_ID] = entry;
+      index.lastSlotId = AUTOSAVE_SLOT_ID;
+      writeSaveIndex(index);
+      try {
+        localStorage.removeItem(SAVE_KEY_LEGACY);
+      } catch (e) {
+        /* keep legacy if remove fails */
+      }
+      return index;
     } catch (e) {
-      return false;
+      return null;
     }
+  }
+
+  function buildSaveMeta(gameState, label) {
+    const sc = bootstrap.scenarios[(gameState && gameState.scenario_id) || ''] || {};
+    return {
+      label: label || null,
+      savedAt: new Date().toISOString(),
+      airline_name: (gameState && gameState.airline_name) || 'Airline',
+      player_name: (gameState && gameState.player_name) || 'CEO',
+      scenario_id: (gameState && gameState.scenario_id) || null,
+      scenario_name: sc.name || gameState.scenario_id || 'Scenario',
+      day: (gameState && gameState.day) || 0,
+      cash: (gameState && gameState.cash) || 0,
+      routes: ((gameState && gameState.routes) || []).length,
+      fleet: ((gameState && gameState.fleet) || []).length,
+      game_over: !!(gameState && gameState.game_over),
+    };
+  }
+
+  function buildSaveEntry(gameState, label) {
+    // State only — never embed airport tables (0.2). Live defs load from bootstrap.
+    return {
+      version: SAVE_FORMAT_VERSION,
+      meta: buildSaveMeta(gameState, label),
+      state: JSON.parse(JSON.stringify(gameState)),
+    };
+  }
+
+  function slotLabel(slotId) {
+    if (slotId === AUTOSAVE_SLOT_ID) return 'Autosave';
+    const n = String(slotId).replace('slot', '');
+    return `Slot ${n}`;
+  }
+
+  function formatSaveMetaLine(meta) {
+    if (!meta) return 'Empty';
+    const when = meta.savedAt
+      ? new Date(meta.savedAt).toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : '—';
+    const day = meta.day != null ? `Day ${meta.day}` : '';
+    return `${meta.airline_name || 'Airline'} · ${meta.scenario_name || ''} · ${day} · ${fmtMoney(meta.cash || 0)} · ${when}`;
+  }
+
+  function listSaveSlots() {
+    const index = readSaveIndex();
+    const order = [AUTOSAVE_SLOT_ID].concat(MANUAL_SLOT_IDS);
+    return order.map((id) => ({
+      id,
+      title: slotLabel(id),
+      entry: index.slots[id] || null,
+      meta: (index.slots[id] && index.slots[id].meta) || null,
+    }));
+  }
+
+  function hasAnySave() {
+    return listSaveSlots().some((s) => s.entry && s.entry.state);
+  }
+
+  function mostRecentSaveSlot() {
+    const slots = listSaveSlots().filter((s) => s.entry && s.entry.state);
+    if (!slots.length) return null;
+    slots.sort((a, b) => {
+      const ta = (a.meta && a.meta.savedAt) || '';
+      const tb = (b.meta && b.meta.savedAt) || '';
+      return tb.localeCompare(ta);
+    });
+    return slots[0];
+  }
+
+  /** Autosave current session (crash recovery). Does not open UI. */
+  function saveGame() {
+    if (!state) return;
+    writeStateToSlot(AUTOSAVE_SLOT_ID, null, { quiet: true });
+  }
+
+  function writeStateToSlot(slotId, label, opts) {
+    opts = opts || {};
+    if (!state) return false;
+    const index = readSaveIndex();
+    if (!(slotId in index.slots) && slotId !== AUTOSAVE_SLOT_ID) return false;
+    const entry = buildSaveEntry(state, label || null);
+    index.slots[slotId] = entry;
+    index.lastSlotId = slotId;
+    writeSaveIndex(index);
+    activeSaveSlotId = slotId;
+    if (!opts.quiet) {
+      pushEvent(`Game saved to ${slotLabel(slotId)}.`, 'good');
+      setSaveModalStatus(`Saved to ${slotLabel(slotId)}.`);
+    }
+    return true;
+  }
+
+  function applyLoadedState(gameState) {
+    if (!gameState) return false;
+    state = gameState;
+    // Always rebuild airports from live bootstrap data (never trust save-embedded tables).
+    if (initialAirports) {
+      bootstrap.airports = JSON.parse(JSON.stringify(initialAirports));
+    }
+    applyScenarioAirports(state.scenario_id);
+    applyScenarioMap(state.scenario_id);
+    syncMapDimensions();
+    fitMapToManagedArea();
+    sanitizeMarketingSpend();
+    normalizeGameState();
+    fleetPending = null;
+    decisionQueue = [];
+    activeDecision = null;
+    routeLaunchActive = false;
+    routeLaunchDraft = null;
+    routeReviewRouteId = null;
+    selectedRival = null;
+    coalescedDecisionCount = 0;
+    return true;
+  }
+
+  function loadStateFromSlot(slotId) {
+    const index = readSaveIndex();
+    const entry = index.slots[slotId];
+    if (!entry || !entry.state) return false;
+    if (!applyLoadedState(JSON.parse(JSON.stringify(entry.state)))) return false;
+    activeSaveSlotId = slotId;
+    index.lastSlotId = slotId;
+    writeSaveIndex(index);
+    return true;
+  }
+
+  /** Resume most recent save into the game screen. */
+  function continueMostRecentSave() {
+    const recent = mostRecentSaveSlot();
+    if (!recent) {
+      alert('No saved games found.');
+      return;
+    }
+    if (!loadStateFromSlot(recent.id)) {
+      alert('Could not load that save.');
+      return;
+    }
+    enterLoadedGame();
+  }
+
+  function enterLoadedGame() {
+    if (!state) return;
+    showScreen('screen-game');
+    setSpeed('pause');
+    state.paused_reason = state.game_over ? state.paused_reason || 'Game over' : 'Loaded save — press ▶ when ready';
+    renderAll();
+    if (isMobileLayout()) {
+      const activeTab = document.querySelector('[data-tab].active');
+      syncMobileDock(activeTab ? activeTab.dataset.tab : 'routes');
+    }
+  }
+
+  function deleteSaveSlot(slotId) {
+    const index = readSaveIndex();
+    if (!(slotId in index.slots)) return;
+    index.slots[slotId] = null;
+    if (index.lastSlotId === slotId) index.lastSlotId = null;
+    writeSaveIndex(index);
+    renderStartSaves();
+    if (saveModalMode) openSaveLoadModal(saveModalMode);
+  }
+
+  function exportSaveSlot(slotId) {
+    const index = readSaveIndex();
+    let entry = index.slots[slotId];
+    if (!entry && state && slotId === 'current') {
+      entry = buildSaveEntry(state, 'Export');
+    }
+    if (!entry && state && slotId === AUTOSAVE_SLOT_ID) {
+      entry = buildSaveEntry(state, 'Export');
+    }
+    if (!entry) {
+      alert('Nothing to export in that slot.');
+      return;
+    }
+    const payload = {
+      format: 'routelab_save',
+      version: SAVE_FORMAT_VERSION,
+      exportedAt: new Date().toISOString(),
+      meta: entry.meta,
+      state: entry.state,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const name = (entry.meta && entry.meta.airline_name) || 'airline';
+    const day = (entry.meta && entry.meta.day) || 0;
+    a.href = URL.createObjectURL(blob);
+    a.download = `routelab-${name.replace(/[^\w-]+/g, '_').slice(0, 24)}-day${day}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 500);
+  }
+
+  function exportCurrentGame() {
+    if (!state) {
+      alert('No active game to export.');
+      return;
+    }
+    const entry = buildSaveEntry(state, 'Export');
+    const payload = {
+      format: 'routelab_save',
+      version: SAVE_FORMAT_VERSION,
+      exportedAt: new Date().toISOString(),
+      meta: entry.meta,
+      state: entry.state,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    const name = state.airline_name || 'airline';
+    a.href = URL.createObjectURL(blob);
+    a.download = `routelab-${name.replace(/[^\w-]+/g, '_').slice(0, 24)}-day${state.day || 0}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 500);
+  }
+
+  function importSaveFromFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        const gameState = data.state || (data.airline_name ? data : null);
+        if (!gameState || typeof gameState !== 'object') {
+          alert('Invalid Route Lab save file.');
+          return;
+        }
+        if (!applyLoadedState(JSON.parse(JSON.stringify(gameState)))) {
+          alert('Could not apply imported save.');
+          return;
+        }
+        // Park import into first empty manual slot, else slot1.
+        const index = readSaveIndex();
+        let target = MANUAL_SLOT_IDS.find((id) => !index.slots[id]);
+        if (!target) target = 'slot1';
+        index.slots[target] = buildSaveEntry(state, 'Imported');
+        index.slots[AUTOSAVE_SLOT_ID] = buildSaveEntry(state, 'Imported autosave');
+        index.lastSlotId = target;
+        writeSaveIndex(index);
+        activeSaveSlotId = target;
+        closeSaveLoadModal();
+        enterLoadedGame();
+        pushEvent(`Imported save into ${slotLabel(target)}.`, 'good');
+      } catch (e) {
+        alert('Could not read that file as JSON.');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function setSaveModalStatus(msg) {
+    const el = $('save-modal-status');
+    if (el) el.textContent = msg || '';
+  }
+
+  function closeSaveLoadModal() {
+    const modal = $('save-load-modal');
+    if (modal) {
+      modal.classList.remove('open');
+      modal.innerHTML = '';
+    }
+    saveModalMode = null;
+  }
+
+  function openSaveLoadModal(mode) {
+    saveModalMode = mode === 'save' ? 'save' : 'load';
+    const modal = $('save-load-modal');
+    if (!modal) return;
+    const isSave = saveModalMode === 'save';
+    if (isSave && !state) {
+      alert('Start or load a game before saving.');
+      return;
+    }
+    const slots = listSaveSlots().filter((s) => (isSave ? s.id !== AUTOSAVE_SLOT_ID : true));
+    const rows = slots
+      .map((s) => {
+        const empty = !s.entry;
+        const actions = isSave
+          ? `<button type="button" class="btn" data-save-to="${s.id}">${empty ? 'Save here' : 'Overwrite'}</button>
+             ${empty ? '' : `<button type="button" class="btn secondary" data-export-slot="${s.id}">Export</button>`}`
+          : empty
+            ? ''
+            : `<button type="button" class="btn" data-load-slot="${s.id}">Load</button>
+               <button type="button" class="btn secondary" data-export-slot="${s.id}">Export</button>
+               <button type="button" class="btn danger-outline" data-delete-slot="${s.id}">Delete</button>`;
+        return `<div class="save-slot${empty ? ' empty' : ''}">
+          <div>
+            <strong>${s.title}${s.id === activeSaveSlotId && !empty ? ' · last used' : ''}</strong>
+            <div class="save-meta">${empty ? 'Empty slot' : formatSaveMetaLine(s.meta)}</div>
+            ${!empty && s.meta && s.meta.label ? `<div class="save-meta">${s.meta.label}</div>` : ''}
+          </div>
+          <div class="save-slot-actions">${actions || '<span class="muted" style="font-size:0.75rem;">—</span>'}</div>
+        </div>`;
+      })
+      .join('');
+
+    modal.innerHTML = `<div class="save-modal-card">
+      <h2 id="save-load-title">${isSave ? 'Save game' : 'Load game'}</h2>
+      <p class="muted">${
+        isSave
+          ? 'Pick a slot. Autosave still runs in the background while you play; manual slots are yours to manage.'
+          : 'Load a slot, import a JSON file, or continue from the start screen. Airport data always comes from the latest game build.'
+      }</p>
+      ${rows}
+      <div class="save-modal-footer">
+        ${
+          isSave
+            ? `<button type="button" class="btn secondary" id="save-export-current">Export JSON</button>`
+            : `<button type="button" class="btn secondary" id="save-import-btn">Import JSON…</button>`
+        }
+        <button type="button" class="btn secondary" id="save-modal-close">Close</button>
+        <span class="save-toast" id="save-modal-status"></span>
+      </div>
+    </div>`;
+    modal.classList.add('open');
+
+    modal.querySelectorAll('[data-save-to]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-save-to');
+        const existing = readSaveIndex().slots[id];
+        if (existing && !window.confirm(`Overwrite ${slotLabel(id)}?`)) return;
+        writeStateToSlot(id, null, { quiet: false });
+        openSaveLoadModal('save');
+      });
+    });
+    modal.querySelectorAll('[data-load-slot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-load-slot');
+        if (state && !state.game_over) {
+          if (!window.confirm('Load this save? Unsaved progress in the current session will remain only in Autosave.')) {
+            return;
+          }
+          saveGame();
+        }
+        if (!loadStateFromSlot(id)) {
+          alert('Could not load that slot.');
+          return;
+        }
+        closeSaveLoadModal();
+        enterLoadedGame();
+      });
+    });
+    modal.querySelectorAll('[data-export-slot]').forEach((btn) => {
+      btn.addEventListener('click', () => exportSaveSlot(btn.getAttribute('data-export-slot')));
+    });
+    modal.querySelectorAll('[data-delete-slot]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-delete-slot');
+        if (!window.confirm(`Delete ${slotLabel(id)}?`)) return;
+        deleteSaveSlot(id);
+      });
+    });
+    const closeBtn = $('save-modal-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeSaveLoadModal);
+    const exp = $('save-export-current');
+    if (exp) exp.addEventListener('click', exportCurrentGame);
+    const imp = $('save-import-btn');
+    if (imp) {
+      imp.addEventListener('click', () => {
+        const input = $('save-import-input');
+        if (input) {
+          input.value = '';
+          input.click();
+        }
+      });
+    }
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeSaveLoadModal();
+    });
+  }
+
+  function renderStartSaves() {
+    const box = $('start-saves');
+    if (!box) return;
+    if (!hasAnySave()) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+    const recent = mostRecentSaveSlot();
+    const metaLine = recent ? formatSaveMetaLine(recent.meta) : '';
+    box.classList.remove('hidden');
+    box.innerHTML = `
+      <h2>Saved airlines</h2>
+      <p>Resume where you left off, or open the load menu for all slots and JSON import.</p>
+      <div class="btn-row" style="margin-top:0;">
+        <button type="button" class="btn" id="btn-continue-save">Continue — ${
+          recent && recent.meta ? recent.meta.airline_name : 'last save'
+        }</button>
+        <button type="button" class="btn secondary" id="btn-open-load">Load game…</button>
+        <button type="button" class="btn secondary" id="btn-import-start">Import JSON…</button>
+      </div>
+      <p class="muted" style="margin-top:10px;margin-bottom:0;font-size:0.78rem;">${metaLine}</p>`;
+    const cont = $('btn-continue-save');
+    if (cont) cont.addEventListener('click', continueMostRecentSave);
+    const openLoad = $('btn-open-load');
+    if (openLoad) openLoad.addEventListener('click', () => openSaveLoadModal('load'));
+    const imp = $('btn-import-start');
+    if (imp) {
+      imp.addEventListener('click', () => {
+        const input = $('save-import-input');
+        if (input) {
+          input.value = '';
+          input.click();
+        }
+      });
+    }
+  }
+
+  function setupSaveLoadUi() {
+    const saveBtn = $('btn-save-game');
+    const loadBtn = $('btn-load-game');
+    const newBtn = $('btn-new-game');
+    if (saveBtn) saveBtn.addEventListener('click', () => openSaveLoadModal('save'));
+    if (loadBtn) loadBtn.addEventListener('click', () => openSaveLoadModal('load'));
+    if (newBtn) newBtn.addEventListener('click', requestNewGame);
+    const fileInput = $('save-import-input');
+    if (fileInput && !fileInput._routelabBound) {
+      fileInput._routelabBound = true;
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (f) importSaveFromFile(f);
+      });
+    }
+  }
+
+  function requestNewGame() {
+    if (state && !state.game_over) {
+      const ok = window.confirm(
+        'Return to the scenario picker? Your current session will autosave first. Manual save slots are kept.'
+      );
+      if (!ok) return;
+      saveGame();
+    }
+    leaveToStartScreen();
+  }
+
+  function leaveToStartScreen() {
+    if (tickTimer) {
+      clearInterval(tickTimer);
+      tickTimer = null;
+    }
+    state = null;
+    fleetPending = null;
+    decisionQueue = [];
+    activeDecision = null;
+    routeLaunchActive = false;
+    routeLaunchDraft = null;
+    pendingScenarioId = null;
+    showScreen('screen-start');
+    showScenarioPicker();
+    renderScenarioPicker();
+    renderStartSaves();
+  }
+
+  /** @deprecated use requestNewGame — kept for API compat */
+  function resetToNewGameHard() {
+    if (!window.confirm('Delete autosave and reload? Manual slots are kept.')) return;
+    const index = readSaveIndex();
+    index.slots[AUTOSAVE_SLOT_ID] = null;
+    writeSaveIndex(index);
+    try {
+      localStorage.removeItem(SAVE_KEY_LEGACY);
+    } catch (e) {
+      /* ignore */
+    }
+    location.reload();
   }
 
   function showScreen(id) {
@@ -10026,13 +10984,14 @@
     const box = $('emblem-picker');
     if (!box || !bootstrap.emblem_options) return;
     box.innerHTML = bootstrap.emblem_options
-      .map(
-        (o) =>
-          `<button type="button" class="emblem-opt${pendingEmblem === o.id ? ' active' : ''}" data-emblem="${o.id}" title="${o.label}" onclick="Runway.setEmblem('${o.id}')">
-            <span class="emblem-glyph">${o.glyph}</span>
+      .map((o) => {
+        const mark = o.mark || o.id;
+        const svg = emblemSvgMarkup(mark, o.colors, 40);
+        return `<button type="button" class="emblem-opt${pendingEmblem === o.id ? ' active' : ''}" data-emblem="${o.id}" title="${o.label}" onclick="Runway.setEmblem('${o.id}')">
+            <span class="emblem-glyph emblem-glyph-svg">${svg}</span>
             <span class="emblem-label">${o.label}</span>
-          </button>`
-      )
+          </button>`;
+      })
       .join('');
   }
 
@@ -10052,7 +11011,10 @@
     if (startScreen) startScreen.classList.add('name-step-active');
     window.scrollTo(0, 0);
     if (title) title.textContent = sc.name;
-    if (brief) brief.textContent = sc.briefing;
+    if (brief) {
+      // Briefings may include simple HTML (<b>, etc.) — never textContent or tags show literally.
+      brief.innerHTML = sc.briefing || '';
+    }
     const snapshot = $('name-step-snapshot');
     if (snapshot) snapshot.innerHTML = scenarioSnapshotHtml(sc);
     if (playerInput) playerInput.value = sc.player_name || '';
@@ -10213,19 +11175,12 @@
     if (sbToggle) sbToggle.addEventListener('click', toggleScoreboard);
 
     applyRouteLabBranding();
-    if (loadGame()) {
-      showScreen('screen-game');
-      setSpeed(state.speed || 'pause');
-      renderAll();
-      if (isMobileLayout()) {
-        const activeTab = document.querySelector('[data-tab].active');
-        syncMobileDock(activeTab ? activeTab.dataset.tab : 'routes');
-      }
-    } else {
-      showScreen('screen-start');
-      showScenarioPicker();
-      renderScenarioPicker();
-    }
+    setupSaveLoadUi();
+    // Natural flow: always land on start screen. Continue/Load are explicit.
+    showScreen('screen-start');
+    showScenarioPicker();
+    renderScenarioPicker();
+    renderStartSaves();
   }
 
   function renderScenarioPicker() {
@@ -10326,10 +11281,15 @@
       showScreen('screen-game');
       newGame(id);
     },
-    reset: () => {
-      localStorage.removeItem(SAVE_KEY);
-      location.reload();
-    },
+    /** Explicit save/load UI */
+    openSave: () => openSaveLoadModal('save'),
+    openLoad: () => openSaveLoadModal('load'),
+    continueSave: continueMostRecentSave,
+    exportSave: exportCurrentGame,
+    /** Return to scenario picker (autosaves first). */
+    reset: requestNewGame,
+    newGameMenu: requestNewGame,
+    hardResetAutosave: resetToNewGameHard,
   };
   window.RouteLab = window.Runway;
 
