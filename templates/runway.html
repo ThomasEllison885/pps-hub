@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RouteLab · Airline Simulation</title>
+<title>Route Lab · Airline Simulation</title>
 <link rel="icon" href="/static/routelab/routelab-app-logo.jpg" type="image/jpeg">
 {% if mapbox_token %}
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet">
@@ -94,6 +94,60 @@
   .scenario-card strong { display: block; font-size: 1.1rem; margin-bottom: 4px; }
   .scenario-card span { color: var(--accent); font-size: 0.85rem; }
   .scenario-card p { margin-top: 10px; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+  .scenario-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .scenario-chip {
+    font-size: 0.68rem;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: rgba(6, 13, 24, 0.5);
+  }
+  .scenario-diff {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .scenario-diff.guided { color: var(--accent); }
+  .scenario-diff.easy { color: #5dffa8; }
+  .scenario-diff.mid { color: var(--gold); }
+  .scenario-diff.hard { color: var(--danger); }
+  .start-intro {
+    margin-bottom: 28px;
+    padding: 18px 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(15, 28, 46, 0.65);
+  }
+  .start-intro h2 {
+    font-size: 1.05rem;
+    color: var(--gold);
+    margin-bottom: 8px;
+  }
+  .start-flow {
+    margin: 12px 0 0;
+    padding-left: 1.2rem;
+    font-size: 0.88rem;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .start-flow li { margin-bottom: 4px; }
+  .scenario-snapshot {
+    margin: 14px 0 18px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.45);
+  }
+  .scenario-snapshot .scenario-card-meta { margin-top: 8px; }
 
   .game-header {
     display: flex;
@@ -106,6 +160,28 @@
     gap: 8px 12px;
   }
   .game-header h1 { font-size: 1.1rem; color: var(--gold); }
+  .game-product-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 1 auto;
+    min-width: 160px;
+  }
+  .game-product-brand-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
+  .game-product-name {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 1.42rem;
+    color: var(--gold);
+    letter-spacing: 0.02em;
+  }
+  .game-airline-line {
+    font-size: 0.72rem;
+    color: var(--muted);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 
   .scoreboard-bar {
     flex: 1 1 100%;
@@ -192,7 +268,8 @@
     color: var(--gold);
     background: rgba(255, 209, 102, 0.06);
   }
-  .scoreboard-rivals {
+  .scoreboard-rivals { display: none; }
+  .scoreboard-rivals.legacy-show {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -890,7 +967,47 @@
     color: var(--text);
     font: inherit;
   }
-  #airport-panel { padding: 12px 14px; border-bottom: 1px solid var(--border); max-height: 42vh; overflow-y: auto; }
+  .ops-guide {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0, 200, 150, 0.06);
+    font-size: 0.74rem;
+    line-height: 1.45;
+  }
+  .ops-guide.collapsed .ops-guide-body { display: none; }
+  .ops-guide-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .ops-guide-head strong {
+    font-size: 0.72rem;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .ops-guide-toggle {
+    font: inherit;
+    font-size: 0.65rem;
+    color: var(--muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .ops-guide-step {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: var(--gold);
+    margin-right: 6px;
+  }
+  .ops-guide-actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .ops-guide-actions .btn { font-size: 0.68rem; padding: 5px 10px; }
+  .tabs button .tab-hint { display: block; font-size: 0.58rem; opacity: 0.75; margin-top: 2px; }
+  #airport-panel { padding: 12px 14px; border-bottom: 1px solid var(--border); max-height: 38vh; overflow-y: auto; }
   #airport-panel h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 2px; }
   .airport-empty { font-size: 0.8rem; line-height: 1.5; padding: 8px 4px; }
   .panel-card {
@@ -1250,18 +1367,28 @@
       <div class="start-brand" id="start-brand">
         <img class="routelab-brand-logo" id="start-brand-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="72" height="72">
         <div>
-          <h1 id="start-brand-name">RouteLab</h1>
+          <h1 id="start-brand-name">Route Lab</h1>
           <p class="tag" id="start-brand-tagline">Airline network economics — routes, gates, rivals, and capital.</p>
         </div>
       </div>
-      <p class="muted" style="margin-bottom:24px;">MVP v0.5 · competitor AI · ancillaries · utilization &amp; AOG</p>
     </div>
     <div id="scenario-picker">
+      <div class="start-intro" id="start-intro">
+        <h2>Choose a starting situation</h2>
+        <p class="muted" style="font-size:0.88rem;line-height:1.5;">Each scenario starts you with different cash, aircraft, gates, and rivals. <b>New here?</b> Pick the Ohio tutorial — it walks you through the game.</p>
+        <ol class="start-flow">
+          <li><b>Map</b> — click airports, see competitors, lease gates</li>
+          <li><b>Fleet</b> — lease aircraft for your routes</li>
+          <li><b>Routes</b> — launch flights, set fares, review the business case</li>
+          <li><b>▶</b> — run time forward; rivals react in the log</li>
+        </ol>
+      </div>
       <div id="scenario-list"></div>
     </div>
     <div id="scenario-name-step">
       <div class="name-step-card">
         <h2 id="name-step-title">Name yourself & your airline</h2>
+        <div id="name-step-snapshot"></div>
         <p class="muted" id="name-step-brief"></p>
         <label for="player-name-input">Your name
           <input type="text" id="player-name-input" maxlength="40" autocomplete="name" placeholder="Thomas">
@@ -1296,8 +1423,12 @@
       <div class="scoreboard-rivals" id="scoreboard-rivals" aria-label="Competitor airlines"></div>
     </div>
     <div id="scoreboard-panel" class="scoreboard-panel"></div>
-    <div class="hud-identity">
-      <h1 id="hud-airline">Airline</h1>
+    <div class="game-product-brand" title="Route Lab — airline network simulation">
+      <img class="routelab-brand-logo sm" id="hud-product-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="40" height="40">
+      <div class="game-product-brand-text">
+        <span class="game-product-name" id="hud-product-name">Route Lab</span>
+        <span class="game-airline-line" id="hud-airline">Your airline</span>
+      </div>
     </div>
     <div class="hud-primary">
       <div class="stat-pill" id="hud-pill-cash">
@@ -1347,13 +1478,14 @@
       <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
     <aside class="side-panel">
+      <div id="ops-guide" class="ops-guide" aria-live="polite"></div>
       <div id="airport-panel"><p class="muted">Click an airport on the map.</p></div>
       <nav class="tabs" aria-label="Operations">
-        <button data-tab="routes" class="active">Routes</button>
-        <button data-tab="fleet">Fleet</button>
-        <button data-tab="finance">Capital</button>
-        <button data-tab="economy">Market</button>
-        <button data-tab="events">Log</button>
+        <button data-tab="routes" class="active" title="Launch and manage flights">Routes<span class="tab-hint">Flights</span></button>
+        <button data-tab="fleet" title="Lease or buy aircraft">Fleet<span class="tab-hint">Planes</span></button>
+        <button data-tab="finance" title="Cash, debt, fundraising">Capital<span class="tab-hint">Money</span></button>
+        <button data-tab="economy" title="OTAs, pricing strategy, macro">Market<span class="tab-hint">Sell</span></button>
+        <button data-tab="events" title="Game events and rival moves">Log<span class="tab-hint">News</span></button>
       </nav>
       <div id="panel-routes" class="tab-panel active"><div id="tab-routes"></div></div>
       <div id="panel-fleet" class="tab-panel"><div id="tab-fleet"></div></div>
@@ -1366,6 +1498,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=35"></script>
+<script src="/static/runway/game.js?v=36"></script>
 </body>
 </html>

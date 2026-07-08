@@ -859,7 +859,7 @@ def get_runway_bootstrap():
         'league_scopes': LEAGUE_SCOPES,
         'emblem_options': EMBLEM_OPTIONS,
         'routelab': {
-            'name': 'RouteLab',
+            'name': 'Route Lab',
             'logo_url': '/static/routelab/routelab-app-logo.jpg',
             'tagline': 'Airline network economics — routes, gates, rivals, and capital.',
         },

@@ -107,10 +107,10 @@ Does not decay in the current build.
 
 Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + avg load × 28 + 18 − AOG×6. Click **Satisfaction** pillar to sort league.
 
-## League score vs rank
+## Rank vs standing
 
 - **# column** = rank (**1 is best**).
-- **League score** = blended index 0–100 (profit percentile × 0.45 + riders × 0.35 + satisfaction × 0.2). Higher is better, but it is **not** the same as rank — a startup can score 47 while Delta scores 94.
+- **Standing** = blended index 0–100 (profit percentile × 0.45 + riders × 0.35 + satisfaction × 0.2). Higher is better, but it is **not** the same as rank — a startup can be #4 with standing 47 while Delta is #1 at 94.
 
 ## Files
 

@@ -18,6 +18,7 @@
   let fleetShopOpen = false;
   let hudPanels = { financials: false, economy: false };
   let hudFinancialsView = 'company';
+  let opsGuideCollapsed = false;
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
   let scoreboardOpen = false;
@@ -1056,6 +1057,7 @@
     if (tabId === 'fleet') renderFleet();
     if (tabId === 'economy') renderEconomy();
     if (tabId === 'events') renderEvents();
+    renderOpsGuide();
   }
 
   function formatBriefingSections(scenarioId) {
@@ -1182,9 +1184,15 @@
       });
     } else {
       options.push({
+        id: 'tour',
+        label: 'C — Quick UI tour (optional)',
+        hint: 'Short walkthrough of map, fleet, and routes.',
+        effect: 'start_tutorial',
+      });
+      options.push({
         id: 'play',
-        label: 'C — Got it — let me play',
-        hint: 'Dismiss and use the UI freely.',
+        label: 'D — Got it — let me play',
+        hint: 'Dismiss and use the guide strip at the top of the panel.',
         effect: 'explore',
       });
     }
@@ -2414,7 +2422,7 @@
       profit: 'Scoped monthly operating profit — click to rank league by profit',
       riders: 'Estimated monthly passengers in scope — click to rank league',
       csat: 'Passenger satisfaction — reputation, load factor, reliability — click to rank',
-      overall: 'League score 0–100 (higher is better). Rank #1 is best — not the same number as this score.',
+      overall: 'Your rank vs rivals. #1 is best. Standing column is a blended index — not the same as rank.',
     };
     return tips[pillar] || '';
   }
@@ -2424,7 +2432,7 @@
       profit: 'Profit',
       riders: 'Riders',
       csat: 'Satisfaction',
-      overall: 'League score',
+      overall: 'Rank',
     };
     return labels[key] || key;
   }
@@ -3022,7 +3030,9 @@
           <span class="pillar-label">${label}</span>${pillarMeter(meter)}
           <span class="pillar-rank">${rankLine}</span>
         </button>`;
+      const rankMeter = Math.max(0, Math.min(100, player.overall || 0));
       pillars.innerHTML =
+        pillarBtn('overall', 'Rank', rankMeter, `#${player.rank} of ${table.length}`) +
         pillarBtn('profit', 'Profit', profitMeter, `${fmtMoney(player.profit)}/mo · #${profitRank}`) +
         pillarBtn('riders', 'Riders', riderMeter, `${player.riders.toLocaleString()}/mo · #${ridersRank}`) +
         pillarBtn('csat', 'Satisfaction', csatMeter, `${player.csat} · #${csatRank}`);
@@ -3086,20 +3096,20 @@
       scoreboardSortBy === 'csat'
         ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>Satisfaction</b> blends reputation, average load factor, and penalties when aircraft are out of service (AOG).</p>'
         : '';
-    const leagueScoreNote =
+    const standingNote =
       scoreboardSortBy === 'overall'
-        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>#1 is best rank.</b> The league score (0–100) is a blended index — profit standing, riders, and satisfaction. Your score can be 47 while Delta is 94; check the <b>#</b> column for actual rank.</p>'
+        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>#1 is best.</b> <b>Standing</b> (0–100) blends profit, riders, and satisfaction — a rough index, not your rank. You might be <b>#4</b> with standing 47 while Delta is <b>#1</b> at 94.</p>'
         : '';
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
         <h3>League — ${scope} · by ${pillarSortLabel(scoreboardSortBy)}</h3>
         <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. <b>#1 is best.</b> Click Profit, Riders, or Satisfaction above to re-sort. Click a rival for intel.</p>
         <table class="scoreboard-table">
-          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'Satisfaction')}${sortCol('overall', 'League score')}<th>Trend</th></tr></thead>
+          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'Satisfaction')}${sortCol('overall', 'Standing')}<th>Trend</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
         <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. Satisfaction — reliability, load, fair fares.</p>
-        ${leagueScoreNote}
+        ${standingNote}
         ${satNote}
         ${yourRoutesRankHtml(scoreboardSortBy)}
       </div>`;
@@ -5660,6 +5670,160 @@
     if (tone) pill.classList.add(`stat-pill-${tone}`);
   }
 
+  function applyRouteLabBranding() {
+    const rb = bootstrap && bootstrap.routelab ? bootstrap.routelab : {};
+    const name = rb.name || 'Route Lab';
+    const tagline = rb.tagline || 'Airline network economics — routes, gates, rivals, and capital.';
+    document.title = `${name} · Airline Simulation`;
+    setText('start-brand-name', name);
+    setText('start-brand-tagline', tagline);
+    const logo = $('start-brand-logo');
+    if (logo && rb.logo_url) {
+      logo.src = rb.logo_url;
+      logo.alt = `${name} logo`;
+    }
+  }
+
+  function scenarioDifficultyMeta(sc) {
+    if (!sc) return { label: 'Custom', tone: 'mid' };
+    if (sc.tutorial) return { label: 'Guided tutorial', tone: 'guided' };
+    if ((sc.debt || []).length || sc.financing_tier === 'distressed') return { label: 'Turnaround', tone: 'hard' };
+    if ((sc.cash || 0) >= 20_000_000) return { label: 'Well-funded', tone: 'easy' };
+    if ((sc.cash || 0) < 1_000_000) return { label: 'Lean startup', tone: 'hard' };
+    return { label: 'Regional build', tone: 'mid' };
+  }
+
+  function scenarioStartingChips(sc) {
+    if (!sc) return [];
+    const fleet = (sc.fleet || []).length;
+    const gates = (sc.gates || []).length;
+    const routes = (sc.routes || []).length;
+    return [
+      fmtMoney(sc.cash || 0),
+      fleet ? `${fleet} aircraft` : 'No aircraft',
+      gates ? `${gates} gate${gates !== 1 ? 's' : ''}` : 'No gates',
+      routes ? `${routes} route${routes !== 1 ? 's' : ''}` : 'No routes',
+    ];
+  }
+
+  function scenarioSnapshotHtml(sc) {
+    if (!sc) return '';
+    const diff = scenarioDifficultyMeta(sc);
+    const chips = scenarioStartingChips(sc)
+      .map((c) => `<span class="scenario-chip">${c}</span>`)
+      .join('');
+    const debt =
+      (sc.debt || []).length > 0
+        ? `<p class="muted" style="font-size:0.74rem;margin-top:8px;">Debt: ${sc.debt
+            .map((d) => `${d.name} ${fmtMoney(d.principal)}`)
+            .join(' · ')}</p>`
+        : '';
+    return `<div class="scenario-snapshot">
+      <span class="scenario-diff ${diff.tone}">${diff.label}</span>
+      <div class="scenario-card-meta">${chips}</div>
+      ${debt}
+    </div>`;
+  }
+
+  function opsGuideContext() {
+    if (!state) return null;
+    const firstGate = state.gates[0] && state.gates[0].airport;
+    if (!state.gates.length) {
+      return {
+        step: 1,
+        text: 'Click an airport on the map, then lease a gate before you can launch flights.',
+        actions: [{ label: 'Show map', effect: 'focus_map' }],
+      };
+    }
+    if (!state.fleet.length) {
+      return {
+        step: 2,
+        text: `You have a gate at <b>${firstGate}</b>. Open <b>Fleet</b> and lease an aircraft.`,
+        actions: [{ label: 'Open Fleet', effect: 'tab', tab: 'fleet' }],
+      };
+    }
+    if (!state.routes.length) {
+      return {
+        step: 3,
+        text: `Launch your first route from <b>${firstGate}</b> — use suggestions in the Routes tab.`,
+        actions: [
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+          { label: `Scout ${firstGate}`, effect: 'airport', airport: firstGate },
+        ],
+      };
+    }
+    if (state.speed === 'pause' && state.day < 120) {
+      return {
+        step: 4,
+        text: 'Routes are live. Press <b>▶</b> to run days. Click a route name to review trends.',
+        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+      };
+    }
+    return {
+      step: 0,
+      text: '<b>Map</b> for airports · <b>Routes</b> for flights · <b>Fleet</b> for planes · <b>Capital</b> for cash.',
+      actions: [],
+    };
+  }
+
+  function renderOpsGuide() {
+    const el = $('ops-guide');
+    if (!el || !state) {
+      if (el) el.innerHTML = '';
+      return;
+    }
+    const ctx = opsGuideContext();
+    if (!ctx) return;
+    const collapsedClass = opsGuideCollapsed ? ' collapsed' : '';
+    const stepLabel = ctx.step > 0 ? `<span class="ops-guide-step">Step ${ctx.step}</span>` : '';
+    const actions =
+      ctx.actions && ctx.actions.length
+        ? `<div class="ops-guide-actions">${ctx.actions
+            .map((a) => {
+              if (a.effect === 'tab') {
+                return `<button type="button" class="btn secondary" data-ops-tab="${a.tab}">${a.label}</button>`;
+              }
+              if (a.effect === 'airport' && a.airport) {
+                return `<button type="button" class="btn secondary" data-ops-airport="${a.airport}">${a.label}</button>`;
+              }
+              if (a.effect === 'focus_map') {
+                return `<button type="button" class="btn secondary" data-ops-map="1">${a.label}</button>`;
+              }
+              return '';
+            })
+            .join('')}</div>`
+        : '';
+    el.className = `ops-guide${collapsedClass}`;
+    el.innerHTML = `<div class="ops-guide-head">
+        <strong>What to do next</strong>
+        <button type="button" class="ops-guide-toggle" data-ops-collapse>${opsGuideCollapsed ? 'Show' : 'Hide'}</button>
+      </div>
+      <div class="ops-guide-body">
+        <p>${stepLabel}${ctx.text}</p>
+        ${actions}
+      </div>`;
+    const collapseBtn = el.querySelector('[data-ops-collapse]');
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => {
+        opsGuideCollapsed = !opsGuideCollapsed;
+        renderOpsGuide();
+      });
+    }
+    el.querySelectorAll('[data-ops-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.opsTab));
+    });
+    el.querySelectorAll('[data-ops-airport]').forEach((btn) => {
+      btn.addEventListener('click', () => selectAirport(btn.dataset.opsAirport));
+    });
+    const mapBtn = el.querySelector('[data-ops-map]');
+    if (mapBtn) {
+      mapBtn.addEventListener('click', () => {
+        const map = $('runway-map');
+        if (map) map.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    }
+  }
+
   function setHudFinancialsView(view) {
     hudFinancialsView = view === 'personal' ? 'personal' : 'company';
     renderFinancialsPanel();
@@ -5711,10 +5875,15 @@
     const showClock = state.speed === 'slow' || state.hour != null;
     setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
     setText('hud-pnl', fmtMoney(state.daily_pnl));
-    const identity = state.player_name
-      ? `CEO ${state.player_name} · ${state.airline_name || 'Airline'}`
-      : state.airline_name || 'Airline';
-    setText('hud-airline', identity);
+    const rb = bootstrap.routelab || {};
+    const productName = rb.name || 'Route Lab';
+    setText('hud-product-name', productName);
+    const logo = $('hud-product-logo');
+    if (logo && rb.logo_url) logo.src = rb.logo_url;
+    const airlineLine = state.player_name
+      ? `${state.airline_name || 'Airline'} · CEO ${state.player_name}`
+      : state.airline_name || 'Your airline';
+    setText('hud-airline', airlineLine);
     renderFinancialsPanel();
 
     const runwayMo = runwayMonths();
@@ -6326,6 +6495,7 @@
     const panels = [
       renderScoreboardBar,
       renderHud,
+      renderOpsGuide,
       drawMap,
       renderFinance,
       renderEconomy,
@@ -6503,6 +6673,8 @@
     window.scrollTo(0, 0);
     if (title) title.textContent = sc.name;
     if (brief) brief.textContent = sc.briefing;
+    const snapshot = $('name-step-snapshot');
+    if (snapshot) snapshot.innerHTML = scenarioSnapshotHtml(sc);
     if (playerInput) playerInput.value = sc.player_name || '';
     if (airlineInput) airlineInput.value = sc.airline_name || '';
     renderEmblemPicker();
@@ -6658,6 +6830,7 @@
     const sbToggle = $('scoreboard-brand');
     if (sbToggle) sbToggle.addEventListener('click', toggleScoreboard);
 
+    applyRouteLabBranding();
     if (loadGame()) {
       showScreen('screen-game');
       setSpeed(state.speed || 'pause');
@@ -6672,15 +6845,28 @@
   function renderScenarioPicker() {
     const el = $('scenario-list');
     if (!el) return;
-    el.innerHTML = Object.values(bootstrap.scenarios)
-      .map(
-        (s) => `
-      <button type="button" class="scenario-card" data-scenario="${s.id}">
+    const sorted = Object.values(bootstrap.scenarios).sort((a, b) => {
+      if (a.tutorial && !b.tutorial) return -1;
+      if (!a.tutorial && b.tutorial) return 1;
+      return (a.name || '').localeCompare(b.name || '');
+    });
+    el.innerHTML = sorted
+      .map((s) => {
+        const diff = scenarioDifficultyMeta(s);
+        const chips = scenarioStartingChips(s)
+          .map((c) => `<span class="scenario-chip">${c}</span>`)
+          .join('');
+        const tutorialBadge = s.tutorial
+          ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended for new players</span>'
+          : '';
+        return `<button type="button" class="scenario-card" data-scenario="${s.id}">
+        <span class="scenario-diff ${diff.tone}">${diff.label}</span>
         <strong>${s.name}</strong>
         <span>${s.tagline}</span>
+        <div class="scenario-card-meta">${chips}${tutorialBadge}</div>
         <p>${s.briefing}</p>
-      </button>`
-      )
+      </button>`;
+      })
       .join('');
     el.querySelectorAll('[data-scenario]').forEach((btn) => {
       btn.addEventListener('click', () => showScenarioNameStep(btn.dataset.scenario));
