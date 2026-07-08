@@ -15,6 +15,10 @@
   let activeMapKey = 'usa';
   let tutorialHighlightResize = null;
   let tutorialGlowTarget = null;
+  let fleetShopOpen = false;
+  let hudPanels = { financials: false, economy: false };
+  let airportSections = { market: false, competition: true, position: true };
+  let contextPulseTimer = null;
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -2108,6 +2112,7 @@
 
   function selectFleetOffer(type, mode) {
     const ac = aircraftType(type);
+    fleetShopOpen = true;
     fleetPending = {
       type,
       mode,
@@ -2527,12 +2532,128 @@
     applyMapView();
   }
 
+  function panelSectionHtml(sectionId, title, expanded, bodyHtml) {
+    return `
+      <div class="panel-card" id="ap-section-${sectionId}">
+        <button type="button" class="panel-section-toggle" data-airport-section="${sectionId}" aria-expanded="${expanded}">
+          <span>${title}</span>
+          <span class="chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="panel-section-body${expanded ? '' : ' collapsed'}">${bodyHtml}</div>
+      </div>`;
+  }
+
+  function bindAirportPanelToggles() {
+    document.querySelectorAll('[data-airport-section]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.airportSection;
+        airportSections[key] = !airportSections[key];
+        if (selectedAirport) renderAirportPanel(selectedAirport);
+      });
+    });
+  }
+
+  function applyAirportContext(iata) {
+    const ap = airport(iata);
+    if (!ap || !state) return;
+    const gate = state.gates.find((g) => g.airport === iata);
+    const routesFrom = state.routes.filter((r) => r.origin === iata);
+    const compRoutes = competitorRoutesAt(iata);
+    const hasCompetition = (ap.incumbents && ap.incumbents.length) || compRoutes.length > 0;
+
+    airportSections = {
+      market: false,
+      competition: !!gate && hasCompetition,
+      position: !gate || !hasCompetition,
+    };
+    if (!gate) airportSections.position = true;
+
+    if (routesFrom.length) {
+      switchTab('routes');
+    } else if (!gate) {
+      scheduleContextPulse('#ap-section-position');
+    } else if (hasCompetition) {
+      scheduleContextPulse('#ap-section-competition');
+    }
+  }
+
+  function scheduleContextPulse(selector, scrollParent) {
+    if (contextPulseTimer) clearTimeout(contextPulseTimer);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(selector);
+      if (!el) return;
+      if (scrollParent) {
+        const parent = document.querySelector(scrollParent);
+        if (parent && parent.scrollIntoView) {
+          try {
+            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          } catch (e) {
+            el.scrollIntoView();
+          }
+        }
+      }
+      el.classList.remove('context-pulse');
+      void el.offsetWidth;
+      el.classList.add('context-pulse');
+      contextPulseTimer = setTimeout(() => el.classList.remove('context-pulse'), 2400);
+    });
+  }
+
+  function toggleHudPanel(name) {
+    if (!hudPanels.hasOwnProperty(name)) return;
+    hudPanels[name] = !hudPanels[name];
+    const panel = $(`hud-panel-${name}`);
+    const btn = $(`hud-toggle-${name}`);
+    if (panel) panel.classList.toggle('open', hudPanels[name]);
+    if (btn) {
+      btn.classList.toggle('open', hudPanels[name]);
+      btn.setAttribute('aria-expanded', hudPanels[name] ? 'true' : 'false');
+    }
+    if (name === 'financials' && hudPanels.financials) {
+      hudPanels.economy = false;
+      const ecoPanel = $('hud-panel-economy');
+      const ecoBtn = $('hud-toggle-economy');
+      if (ecoPanel) ecoPanel.classList.remove('open');
+      if (ecoBtn) {
+        ecoBtn.classList.remove('open');
+        ecoBtn.setAttribute('aria-expanded', 'false');
+      }
+    }
+    if (name === 'economy' && hudPanels.economy) {
+      hudPanels.financials = false;
+      const finPanel = $('hud-panel-financials');
+      const finBtn = $('hud-toggle-financials');
+      if (finPanel) finPanel.classList.remove('open');
+      if (finBtn) {
+        finBtn.classList.remove('open');
+        finBtn.setAttribute('aria-expanded', 'false');
+      }
+    }
+  }
+
+  function toggleFleetShop(force) {
+    fleetShopOpen = typeof force === 'boolean' ? force : !fleetShopOpen;
+    renderFleet();
+  }
+
+  function renderAirportEmpty() {
+    const panel = $('airport-panel');
+    if (!panel) return;
+    panel.innerHTML =
+      '<p class="airport-empty muted">Click an airport on the map to scout <b>markets</b>, <b>competitors</b>, and <b>gates</b>.</p>';
+  }
+
   function selectAirport(iata) {
     selectedAirport = iata;
+    const routesFrom = state.routes.filter((r) => r.origin === iata);
+    applyAirportContext(iata);
     renderAirportPanel(iata);
     drawMap();
     const routesPanel = $('panel-routes');
-    if (routesPanel && routesPanel.classList.contains('active')) renderRoutes();
+    if (routesPanel && routesPanel.classList.contains('active')) {
+      renderRoutes();
+      if (routesFrom.length) scheduleContextPulse(`.route-card[data-origin="${iata}"]`, '#panel-routes');
+    }
   }
 
   function renderAirportPanel(iata) {
@@ -2540,55 +2661,67 @@
     const panel = $('airport-panel');
     if (!ap || !panel) return;
     const gate = state.gates.find((g) => g.airport === iata);
-    panel.innerHTML = `
-      <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
-      <p class="muted">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
+    const compRoutes = competitorRoutesAt(iata);
+
+    const marketBody = `
       <dl class="stat-dl">
-        <dt>Metro pop</dt><dd>${ap.metro_pop_m}M</dd>
-        <dt>Annual pax</dt><dd>${ap.annual_pax_m}M</dd>
         <dt>Wealth index</dt><dd>${(airportWealth(ap) * 100).toFixed(0)}</dd>
-        <dt>Luxury demand</dt><dd>${(airportLuxury(ap) * 100).toFixed(0)}%</dd>
-        <dt>Gates open</dt><dd>${ap.gates_available} / ${ap.gates_total}</dd>
+        <dt>Metro pop</dt><dd>${ap.metro_pop_m}M</dd>
         <dt>Top carrier</dt><dd>${ap.hub_airline || '—'} (${(ap.hub_strength * 100).toFixed(0)}%)</dd>
-        <dt>Slot controlled</dt><dd>${ap.slot_controlled ? 'Yes' : 'No'}</dd>
-        <dt>Your gate</dt><dd>${gate ? `${gate.tier} ($${gate.monthly.toLocaleString()}/mo)` : 'None'}</dd>
-        <dt>Brand awareness</dt><dd>${(state.brand_awareness[iata] || 0).toFixed(0)}%</dd>
+        <dt>Gates open</dt><dd>${ap.gates_available} / ${ap.gates_total}</dd>
       </dl>
-      ${
-        ap.incumbents && ap.incumbents.length
-          ? `<h4 style="font-size:0.82rem;margin:10px 0 6px;color:var(--gold);">Competitors here</h4>
-        <ul class="list incumbent-list">${ap.incumbents
-          .map(
-            (c) =>
-              `<li><strong>${c.airline}</strong> <span class="muted">${(c.share * 100).toFixed(0)}% · ${c.tier}</span></li>`
-          )
-          .join('')}</ul>`
-          : '<p class="muted" style="font-size:0.75rem;">No major scheduled incumbents — thin or GA market.</p>'
-      }
-      ${
-        competitorRoutesAt(iata).length
-          ? `<h4 style="font-size:0.82rem;margin:10px 0 6px;color:#ff9b7a;">Competitor routes</h4>
-        <ul class="list incumbent-list">${competitorRoutesAt(iata)
+      <p class="muted" style="font-size:0.72rem;margin-top:6px;">Annual pax ${ap.annual_pax_m}M · Luxury ${(airportLuxury(ap) * 100).toFixed(0)}% · Slots ${ap.slot_controlled ? 'controlled' : 'open'}</p>`;
+
+    let competitionBody = '';
+    if (ap.incumbents && ap.incumbents.length) {
+      competitionBody += `<ul class="list incumbent-list">${ap.incumbents
+        .map(
+          (c) =>
+            `<li><strong>${c.airline}</strong> <span class="muted">${(c.share * 100).toFixed(0)}% · ${c.tier}</span></li>`
+        )
+        .join('')}</ul>`;
+    } else {
+      competitionBody += '<p class="muted">No major scheduled incumbents — thin or GA market.</p>';
+    }
+    if (compRoutes.length) {
+      competitionBody += `<p class="muted" style="font-size:0.72rem;margin:8px 0 4px;color:#ff9b7a;">Competitor routes</p>
+        <ul class="list incumbent-list">${compRoutes
           .map(
             (cr) =>
               `<li><strong>${cr.airline}</strong> ${cr.origin}–${cr.dest} <span class="muted">${cr.frequency_week}x/wk · $${cr.fare}</span></li>`
           )
-          .join('')}</ul>`
-          : ''
+          .join('')}</ul>`;
+    }
+
+    const positionBody = `
+      <dl class="stat-dl">
+        <dt>Your gate</dt><dd>${gate ? `${gate.tier} ($${gate.monthly.toLocaleString()}/mo)` : '<span class="danger">None — lease below</span>'}</dd>
+        <dt>Brand awareness</dt><dd>${(state.brand_awareness[iata] || 0).toFixed(0)}%</dd>
+      </dl>
+      ${
+        gate
+          ? ''
+          : `<div class="btn-row" style="margin-top:8px;">
+        <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">Common-use (3yr)</button>
+        <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">Exclusive (5yr)</button>
+      </div>`
       }
-      ${gate ? '' : `
-        <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">Lease common-use (3yr)</button>
-        <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">Lease exclusive (5yr)</button>
-      `}
-      <div class="mkt-box">
-        <label for="mkt-input-${iata}">Marketing budget $/mo
+      <div class="mkt-box" style="margin-top:10px;padding-top:10px;">
+        <label for="mkt-input-${iata}">Marketing $/mo
           <input type="number" id="mkt-input-${iata}" min="0" step="1000" value="${clampMoney(state.marketing_spend_monthly[iata])}">
         </label>
-        <p class="muted" style="font-size:0.75rem;margin:6px 0;">Active spend: <b>${fmtMoney(clampMoney(state.marketing_spend_monthly[iata]))}/mo</b></p>
+        <p class="muted" style="font-size:0.72rem;margin:6px 0;">Active: <b>${fmtMoney(clampMoney(state.marketing_spend_monthly[iata]))}/mo</b></p>
         <button type="button" class="btn" onclick="Runway.applyMarketing('${iata}')">Apply budget</button>
-      </div>
-      <p class="muted" style="margin-top:8px;font-size:0.75rem;">OTA amplify: ${otaEffects().marketingAmplify.toFixed(2)}× · Country demand: ${(macroDemandMultiplier() * 100).toFixed(0)}%</p>
+      </div>`;
+
+    panel.innerHTML = `
+      <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
+      <p class="muted" style="font-size:0.75rem;margin-bottom:4px;">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
+      ${panelSectionHtml('market', 'Market snapshot', airportSections.market, marketBody)}
+      ${panelSectionHtml('competition', 'Competition', airportSections.competition, competitionBody)}
+      ${panelSectionHtml('position', gate ? 'Your position' : 'Lease a gate', airportSections.position, positionBody)}
     `;
+    bindAirportPanelToggles();
   }
 
   function setText(id, text) {
@@ -2596,10 +2729,18 @@
     if (el) el.textContent = text;
   }
 
+  function setStatPillTone(pillId, tone) {
+    const pill = $(pillId);
+    if (!pill) return;
+    pill.classList.remove('stat-pill-warn', 'stat-pill-danger', 'stat-pill-good');
+    if (tone) pill.classList.add(`stat-pill-${tone}`);
+  }
+
   function renderHud() {
     if (!state) return;
     setText('hud-cash', fmtMoney(state.cash));
-    setText('hud-runway', state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`);
+    const runwayText = state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`;
+    setText('hud-runway', runwayText);
     const showClock = state.speed === 'slow' || state.hour != null;
     setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
     setText('hud-equity', `${(state.equity_pct || 0).toFixed(1)}%`);
@@ -2612,12 +2753,27 @@
     setText('hud-airline', identity);
     setText('hud-networth', fmtMoney(computeNetWorth()));
     setText('hud-ltm', fmtMoney(state.ltm_revenue));
+
+    const runwayMo = runwayMonths();
+    if (state.cash < 0) setStatPillTone('hud-pill-runway', 'danger');
+    else if (runwayMo < 4) setStatPillTone('hud-pill-runway', 'warn');
+    else setStatPillTone('hud-pill-runway', null);
+
+    if (state.cash < 500_000) setStatPillTone('hud-pill-cash', 'warn');
+    else setStatPillTone('hud-pill-cash', null);
+
+    const pnl = state.daily_pnl || 0;
+    if (pnl > 0) setStatPillTone('hud-pill-pnl', 'good');
+    else if (pnl < 0) setStatPillTone('hud-pill-pnl', 'danger');
+    else setStatPillTone('hud-pill-pnl', null);
+
     const macroEl = $('hud-macro');
     if (macroEl && state.macro) {
       ensureMacro();
       const cashYield = state.cash > 0 ? (cashInterestAnnualRate() * 100).toFixed(2) : '0.00';
+      const ota = otaEffects();
       macroEl.textContent =
-        `Infl ${state.macro.inflation_pct.toFixed(1)}% · GDP ${state.macro.gdp_growth_pct >= 0 ? '+' : ''}${state.macro.gdp_growth_pct.toFixed(1)}% · Travel ${state.macro.travel_spend_growth_pct >= 0 ? '+' : ''}${state.macro.travel_spend_growth_pct.toFixed(1)}% · US ${state.macro.country_health.toFixed(0)} · Cash yield ${cashYield}%`;
+        `Inflation ${state.macro.inflation_pct.toFixed(1)}% · GDP ${state.macro.gdp_growth_pct >= 0 ? '+' : ''}${state.macro.gdp_growth_pct.toFixed(1)}% · Travel demand ${state.macro.travel_spend_growth_pct >= 0 ? '+' : ''}${state.macro.travel_spend_growth_pct.toFixed(1)}% · Country health ${state.macro.country_health.toFixed(0)}/100 · Passenger demand ${(macroDemandMultiplier() * 100).toFixed(0)}% · OTA boost +${((ota.demandMult - 1) * 100).toFixed(0)}% · Cash yield ${cashYield}%/yr`;
     }
   }
 
@@ -2627,7 +2783,7 @@
     ensureMacro();
     const m = state.macro;
     const ota = otaEffects();
-    let html = `<h3>${m.country} economy</h3>
+    let html = `<h3>Market — ${m.country}</h3>
       <dl class="stat-dl">
         <dt>Inflation</dt><dd>${m.inflation_pct.toFixed(1)}% <span class="muted">(-2% to 6%)</span></dd>
         <dt>GDP growth</dt><dd>${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%</dd>
@@ -2661,7 +2817,7 @@
     const nw = computeNetWorthBreakdown() || {
       total: 0, equity_value: 0, cash: 0, fleet: 0, gates: 0, brand: 0, routes: 0, debt: 0, bonds: 0, lease_liabilities: 0,
     };
-    let html = `<h3>Capital structure</h3>
+    let html = `<h3>Capital</h3>
       <p>Debt: ${state.debt.map((d) => `${d.name} ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p>Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p class="muted">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
@@ -2700,52 +2856,64 @@
   function renderFleet() {
     const el = $('tab-fleet');
     if (!el) return;
-    let html = '<h3>Your fleet</h3>';
+    let html = '<h3>Fleet</h3>';
     if (!state.fleet.length) {
-      html += '<p class="muted">No aircraft yet — select a type below, configure seats, then confirm lease or purchase.</p>';
+      html += '<p class="muted">No aircraft yet — open the shop to lease or buy your first plane.</p>';
     } else {
-      html += '<ul class="list">';
+      html += '<div class="fleet-owned-list">';
       state.fleet.forEach((f) => {
         const ac = aircraftType(f.type);
         if (!ac) {
-          html += `<li><strong>${f.type || 'Unknown aircraft'}</strong> — missing type data</li>`;
+          html += `<div class="fleet-owned-card"><strong>${f.type || 'Unknown'}</strong> — missing type data</div>`;
           return;
         }
         const seats = fleetSeatCount(f);
         const life = f.leased
-          ? `${f.lease_months_left || '?'} mo lease left`
-          : `${Math.ceil((f.life_months_left || 0) / 12)} yr life left · ${fmtMoney(ac.maintenance_monthly)}/mo maint`;
+          ? `${f.lease_months_left || '?'} mo lease`
+          : `${Math.ceil((f.life_months_left || 0) / 12)} yr life`;
         const util = planeMonthUtilizationPct(f);
         const utilToday = planeUtilizationPct(f);
-        const aog = f.aog_days_left > 0 ? `<span class="danger"> · AOG ${f.aog_days_left}d</span>` : '';
-        const utilClass = util < 40 ? 'danger' : util > 85 ? 'via-good' : 'muted';
-        html += `<li><strong>${ac.name}</strong> (${seats} seats) — ${f.leased ? 'Leased' : 'Owned'}${aog}<br>
-          <span class="muted">${ac.size} · ${ac.range_nm} nm · Comfort ${comfortStars(ac.comfort_rating)} · ${life}</span><br>
-          <span class="${utilClass}" style="font-size:0.72rem;">Util ${util.toFixed(0)}% MTD · ${utilToday.toFixed(0)}% today (target ${planeTargetBlockHoursDay(f)} block hr/day)</span></li>`;
+        const aog = f.aog_days_left > 0 ? ` <span class="danger">AOG ${f.aog_days_left}d</span>` : '';
+        const utilBarClass = util < 40 ? 'util-bad' : util > 85 ? '' : 'util-warn';
+        const assigned = state.routes.filter((r) => r.aircraft_id === f.id).length;
+        html += `<div class="fleet-owned-card">
+          <strong>${ac.name}</strong>${aog}
+          <span class="muted">${seats} seats · ${f.leased ? 'Leased' : 'Owned'} · ${life}</span>
+          <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'}</span>
+          <span class="muted" style="font-size:0.7rem;">Util ${util.toFixed(0)}% MTD · ${utilToday.toFixed(0)}% today</span>
+          <div class="util-bar ${utilBarClass}"><span style="width:${Math.min(100, util)}%"></span></div>
+        </div>`;
       });
-      html += '</ul>';
+      html += '</div>';
+      html +=
+        '<p class="muted" style="font-size:0.72rem;">Leased aircraft bill monthly even when <b>AOG</b>. Match size to route demand.</p>';
     }
 
-    html += `<p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Leased aircraft bill monthly whether they fly or sit <b>AOG</b> (aircraft on ground). High utilization raises maintenance risk but earns revenue.</p>`;
-    html += '<h4>Add aircraft</h4><p class="muted">Choose type → set seats → confirm lease or buy.</p><div class="fleet-grid">';
-    Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
-      const ac = aircraftType(tid);
-      if (!ac) return;
-      const active = fleetPending && fleetPending.type === tid;
-      html += `<div class="fleet-card ${active ? 'active' : ''}">
-        <strong>${ac.name}</strong>
-        <span class="muted">${ac.category} · ${ac.size}</span>
-        <span>${ac.seats_min}–${ac.seats_max} seats · ${ac.range_nm} nm</span>
-        <span>Comfort ${comfortStars(ac.comfort_rating)} (${ac.comfort_rating})</span>
-        <span>Lease ${fmtMoney(ac.lease_monthly)}/mo · Buy ${fmtMoney(ac.purchase)}</span>
-        ${ac.maintenance_monthly ? `<span class="muted">Owned maint ${fmtMoney(ac.maintenance_monthly)}/mo · ${ac.lifespan_years}yr life</span>` : ''}
-        <div class="btn-row">
-          <button class="btn secondary" onclick="Runway.selectFleet('${tid}','lease')">Lease…</button>
-          <button class="btn secondary" onclick="Runway.selectFleet('${tid}','buy')">Buy…</button>
-        </div>
-      </div>`;
-    });
-    html += '</div>';
+    html += `<div class="btn-row">
+      <button type="button" class="btn ${fleetShopOpen ? 'secondary' : ''}" onclick="Runway.toggleFleetShop()">${fleetShopOpen ? 'Hide aircraft shop' : '+ Lease / Buy aircraft'}</button>
+    </div>`;
+
+    if (fleetShopOpen) {
+      html += `<div class="fleet-shop-panel">
+        <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">Choose type → set seats → confirm.</p>
+        <div class="fleet-grid">`;
+      Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
+        const ac = aircraftType(tid);
+        if (!ac) return;
+        const active = fleetPending && fleetPending.type === tid;
+        html += `<div class="fleet-card ${active ? 'active' : ''}">
+          <strong>${ac.name}</strong>
+          <span class="muted">${ac.category} · ${ac.size}</span>
+          <span>${ac.seats_min}–${ac.seats_max} seats · ${ac.range_nm} nm</span>
+          <span>Lease ${fmtMoney(ac.lease_monthly)}/mo · Buy ${fmtMoney(ac.purchase)}</span>
+          <div class="btn-row">
+            <button class="btn secondary" onclick="Runway.selectFleet('${tid}','lease')">Lease…</button>
+            <button class="btn secondary" onclick="Runway.selectFleet('${tid}','buy')">Buy…</button>
+          </div>
+        </div>`;
+      });
+      html += '</div></div>';
+    }
 
     if (fleetPending) {
       const ac = aircraftType(fleetPending.type);
@@ -2771,42 +2939,58 @@
     const defAp = airport(defOrigin);
     const defLabel = defAp ? airportLabel(defAp) : '';
 
-    let html = '<h3>Active routes</h3>';
+    let html = '<h3>Routes</h3>';
+    html += '<p class="ops-section-title">Running now</p>';
     if (!state.routes.length) {
-      html += '<p class="muted">No routes yet.</p>';
+      html += '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
     } else {
-      html += '<table class="data-table"><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Ancillary</th><th>Rev/pax</th><th>Load</th><th>P&L</th></tr>';
+      html += '<div class="route-list">';
       state.routes.forEach((route) => {
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
-        const loadPct = r.grounded ? 'AOG' : Number.isFinite(r.load) ? `${(r.load * 100).toFixed(0)}%` : '—';
+        const loadNum = r.grounded ? null : r.load;
+        const loadLabel = r.grounded ? 'AOG' : Number.isFinite(loadNum) ? `${(loadNum * 100).toFixed(0)}% load` : '—';
+        const loadClass = r.grounded
+          ? 'chip-load-bad'
+          : loadNum >= 0.7
+            ? 'chip-load-good'
+            : loadNum >= 0.45
+              ? 'chip-load-warn'
+              : 'chip-load-bad';
         const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
         const mode = route.fare_mode === 'manual' ? 'manual' : 'auto';
         const anc = route.ancillary_mode || 'auto';
         const revPerPax = r.pax > 0 ? Math.round(r.revenue / r.pax) : 0;
         const buckets = routeFareBuckets(route);
         const bucketHint = buckets.map((b) => `$${b.fare}`).join(' / ');
-        html += `<tr>
-          <td>${route.origin}–${route.dest}</td>
-          <td>${route.frequency_week}/wk</td>
-          <td>
-            <input type="number" min="49" max="899" value="${route.fare}" style="width:62px;padding:4px;"
-              onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
-            <span class="muted" style="font-size:0.65rem;">${mode}</span>
-          </td>
-          <td>
-            <select style="font-size:0.7rem;padding:2px;" onchange="Runway.setRouteAncillary('${route.id}', this.value)">
-              <option value="auto" ${anc === 'auto' ? 'selected' : ''}>Auto</option>
-              <option value="aggressive" ${anc === 'aggressive' ? 'selected' : ''}>Heavy</option>
-              <option value="minimal" ${anc === 'minimal' ? 'selected' : ''}>Min</option>
-            </select>
-          </td>
-          <td class="muted" title="Ticket + bags/seats">$${revPerPax}<br><span style="font-size:0.65rem;">mkt $${market}</span></td>
-          <td>${loadPct}</td>
-          <td>${fmtMoney(pnl)}</td>
-        </tr>`;
+        const pnlClass = pnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
+        html += `<div class="route-card" data-origin="${route.origin}" data-dest="${route.dest}">
+          <div class="route-card-head">
+            <strong>${route.origin}–${route.dest}</strong>
+            <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
+          </div>
+          <div class="route-card-meta">
+            <span>${route.frequency_week}/wk</span>
+            <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
+            <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
+          </div>
+          <div class="route-card-controls">
+            <label>Fare $ (${mode})
+              <input type="number" min="49" max="899" value="${route.fare}"
+                onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
+            </label>
+            <label>Ancillary
+              <select onchange="Runway.setRouteAncillary('${route.id}', this.value)">
+                <option value="auto" ${anc === 'auto' ? 'selected' : ''}>Auto</option>
+                <option value="aggressive" ${anc === 'aggressive' ? 'selected' : ''}>Heavy</option>
+                <option value="minimal" ${anc === 'minimal' ? 'selected' : ''}>Min</option>
+              </select>
+            </label>
+          </div>
+          <p class="route-card-hint muted">Buckets: ${bucketHint}</p>
+        </div>`;
       });
-      html += '</table><p class="muted" style="font-size:0.72rem;"><b>Fare buckets</b> (basic / standard / flex) set ticket mix. <b>Ancillary</b> adds bags, seats, priority per passenger — Allegiant-style markets reward ancillary-heavy. Competitor overlap on the same city pair steals demand.</p>';
+      html += '</div>';
     }
 
     const fleetOpts = state.fleet.length
@@ -2819,8 +3003,8 @@
           .join('')
       : '<option value="">— add aircraft in Fleet tab —</option>';
 
-    html += `<h4>Open route</h4>
-      <p class="muted">Pick a suggested destination or search manually. Origin defaults to your map selection.</p>
+    html += `<p class="ops-section-title">Launch route</p>
+      <p class="muted" style="font-size:0.75rem;">Origin follows your map selection (<b>${defOrigin}</b>). Try a suggestion first.</p>
       <div id="route-suggestions"></div>
       <datalist id="airport-list">${airportDatalistHtml()}</datalist>
       <div id="route-preview" class="route-preview muted"></div>
@@ -2833,15 +3017,17 @@
           <input type="text" id="rt-dest-search" list="airport-list" placeholder="CVG — Cincinnati">
           <input type="hidden" id="rt-dest-code" value="">
         </label>
-        <label>Aircraft (your fleet)
+        <label>Aircraft
           <select id="rt-aircraft">${fleetOpts}</select>
         </label>
         <label>Freq/wk <input id="rt-freq" type="number" value="7" min="1" max="28"></label>
-        <label>Fare $ <input id="rt-fare" type="number" value="129" min="49" max="899">
-          <span class="muted" style="font-size:0.68rem;">Auto-adjusts unless you override · preview updates live</span>
+        <label>Fare $
+          <input id="rt-fare" type="number" value="129" min="49" max="899">
         </label>
       </div>
-      <button class="btn" onclick="Runway.submitRoute()">Launch route</button>`;
+      <div class="launch-route-sticky">
+        <button class="btn" onclick="Runway.submitRoute()">Launch route</button>
+      </div>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
     renderRouteSuggestions();
@@ -3000,12 +3186,11 @@
         console.error('Runway render error:', fn.name || 'panel', err);
       }
     });
-    if (selectedAirport) {
-      try {
-        renderAirportPanel(selectedAirport);
-      } catch (err) {
-        console.error('Runway render error: renderAirportPanel', err);
-      }
+    try {
+      if (selectedAirport) renderAirportPanel(selectedAirport);
+      else renderAirportEmpty();
+    } catch (err) {
+      console.error('Runway render error: renderAirportPanel', err);
     }
     const banner = $('pause-banner');
     if (banner) {
@@ -3168,14 +3353,13 @@
     });
 
     document.querySelectorAll('[data-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('[data-tab]').forEach((b) => b.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
-        btn.classList.add('active');
-        $(`panel-${btn.dataset.tab}`).classList.add('active');
-        if (btn.dataset.tab === 'routes') renderRoutes();
-      });
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
+
+    const hudFin = $('hud-toggle-financials');
+    const hudEco = $('hud-toggle-economy');
+    if (hudFin) hudFin.addEventListener('click', () => toggleHudPanel('financials'));
+    if (hudEco) hudEco.addEventListener('click', () => toggleHudPanel('economy'));
 
     if (loadGame()) {
       showScreen('screen-game');
@@ -3225,6 +3409,12 @@
     setRouteAncillary,
     resetRouteFare,
     toggleOta: toggleOtaListing,
+    toggleFleetShop,
+    toggleAirportSection: (section) => {
+      if (!airportSections.hasOwnProperty(section)) return;
+      airportSections[section] = !airportSections[section];
+      if (selectedAirport) renderAirportPanel(selectedAirport);
+    },
     newGame: (id) => {
       showScreen('screen-game');
       newGame(id);

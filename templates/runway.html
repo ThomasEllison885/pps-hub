@@ -65,17 +65,66 @@
     flex-wrap: wrap;
     gap: 8px 12px;
   }
-  .hud-macro-row {
-    flex: 1 1 100%;
-    order: 10;
-    line-height: 1.4;
-  }
   .game-header h1 { font-size: 1.1rem; color: var(--gold); }
-  .hud {
+  .hud-identity { flex: 1 1 140px; min-width: 120px; }
+  .hud-primary {
     display: flex;
     flex-wrap: wrap;
-    gap: 16px;
-    font-size: 0.8rem;
+    gap: 8px;
+    align-items: center;
+  }
+  .stat-pill {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.6);
+    font-size: 0.72rem;
+    min-width: 72px;
+  }
+  .stat-pill-label { color: var(--muted); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-pill b { color: #fff; font-size: 0.82rem; }
+  .stat-pill.stat-pill-warn { border-color: rgba(255, 209, 102, 0.45); background: rgba(255, 209, 102, 0.06); }
+  .stat-pill.stat-pill-danger { border-color: rgba(255, 107, 107, 0.5); background: rgba(255, 107, 107, 0.08); }
+  .stat-pill.stat-pill-good { border-color: rgba(0, 200, 150, 0.45); background: rgba(0, 200, 150, 0.06); }
+  .hud-drawers {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .hud-chip {
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 6px 11px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .hud-chip:hover { color: var(--text); border-color: var(--accent); }
+  .hud-chip.open { color: var(--accent); border-color: var(--accent); background: rgba(0, 200, 150, 0.08); }
+  .hud-expand-row {
+    flex: 1 1 100%;
+    order: 10;
+    display: none;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 10px 0 2px;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+  }
+  .hud-expand-row.open { display: flex; }
+  .hud-expand-row .stat-pill { min-width: 88px; }
+  .hud-macro-line {
+    flex: 1 1 100%;
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.45;
+    padding-top: 2px;
   }
   .hud b { color: #fff; }
   .hud .danger { color: var(--danger); }
@@ -420,8 +469,53 @@
     color: var(--text);
     font: inherit;
   }
-  #airport-panel { padding: 16px; border-bottom: 1px solid var(--border); }
-  #airport-panel h3 { font-size: 1rem; color: var(--gold); }
+  #airport-panel { padding: 12px 14px; border-bottom: 1px solid var(--border); max-height: 42vh; overflow-y: auto; }
+  #airport-panel h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 2px; }
+  .airport-empty { font-size: 0.8rem; line-height: 1.5; padding: 8px 4px; }
+  .panel-card {
+    margin-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(6, 13, 24, 0.45);
+    overflow: hidden;
+  }
+  .panel-section-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 11px;
+    border: none;
+    background: transparent;
+    color: var(--gold);
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+  }
+  .panel-section-toggle:hover { background: rgba(255, 255, 255, 0.03); }
+  .panel-section-toggle .chevron {
+    color: var(--muted);
+    font-size: 0.7rem;
+    transition: transform 0.15s;
+  }
+  .panel-section-toggle[aria-expanded="true"] .chevron { transform: rotate(180deg); }
+  .panel-section-body {
+    padding: 0 11px 11px;
+    font-size: 0.78rem;
+  }
+  .panel-section-body.collapsed { display: none; }
+  .panel-section-body .stat-dl { margin: 4px 0 0; font-size: 0.75rem; }
+  .context-pulse {
+    animation: context-pulse 2.2s ease-out 1;
+    box-shadow: 0 0 0 2px var(--accent), 0 0 18px rgba(0, 200, 150, 0.35);
+  }
+  @keyframes context-pulse {
+    0% { box-shadow: 0 0 0 2px var(--accent), 0 0 22px rgba(0, 200, 150, 0.55); }
+    100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
+  }
   #pause-banner {
     display: none;
     background: #3d1515;
@@ -438,11 +532,103 @@
   }
   .back-link:hover { color: var(--accent); }
 
+  .route-list { display: grid; gap: 8px; margin: 10px 0 14px; }
+  .route-card {
+    padding: 10px 11px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+  .route-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .route-card-head strong { font-size: 0.88rem; color: #fff; }
+  .route-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+    font-size: 0.72rem;
+  }
+  .route-card-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .route-card-controls label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 0.68rem;
+    color: var(--muted);
+  }
+  .route-card-controls input,
+  .route-card-controls select {
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: 0.75rem;
+  }
+  .route-card-hint { font-size: 0.68rem; margin-top: 6px; }
+  .chip-load-good { color: #5dffa8; }
+  .chip-load-warn { color: var(--gold); }
+  .chip-load-bad { color: var(--danger); }
+  .chip-pnl-pos { color: #5dffa8; }
+  .chip-pnl-neg { color: var(--danger); }
+
+  .fleet-owned-list { display: grid; gap: 8px; margin: 10px 0; }
+  .fleet-owned-card {
+    padding: 10px 11px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .fleet-owned-card strong { color: #fff; font-size: 0.82rem; }
+  .util-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--border);
+    margin-top: 6px;
+    overflow: hidden;
+  }
+  .util-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+  .util-bar.util-warn span { background: var(--gold); }
+  .util-bar.util-bad span { background: var(--danger); }
+  .fleet-shop-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .ops-section-title {
+    font-size: 0.82rem;
+    color: var(--gold);
+    margin: 14px 0 6px;
+    font-weight: 600;
+  }
+  .launch-route-sticky {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+  }
+
   .fleet-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-    margin: 12px 0;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin: 10px 0;
   }
   .fleet-card {
     display: flex;
@@ -556,22 +742,42 @@
 <div id="screen-game" class="screen">
   <div id="pause-banner"></div>
   <header class="game-header">
-    <div>
+    <div class="hud-identity">
       <h1 id="hud-airline">Airline</h1>
     </div>
-    <div class="hud">
-      <span>Net worth <b id="hud-networth">$0</b></span>
-      <span>Cash <b id="hud-cash">$0</b></span>
-      <span>Runway <b id="hud-runway" class="danger">—</b></span>
-      <span>Date <b id="hud-date">—</b></span>
-      <span>Equity <b id="hud-equity">—</b></span>
-      <span>Rep <b id="hud-rep">0</b></span>
-      <span>Fuel <b id="hud-fuel">—</b></span>
-      <span>LTM Rev <b id="hud-ltm">$0</b></span>
-      <span>Daily P&L <b id="hud-pnl">$0</b></span>
+    <div class="hud-primary">
+      <div class="stat-pill" id="hud-pill-cash">
+        <span class="stat-pill-label">Cash</span>
+        <b id="hud-cash">$0</b>
+      </div>
+      <div class="stat-pill" id="hud-pill-runway">
+        <span class="stat-pill-label">Runway</span>
+        <b id="hud-runway">—</b>
+      </div>
+      <div class="stat-pill">
+        <span class="stat-pill-label">Date</span>
+        <b id="hud-date">—</b>
+      </div>
+      <div class="stat-pill" id="hud-pill-pnl">
+        <span class="stat-pill-label">Daily P&L</span>
+        <b id="hud-pnl">$0</b>
+      </div>
     </div>
-    <div class="hud hud-macro-row" id="hud-macro" style="width:100%;font-size:0.72rem;color:var(--muted);margin-top:4px;"></div>
+    <div class="hud-drawers">
+      <button type="button" class="hud-chip" id="hud-toggle-financials" aria-expanded="false">Financials</button>
+      <button type="button" class="hud-chip" id="hud-toggle-economy" aria-expanded="false">Economy</button>
+    </div>
     <button class="btn secondary" onclick="Runway.reset()">New game</button>
+    <div class="hud-expand-row" id="hud-panel-financials">
+      <div class="stat-pill"><span class="stat-pill-label">Net worth</span><b id="hud-networth">$0</b></div>
+      <div class="stat-pill"><span class="stat-pill-label">Equity</span><b id="hud-equity">—</b></div>
+      <div class="stat-pill"><span class="stat-pill-label">Reputation</span><b id="hud-rep">0</b></div>
+      <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b id="hud-fuel">—</b></div>
+      <div class="stat-pill"><span class="stat-pill-label">LTM revenue</span><b id="hud-ltm">$0</b></div>
+    </div>
+    <div class="hud-expand-row" id="hud-panel-economy">
+      <p class="hud-macro-line" id="hud-macro">—</p>
+    </div>
   </header>
   <div class="speed-bar">
     <div class="speed-toolbar" aria-label="Simulation speed">
@@ -594,23 +800,23 @@
     </div>
     <aside class="side-panel">
       <div id="airport-panel"><p class="muted">Click an airport on the map.</p></div>
-      <nav class="tabs">
-        <button data-tab="finance" class="active">Finance</button>
-        <button data-tab="economy">Economy</button>
+      <nav class="tabs" aria-label="Operations">
+        <button data-tab="routes" class="active">Routes</button>
         <button data-tab="fleet">Fleet</button>
-        <button data-tab="routes">Routes</button>
+        <button data-tab="finance">Capital</button>
+        <button data-tab="economy">Market</button>
         <button data-tab="events">Log</button>
       </nav>
-      <div id="panel-finance" class="tab-panel active"><div id="tab-finance"></div></div>
-      <div id="panel-economy" class="tab-panel"><div id="tab-economy"></div></div>
+      <div id="panel-routes" class="tab-panel active"><div id="tab-routes"></div></div>
       <div id="panel-fleet" class="tab-panel"><div id="tab-fleet"></div></div>
-      <div id="panel-routes" class="tab-panel"><div id="tab-routes"></div></div>
+      <div id="panel-finance" class="tab-panel"><div id="tab-finance"></div></div>
+      <div id="panel-economy" class="tab-panel"><div id="tab-economy"></div></div>
       <div id="panel-events" class="tab-panel"><div id="tab-events"></div></div>
     </aside>
   </div>
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=13"></script>
+<script src="/static/runway/game.js?v=14"></script>
 </body>
 </html>
