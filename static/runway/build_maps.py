@@ -32,6 +32,13 @@ OHIO_BOUNDS = {
     "latMax": 44.35,
 }
 
+MIDWEST_BOUNDS = {
+    "lonMin": -97.8,
+    "lonMax": -75.8,
+    "latMin": 34.0,
+    "latMax": 47.6,
+}
+
 OCEAN = (7, 21, 37)
 LAND = (52, 98, 82)
 LAND_EDGE = (42, 78, 66)
@@ -144,6 +151,10 @@ def main() -> None:
     ohio_path = BASE / "ohio-region-map.png"
     ohio.save(ohio_path, optimize=True)
 
+    midwest = crop_region(styled, MIDWEST_BOUNDS, USA_BOUNDS, USA_PADDING)
+    midwest_path = BASE / "midwest-region-map.png"
+    midwest.save(midwest_path, optimize=True)
+
     config = {
         "usa": {
             "src": "/static/runway/us-map-styled.png",
@@ -163,12 +174,22 @@ def main() -> None:
             "projection": "crop",
             "parent": "usa",
         },
+        "midwest": {
+            "src": "/static/runway/midwest-region-map.png",
+            "width": midwest.width,
+            "height": midwest.height,
+            "bounds": MIDWEST_BOUNDS,
+            "padding": {"left": 0, "top": 0, "right": 0, "bottom": 0},
+            "projection": "crop",
+            "parent": "usa",
+        },
     }
     with open(BASE / "map-config.json", "w") as f:
         json.dump(config, f, indent=2)
 
     print("usa", styled.size, "->", usa_path.name)
     print("ohio", ohio.size, "->", ohio_path.name)
+    print("midwest", midwest.size, "->", midwest_path.name)
     print("bounds", USA_BOUNDS)
     print("padding", USA_PADDING)
 
