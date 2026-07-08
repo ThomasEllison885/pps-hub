@@ -151,11 +151,84 @@
     return s;
   }
 
-  function newGame(scenarioId, airlineName) {
-    if (initialAirports) bootstrap.airports = JSON.parse(JSON.stringify(initialAirports));
+  function applyScenarioAirports(scenarioId) {
+    if (!initialAirports) return;
+    const sc = bootstrap.scenarios[scenarioId];
+    const full = JSON.parse(JSON.stringify(initialAirports));
+    if (sc && sc.region === 'ohio' && bootstrap.ohio_region_iata) {
+      const allowed = new Set(bootstrap.ohio_region_iata);
+      bootstrap.airports = full.filter((a) => allowed.has(a.iata));
+    } else {
+      bootstrap.airports = full;
+    }
+  }
+
+  function incumbentPressure(ap) {
+    if (!ap) return 0;
+    if (ap.incumbents && ap.incumbents.length) {
+      return Math.min(0.92, ap.incumbents.reduce((s, x) => s + (x.share || 0), 0) * 0.72);
+    }
+    return ap.hub_strength || 0;
+  }
+
+  function computeNetWorthBreakdown() {
+    if (!state) return null;
+    const b = {
+      cash: state.cash || 0,
+      fleet: 0,
+      gates: 0,
+      brand: 0,
+      routes: 0,
+      debt: 0,
+      bonds: 0,
+      lease_liabilities: 0,
+    };
+    state.fleet.forEach((f) => {
+      if (f.leased) {
+        const ac = aircraftType(f.type);
+        if (ac) b.lease_liabilities += (ac.lease_monthly || 0) * (f.lease_months_left || 36) * 0.4;
+      } else {
+        const ac = aircraftType(f.type);
+        if (ac) {
+          const lifeTotal = (ac.lifespan_years || 25) * 12;
+          const lifeLeft = f.life_months_left != null ? f.life_months_left : lifeTotal;
+          b.fleet += ac.purchase * Math.max(0, lifeLeft / lifeTotal) * 0.55;
+        }
+      }
+    });
+    state.gates.forEach((g) => {
+      const months = g.months_left != null ? g.months_left : (g.years_left || 0) * 12;
+      b.gates += (g.monthly || 0) * months * 0.35;
+    });
+    b.brand = Object.values(state.brand_awareness || {}).reduce((s, v) => s + v * 25_000, 0);
+    const ltm = state.ltm_revenue || 0;
+    const margin =
+      ltm > 0 ? Math.min(1.2, Math.max(0.15, ((state.daily_pnl || 0) * 365) / ltm)) : 0.25;
+    b.routes = ltm * margin * 0.45;
+    b.debt = state.debt.reduce((s, d) => s + (d.principal || 0), 0);
+    b.bonds = state.bonds.reduce((s, x) => s + (x.principal || 0), 0);
+    b.total =
+      b.cash + b.fleet + b.gates + b.brand + b.routes - b.debt - b.bonds - b.lease_liabilities;
+    b.equity_value = b.total * ((state.equity_pct || 100) / 100);
+    return b;
+  }
+
+  function computeNetWorth() {
+    const b = computeNetWorthBreakdown();
+    return b ? b.total : 0;
+  }
+
+  function pushPlayerEvent(msg) {
+    const who = (state && state.player_name) || 'CEO';
+    pushEvent(`${who} — ${msg}`);
+  }
+
+  function newGame(scenarioId, airlineName, playerName) {
+    applyScenarioAirports(scenarioId);
     const base = cloneScenario(scenarioId);
     state = {
       scenario_id: scenarioId,
+      player_name: playerName || base.player_name || 'CEO',
       airline_name: airlineName || base.airline_name,
       day: 0,
       hour: 8,
@@ -185,7 +258,7 @@
     sanitizeMarketingSpend();
     normalizeGameState();
     resetMapView();
-    pushEvent(`Started: ${base.name}`);
+    pushEvent(`${state.player_name} founded ${state.airline_name} — ${base.name}`);
     saveGame();
     renderAll();
   }
@@ -257,6 +330,7 @@
       state.fuel_price = bootstrap.fuel_base || 2.85;
     }
     if (state.hour == null) state.hour = 8;
+    if (!state.player_name) state.player_name = 'CEO';
     ensureMacro();
     ensureFleet();
   }
@@ -594,7 +668,7 @@
 
     const regionalBoost = (o.regional || d.regional) && isSmallAircraft(route.aircraft_type) ? 1.12 : 1;
     const base = Math.sqrt(o.metro_pop_m * d.metro_pop_m) * 1200 * regionalBoost;
-    const hubPenalty = 1 - (o.hub_strength + d.hub_strength) * 0.35;
+    const hubPenalty = 1 - (incumbentPressure(o) + incumbentPressure(d)) * 0.38;
     const freqBonus = Math.min(1.4, 0.7 + route.frequency_week / 28);
     const awareO = (state.brand_awareness[route.origin] || 5) / 100;
     const awareD = (state.brand_awareness[route.dest] || 5) / 100;
@@ -842,7 +916,7 @@
       months_left: years * 12,
       years_left: years,
     });
-    pushEvent(`Leased ${tier} gate at ${iata} (${years}yr).`);
+    pushPlayerEvent(`leased ${tier} gate at ${iata} (${years}yr).`);
     saveGame();
     renderAll();
   }
@@ -892,7 +966,7 @@
         leased: true,
         lease_months_left: 60,
       });
-      pushEvent(`Leased ${ac.name} (${seatCount} seats).`);
+      pushPlayerEvent(`leased ${ac.name} (${seatCount} seats).`);
     } else {
       if (state.cash < ac.purchase) {
         alert(`Insufficient cash — need ${fmtMoney(ac.purchase)} to purchase.`);
@@ -909,7 +983,7 @@
         leased: false,
         life_months_left: (ac.lifespan_years || 25) * 12,
       });
-      pushEvent(`Purchased ${ac.name} (${seatCount} seats).`);
+      pushPlayerEvent(`purchased ${ac.name} (${seatCount} seats).`);
     }
     fleetPending = null;
     saveGame();
@@ -946,7 +1020,7 @@
       fare,
       aircraft_id: aircraftId,
     });
-    pushEvent(`Opened ${origin}–${dest} (${freq}x/wk @ $${fare}).`);
+    pushPlayerEvent(`opened ${origin}–${dest} (${freq}x/wk @ $${fare}).`);
     saveGame();
     renderAll();
   }
@@ -1051,7 +1125,7 @@
     state.marketing_spend_monthly[iata] = v;
     saveGame();
     renderAirportPanel(iata);
-    pushEvent(`Marketing budget at ${iata}: ${fmtMoney(v)}/mo`);
+    pushPlayerEvent(`set marketing at ${iata} to ${fmtMoney(v)}/mo`);
     renderEvents();
     return v;
   }
@@ -1277,11 +1351,22 @@
         <dt>Metro pop</dt><dd>${ap.metro_pop_m}M</dd>
         <dt>Annual pax</dt><dd>${ap.annual_pax_m}M</dd>
         <dt>Gates open</dt><dd>${ap.gates_available} / ${ap.gates_total}</dd>
-        <dt>Hub incumbent</dt><dd>${ap.hub_airline || '—'} (${(ap.hub_strength * 100).toFixed(0)}%)</dd>
+        <dt>Top carrier</dt><dd>${ap.hub_airline || '—'} (${(ap.hub_strength * 100).toFixed(0)}%)</dd>
         <dt>Slot controlled</dt><dd>${ap.slot_controlled ? 'Yes' : 'No'}</dd>
         <dt>Your gate</dt><dd>${gate ? `${gate.tier} ($${gate.monthly.toLocaleString()}/mo)` : 'None'}</dd>
         <dt>Brand awareness</dt><dd>${(state.brand_awareness[iata] || 0).toFixed(0)}%</dd>
       </dl>
+      ${
+        ap.incumbents && ap.incumbents.length
+          ? `<h4 style="font-size:0.82rem;margin:10px 0 6px;color:var(--gold);">Competitors here</h4>
+        <ul class="list incumbent-list">${ap.incumbents
+          .map(
+            (c) =>
+              `<li><strong>${c.airline}</strong> <span class="muted">${(c.share * 100).toFixed(0)}% · ${c.tier}</span></li>`
+          )
+          .join('')}</ul>`
+          : '<p class="muted" style="font-size:0.75rem;">No major scheduled incumbents — thin or GA market.</p>'
+      }
       ${gate ? '' : `
         <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">Lease common-use (3yr)</button>
         <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">Lease exclusive (5yr)</button>
@@ -1312,7 +1397,11 @@
     setText('hud-rep', (state.reputation || 0).toFixed(0));
     setText('hud-fuel', `$${(state.fuel_price || 0).toFixed(2)}/gal`);
     setText('hud-pnl', fmtMoney(state.daily_pnl));
-    setText('hud-airline', state.airline_name || 'Airline');
+    const identity = state.player_name
+      ? `CEO ${state.player_name} · ${state.airline_name || 'Airline'}`
+      : state.airline_name || 'Airline';
+    setText('hud-airline', identity);
+    setText('hud-networth', fmtMoney(computeNetWorth()));
     setText('hud-ltm', fmtMoney(state.ltm_revenue));
     const macroEl = $('hud-macro');
     if (macroEl && state.macro) {
@@ -1360,11 +1449,28 @@
     const el = $('tab-finance');
     if (!el) return;
     const tier = state.financing_tier;
+    const nw = computeNetWorthBreakdown() || {
+      total: 0, equity_value: 0, cash: 0, fleet: 0, gates: 0, brand: 0, routes: 0, debt: 0, bonds: 0, lease_liabilities: 0,
+    };
     let html = `<h3>Capital structure</h3>
       <p>Debt: ${state.debt.map((d) => `${d.name} ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p>Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p class="muted">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
       <p class="muted">Idle cash yield: <b>${(cashInterestAnnualRate() * 100).toFixed(2)}%</b>/yr (nominal, inflation-linked, never negative)</p>
+      <h4>Net worth</h4>
+      <dl class="stat-dl">
+        <dt>Total net worth</dt><dd><b>${fmtMoney(nw.total)}</b></dd>
+        <dt>Your equity (${(state.equity_pct || 0).toFixed(1)}%)</dt><dd>${fmtMoney(nw.equity_value)}</dd>
+        <dt>Cash</dt><dd>${fmtMoney(nw.cash)}</dd>
+        <dt>Fleet value</dt><dd>${fmtMoney(nw.fleet)}</dd>
+        <dt>Gate rights</dt><dd>${fmtMoney(nw.gates)}</dd>
+        <dt>Brand</dt><dd>${fmtMoney(nw.brand)}</dd>
+        <dt>Route network</dt><dd>${fmtMoney(nw.routes)}</dd>
+        <dt>Debt</dt><dd>-${fmtMoney(nw.debt)}</dd>
+        <dt>Bonds</dt><dd>-${fmtMoney(nw.bonds)}</dd>
+        <dt>Lease liabilities</dt><dd>-${fmtMoney(nw.lease_liabilities)}</dd>
+      </dl>
+      <p class="muted" style="font-size:0.75rem;">Valuation is approximate — partial stake sales and full exit coming later.</p>
       <div class="btn-row">`;
     if (tier === 'startup') {
       html += `<button class="btn" onclick="Runway.raiseSeed()">Close seed round (~$4.5M)</button>`;
@@ -1694,6 +1800,7 @@
       state = data.state;
       if (data.airports) bootstrap.airports = data.airports;
       mergeAirportsFromBootstrap();
+      applyScenarioAirports(state.scenario_id);
       sanitizeMarketingSpend();
       normalizeGameState();
       return true;
@@ -1724,28 +1831,33 @@
     const nameStep = $('scenario-name-step');
     const title = $('name-step-title');
     const brief = $('name-step-brief');
-    const input = $('airline-name-input');
+    const playerInput = $('player-name-input');
+    const airlineInput = $('airline-name-input');
     if (picker) picker.classList.add('hidden');
     if (nameStep) nameStep.classList.add('active');
     if (title) title.textContent = sc.name;
     if (brief) brief.textContent = sc.briefing;
-    if (input) {
-      input.value = sc.airline_name || '';
-      input.focus();
-      input.select();
+    if (playerInput) playerInput.value = sc.player_name || '';
+    if (airlineInput) airlineInput.value = sc.airline_name || '';
+    if (playerInput) {
+      playerInput.focus();
+      playerInput.select();
     }
   }
 
   function startPendingGame() {
     if (!pendingScenarioId) return;
     const sc = bootstrap.scenarios[pendingScenarioId];
-    const input = $('airline-name-input');
-    const raw = input ? input.value.trim() : '';
-    const name = raw || (sc && sc.airline_name) || 'Your Airline';
+    const playerInput = $('player-name-input');
+    const airlineInput = $('airline-name-input');
+    const playerName = playerInput ? playerInput.value.trim() : '';
+    const airlineName = airlineInput ? airlineInput.value.trim() : '';
+    const resolvedPlayer = playerName || (sc && sc.player_name) || 'CEO';
+    const resolvedAirline = airlineName || (sc && sc.airline_name) || 'Your Airline';
     try {
       fleetPending = null;
       showScreen('screen-game');
-      newGame(pendingScenarioId, name);
+      newGame(pendingScenarioId, resolvedAirline, resolvedPlayer);
       setSpeed('day');
       pendingScenarioId = null;
     } catch (err) {
@@ -1760,17 +1872,19 @@
   function setupStartScreen() {
     const startBtn = $('btn-start-game');
     const backBtn = $('btn-back-scenarios');
-    const input = $('airline-name-input');
+    const playerInput = $('player-name-input');
+    const airlineInput = $('airline-name-input');
     if (startBtn) startBtn.addEventListener('click', startPendingGame);
     if (backBtn) backBtn.addEventListener('click', showScenarioPicker);
-    if (input) {
+    [playerInput, airlineInput].forEach((input) => {
+      if (!input) return;
       input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
           startPendingGame();
         }
       });
-    }
+    });
   }
 
   async function loadUsMap() {

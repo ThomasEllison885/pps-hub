@@ -238,6 +238,7 @@
   }
   .mkt-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
   .mkt-box .btn { margin-top: 8px; }
+  .incumbent-list li { font-size: 0.78rem; }
 
   .side-panel {
     border-left: 1px solid var(--border);
@@ -390,16 +391,19 @@
   <div class="start-wrap">
     <h1>Runway</h1>
     <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
-    <p class="muted" style="margin-bottom:24px;">MVP v0.1 · Present-day map · 61 airports · 4 scenarios · Beginner training · equity, debt, bonds</p>
+    <p class="muted" style="margin-bottom:24px;">MVP v0.2 · Ohio regional · real competitors · net worth · 5 scenarios</p>
     <div id="scenario-picker">
       <div id="scenario-list"></div>
     </div>
     <div id="scenario-name-step">
       <div class="name-step-card">
-        <h2 id="name-step-title">Name your airline</h2>
+        <h2 id="name-step-title">Name yourself & your airline</h2>
         <p class="muted" id="name-step-brief"></p>
+        <label for="player-name-input">Your name
+          <input type="text" id="player-name-input" maxlength="40" autocomplete="name" placeholder="Thomas">
+        </label>
         <label for="airline-name-input">Airline name
-          <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Your Airline">
+          <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Buckeye Air">
         </label>
         <div class="btn-row">
           <button type="button" class="btn" id="btn-start-game">Start airline</button>
@@ -417,6 +421,7 @@
       <h1 id="hud-airline">Airline</h1>
     </div>
     <div class="hud">
+      <span>Net worth <b id="hud-networth">$0</b></span>
       <span>Cash <b id="hud-cash">$0</b></span>
       <span>Runway <b id="hud-runway" class="danger">—</b></span>
       <span>Date <b id="hud-date">—</b></span>
@@ -467,6 +472,6 @@
 </div>
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
-<script src="/static/runway/game.js?v=6"></script>
+<script src="/static/runway/game.js?v=7"></script>
 </body>
 </html>

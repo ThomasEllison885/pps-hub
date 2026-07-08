@@ -149,11 +149,102 @@ _AIRPORT_ROWS = [
     ('CAK', 'Akron-Canton', 'Akron', 40.92, -81.44, 0.70, 1.6, 16, 12, False, None, 0.06, 'OH'),
     ('YNG', 'Youngstown-Warren', 'Youngstown', 41.26, -80.68, 0.45, 0.15, 6, 8, False, None, 0.03, 'OH'),
     ('FDY', 'Findlay Airport', 'Findlay', 41.01, -83.67, 0.10, 0.05, 4, 6, False, None, 0.02, 'OH'),
+    # Ohio-region neighbors
+    ('LEX', 'Blue Grass', 'Lexington', 38.04, -84.61, 0.75, 1.4, 12, 10, False, None, 0.06, 'KY'),
+    ('SDF', 'Louisville Muhammad Ali Intl', 'Louisville', 38.17, -85.74, 1.2, 4.5, 22, 14, False, None, 0.10, 'KY'),
 ]
 
-AIRPORTS = [
-    {
-        'iata': r[0],
+# Real-world passenger incumbents (approx. market share for sim flavor, 2025–2026 public sources).
+INCUMBENTS_BY_IATA = {
+    'CVG': [
+        {'airline': 'Allegiant', 'share': 0.26, 'tier': 'lcc'},
+        {'airline': 'Delta', 'share': 0.21, 'tier': 'legacy'},
+        {'airline': 'American', 'share': 0.16, 'tier': 'legacy'},
+        {'airline': 'Frontier', 'share': 0.11, 'tier': 'lcc'},
+        {'airline': 'Southwest', 'share': 0.08, 'tier': 'lcc'},
+        {'airline': 'Sun Country', 'share': 0.04, 'tier': 'lcc'},
+    ],
+    'CMH': [
+        {'airline': 'Southwest', 'share': 0.28, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'Delta', 'share': 0.16, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.12, 'tier': 'legacy'},
+        {'airline': 'Frontier', 'share': 0.09, 'tier': 'lcc'},
+        {'airline': 'Allegiant', 'share': 0.07, 'tier': 'lcc'},
+    ],
+    'DAY': [
+        {'airline': 'Allegiant', 'share': 0.52, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.28, 'tier': 'legacy'},
+    ],
+    'LUK': [
+        {'airline': 'Ultimate Air Shuttle', 'share': 0.42, 'tier': 'shuttle'},
+        {'airline': 'Charter / GA', 'share': 0.38, 'tier': 'charter'},
+    ],
+    'CAK': [
+        {'airline': 'Allegiant', 'share': 0.34, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.22, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.18, 'tier': 'legacy'},
+    ],
+    'TOL': [
+        {'airline': 'Allegiant', 'share': 0.44, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.20, 'tier': 'legacy'},
+    ],
+    'YNG': [
+        {'airline': 'Allegiant', 'share': 0.35, 'tier': 'lcc'},
+        {'airline': 'Southern Airways Express', 'share': 0.18, 'tier': 'regional'},
+    ],
+    'FDY': [
+        {'airline': 'Charter / GA', 'share': 0.55, 'tier': 'charter'},
+    ],
+    'IND': [
+        {'airline': 'Southwest', 'share': 0.30, 'tier': 'lcc'},
+        {'airline': 'Delta', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'American', 'share': 0.16, 'tier': 'legacy'},
+        {'airline': 'Allegiant', 'share': 0.10, 'tier': 'lcc'},
+        {'airline': 'Frontier', 'share': 0.08, 'tier': 'lcc'},
+    ],
+    'PIT': [
+        {'airline': 'Southwest', 'share': 0.26, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'Delta', 'share': 0.16, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.12, 'tier': 'legacy'},
+        {'airline': 'Frontier', 'share': 0.08, 'tier': 'lcc'},
+    ],
+    'DTW': [
+        {'airline': 'Delta', 'share': 0.68, 'tier': 'legacy'},
+        {'airline': 'American', 'share': 0.08, 'tier': 'legacy'},
+        {'airline': 'Southwest', 'share': 0.07, 'tier': 'lcc'},
+        {'airline': 'United', 'share': 0.06, 'tier': 'legacy'},
+    ],
+    'LEX': [
+        {'airline': 'American', 'share': 0.32, 'tier': 'legacy'},
+        {'airline': 'Delta', 'share': 0.24, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.14, 'tier': 'legacy'},
+        {'airline': 'Allegiant', 'share': 0.10, 'tier': 'lcc'},
+    ],
+    'SDF': [
+        {'airline': 'Southwest', 'share': 0.30, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.22, 'tier': 'legacy'},
+        {'airline': 'Delta', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.10, 'tier': 'legacy'},
+    ],
+}
+
+OHIO_REGION_IATA = [
+    'DAY', 'LUK', 'CVG', 'CMH', 'TOL', 'CAK', 'YNG', 'FDY',
+    'IND', 'PIT', 'LEX', 'SDF', 'DTW',
+]
+
+def _build_airport(r):
+    iata = r[0]
+    incumbents = INCUMBENTS_BY_IATA.get(iata, [])
+    hub_airline = r[10]
+    hub_strength = r[11]
+    if incumbents:
+        hub_airline = incumbents[0]['airline']
+        hub_strength = max(x['share'] for x in incumbents)
+    return {
+        'iata': iata,
         'name': r[1],
         'city': r[2],
         'lat': r[3],
@@ -163,20 +254,51 @@ AIRPORTS = [
         'gates_total': r[7],
         'gates_available': r[8],
         'slot_controlled': r[9],
-        'hub_airline': r[10],
-        'hub_strength': r[11],
+        'hub_airline': hub_airline,
+        'hub_strength': hub_strength,
+        'incumbents': incumbents,
         'state': r[12] if len(r) > 12 else None,
         'lease_exclusive_monthly': int(12_000 + r[6] * 800 + (20 if r[9] else 0)),
         'lease_common_monthly': int(5_000 + r[6] * 350),
-        'seasonal_reliability': 0.92 if r[0] in ('ORD', 'DTW', 'BOS', 'MSP', 'DEN') else 0.98,
-        'regional': r[6] < 3 or (len(r) > 12 and r[12] == 'OH'),
+        'seasonal_reliability': 0.92 if iata in ('ORD', 'DTW', 'BOS', 'MSP', 'DEN') else 0.98,
+        'regional': r[6] < 3 or (len(r) > 12 and r[12] in ('OH', 'KY')),
     }
-    for r in _AIRPORT_ROWS
-]
+
+
+AIRPORTS = [_build_airport(r) for r in _AIRPORT_ROWS]
 
 AIRPORT_BY_IATA = {a['iata']: a for a in AIRPORTS}
 
 SCENARIOS = {
+    'ohio_regional_2026': {
+        'id': 'ohio_regional_2026',
+        'name': '2026 — Ohio Regional',
+        'tagline': 'Real competitors · regional airports · prove the model locally.',
+        'year': 2026,
+        'region': 'ohio',
+        'briefing': (
+            'You are building a regional airline in Ohio and nearby markets. Allegiant dominates Dayton; '
+            'Delta still matters at CVG; Lunken is turboprop and shuttle territory. Lease a PC-12, win thin '
+            'routes like DAY–CMH, and watch net worth grow before you take on Detroit or Cincinnati mainline.'
+        ),
+        'cash': 3_200_000,
+        'debt': [],
+        'bonds': [],
+        'equity_pct': 100.0,
+        'reputation': 8,
+        'brand_awareness': {'DAY': 14},
+        'financing_tier': 'startup',
+        'bond_rating': 'B',
+        'player_name': 'CEO',
+        'airline_name': 'Buckeye Air',
+        'fleet': [
+            {'id': 'oh-1', 'type': 'pc12', 'leased': True, 'lease_months_left': 48, 'seats': 9},
+        ],
+        'gates': [
+            {'airport': 'DAY', 'tier': 'common', 'years_left': 3, 'monthly': 7_200},
+        ],
+        'routes': [],
+    },
     'beginner_2026': {
         'id': 'beginner_2026',
         'name': '2026 — Beginner',
@@ -500,4 +622,5 @@ def get_runway_bootstrap():
         'time_speeds': TIME_SPEEDS,
         'tick_ms': TICK_MS,
         'common_route_pairs': COMMON_ROUTE_PAIRS,
+        'ohio_region_iata': OHIO_REGION_IATA,
     }
