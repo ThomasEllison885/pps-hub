@@ -8096,13 +8096,22 @@
 
   function selectFleetOffer(type, mode) {
     const ac = aircraftType(type);
+    if (!ac) {
+      alert(`Unknown aircraft type: ${type}`);
+      return;
+    }
     fleetShopOpen = true;
     fleetPending = {
       type,
-      mode,
-      seats: ac.seats,
+      mode: mode === 'buy' ? 'buy' : 'lease',
+      seats: ac.seats != null ? ac.seats : ac.seats_max || ac.seats_min || 50,
     };
     renderFleet();
+    // Confirm card is below the shop — scroll it into view so Lease feels responsive.
+    requestAnimationFrame(() => {
+      const box = $('fleet-confirm-box');
+      if (box) scrollSidePanelTo(box, { block: 'nearest' });
+    });
   }
 
   function cancelFleetOffer() {
@@ -8113,23 +8122,37 @@
   function setFleetPendingSeats(val) {
     if (!fleetPending) return;
     const ac = aircraftType(fleetPending.type);
+    if (!ac) return;
     fleetPending.seats = aircraftSeats(fleetPending.type, +val);
     renderFleet();
   }
 
   function confirmFleetOffer() {
-    if (!fleetPending) return;
+    if (!fleetPending) {
+      alert('Pick an aircraft and Lease or Buy first.');
+      return;
+    }
     const { type, mode, seats } = fleetPending;
     const ac = aircraftType(type);
+    if (!ac) {
+      alert(`Unknown aircraft type: ${type}`);
+      fleetPending = null;
+      renderFleet();
+      return;
+    }
     const seatCount = aircraftSeats(type, seats);
 
     if (mode === 'lease') {
-      const deposit = ac.lease_monthly * 2;
+      const deposit = (ac.lease_monthly || 0) * 2;
       if (state.cash < deposit) {
         alert(`Insufficient cash — need ${fmtMoney(deposit)} deposit for lease.`);
         return;
       }
-      if (!confirm(`Lease ${ac.name} (${seatCount} seats)?\n\nDeposit: ${fmtMoney(deposit)}\nMonthly: ${fmtMoney(ac.lease_monthly)}\nComfort: ${comfortStars(ac.comfort_rating)}`)) {
+      if (
+        !window.confirm(
+          `Lease ${ac.name} (${seatCount} seats)?\n\nDeposit: ${fmtMoney(deposit)}\nMonthly: ${fmtMoney(ac.lease_monthly)}\nComfort: ${comfortStars(ac.comfort_rating)}`
+        )
+      ) {
         return;
       }
       state.cash -= deposit;
@@ -8144,11 +8167,15 @@
       });
       pushPlayerEvent(`leased ${ac.name} (${seatCount} seats).`);
     } else {
-      if (state.cash < ac.purchase) {
+      if (state.cash < (ac.purchase || 0)) {
         alert(`Insufficient cash — need ${fmtMoney(ac.purchase)} to purchase.`);
         return;
       }
-      if (!confirm(`Purchase ${ac.name} (${seatCount} seats)?\n\nPrice: ${fmtMoney(ac.purchase)}\nMaintenance: ${fmtMoney(ac.maintenance_monthly)}/mo\nUseful life: ${ac.lifespan_years} years\nComfort: ${comfortStars(ac.comfort_rating)}`)) {
+      if (
+        !window.confirm(
+          `Purchase ${ac.name} (${seatCount} seats)?\n\nPrice: ${fmtMoney(ac.purchase)}\nMaintenance: ${fmtMoney(ac.maintenance_monthly)}/mo\nUseful life: ${ac.lifespan_years} years\nComfort: ${comfortStars(ac.comfort_rating)}`
+        )
+      ) {
         return;
       }
       state.cash -= ac.purchase;
@@ -8164,8 +8191,10 @@
       pushPlayerEvent(`purchased ${ac.name} (${seatCount} seats).`);
     }
     fleetPending = null;
+    fleetShopOpen = false;
     saveGame();
     renderAll();
+    switchTab('fleet');
   }
 
   function validateOpenRoute(origin, dest, aircraftId, freq) {
@@ -9956,25 +9985,29 @@
     }
 
     html += `<div class="btn-row">
-      <button type="button" class="btn ${fleetShopOpen ? 'secondary' : ''}" onclick="Runway.toggleFleetShop()">${fleetShopOpen ? 'Hide aircraft shop' : '+ Lease / Buy aircraft'}</button>
+      <button type="button" class="btn ${fleetShopOpen ? 'secondary' : ''}" data-fleet-action="toggle-shop">${fleetShopOpen ? 'Hide aircraft shop' : '+ Lease / Buy aircraft'}</button>
     </div>`;
 
     if (fleetShopOpen) {
       html += `<div class="fleet-shop-panel">
-        <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">Choose type → set seats → confirm.</p>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">Tap <b>Lease</b> or <b>Buy</b> on a type, then confirm below.</p>
         <div class="fleet-grid">`;
       Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
         const ac = aircraftType(tid);
         if (!ac) return;
         const active = fleetPending && fleetPending.type === tid;
+        const deposit = (ac.lease_monthly || 0) * 2;
+        const canLease = state.cash >= deposit;
+        const canBuy = state.cash >= (ac.purchase || 0);
         html += `<div class="fleet-card ${active ? 'active' : ''}">
           <strong>${ac.name}</strong>
           <span class="muted">${ac.category} · ${ac.size}</span>
           <span>${ac.seats_min}–${ac.seats_max} seats · ${ac.range_nm} nm</span>
           <span>Lease ${fmtMoney(ac.lease_monthly)}/mo · Buy ${fmtMoney(ac.purchase)}</span>
+          <span class="muted" style="font-size:0.68rem;">Lease deposit ${fmtMoney(deposit)}${canLease ? '' : ' · <span class="danger">need more cash</span>'}</span>
           <div class="btn-row">
-            <button class="btn secondary" onclick="Runway.selectFleet('${tid}','lease')">Lease…</button>
-            <button class="btn secondary" onclick="Runway.selectFleet('${tid}','buy')">Buy…</button>
+            <button type="button" class="btn ${active && fleetPending.mode === 'lease' ? '' : 'secondary'}" data-fleet-action="select" data-fleet-type="${tid}" data-fleet-mode="lease" ${canLease ? '' : 'disabled'} title="${canLease ? 'Lease this aircraft' : 'Not enough cash for deposit'}">Lease</button>
+            <button type="button" class="btn ${active && fleetPending.mode === 'buy' ? '' : 'secondary'}" data-fleet-action="select" data-fleet-type="${tid}" data-fleet-mode="buy" ${canBuy ? '' : 'disabled'} title="${canBuy ? 'Buy this aircraft' : 'Not enough cash to buy'}">Buy</button>
           </div>
         </div>`;
       });
@@ -9983,19 +10016,64 @@
 
     if (fleetPending) {
       const ac = aircraftType(fleetPending.type);
-      html += `<div class="fleet-confirm">
-        <h4>Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}: ${ac.name}</h4>
-        <label>Seats (${ac.seats_min}–${ac.seats_max})
-          <input type="number" min="${ac.seats_min}" max="${ac.seats_max}" value="${fleetPending.seats}"
-            oninput="Runway.setFleetSeats(this.value)">
-        </label>
-        <div class="btn-row">
-          <button class="btn" onclick="Runway.confirmFleet()">Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}</button>
-          <button class="btn secondary" onclick="Runway.cancelFleet()">Cancel</button>
-        </div>
-      </div>`;
+      if (ac) {
+        const deposit = (ac.lease_monthly || 0) * 2;
+        const costLine =
+          fleetPending.mode === 'lease'
+            ? `Deposit due now: <b>${fmtMoney(deposit)}</b> · then ${fmtMoney(ac.lease_monthly)}/mo`
+            : `Purchase due now: <b>${fmtMoney(ac.purchase)}</b> · maint ${fmtMoney(ac.maintenance_monthly)}/mo`;
+        html += `<div class="fleet-confirm" id="fleet-confirm-box">
+          <h4>Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}: ${ac.name}</h4>
+          <p class="muted" style="font-size:0.78rem;margin:0 0 8px;">${costLine}</p>
+          <label>Seats (${ac.seats_min}–${ac.seats_max})
+            <input type="number" id="fleet-seats-input" min="${ac.seats_min}" max="${ac.seats_max}" value="${fleetPending.seats}">
+          </label>
+          <div class="btn-row">
+            <button type="button" class="btn" data-fleet-action="confirm">Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}</button>
+            <button type="button" class="btn secondary" data-fleet-action="cancel">Cancel</button>
+          </div>
+        </div>`;
+      }
     }
     el.innerHTML = html;
+  }
+
+  function setupFleetPanelDelegation() {
+    const panel = $('panel-fleet');
+    if (!panel || panel._fleetDelegation) return;
+    panel._fleetDelegation = true;
+    panel.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-fleet-action]');
+      if (!btn || btn.disabled) return;
+      e.preventDefault();
+      const action = btn.dataset.fleetAction;
+      try {
+        if (action === 'toggle-shop') {
+          toggleFleetShop();
+        } else if (action === 'select') {
+          selectFleetOffer(btn.dataset.fleetType, btn.dataset.fleetMode || 'lease');
+        } else if (action === 'confirm') {
+          const seatInp = $('fleet-seats-input');
+          if (seatInp && fleetPending) setFleetPendingSeats(seatInp.value);
+          confirmFleetOffer();
+        } else if (action === 'cancel') {
+          cancelFleetOffer();
+        }
+      } catch (err) {
+        console.error('Runway fleet action failed', action, err);
+        alert(`Fleet action failed: ${err && err.message ? err.message : err}`);
+      }
+    });
+    panel.addEventListener('change', (e) => {
+      if (e.target && e.target.id === 'fleet-seats-input') {
+        setFleetPendingSeats(e.target.value);
+      }
+    });
+    panel.addEventListener('input', (e) => {
+      if (e.target && e.target.id === 'fleet-seats-input' && fleetPending) {
+        fleetPending.seats = aircraftSeats(fleetPending.type, +e.target.value);
+      }
+    });
   }
 
   function networkSnapshotHtml() {
@@ -11392,6 +11470,7 @@
     window.addEventListener('resize', ensureMapboxSize);
     setupStartScreen();
     setupRoutePanelDelegation();
+    setupFleetPanelDelegation();
     setupScoreboardDelegation();
     setupKeyboardShortcuts();
     setupMobileDock();

@@ -1891,6 +1891,43 @@
   .gate-hub-row:last-child { border-bottom: none; }
   .gate-hub-row .util-bar { flex: 1 1 120px; margin-top: 0; min-width: 100px; }
   .fleet-shop-panel { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .fleet-card .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .fleet-confirm {
+    margin-top: 14px;
+    padding: 14px 14px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--accent);
+    background: rgba(0, 200, 150, 0.08);
+    box-shadow: 0 0 0 1px rgba(0, 200, 150, 0.15);
+  }
+  .fleet-confirm h4 {
+    margin: 0 0 8px;
+    color: var(--gold);
+    font-size: 0.95rem;
+  }
+  .fleet-confirm label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .fleet-confirm input[type="number"] {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+  }
+  .fleet-card.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0, 200, 150, 0.35);
+  }
   .ops-section-title {
     font-size: 0.82rem;
     color: var(--gold);
@@ -2244,7 +2281,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=59"></script>
-<script src="/static/runway/game.js?v=59"></script>
+<script src="/static/runway/economics.js?v=60"></script>
+<script src="/static/runway/game.js?v=60"></script>
 </body>
 </html>
