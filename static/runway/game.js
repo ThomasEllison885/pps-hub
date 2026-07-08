@@ -2399,11 +2399,11 @@
           scenarioId,
           5,
           total,
-          'Fares — auto vs manual',
-          'In <b>Routes</b>, each line shows <b>Fare buckets</b> (basic/standard/flex), <b>Ancillary</b> mode (bags/seats fees), and revenue per passenger. ' +
-            'Fares on <b>auto</b> drift monthly; ancillary-heavy works like Allegiant on thin markets.',
-          '<b>Load factor</b> is the % of seats you actually sell — the fuller the plane, the better the economics. ' +
-            'Competitor routes on the same city pair steal demand — watch dashed red lines on the map and the airport panel.',
+          'Fares — dynamic vs fixed',
+          'In <b>Routes</b>, set fares to <b>Dynamic</b> and the system reprices weekly like real airlines: weekend peaks, summer/holiday surges, and load-based bumps when planes are full (cuts when empty). ' +
+            '<b>Fare buckets</b> (basic/standard/flex) still apply — passengers pay across a range, not one flat price.',
+          '<b>Load factor</b> drives revenue management — full flights trigger higher targets; weak loads trigger sales fares. ' +
+            'Use <b>Fixed</b> when you want a locked price (e.g. CMH–DAY at $139).',
           'Open Routes & fares →',
           'tab_routes',
           hub,
@@ -3485,17 +3485,128 @@
     }
   }
 
+  function routeTimingDemandFactor(route) {
+    const dow = state.day % 7;
+    const o = airport(route.origin);
+    const d = airport(route.dest);
+    if (!o || !d) return { mult: 1, reason: 'Steady demand' };
+    const leisure = (airportLuxury(o) + airportLuxury(d)) / 2;
+    let dowMult = 1;
+    let reason = 'Steady demand';
+    if (dow === 5 || dow === 6) {
+      dowMult = 1 + leisure * 0.14 + 0.05;
+      reason = 'Weekend travel premium';
+    } else if (dow === 0) {
+      dowMult = 1 + leisure * 0.1 + 0.03;
+      reason = 'Sunday return demand';
+    } else if (dow === 1 || dow === 2) {
+      dowMult = 1 - leisure * 0.08 - 0.03;
+      reason = 'Mid-week softness';
+    }
+    const yearDay = state.day % 365;
+    let seasonMult = 1;
+    if (yearDay >= 140 && yearDay <= 260) {
+      seasonMult = 1.06;
+      reason = 'Summer peak';
+    } else if (yearDay >= 300 || yearDay <= 18) {
+      seasonMult = 1.04;
+      reason = 'Holiday season';
+    } else if (yearDay >= 45 && yearDay <= 90) {
+      seasonMult = 0.97;
+      reason = 'Post-holiday lull';
+    }
+    const surge = Math.max(airportDemandSurgeMult(route.origin), airportDemandSurgeMult(route.dest));
+    if (surge > 1.02) reason = 'Local demand surge';
+    return { mult: dowMult * seasonMult * surge, reason };
+  }
+
+  function computeRevenueManagementTarget(route) {
+    const o = airport(route.origin);
+    const d = airport(route.dest);
+    const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
+    const timing = routeTimingDemandFactor(route);
+    const todaySim = simulateRouteDay(route);
+    const actual = routeActualStats(route);
+    const avgLoad = actual ? actual.avgLoad : todaySim.load;
+    const recentLoad = todaySim.grounded ? avgLoad : todaySim.load;
+    const loadTrend = recentLoad - avgLoad;
+    const compAdj = 1 - ((competitorFarePressure(o) + competitorFarePressure(d)) / 2) * 0.18;
+    const macroAdj = 0.96 + Math.min(0.1, (macroDemandMultiplier() - 1) * 0.35);
+
+    let target = market * timing.mult * compAdj * macroAdj;
+
+    if (avgLoad >= 0.84 || recentLoad >= 0.9) target *= 1.14;
+    else if (avgLoad >= 0.72) target *= 1.07;
+    else if (avgLoad >= 0.58) target *= 1.02;
+    else if (avgLoad < 0.38) target *= 0.86;
+    else if (avgLoad < 0.5) target *= 0.92;
+
+    if (loadTrend > 0.1) target *= 1.05;
+    else if (loadTrend < -0.1) target *= 0.94;
+
+    const floor = Math.max(49, Math.round(market * 0.62));
+    const ceiling = Math.min(899, Math.round(market * 1.45));
+    target = Math.max(floor, Math.min(ceiling, Math.round(target)));
+
+    let reason = timing.reason;
+    if (avgLoad >= 0.72) reason = `Strong loads (${Math.round(avgLoad * 100)}%)`;
+    else if (avgLoad < 0.45) reason = `Weak loads (${Math.round(avgLoad * 100)}%)`;
+    if (loadTrend > 0.1) reason += ' · demand rising';
+    else if (loadTrend < -0.1) reason += ' · demand fading';
+
+    return { target, market, floor, ceiling, timing, avgLoad, recentLoad, reason };
+  }
+
   function updateDynamicFares() {
     if (!state || !state.routes.length) return;
     state.routes.forEach((route) => {
       if (route.fare_mode === 'manual') return;
-      const sim = simulateRouteDay(route);
-      const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
-      route.market_fare = market;
-      if (sim.load > 0.86) route.fare = Math.min(Math.round(market * 1.22), route.fare + 4);
-      else if (sim.load < 0.52) route.fare = Math.max(Math.round(market * 0.7), route.fare - 5);
-      else route.fare = Math.round(route.fare * 0.9 + market * 0.1);
+      const rm = computeRevenueManagementTarget(route);
+      route.market_fare = rm.market;
+      const prev = route.fare || rm.market;
+      const maxStep = Math.max(6, Math.round(prev * 0.09));
+      let next = prev;
+      if (prev < rm.target - 2) next = Math.min(rm.target, prev + maxStep);
+      else if (prev > rm.target + 2) next = Math.max(rm.target, prev - maxStep);
+      else next = rm.target;
+      next = Math.max(rm.floor, Math.min(rm.ceiling, next));
+      const delta = next - prev;
+      if (Math.abs(delta) < 2) return;
+      route.fare = next;
+      route.fare_rm = {
+        last_day: state.day,
+        delta,
+        target: rm.target,
+        floor: rm.floor,
+        ceiling: rm.ceiling,
+        timing_mult: rm.timing.mult,
+        reason: rm.reason,
+        avg_load: rm.avgLoad,
+      };
+      if (Math.abs(delta) >= Math.max(8, prev * 0.06)) {
+        pushEvent(
+          `<b>${route.origin}–${route.dest}</b> dynamic fare ${delta > 0 ? '↑' : '↓'} to <b>$${next}</b> — ${rm.reason}.`,
+          delta > 0 ? 'good' : 'warn'
+        );
+      }
     });
+    saveGame();
+  }
+
+  function fareRmHintHtml(route) {
+    if (route.fare_mode === 'manual') return '';
+    const rm = route.fare_rm;
+    const market = route.market_fare || marketFareForPair(route.origin, route.dest, route.aircraft_type);
+    const buckets = routeFareBuckets(route);
+    const low = buckets[0].fare;
+    const high = buckets[buckets.length - 1].fare;
+    let line = `Selling <b>$${low}–$${high}</b> (basic→flex) · mkt $${market}`;
+    if (rm && rm.last_day != null) {
+      const arrow = rm.delta > 0 ? '↑' : rm.delta < 0 ? '↓' : '→';
+      const deltaTxt = rm.delta ? ` · ${arrow}$${Math.abs(rm.delta)} this week` : '';
+      line += ` · ${rm.reason || 'RM'}${deltaTxt}`;
+    }
+    return `<p class="route-fare-rm muted" style="font-size:0.66rem;margin:4px 0 0;">${line}</p>`;
   }
 
   function setRouteFare(routeId, fare, mode) {
@@ -3503,6 +3614,35 @@
     if (!route) return;
     route.fare = Math.max(49, Math.min(899, Math.round(fare)));
     route.fare_mode = mode || 'manual';
+    if (route.fare_mode === 'manual') route.fare_rm = null;
+    saveGame();
+    renderRoutes();
+    renderHud();
+  }
+
+  function setRouteFareMode(routeId, mode) {
+    const route = state.routes.find((r) => r.id === routeId);
+    if (!route) return;
+    if (mode === 'auto') {
+      route.fare_mode = 'auto';
+      const rm = computeRevenueManagementTarget(route);
+      route.fare = rm.target;
+      route.market_fare = rm.market;
+      route.fare_rm = {
+        last_day: state.day,
+        delta: 0,
+        target: rm.target,
+        floor: rm.floor,
+        ceiling: rm.ceiling,
+        reason: 'Dynamic pricing enabled',
+        avg_load: rm.avgLoad,
+      };
+      pushPlayerEvent(`${route.origin}–${route.dest}: switched to dynamic fares (target $${rm.target}).`);
+    } else {
+      route.fare_mode = 'manual';
+      route.fare_rm = null;
+      pushPlayerEvent(`${route.origin}–${route.dest}: fixed fare at $${route.fare}.`);
+    }
     saveGame();
     renderRoutes();
     renderHud();
@@ -5531,8 +5671,9 @@
 
   function processDayRollover(dayRev, dayCost) {
     const decisionPending = !!(activeDecision || decisionQueue.length);
+    if (state.day > 0 && state.day % 7 === 0) updateDynamicFares();
+
     if (state.day % 30 === 0) {
-      updateDynamicFares();
       if (state.macro && state.macro.ota_promo) {
         Object.keys(state.macro.ota_promo).forEach((pid) => {
           const promo = state.macro.ota_promo[pid];
@@ -9232,10 +9373,12 @@
               : 'chip-load-bad';
         const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
         const mode = route.fare_mode === 'manual' ? 'manual' : 'auto';
+        const modeLabel = mode === 'manual' ? 'fixed' : 'dynamic';
         const anc = route.ancillary_mode || 'auto';
         const revPerPax = r.pax > 0 ? Math.round(r.revenue / r.pax) : 0;
         const buckets = routeFareBuckets(route);
         const bucketHint = buckets.map((b) => `$${b.fare}`).join(' / ');
+        const fareRmNote = fareRmHintHtml(route);
         const pnlClass = pnl >= 0 ? 'chip-pnl-pos' : 'chip-pnl-neg';
         const actual = routeActualStats(route);
         const forecastLoad = route.launch_forecast_load;
@@ -9305,9 +9448,15 @@
             <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
           </div>
           <div class="route-card-controls">
-            <label>Fare $ (${mode})
+            <label>Fare $ (${modeLabel})
               <input type="number" min="49" max="899" value="${route.fare}"
                 onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
+            </label>
+            <label>Pricing
+              <select onchange="Runway.setRouteFareMode('${route.id}', this.value)">
+                <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Dynamic</option>
+                <option value="manual" ${mode === 'manual' ? 'selected' : ''}>Fixed</option>
+              </select>
             </label>
             <label>Ancillary
               <select onchange="Runway.setRouteAncillary('${route.id}', this.value)">
@@ -9317,6 +9466,7 @@
               </select>
             </label>
           </div>
+          ${fareRmNote}
           <p class="route-card-hint muted">Buckets: ${bucketHint}</p>
           <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
         </div>`;
@@ -10134,6 +10284,7 @@
     focusHubForRoutes,
     bumpRouteFrequency,
     setRouteFare,
+    setRouteFareMode,
     setRouteAncillary,
     resetRouteFare,
     toggleOta: toggleOtaListing,
