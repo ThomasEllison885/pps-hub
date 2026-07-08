@@ -25,6 +25,7 @@ from auth_helpers import (
     consume_password_reset_token, reset_url_for_token,
 )
 import ask_pps
+from runway_game_data import RUNWAY_OWNER, get_runway_bootstrap
 
 
 app = Flask(__name__)
@@ -1062,6 +1063,18 @@ def require_admin(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('user_key') or session.get('role') != 'admin':
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def require_runway_owner(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('user_key'):
+            return redirect(url_for('login', next=request.url))
+        if session.get('user_key') != RUNWAY_OWNER:
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
@@ -2827,6 +2840,17 @@ def dashboard():
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+        runway_available=(user_key == RUNWAY_OWNER),
+    )
+
+
+@app.route('/runway')
+@require_runway_owner
+def runway_game():
+    """Runway airline sim — private build for Thomas only."""
+    return render_template(
+        'runway.html',
+        bootstrap_json=json.dumps(get_runway_bootstrap()),
     )
 
 
