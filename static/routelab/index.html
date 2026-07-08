@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RouteLab — Logo concepts</title>
+  <style>
+    :root {
+      --bg: #060d18;
+      --panel: #0f1c2e;
+      --border: #1e3a5f;
+      --text: #d4e4f4;
+      --muted: #6a8fb0;
+      --accent: #00c896;
+      --gold: #ffd166;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 32px 20px 48px;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; }
+    h1 { color: var(--gold); font-size: 1.75rem; margin-bottom: 6px; }
+    .lead { color: var(--muted); margin-bottom: 28px; max-width: 640px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .card img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #0a1524;
+    }
+    .card-body { padding: 14px 16px 16px; }
+    .card-body h2 { font-size: 1rem; color: #fff; margin-bottom: 4px; }
+    .card-body p { font-size: 0.82rem; color: var(--muted); margin-bottom: 10px; }
+    .card-body a {
+      color: var(--accent);
+      font-size: 0.8rem;
+      word-break: break-all;
+    }
+    .path-box {
+      margin-top: 24px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(6, 13, 24, 0.6);
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .path-box code { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>RouteLab logo concepts</h1>
+    <p class="lead">Five options for the RouteLab rebrand. Click any image to open full size, or download from the links below.</p>
+    <div class="grid">
+      <article class="card">
+        <a href="/static/routelab/logos/routelab-logo-network.jpg" target="_blank" rel="noopener">
+          <img src="/static/routelab/logos/routelab-logo-network.jpg" alt="RouteLab network hub logo" width="512" height="384">
+        </a>
+        <div class="card-body">
+          <h2>1. Network hub</h2>
+          <p>Hub-and-spoke routes — best for app icon / favicon.</p>
+          <a href="/static/routelab/logos/routelab-logo-network.jpg">/static/routelab/logos/routelab-logo-network.jpg</a>
+        </div>
+      </article>
+      <article class="card">
+        <a href="/static/routelab/logos/routelab-logo-monogram.jpg" target="_blank" rel="noopener">
+          <img src="/static/routelab/logos/routelab-logo-monogram.jpg" alt="RouteLab monogram logo" width="512" height="512">
+        </a>
+        <div class="card-body">
+          <h2>2. Monogram R</h2>
+          <p>Teal-to-gold arc “R” — compact SaaS app icon.</p>
+          <a href="/static/routelab/logos/routelab-logo-monogram.jpg">/static/routelab/logos/routelab-logo-monogram.jpg</a>
+        </div>
+      </article>
+      <article class="card">
+        <a href="/static/routelab/logos/routelab-logo-horizontal.jpg" target="_blank" rel="noopener">
+          <img src="/static/routelab/logos/routelab-logo-horizontal.jpg" alt="RouteLab horizontal lockup" width="512" height="512">
+        </a>
+        <div class="card-body">
+          <h2>3. Horizontal lockup</h2>
+          <p>Icon + wordmark + tagline — website header.</p>
+          <a href="/static/routelab/logos/routelab-logo-horizontal.jpg">/static/routelab/logos/routelab-logo-horizontal.jpg</a>
+        </div>
+      </article>
+      <article class="card">
+        <a href="/static/routelab/logos/routelab-logo-icon-lab.jpg" target="_blank" rel="noopener">
+          <img src="/static/routelab/logos/routelab-logo-icon-lab.jpg" alt="RouteLab lab flask icon" width="512" height="512">
+        </a>
+        <div class="card-body">
+          <h2>4. Lab flask icon</h2>
+          <p>Flask + route path — icon-only mark.</p>
+          <a href="/static/routelab/logos/routelab-logo-icon-lab.jpg">/static/routelab/logos/routelab-logo-icon-lab.jpg</a>
+        </div>
+      </article>
+      <article class="card">
+        <a href="/static/routelab/logos/routelab-logo-gates.jpg" target="_blank" rel="noopener">
+          <img src="/static/routelab/logos/routelab-logo-gates.jpg" alt="RouteLab gate network logo" width="512" height="512">
+        </a>
+        <div class="card-body">
+          <h2>5. Gate network</h2>
+          <p>Gates connected by routes — bold startup look.</p>
+          <a href="/static/routelab/logos/routelab-logo-gates.jpg">/static/routelab/logos/routelab-logo-gates.jpg</a>
+        </div>
+      </article>
+    </div>
+    <div class="path-box">
+      <strong>On your Mac (local folder):</strong><br>
+      <code>/Users/thomasellison/PPS Proposal/pps-hub/static/routelab/logos/</code>
+    </div>
+  </div>
+</body>
+</html>

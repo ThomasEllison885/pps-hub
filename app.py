@@ -5,7 +5,7 @@ import threading
 import base64
 from io import BytesIO
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -2895,6 +2895,15 @@ def dashboard():
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
         runway_available=(user_key == RUNWAY_OWNER),
+    )
+
+
+@app.route('/routelab/logos')
+def routelab_logo_gallery():
+    """RouteLab logo concept gallery — static assets, no login required."""
+    return send_from_directory(
+        os.path.join(app.root_path, 'static', 'routelab'),
+        'index.html',
     )
 
 
