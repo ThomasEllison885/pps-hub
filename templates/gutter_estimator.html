@@ -115,6 +115,7 @@
   </div>
 
   <button class="generate-btn" id="genBtn" onclick="generate()">Generate Estimate →</button>
+  <div id="errorMsg" style="color:#C00;font-size:14px;margin-top:10px;display:none;"></div>
 </div>
 
 <script src="/static/estimate-reliability.js"></script>
@@ -228,10 +229,19 @@ function getGutterInputs() {
   };
 }
 
+function showGenerateError(msg) {
+  const err = document.getElementById('errorMsg');
+  err.textContent = msg;
+  err.style.display = 'block';
+  err.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 async function generate() {
+  const err = document.getElementById('errorMsg');
+  err.style.display = 'none';
   const gutterLf = parseFloat(document.getElementById('gutterLf').value);
   if (!gutterLf && !measurements.gutter_lf) {
-    alert('Upload an EagleView PDF or enter gutter run (LF) manually.');
+    showGenerateError('Upload an EagleView PDF or enter gutter run (LF) manually.');
     return;
   }
   measurements.gutter_lf = gutterLf || measurements.gutter_lf;
@@ -267,8 +277,9 @@ async function generate() {
     if (!r.ok || d.error) throw new Error(d.error);
     window.location.href = d.redirect_url;
   } catch (e) {
-    alert(e.message);
+    showGenerateError('Error: ' + e.message);
     btn.disabled = false;
+    btn.textContent = 'Generate Estimate →';
   }
 }
 </script>
