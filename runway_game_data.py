@@ -665,6 +665,9 @@ OTA_PLATFORMS = [
         'commission_pct': 12,
         'demand_reach': 0.22,
         'marketing_amplify': 1.35,
+        'route_feature_monthly': 6_500,
+        'hub_push_monthly': 18_000,
+        'note': 'Pay-to-play listing + commission; optional route spotlight or hub push.',
     },
     {
         'id': 'google_flights',
@@ -673,6 +676,9 @@ OTA_PLATFORMS = [
         'commission_pct': 0,
         'demand_reach': 0.18,
         'marketing_amplify': 1.15,
+        'route_feature_monthly': 3_200,
+        'hub_push_monthly': 8_500,
+        'note': 'Metasearch feed fee; strong reach, thinner margin.',
     },
     {
         'id': 'kayak',
@@ -681,6 +687,9 @@ OTA_PLATFORMS = [
         'commission_pct': 10,
         'demand_reach': 0.14,
         'marketing_amplify': 1.2,
+        'route_feature_monthly': 4_800,
+        'hub_push_monthly': 12_000,
+        'note': 'Listing + commission; deal-hunter audience.',
     },
     {
         'id': 'travelocity',
@@ -689,6 +698,41 @@ OTA_PLATFORMS = [
         'commission_pct': 11,
         'demand_reach': 0.1,
         'marketing_amplify': 1.12,
+        'route_feature_monthly': 3_800,
+        'hub_push_monthly': 9_000,
+        'note': 'Legacy OTA shelf space; moderate reach.',
+    },
+]
+
+# Marketing spend tiers — toggled in route launch & airport panels.
+MARKETING_CHANNELS = [
+    {
+        'id': 'airport',
+        'label': 'Airport / city',
+        'scope': 'local',
+        'hint': 'Billboards, local digital, airport ads at origin.',
+        'efficiency': 1.0,
+    },
+    {
+        'id': 'state',
+        'label': 'State / region',
+        'scope': 'state',
+        'hint': 'Regional TV/radio, state tourism boards, sports sponsorship.',
+        'efficiency': 0.72,
+    },
+    {
+        'id': 'national',
+        'label': 'National brand',
+        'scope': 'national',
+        'hint': 'National streaming, podcast, broad brand — expensive for a startup.',
+        'efficiency': 0.45,
+    },
+    {
+        'id': 'world',
+        'label': 'Global reach',
+        'scope': 'world',
+        'hint': 'International campaigns — only matters once you fly abroad.',
+        'efficiency': 0.25,
     },
 ]
 
@@ -764,6 +808,7 @@ def get_runway_bootstrap():
         'airport_fee_per_departure': AIRPORT_FEE_PER_DEPARTURE,
         'macro_usa_base': MACRO_USA_BASE,
         'ota_platforms': OTA_PLATFORMS,
+        'marketing_channels': MARKETING_CHANNELS,
         'time_speeds': TIME_SPEEDS,
         'tick_ms': TICK_MS,
         'common_route_pairs': COMMON_ROUTE_PAIRS,
