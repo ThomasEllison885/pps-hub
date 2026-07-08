@@ -144,8 +144,59 @@
     gap: 6px;
     align-items: center;
   }
-  .rival-logo { display: inline-flex; opacity: 0.92; }
+  .rival-logo {
+    display: inline-flex;
+    opacity: 0.92;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    border-radius: 9px;
+  }
   .rival-logo:hover { opacity: 1; transform: scale(1.05); }
+  .scoreboard-scope {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1 1 100%;
+    order: 0;
+    margin-bottom: 2px;
+  }
+  .scope-btn {
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.55);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .scope-btn:hover { border-color: var(--accent); color: var(--text); }
+  .scope-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(0, 200, 150, 0.08);
+  }
+  .scoreboard-table tr.rival-row { cursor: pointer; }
+  .scoreboard-table tr.rival-row:hover { background: rgba(255, 255, 255, 0.03); }
+  .rival-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 10px;
+  }
+  .rival-detail-head h3 { font-size: 1rem; color: #fff; margin-bottom: 2px; }
+  .rival-back { margin-bottom: 4px; font-size: 0.72rem; padding: 6px 10px; }
+  .rival-section-title {
+    font-size: 0.78rem;
+    color: var(--gold);
+    margin: 12px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .rival-stats { margin-top: 8px; }
   .scoreboard-panel {
     display: none;
     flex: 1 1 100%;
@@ -969,6 +1020,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=20"></script>
+<script src="/static/runway/game.js?v=21"></script>
 </body>
 </html>

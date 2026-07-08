@@ -285,6 +285,31 @@ AIRLINE_PROFILES = {
     'Charter / GA': {'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4},
 }
 
+# National scale (0–1) and est. monthly brand/marketing + corporate overhead for league economics.
+_AIRLINE_SCALE_DEFAULTS = {
+    'Delta': (0.98, 390_000_000),
+    'American': (0.96, 360_000_000),
+    'United': (0.95, 340_000_000),
+    'Southwest': (0.82, 175_000_000),
+    'Allegiant': (0.34, 11_000_000),
+    'Frontier': (0.38, 14_000_000),
+    'Spirit': (0.36, 13_000_000),
+    'JetBlue': (0.52, 42_000_000),
+    'Alaska': (0.44, 26_000_000),
+    'Sun Country': (0.22, 4_500_000),
+    'Breeze': (0.18, 3_200_000),
+    'Ultimate Air Shuttle': (0.06, 180_000),
+    'Southern Airways Express': (0.08, 420_000),
+    'Charter / GA': (0.02, 50_000),
+}
+for _name, _prof in AIRLINE_PROFILES.items():
+    _scale, _overhead = _AIRLINE_SCALE_DEFAULTS.get(
+        _name,
+        (_prof['financial_health'] * 0.45, _prof['financial_health'] * 8_000_000),
+    )
+    _prof['national_scale'] = _scale
+    _prof['marketing_overhead_mo'] = _overhead
+
 
 def _normalize_gate_counts(gates_total, gates_available):
     """Ensure gates_available is never greater than gates_total (common data-entry swap)."""
@@ -686,9 +711,35 @@ COMMON_ROUTE_PAIRS = [
 ]
 
 
+MIDWEST_REGION_IATA = sorted(set(OHIO_REGION_IATA + [
+    'ORD', 'MDW', 'STL', 'MCI', 'BNA', 'MEM', 'GRR', 'DSM', 'OMA', 'MSP',
+]))
+
+LEAGUE_SCOPES = {
+    'ohio': {
+        'label': 'Ohio & nearby',
+        'airports': OHIO_REGION_IATA,
+        'airlines': ['Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit'],
+        'overhead_weight': 0.04,
+    },
+    'midwest': {
+        'label': 'Midwest',
+        'airports': MIDWEST_REGION_IATA,
+        'airlines': ['Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue'],
+        'overhead_weight': 0.15,
+    },
+    'national': {
+        'label': 'United States',
+        'airports': None,
+        'airlines': ['Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue', 'Alaska'],
+        'overhead_weight': 1.0,
+    },
+}
+
+# Back-compat alias
 LEAGUE_BY_REGION = {
-    'ohio': ['Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit'],
-    'national': ['Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue'],
+    'ohio': LEAGUE_SCOPES['ohio']['airlines'],
+    'national': LEAGUE_SCOPES['national']['airlines'],
 }
 
 EMBLEM_OPTIONS = [
@@ -721,6 +772,7 @@ def get_runway_bootstrap():
         'ancillary_modes': ANCILLARY_MODES,
         'airline_profiles': AIRLINE_PROFILES,
         'league_by_region': LEAGUE_BY_REGION,
+        'league_scopes': LEAGUE_SCOPES,
         'emblem_options': EMBLEM_OPTIONS,
     }
 

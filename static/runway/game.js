@@ -20,6 +20,7 @@
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
   let scoreboardOpen = false;
+  let selectedRival = null;
   let pendingEmblem = 'wing';
   let state = null;
   let tickTimer = null;
@@ -1448,7 +1449,8 @@
     sanitizeMarketingSpend();
     normalizeGameState();
     ensureMetrics();
-    state.metrics.league_snapshot = buildLeagueTable();
+    state.metrics.league_scope = defaultLeagueScope();
+    state.metrics.league_snapshot = buildLeagueTable(state.metrics.league_scope);
     initCompetitorMarkets();
     initCompetitorRoutes();
     resetMapView();
@@ -1608,14 +1610,65 @@
     </span>`;
   }
 
-  function leagueRegionKey() {
+  function defaultLeagueScope() {
+    if (!state) return 'national';
     const sc = bootstrap.scenarios[state.scenario_id] || {};
     return sc.region === 'ohio' ? 'ohio' : 'national';
   }
 
-  function leagueAirlineNames() {
-    const byRegion = bootstrap.league_by_region || {};
-    return byRegion[leagueRegionKey()] || byRegion.national || ['Delta', 'American', 'Southwest'];
+  function getLeagueScope() {
+    if (!state) return 'national';
+    ensureMetrics();
+    const scopes = bootstrap.league_scopes || {};
+    const key = state.metrics.league_scope || defaultLeagueScope();
+    return scopes[key] ? key : defaultLeagueScope();
+  }
+
+  function leagueScopeConfig(scopeKey) {
+    const scopes = bootstrap.league_scopes || {};
+    return scopes[scopeKey || getLeagueScope()] || scopes.national || {};
+  }
+
+  function leagueScopeLabel(scopeKey) {
+    const cfg = leagueScopeConfig(scopeKey);
+    return cfg.label || 'League';
+  }
+
+  function leagueAirlineNames(scopeKey) {
+    const cfg = leagueScopeConfig(scopeKey);
+    return cfg.airlines || ['Delta', 'American', 'Southwest'];
+  }
+
+  function scopeAirportSet(scopeKey) {
+    const cfg = leagueScopeConfig(scopeKey);
+    if (!cfg.airports) return null;
+    return new Set(cfg.airports);
+  }
+
+  function airportsInLeagueScope(scopeKey) {
+    const allowed = scopeAirportSet(scopeKey);
+    if (!allowed) return bootstrap.airports || [];
+    return (bootstrap.airports || []).filter((a) => allowed.has(a.iata));
+  }
+
+  function routeTouchesScope(route, scopeKey) {
+    const allowed = scopeAirportSet(scopeKey);
+    if (!allowed) return true;
+    return allowed.has(route.origin) || allowed.has(route.dest);
+  }
+
+  function scopeOverheadWeight(scopeKey) {
+    const cfg = leagueScopeConfig(scopeKey);
+    return cfg.overhead_weight != null ? cfg.overhead_weight : 1;
+  }
+
+  function setLeagueScope(scopeKey) {
+    if (!bootstrap.league_scopes || !bootstrap.league_scopes[scopeKey]) return;
+    ensureMetrics();
+    state.metrics.league_scope = scopeKey;
+    selectedRival = null;
+    saveGame();
+    renderScoreboardBar();
   }
 
   function ensureMetrics() {
@@ -1635,6 +1688,7 @@
     }
     if (!state.metrics.airport_share) state.metrics.airport_share = {};
     if (!state.metrics.prev_ranks) state.metrics.prev_ranks = {};
+    if (!state.metrics.league_scope) state.metrics.league_scope = defaultLeagueScope();
   }
 
   function computeCsat() {
@@ -1645,85 +1699,194 @@
     return Math.max(0, Math.min(100, rep * 0.45 + net.avgLoad * 28 + 18 - aogN * 6));
   }
 
-  function computeProfitScore() {
-    const econ = simulateDayEconomics();
-    const margin = econ.dayRev > 0 ? (econ.dayRev - econ.dayCost - econ.dailyFixed * 0.35) / Math.max(econ.dayRev, 1) : -0.2;
-    const runway = Math.min(24, runwayMonths());
-    const net = networkRouteStats();
-    const routeRatio = net.count ? net.profitable / net.count : 0;
-    return Math.max(0, Math.min(100, margin * 90 + runway * 2.2 + routeRatio * 22 + (state.cash > 0 ? 8 : 0)));
-  }
-
-  function competitorLeagueEntry(name) {
-    const prof = airlineProfile(name) || { financial_health: 0.55, route_sensitivity: 0.6 };
-    let dailyPax = 0;
-    (state.competitor_routes || []).forEach((r) => {
-      if (r.airline !== name) return;
-      dailyPax += (r.frequency_week / 7) * (65 + r.fare * 0.15) * prof.financial_health;
-    });
-    (bootstrap.airports || []).forEach((ap) => {
-      (ap.incumbents || []).forEach((inc) => {
-        if (inc.airline !== name) return;
-        dailyPax += (ap.annual_pax_m * 1_000_000 * inc.share) / 365 * 0.08;
-      });
-    });
-    const playerSteal = Object.keys(state.brand_awareness || {}).reduce((s, iata) => {
-      const ap = airport(iata);
-      if (!ap) return s;
-      const inc = (ap.incumbents || []).find((c) => c.airline === name);
-      if (!inc) return s;
-      return s + (state.brand_awareness[iata] || 0) * inc.share * 0.4;
-    }, 0);
-    dailyPax = Math.max(40, dailyPax - playerSteal * 12);
-    const riders = Math.round(dailyPax * 30);
-    const profit = Math.max(5, Math.min(98, prof.financial_health * 72 + (state.competitor_routes || []).filter((r) => r.airline === name).length * 4 - playerSteal * 0.15));
-    const csat = Math.max(20, Math.min(95, 35 + prof.financial_health * 45));
-    const overall = profit * 0.4 + Math.min(100, riders / 350) * 0.35 + csat * 0.25;
-    return {
-      id: name.replace(/\s+/g, '_').toLowerCase(),
-      name,
-      isPlayer: false,
-      profit: Math.round(profit),
-      riders,
-      csat: Math.round(csat),
-      overall: Math.round(overall),
-      emblem: null,
-    };
-  }
-
-  function estimateMonthlyRiders() {
+  function playerNaturalOverheadMonthly() {
     let daily = 0;
     (state.routes || []).forEach((route) => {
+      daily += simulateRouteDay(route).pax || 0;
+    });
+    const riders = Math.round(daily * 30);
+    const routes = state.routes.length;
+    const fleet = state.fleet.length;
+    const gates = state.gates.length;
+    const corp = 22000 + routes * 7500 + fleet * 9000 + gates * 3500;
+    const brand = Math.sqrt(Math.max(0, riders)) * 280;
+    const revenue = (state.ltm_revenue || 0) / 12;
+    const sales = revenue * 0.015;
+    return corp + brand + sales;
+  }
+
+  function estimateMonthlyRiders(scopeKey) {
+    let daily = 0;
+    (state.routes || []).forEach((route) => {
+      if (!routeTouchesScope(route, scopeKey)) return;
       daily += simulateRouteDay(route).pax || 0;
     });
     return Math.round(daily * 30);
   }
 
-  function playerLeagueEntry() {
-    ensureMetrics();
-    const profit = Math.round(computeProfitScore());
-    const riders = Math.round(
-      state.metrics.passengers_mtd || state.metrics.passengers_month || estimateMonthlyRiders()
+  function playerScopedMonthlyProfit(scopeKey) {
+    let dayRev = 0;
+    let dayCost = 0;
+    (state.routes || []).forEach((route) => {
+      if (!routeTouchesScope(route, scopeKey)) return;
+      const r = simulateRouteDay(route);
+      dayRev += r.revenue;
+      dayCost += r.cost;
+    });
+    const total = simulateDayEconomics();
+    const scopeShare = total.dayRev > 0 ? dayRev / total.dayRev : state.routes.length ? 0.35 : 0;
+    const monthlyFixed =
+      fleetMonthlyCosts() + gateLeaseMonthly() + monthlyDebtService() + marketingMonthly();
+    const allocatedFixed = monthlyFixed * Math.min(1, scopeShare + 0.12);
+    return Math.round((dayRev - dayCost) * 30 - allocatedFixed - playerNaturalOverheadMonthly());
+  }
+
+  function competitorScopedStats(name, scopeKey) {
+    const prof = airlineProfile(name) || {
+      financial_health: 0.55,
+      route_sensitivity: 0.6,
+      national_scale: 0.35,
+      marketing_overhead_mo: 8_000_000,
+      tier: 'lcc',
+    };
+    const aps = airportsInLeagueScope(scopeKey);
+    let dailyPax = 0;
+    let dailyGross = 0;
+    const airportPresence = [];
+
+    aps.forEach((ap) => {
+      (ap.incumbents || []).forEach((inc) => {
+        if (inc.airline !== name) return;
+        const daily = (ap.annual_pax_m * 1_000_000 * inc.share) / 365;
+        const avgFare = inc.tier === 'lcc' ? 108 : inc.tier === 'legacy' ? 168 : 142;
+        dailyPax += daily;
+        dailyGross += daily * avgFare;
+        airportPresence.push({ iata: ap.iata, city: ap.city, share: inc.share, tier: inc.tier });
+      });
+    });
+
+    const routesInScope = [];
+    (state.competitor_routes || []).forEach((r) => {
+      if (r.airline !== name) return;
+      if (!routeTouchesScope(r, scopeKey)) return;
+      const daily = (r.frequency_week / 7) * (48 + r.fare * 0.18) * (0.75 + prof.financial_health * 0.2);
+      dailyPax += daily;
+      dailyGross += daily * r.fare;
+      routesInScope.push(r);
+    });
+
+    const playerSteal = Object.keys(state.brand_awareness || {}).reduce((s, iata) => {
+      const ap = airport(iata);
+      if (!ap || !aps.find((x) => x.iata === iata)) return s;
+      const inc = (ap.incumbents || []).find((c) => c.airline === name);
+      if (!inc) return s;
+      return s + (state.brand_awareness[iata] || 0) * inc.share * 0.35;
+    }, 0);
+    dailyPax = Math.max(0, dailyPax - playerSteal * 14);
+    dailyGross = Math.max(0, dailyGross - playerSteal * 14 * 125);
+
+    const riders = Math.round(dailyPax * 30);
+    const gross = dailyGross * 30;
+    const margin = 0.06 + prof.financial_health * 0.11;
+    const overhead =
+      (prof.marketing_overhead_mo || prof.national_scale * 50_000_000) *
+      scopeOverheadWeight(scopeKey);
+    const profit = Math.round(gross * margin - overhead);
+
+    const csat = Math.max(
+      22,
+      Math.min(
+        94,
+        32 +
+          prof.financial_health * 42 +
+          Math.min(12, routesInScope.length * 1.5) -
+          playerSteal * 0.08
+      )
     );
+
+    return {
+      profit,
+      riders,
+      csat: Math.round(csat),
+      gross: Math.round(gross),
+      overhead: Math.round(overhead),
+      routesInScope,
+      airportPresence,
+      prof,
+    };
+  }
+
+  function competitorLeagueEntry(name, scopeKey) {
+    const stats = competitorScopedStats(name, scopeKey);
+    return {
+      id: name.replace(/\s+/g, '_').toLowerCase(),
+      name,
+      isPlayer: false,
+      profit: stats.profit,
+      riders: stats.riders,
+      csat: stats.csat,
+      gross: stats.gross,
+      overhead: stats.overhead,
+      emblem: null,
+      overall: 0,
+    };
+  }
+
+  function playerLeagueEntry(scopeKey) {
+    ensureMetrics();
+    const riders = estimateMonthlyRiders(scopeKey);
+    const profit = playerScopedMonthlyProfit(scopeKey);
     const csat = Math.round(computeCsat());
-    const overall = Math.round(profit * 0.4 + Math.min(100, riders / 200) * 0.35 + csat * 0.25);
     return {
       id: 'player',
       name: state.airline_name || 'You',
       isPlayer: true,
       profit,
-      riders: riders || Math.round(networkRouteStats().dailyPnl > 0 ? 1200 : 200),
+      riders: riders || estimateMonthlyRiders(scopeKey),
       csat,
-      overall,
+      overall: 0,
       emblem: state.airline_emblem || 'wing',
     };
   }
 
-  function buildLeagueTable() {
+  function leaguePillarPercentile(entries, key, entry) {
+    const sorted = [...entries].sort((a, b) => b[key] - a[key]);
+    const idx = sorted.findIndex((e) => e.id === entry.id);
+    if (idx < 0) return 0;
+    return Math.round((1 - idx / Math.max(1, entries.length - 1)) * 100);
+  }
+
+  function leagueRiderPercentile(entries, entry) {
+    const sorted = [...entries].sort((a, b) => b.riders - a.riders);
+    const idx = sorted.findIndex((e) => e.id === entry.id);
+    let pct = Math.round((1 - idx / Math.max(1, entries.length - 1)) * 100);
+    if (entry.isPlayer) {
+      pct = Math.round(pct * 0.82);
+    } else {
+      const scale = airlineProfile(entry.name)?.national_scale || 0.4;
+      pct = Math.round(Math.min(100, pct * (0.9 + scale * 0.12)));
+    }
+    return pct;
+  }
+
+  function applyLeagueOverallScores(entries) {
+    entries.forEach((e) => {
+      const profitPct = leaguePillarPercentile(entries, 'profit', e);
+      const riderPct = leagueRiderPercentile(entries, e);
+      e.overall = Math.round(profitPct * 0.45 + riderPct * 0.35 + e.csat * 0.2);
+    });
+  }
+
+  function buildLeagueTable(scopeKey) {
     if (!state) return [];
-    const entries = [playerLeagueEntry(), ...leagueAirlineNames().map((n) => competitorLeagueEntry(n))];
+    const scope = scopeKey || getLeagueScope();
+    const entries = [
+      playerLeagueEntry(scope),
+      ...leagueAirlineNames(scope).map((n) => competitorLeagueEntry(n, scope)),
+    ];
+    applyLeagueOverallScores(entries);
     entries.sort((a, b) => b.overall - a.overall);
-    return entries.map((e, i) => ({ ...e, rank: i + 1 }));
+    return entries.map((e, i) => ({ ...e, rank: i + 1, scope }));
   }
 
   function pillarMeter(score) {
@@ -1733,7 +1896,7 @@
 
   function metricLeverTip(pillar) {
     const tips = {
-      profit: 'Routes · fares · utilization · burn',
+      profit: 'Scoped route margin minus fleet, gates, and growing corporate overhead',
       riders: 'Marketing · OTAs · frequency · new routes',
       csat: 'Load factor · AOG · reputation · fare fairness',
     };
@@ -1769,7 +1932,7 @@
     const table = buildLeagueTable();
     const prev = state.metrics.prev_ranks || {};
     const player = table.find((e) => e.isPlayer);
-    const region = leagueRegionKey() === 'ohio' ? 'Ohio' : 'National';
+    const region = leagueScopeLabel(getLeagueScope());
 
     table.forEach((entry) => {
       const oldRank = prev[entry.id];
@@ -1816,13 +1979,108 @@
     return ((state.brand_awareness && state.brand_awareness[iata]) || 0) / 100;
   }
 
+  function leagueScopePickerHtml() {
+    const scopes = bootstrap.league_scopes || {};
+    const active = getLeagueScope();
+    return Object.entries(scopes)
+      .map(
+        ([key, cfg]) =>
+          `<button type="button" class="scope-btn${key === active ? ' active' : ''}" data-league-scope="${key}" title="Compare within ${cfg.label}">${cfg.label}</button>`
+      )
+      .join('');
+  }
+
+  function bindLeagueScopeButtons() {
+    document.querySelectorAll('[data-league-scope]').forEach((btn) => {
+      if (btn.dataset.scopeBound) return;
+      btn.dataset.scopeBound = '1';
+      btn.addEventListener('click', () => setLeagueScope(btn.dataset.leagueScope));
+    });
+  }
+
+  function bindRivalClicks() {
+    document.querySelectorAll('[data-rival-name]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectRival(el.dataset.rivalName);
+      });
+    });
+  }
+
+  function selectRival(name) {
+    selectedRival = name;
+    scoreboardOpen = true;
+    renderScoreboardBar();
+  }
+
+  function closeRivalDetail() {
+    selectedRival = null;
+    renderScoreboardBar();
+  }
+
+  function renderRivalDetail(name) {
+    const scope = getLeagueScope();
+    const stats = competitorScopedStats(name, scope);
+    const prof = stats.prof;
+    const scale = Math.round((prof.national_scale || 0.35) * 100);
+    const health = Math.round((prof.financial_health || 0.5) * 100);
+    const routesHtml = stats.routesInScope.length
+      ? `<ul class="list incumbent-list">${stats.routesInScope
+          .map(
+            (r) =>
+              `<li><strong>${r.origin}–${r.dest}</strong> <span class="muted">${r.frequency_week}x/wk · $${r.fare}</span></li>`
+          )
+          .join('')}</ul>`
+      : '<p class="muted">No seeded competitor routes in this scope.</p>';
+    const airportsHtml = stats.airportPresence.length
+      ? `<ul class="list incumbent-list">${stats.airportPresence
+          .map((a) => {
+            const ap = airport(a.iata);
+            const intel = ap
+              ? formatIncumbentIntel(ap, { airline: name, share: a.share, tier: a.tier })
+              : '';
+            return `<li><strong>${a.iata}</strong> ${a.city} <span class="muted">${(a.share * 100).toFixed(0)}% share</span><br>${intel}</li>`;
+          })
+          .join('')}</ul>`
+      : '<p class="muted">Thin or no incumbent presence in this scope.</p>';
+
+    return `
+      <div class="scoreboard-panel-inner rival-detail">
+        <button type="button" class="btn secondary rival-back" data-rival-back>← Back to league</button>
+        <div class="rival-detail-head">
+          ${airlineLogoHtml(name, null, 44)}
+          <div>
+            <h3>${name}</h3>
+            <p class="muted">${leagueScopeLabel(scope)} · ${prof.tier || 'carrier'} · national scale ${scale}%</p>
+          </div>
+        </div>
+        <dl class="stat-dl rival-stats">
+          <dt>Est. monthly profit</dt><dd class="${stats.profit >= 0 ? '' : 'danger'}">${fmtMoney(stats.profit)}</dd>
+          <dt>Est. monthly riders</dt><dd>${stats.riders.toLocaleString()}</dd>
+          <dt>CSAT (est.)</dt><dd>${stats.csat}</dd>
+          <dt>Gross revenue (scope)</dt><dd>${fmtMoney(stats.gross)}</dd>
+          <dt>Brand & overhead</dt><dd>${fmtMoney(stats.overhead)}/mo</dd>
+          <dt>Financial health</dt><dd>${health}%</dd>
+        </dl>
+        <p class="muted" style="font-size:0.72rem;margin:10px 0 6px;">
+          Giants carry heavy marketing and corporate overhead — strong brand, thin scoped profit. Your startup avoids most of that… for now.
+        </p>
+        <h4 class="rival-section-title">Routes in scope</h4>
+        ${routesHtml}
+        <h4 class="rival-section-title">Airport presence</h4>
+        ${airportsHtml}
+      </div>`;
+  }
+
   function renderScoreboardBar() {
     const bar = $('scoreboard-bar');
     if (!bar || !state) return;
     ensureMetrics();
-    const table = state.metrics.league_snapshot.length ? state.metrics.league_snapshot : buildLeagueTable();
-    const player = table.find((e) => e.isPlayer) || playerLeagueEntry();
-    const region = leagueRegionKey() === 'ohio' ? 'Ohio' : 'US';
+    const scope = getLeagueScope();
+    const table = buildLeagueTable(scope);
+    state.metrics.league_snapshot = table;
+    const player = table.find((e) => e.isPlayer) || playerLeagueEntry(scope);
+    const region = leagueScopeLabel(scope);
     const profitRank =
       [...table].sort((a, b) => b.profit - a.profit).findIndex((e) => e.isPlayer) + 1;
     const ridersRank =
@@ -1837,18 +2095,33 @@
           <strong>${state.airline_name || 'Airline'}</strong>
           <span class="muted">#${player.rank} of ${table.length} · ${region}</span>
         </span>`;
+      brand.setAttribute('aria-expanded', scoreboardOpen ? 'true' : 'false');
     }
+
+    let scopeBar = $('scoreboard-scope');
+    if (!scopeBar) {
+      scopeBar = document.createElement('div');
+      scopeBar.id = 'scoreboard-scope';
+      scopeBar.className = 'scoreboard-scope';
+      scopeBar.setAttribute('aria-label', 'League scope');
+      const pillars = $('scoreboard-pillars');
+      if (pillars && pillars.parentNode) pillars.parentNode.insertBefore(scopeBar, pillars);
+    }
+    scopeBar.innerHTML = leagueScopePickerHtml();
+    bindLeagueScopeButtons();
 
     const pillars = $('scoreboard-pillars');
     if (pillars) {
+      const profitMeter = Math.max(0, Math.min(100, 50 + player.profit / 40000));
+      const riderMeter = Math.min(100, Math.log10(Math.max(10, player.riders)) * 28);
       pillars.innerHTML = `
         <div class="pillar" title="${metricLeverTip('profit')}">
-          <span class="pillar-label">Profit</span>${pillarMeter(player.profit)}
-          <span class="pillar-rank">#${profitRank}</span>
+          <span class="pillar-label">Profit</span>${pillarMeter(profitMeter)}
+          <span class="pillar-rank">${fmtMoney(player.profit)}/mo · #${profitRank}</span>
         </div>
         <div class="pillar" title="${metricLeverTip('riders')}">
-          <span class="pillar-label">Riders</span>${pillarMeter(Math.min(100, player.riders / 250))}
-          <span class="pillar-rank">${(state.metrics.passengers_mtd || player.riders).toLocaleString()} · #${ridersRank}</span>
+          <span class="pillar-label">Riders</span>${pillarMeter(riderMeter)}
+          <span class="pillar-rank">${player.riders.toLocaleString()}/mo · #${ridersRank}</span>
         </div>
         <div class="pillar" title="${metricLeverTip('csat')}">
           <span class="pillar-label">CSAT</span>${pillarMeter(player.csat)}
@@ -1863,9 +2136,10 @@
         .slice(0, 6)
         .map(
           (e) =>
-            `<span class="rival-logo" title="${e.name} — #${e.rank}">${airlineLogoHtml(e.name, null, 28)}</span>`
+            `<button type="button" class="rival-logo" data-rival-name="${e.name}" title="${e.name} — #${e.rank} · click for intel">${airlineLogoHtml(e.name, null, 28)}</button>`
         )
         .join('');
+      bindRivalClicks();
     }
 
     renderScoreboardPanel(table);
@@ -1881,14 +2155,23 @@
       return;
     }
     panel.classList.add('open');
+    if (selectedRival) {
+      panel.innerHTML = renderRivalDetail(selectedRival);
+      const back = panel.querySelector('[data-rival-back]');
+      if (back) back.addEventListener('click', closeRivalDetail);
+      return;
+    }
+    const scope = leagueScopeLabel(getLeagueScope());
     const rows = data
       .map((e) => {
         const trend =
           e.trend > 0 ? `<span class="trend-up">▲${e.trend}</span>` : e.trend < 0 ? `<span class="trend-down">▼${Math.abs(e.trend)}</span>` : '<span class="muted">—</span>';
-        return `<tr class="${e.isPlayer ? 'you' : ''}">
+        const rowClass = e.isPlayer ? 'you' : 'rival-row';
+        const dataAttr = e.isPlayer ? '' : ` data-rival-name="${e.name}"`;
+        return `<tr class="${rowClass}"${dataAttr}>
           <td>${e.rank}</td>
           <td>${airlineLogoHtml(e.name, e.emblem, 26)} <span>${e.name}</span></td>
-          <td>${e.profit}</td>
+          <td class="${e.profit < 0 ? 'danger' : ''}">${fmtMoney(e.profit)}</td>
           <td>${e.riders.toLocaleString()}</td>
           <td>${e.csat}</td>
           <td><b>${e.overall}</b></td>
@@ -1898,18 +2181,20 @@
       .join('');
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
-        <h3>League scoreboard</h3>
-        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Profitability · monthly riders · customer satisfaction. Click competitor logos above to compare symbols.</p>
+        <h3>League — ${scope}</h3>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Monthly operating profit (est.), riders, and CSAT within the selected scope. Click a rival for intel.</p>
         <table class="scoreboard-table">
-          <thead><tr><th>#</th><th>Airline</th><th>Profit</th><th>Riders/mo</th><th>CSAT</th><th>Overall</th><th>Trend</th></tr></thead>
+          <thead><tr><th>#</th><th>Airline</th><th>Profit/mo</th><th>Riders/mo</th><th>CSAT</th><th>Overall</th><th>Trend</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route mix & costs. Riders — marketing, OTAs, frequency. CSAT — reliability, load, fair fares.</p>
+        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing (giants win on brand). CSAT — reliability, load, fair fares.</p>
       </div>`;
+    bindRivalClicks();
   }
 
   function toggleScoreboard() {
     scoreboardOpen = !scoreboardOpen;
+    if (!scoreboardOpen) selectedRival = null;
     renderScoreboardBar();
   }
 
@@ -4265,6 +4550,9 @@
     toggleOta: toggleOtaListing,
     toggleFleetShop,
     toggleScoreboard,
+    setLeagueScope,
+    selectRival,
+    closeRivalDetail,
     setEmblem: (id) => {
       pendingEmblem = id;
       document.querySelectorAll('[data-emblem]').forEach((btn) => {
