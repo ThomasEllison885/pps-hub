@@ -148,7 +148,7 @@
     display: block;
     border-radius: 8px;
     border: 1px solid var(--border);
-    background: #081420;
+    background: #0c1c30;
   }
 
   .side-panel {
@@ -212,6 +212,55 @@
     font-size: 0.8rem;
   }
   .back-link:hover { color: var(--accent); }
+
+  .fleet-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+    margin: 12px 0;
+  }
+  .fleet-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+  .fleet-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .fleet-card strong { font-size: 0.82rem; color: #fff; }
+  .fleet-card .btn-row { margin-top: 6px; }
+  .fleet-confirm {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--accent);
+    background: rgba(0, 200, 150, 0.06);
+  }
+  .fleet-confirm label { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; font-size: 0.78rem; }
+  .fleet-confirm input {
+    padding: 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    max-width: 120px;
+  }
+  .badge-regional {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(0, 200, 150, 0.15);
+    color: var(--accent);
+    margin-left: 6px;
+    vertical-align: middle;
+  }
 </style>
 </head>
 <body>
@@ -220,7 +269,7 @@
   <div class="start-wrap">
     <h1>Runway</h1>
     <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
-    <p class="muted" style="margin-bottom:24px;">MVP v0.1 · Present-day map · 55 airports · 3 scenarios · equity, debt, bonds</p>
+    <p class="muted" style="margin-bottom:24px;">MVP v0.1 · Present-day map · 61 airports · Ohio regionals · 3 scenarios · equity, debt, bonds</p>
     <div id="scenario-list"></div>
   </div>
 </div>

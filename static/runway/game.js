@@ -16,6 +16,7 @@
   let mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
   const MAP_ZOOM_MIN_W = MAP_W * 0.22;
   const MAP_ZOOM_MAX_W = MAP_W * 2.2;
+  let fleetPending = null;
   let mapDrag = {
     active: false,
     moved: false,
@@ -65,6 +66,68 @@
     return bootstrap.aircraft_types[id];
   }
 
+  function aircraftSeats(acType, configured) {
+    const ac = aircraftType(acType);
+    const s = configured || ac.seats;
+    return Math.min(ac.seats_max || ac.seats, Math.max(ac.seats_min || ac.seats, s));
+  }
+
+  function fleetSeatCount(plane) {
+    return aircraftSeats(plane.type, plane.seats);
+  }
+
+  function isSmallAircraft(acType) {
+    const ac = aircraftType(acType);
+    const max = ac.seats_max || ac.seats;
+    return max < 76;
+  }
+
+  function comfortStars(rating) {
+    const r = rating || 3;
+    return '★'.repeat(Math.round(r)) + '☆'.repeat(5 - Math.round(r));
+  }
+
+  function airportLabel(ap) {
+    return `${ap.iata} — ${ap.city}`;
+  }
+
+  function sortedAirports() {
+    return [...bootstrap.airports].sort((a, b) => a.iata.localeCompare(b.iata));
+  }
+
+  function resolveAirportQuery(q) {
+    if (!q) return null;
+    const t = q.trim().toLowerCase();
+    if (!t) return null;
+    const exact = bootstrap.airports.find((a) => a.iata.toLowerCase() === t);
+    if (exact) return exact;
+    const m = t.match(/^([a-z0-9]{3})\b/);
+    if (m) {
+      const byCode = bootstrap.airports.find((a) => a.iata.toLowerCase() === m[1]);
+      if (byCode) return byCode;
+    }
+    return (
+      bootstrap.airports.find(
+        (a) =>
+          a.city.toLowerCase().includes(t) ||
+          a.name.toLowerCase().includes(t) ||
+          `${a.iata} ${a.city}`.toLowerCase().includes(t)
+      ) || null
+    );
+  }
+
+  function defaultRouteOrigin() {
+    if (selectedAirport) return selectedAirport;
+    if (state && state.gates.length) return state.gates[0].airport;
+    return 'DAY';
+  }
+
+  function airportDatalistHtml() {
+    return sortedAirports()
+      .map((a) => `<option value="${airportLabel(a)}">${a.name}${a.state ? ` (${a.state})` : ''}</option>`)
+      .join('');
+  }
+
   function cloneScenario(id) {
     const s = JSON.parse(JSON.stringify(bootstrap.scenarios[id]));
     s.fleet = (s.fleet || []).map((f) => ({ ...f }));
@@ -107,6 +170,7 @@
       paused_reason: null,
     };
     sanitizeMarketingSpend();
+    ensureFleet();
     resetMapView();
     pushEvent(`Started: ${base.name}`);
     saveGame();
@@ -160,6 +224,36 @@
       });
     }
     state.macro.country_health = computeCountryHealth();
+  }
+
+  function ensureFleet() {
+    if (!state || !state.fleet) return;
+    state.fleet.forEach((f) => {
+      if (!f.id) f.id = uid('ac');
+      const ac = aircraftType(f.type);
+      if (f.seats == null) f.seats = ac.seats;
+      if (f.leased == null) f.leased = true;
+      if (!f.leased && f.life_months_left == null) {
+        f.life_months_left = (ac.lifespan_years || 25) * 12;
+      }
+      if (f.leased && f.lease_months_left == null) {
+        f.lease_months_left = 60;
+      }
+    });
+    state.routes.forEach((r) => {
+      if (!r.aircraft_id && state.fleet.length) {
+        const match = state.fleet.find((f) => f.type === r.aircraft_type);
+        if (match) r.aircraft_id = match.id;
+      }
+    });
+  }
+
+  function mergeAirportsFromBootstrap() {
+    if (!initialAirports || !bootstrap.airports) return;
+    const byIata = Object.fromEntries(bootstrap.airports.map((a) => [a.iata, a]));
+    initialAirports.forEach((ap) => {
+      if (!byIata[ap.iata]) bootstrap.airports.push(JSON.parse(JSON.stringify(ap)));
+    });
   }
 
   function computeCountryHealth() {
@@ -295,10 +389,11 @@
     return state.bonds.reduce((s, b) => s + (b.principal * b.coupon) / 4, 0);
   }
 
-  function fleetLeaseMonthly() {
+  function fleetMonthlyCosts() {
     return state.fleet.reduce((s, f) => {
-      if (!f.leased) return s;
-      return s + aircraftType(f.type).lease_monthly;
+      const ac = aircraftType(f.type);
+      if (f.leased) return s + ac.lease_monthly;
+      return s + (ac.maintenance_monthly || 0);
     }, 0);
   }
 
@@ -312,7 +407,7 @@
 
   function burnMonthly() {
     return (
-      fleetLeaseMonthly() +
+      fleetMonthlyCosts() +
       gateLeaseMonthly() +
       marketingMonthly() +
       otaListingMonthly() +
@@ -344,7 +439,8 @@
     const ac = aircraftType(route.aircraft_type);
     if (dist > ac.range_nm) return 0;
 
-    const base = Math.sqrt(o.metro_pop_m * d.metro_pop_m) * 1200;
+    const regionalBoost = (o.regional || d.regional) && isSmallAircraft(route.aircraft_type) ? 1.12 : 1;
+    const base = Math.sqrt(o.metro_pop_m * d.metro_pop_m) * 1200 * regionalBoost;
     const hubPenalty = 1 - (o.hub_strength + d.hub_strength) * 0.35;
     const freqBonus = Math.min(1.4, 0.7 + route.frequency_week / 28);
     const awareO = (state.brand_awareness[route.origin] || 5) / 100;
@@ -355,8 +451,9 @@
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
     const ota = otaEffects();
+    const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
 
-    return base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult;
+    return base * hubPenalty * freqBonus * marketing * rep * fareFactor * reliability * macro * ota.demandMult * comfortFactor;
   }
 
   function simulateRouteDay(route) {
@@ -364,8 +461,10 @@
     const dist = routeDistance(route);
     if (dist > ac.range_nm) return { revenue: 0, cost: 0, pax: 0 };
 
+    const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+    const seats = plane ? fleetSeatCount(plane) : ac.seats;
     const flightsToday = route.frequency_week / 7;
-    const dailySeats = ac.seats * flightsToday;
+    const dailySeats = seats * flightsToday;
     const demand = demandForRoute(route);
     const load = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const pax = Math.floor(dailySeats * load);
@@ -396,7 +495,7 @@
       });
 
       const dailyFixed =
-        (fleetLeaseMonthly() + gateLeaseMonthly() + monthlyDebtService()) / 30 +
+        (fleetMonthlyCosts() + gateLeaseMonthly() + monthlyDebtService()) / 30 +
         marketingMonthly() / 30;
 
       state.daily_pnl = dayRev - dayCost - dailyFixed;
@@ -420,6 +519,19 @@
         if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
           state.reputation = Math.min(100, state.reputation + 0.3);
         }
+        const retired = [];
+        state.fleet = state.fleet.filter((f) => {
+          if (f.leased) return true;
+          f.life_months_left = (f.life_months_left || 0) - 1;
+          if (f.life_months_left <= 0) {
+            retired.push(f);
+            return false;
+          }
+          return true;
+        });
+        retired.forEach((f) => {
+          pushEvent(`Retired ${aircraftType(f.type).name} (${f.id}) — useful life ended.`);
+        });
       }
 
       if (state.day % 90 === 0 && state.bonds.length) {
@@ -506,28 +618,83 @@
     renderAll();
   }
 
-  function leaseAircraft(type) {
+  function selectFleetOffer(type, mode) {
     const ac = aircraftType(type);
-    const deposit = ac.lease_monthly * 2;
-    if (state.cash < deposit) {
-      alert('Insufficient cash for aircraft deposit.');
-      return;
-    }
-    state.cash -= deposit;
-    state.fleet.push({
-      id: uid('ac'),
+    fleetPending = {
       type,
-      leased: true,
-      lease_months_left: 60,
-    });
-    pushEvent(`Leased ${ac.name}.`);
+      mode,
+      seats: ac.seats,
+    };
+    renderFleet();
+  }
+
+  function cancelFleetOffer() {
+    fleetPending = null;
+    renderFleet();
+  }
+
+  function setFleetPendingSeats(val) {
+    if (!fleetPending) return;
+    const ac = aircraftType(fleetPending.type);
+    fleetPending.seats = aircraftSeats(fleetPending.type, +val);
+    renderFleet();
+  }
+
+  function confirmFleetOffer() {
+    if (!fleetPending) return;
+    const { type, mode, seats } = fleetPending;
+    const ac = aircraftType(type);
+    const seatCount = aircraftSeats(type, seats);
+
+    if (mode === 'lease') {
+      const deposit = ac.lease_monthly * 2;
+      if (state.cash < deposit) {
+        alert(`Insufficient cash — need ${fmtMoney(deposit)} deposit for lease.`);
+        return;
+      }
+      if (!confirm(`Lease ${ac.name} (${seatCount} seats)?\n\nDeposit: ${fmtMoney(deposit)}\nMonthly: ${fmtMoney(ac.lease_monthly)}\nComfort: ${comfortStars(ac.comfort_rating)}`)) {
+        return;
+      }
+      state.cash -= deposit;
+      state.fleet.push({
+        id: uid('ac'),
+        type,
+        seats: seatCount,
+        leased: true,
+        lease_months_left: 60,
+      });
+      pushEvent(`Leased ${ac.name} (${seatCount} seats).`);
+    } else {
+      if (state.cash < ac.purchase) {
+        alert(`Insufficient cash — need ${fmtMoney(ac.purchase)} to purchase.`);
+        return;
+      }
+      if (!confirm(`Purchase ${ac.name} (${seatCount} seats)?\n\nPrice: ${fmtMoney(ac.purchase)}\nMaintenance: ${fmtMoney(ac.maintenance_monthly)}/mo\nUseful life: ${ac.lifespan_years} years\nComfort: ${comfortStars(ac.comfort_rating)}`)) {
+        return;
+      }
+      state.cash -= ac.purchase;
+      state.fleet.push({
+        id: uid('ac'),
+        type,
+        seats: seatCount,
+        leased: false,
+        life_months_left: (ac.lifespan_years || 25) * 12,
+      });
+      pushEvent(`Purchased ${ac.name} (${seatCount} seats).`);
+    }
+    fleetPending = null;
     saveGame();
     renderAll();
   }
 
-  function openRoute(origin, dest, aircraftTypeId, freq, fare, aircraftId) {
+  function openRoute(origin, dest, aircraftId, freq, fare) {
     if (!hasGateAt(origin)) {
       alert(`You need a gate at ${origin} first.`);
+      return;
+    }
+    const plane = state.fleet.find((f) => f.id === aircraftId);
+    if (!plane) {
+      alert('Select an aircraft from your fleet.');
       return;
     }
     const dist = haversineNm(
@@ -536,7 +703,7 @@
       airport(dest).lat,
       airport(dest).lon
     );
-    const ac = aircraftType(aircraftTypeId);
+    const ac = aircraftType(plane.type);
     if (dist > ac.range_nm) {
       alert(`Route exceeds ${ac.name} range (${Math.round(dist)} nm).`);
       return;
@@ -545,10 +712,10 @@
       id: uid('rt'),
       origin,
       dest,
-      aircraft_type: aircraftTypeId,
+      aircraft_type: plane.type,
       frequency_week: freq,
       fare,
-      aircraft_id: aircraftId || null,
+      aircraft_id: aircraftId,
     });
     pushEvent(`Opened ${origin}–${dest} (${freq}x/wk @ $${fare}).`);
     saveGame();
@@ -798,28 +965,12 @@
     );
   }
 
-  function drawMapLandmass() {
-    if (!usMap || !usMap.paths) return '';
-    let html = '<g class="us-land">';
-    usMap.paths.forEach((ring) => {
-      html += `<path d="${statePathD(ring)}" fill="#1e4a6e" stroke="#3d7ab5" stroke-width="0.7" stroke-linejoin="round"/>`;
-    });
-    html += '</g>';
-    return html;
-  }
-
   function drawMap() {
     const svg = $('runway-map');
     if (!svg) return;
 
-    let html = `<defs>
-      <linearGradient id="ocean" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#081420"/>
-        <stop offset="100%" stop-color="#0c2238"/>
-      </linearGradient>
-    </defs>`;
-    html += `<rect width="${MAP_W}" height="${MAP_H}" fill="url(#ocean)"/>`;
-    html += drawMapLandmass();
+    let html = '';
+    html += `<image href="/static/runway/usa-map.png" x="0" y="0" width="${MAP_W}" height="${MAP_H}" preserveAspectRatio="none" opacity="0.98"/>`;
 
     if (state && state.routes) {
       state.routes.forEach((route) => {
@@ -853,6 +1004,8 @@
     selectedAirport = iata;
     renderAirportPanel(iata);
     drawMap();
+    const routesPanel = $('panel-routes');
+    if (routesPanel && routesPanel.classList.contains('active')) renderRoutes();
   }
 
   function renderAirportPanel(iata) {
@@ -861,8 +1014,8 @@
     if (!ap || !panel) return;
     const gate = state.gates.find((g) => g.airport === iata);
     panel.innerHTML = `
-      <h3>${ap.iata} — ${ap.city}</h3>
-      <p class="muted">${ap.name}</p>
+      <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
+      <p class="muted">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
       <dl class="stat-dl">
         <dt>Metro pop</dt><dd>${ap.metro_pop_m}M</dd>
         <dt>Annual pax</dt><dd>${ap.annual_pax_m}M</dd>
@@ -965,40 +1118,125 @@
   function renderFleet() {
     const el = $('tab-fleet');
     if (!el) return;
-    let html = '<h3>Fleet</h3><ul class="list">';
-    state.fleet.forEach((f) => {
-      const ac = aircraftType(f.type);
-      html += `<li>${ac.name} ${f.leased ? '(leased)' : '(owned)'} — ${ac.seats} seats, ${ac.range_nm} nm</li>`;
-    });
-    html += '</ul><h4>Lease aircraft</h4><div class="btn-row">';
+    let html = '<h3>Your fleet</h3>';
+    if (!state.fleet.length) {
+      html += '<p class="muted">No aircraft yet — select a type below, configure seats, then confirm lease or purchase.</p>';
+    } else {
+      html += '<ul class="list">';
+      state.fleet.forEach((f) => {
+        const ac = aircraftType(f.type);
+        const seats = fleetSeatCount(f);
+        const life = f.leased
+          ? `${f.lease_months_left || '?'} mo lease left`
+          : `${Math.ceil((f.life_months_left || 0) / 12)} yr life left · ${fmtMoney(ac.maintenance_monthly)}/mo maint`;
+        html += `<li><strong>${ac.name}</strong> (${seats} seats) — ${f.leased ? 'Leased' : 'Owned'}<br>
+          <span class="muted">${ac.size} · ${ac.range_nm} nm · Comfort ${comfortStars(ac.comfort_rating)} · ${life}</span></li>`;
+      });
+      html += '</ul>';
+    }
+
+    html += '<h4>Add aircraft</h4><p class="muted">Choose type → set seats → confirm lease or buy.</p><div class="fleet-grid">';
     Object.keys(bootstrap.aircraft_types).forEach((tid) => {
       const ac = aircraftType(tid);
-      html += `<button class="btn secondary" onclick="Runway.leaseAircraft('${tid}')">${ac.name} ($${ac.lease_monthly.toLocaleString()}/mo)</button>`;
+      const active = fleetPending && fleetPending.type === tid;
+      html += `<div class="fleet-card ${active ? 'active' : ''}">
+        <strong>${ac.name}</strong>
+        <span class="muted">${ac.category} · ${ac.size}</span>
+        <span>${ac.seats_min}–${ac.seats_max} seats · ${ac.range_nm} nm</span>
+        <span>Comfort ${comfortStars(ac.comfort_rating)} (${ac.comfort_rating})</span>
+        <span>Lease ${fmtMoney(ac.lease_monthly)}/mo · Buy ${fmtMoney(ac.purchase)}</span>
+        ${ac.maintenance_monthly ? `<span class="muted">Owned maint ${fmtMoney(ac.maintenance_monthly)}/mo · ${ac.lifespan_years}yr life</span>` : ''}
+        <div class="btn-row">
+          <button class="btn secondary" onclick="Runway.selectFleet('${tid}','lease')">Lease…</button>
+          <button class="btn secondary" onclick="Runway.selectFleet('${tid}','buy')">Buy…</button>
+        </div>
+      </div>`;
     });
     html += '</div>';
+
+    if (fleetPending) {
+      const ac = aircraftType(fleetPending.type);
+      html += `<div class="fleet-confirm">
+        <h4>Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}: ${ac.name}</h4>
+        <label>Seats (${ac.seats_min}–${ac.seats_max})
+          <input type="number" min="${ac.seats_min}" max="${ac.seats_max}" value="${fleetPending.seats}"
+            oninput="Runway.setFleetSeats(this.value)">
+        </label>
+        <div class="btn-row">
+          <button class="btn" onclick="Runway.confirmFleet()">Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}</button>
+          <button class="btn secondary" onclick="Runway.cancelFleet()">Cancel</button>
+        </div>
+      </div>`;
+    }
     el.innerHTML = html;
   }
 
   function renderRoutes() {
     const el = $('tab-routes');
     if (!el) return;
-    let html = '<h3>Active routes</h3><table class="data-table"><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Load</th><th>Daily P&L</th></tr>';
-    state.routes.forEach((route) => {
-      const r = simulateRouteDay(route);
-      const pnl = r.revenue - r.cost;
-      html += `<tr><td>${route.origin}–${route.dest}</td><td>${route.frequency_week}/wk</td><td>$${route.fare}</td><td>${(r.load * 100).toFixed(0)}%</td><td>${fmtMoney(pnl)}</td></tr>`;
-    });
-    html += `</table>
-      <h4>Open route</h4>
+    const defOrigin = defaultRouteOrigin();
+    const defAp = airport(defOrigin);
+    const defLabel = defAp ? airportLabel(defAp) : '';
+
+    let html = '<h3>Active routes</h3>';
+    if (!state.routes.length) {
+      html += '<p class="muted">No routes yet.</p>';
+    } else {
+      html += '<table class="data-table"><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Load</th><th>Daily P&L</th></tr>';
+      state.routes.forEach((route) => {
+        const r = simulateRouteDay(route);
+        const pnl = r.revenue - r.cost;
+        html += `<tr><td>${route.origin}–${route.dest}</td><td>${route.frequency_week}/wk</td><td>$${route.fare}</td><td>${(r.load * 100).toFixed(0)}%</td><td>${fmtMoney(pnl)}</td></tr>`;
+      });
+      html += '</table>';
+    }
+
+    const fleetOpts = state.fleet.length
+      ? state.fleet
+          .map((f) => {
+            const ac = aircraftType(f.type);
+            return `<option value="${f.id}">${ac.name} (${fleetSeatCount(f)} seats)</option>`;
+          })
+          .join('')
+      : '<option value="">— add aircraft in Fleet tab —</option>';
+
+    html += `<h4>Open route</h4>
+      <p class="muted">Search by code or city (e.g. DAY, Dayton, LUK). Origin defaults to map selection.</p>
+      <datalist id="airport-list">${airportDatalistHtml()}</datalist>
       <div class="form-grid">
-        <label>Origin <select id="rt-origin">${bootstrap.airports.map((a) => `<option value="${a.iata}">${a.iata}</option>`).join('')}</select></label>
-        <label>Dest <select id="rt-dest">${bootstrap.airports.map((a) => `<option value="${a.iata}">${a.iata}</option>`).join('')}</select></label>
-        <label>Aircraft <select id="rt-ac">${Object.keys(bootstrap.aircraft_types).map((t) => `<option value="${t}">${bootstrap.aircraft_types[t].name}</option>`).join('')}</select></label>
+        <label>Origin
+          <input type="text" id="rt-origin-search" list="airport-list" placeholder="DAY — Dayton" value="${defLabel}">
+          <input type="hidden" id="rt-origin-code" value="${defOrigin}">
+        </label>
+        <label>Destination
+          <input type="text" id="rt-dest-search" list="airport-list" placeholder="CVG — Cincinnati">
+          <input type="hidden" id="rt-dest-code" value="">
+        </label>
+        <label>Aircraft (your fleet)
+          <select id="rt-aircraft">${fleetOpts}</select>
+        </label>
         <label>Freq/wk <input id="rt-freq" type="number" value="7" min="1" max="28"></label>
-        <label>Fare $ <input id="rt-fare" type="number" value="149" min="49" max="899"></label>
+        <label>Fare $ <input id="rt-fare" type="number" value="129" min="49" max="899"></label>
       </div>
       <button class="btn" onclick="Runway.submitRoute()">Launch route</button>`;
     el.innerHTML = html;
+    bindRouteAirportInputs();
+  }
+
+  function bindRouteAirportInputs() {
+    const bind = (inputId, hiddenId) => {
+      const input = $(inputId);
+      const hidden = $(hiddenId);
+      if (!input || !hidden) return;
+      const sync = () => {
+        const ap = resolveAirportQuery(input.value);
+        hidden.value = ap ? ap.iata : '';
+      };
+      input.addEventListener('change', sync);
+      input.addEventListener('blur', sync);
+    };
+    bind('rt-origin-search', 'rt-origin-code');
+    bind('rt-dest-search', 'rt-dest-code');
   }
 
   function renderEvents() {
@@ -1025,13 +1263,15 @@
   }
 
   function submitRoute() {
-    openRoute(
-      $('rt-origin').value,
-      $('rt-dest').value,
-      $('rt-ac').value,
-      +$('rt-freq').value,
-      +$('rt-fare').value
-    );
+    const oIn = $('rt-origin-search');
+    const dIn = $('rt-dest-search');
+    const oAp = resolveAirportQuery(oIn && oIn.value) || airport($('rt-origin-code').value);
+    const dAp = resolveAirportQuery(dIn && dIn.value);
+    if (!oAp || !dAp) {
+      alert('Pick valid origin and destination from the list (IATA code or city).');
+      return;
+    }
+    openRoute(oAp.iata, dAp.iata, $('rt-aircraft').value, +$('rt-freq').value, +$('rt-fare').value);
   }
 
   function saveGame() {
@@ -1046,8 +1286,10 @@
       const data = JSON.parse(raw);
       state = data.state;
       if (data.airports) bootstrap.airports = data.airports;
+      mergeAirportsFromBootstrap();
       sanitizeMarketingSpend();
       ensureMacro();
+      ensureFleet();
       return true;
     } catch (e) {
       return false;
@@ -1085,6 +1327,7 @@
         document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
         btn.classList.add('active');
         $(`panel-${btn.dataset.tab}`).classList.add('active');
+        if (btn.dataset.tab === 'routes') renderRoutes();
       });
     });
 
@@ -1124,7 +1367,10 @@
 
   window.Runway = {
     leaseGate,
-    leaseAircraft,
+    selectFleet: selectFleetOffer,
+    cancelFleet: cancelFleetOffer,
+    confirmFleet: confirmFleetOffer,
+    setFleetSeats: setFleetPendingSeats,
     submitRoute,
     raiseSeed,
     raiseGrowthEquity,
