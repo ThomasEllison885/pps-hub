@@ -76,6 +76,22 @@ const seats = 50;
 const load = E.estimateLoadFromDemand(demand, seats * (7 / 7), 0.95);
 assert(load < 0.35, `1 E145/day thin load ${load} < 35%`);
 
+// Airport fees vs regional seat revenue — per-touch fees must not dominate ticket revenue
+const regSeats = 50;
+const regFare = 139;
+const feePerDep = 450;
+const regFreqWeek = 10;
+const regLoad = 0.65;
+const paxPerDay = regSeats * (regFreqWeek / 7) * regLoad;
+const revPerDay = paxPerDay * regFare;
+const feesPerDay = (regFreqWeek / 7) * feePerDep * 2;
+assert(feesPerDay < revPerDay * 0.35, `airport fees ${feesPerDay.toFixed(0)} < 35% of ticket rev ${revPerDay.toFixed(0)}`);
+
+// Marketing at 4.5% of gross should be materially less than lease on one E145
+const monthlyGross = revPerDay * 30;
+const marketingSpend = Math.round(monthlyGross * 0.045);
+assert(marketingSpend < 118_000 * 0.2, `marketing ${marketingSpend} < 20% of E145 lease`);
+
 // Imputed pair CMH-DAY
 const pair = E.imputedPairMarketWeekly(cmhAp, dayAp, 72, cfg);
 assert(pair >= 4 && pair < 30, `CMH-DAY imputed pair ${pair}`);

@@ -1382,18 +1382,18 @@
         logLine: log.msg,
         options: [
           { id: 'cut', label: `A — Trim fares ~8% on ${log.airport} routes`, hint: 'Defend load factor.', effect: 'cut_fares', airport: log.airport, pct: 0.08 },
-          {
-            id: 'market',
-            label: `B — Hold fares · $15k/mo marketing at ${log.airport}`,
-            hint: 'Offset seat dump with awareness instead of a fare war.',
-            effect: 'marketing',
-            airport: log.airport,
-            amount: 15000,
-            competitorResponse: true,
-            awarenessBoost: true,
-            softenCompetitor: true,
-            airline: log.airline,
-          },
+          marketingDecisionOption(
+            'market',
+            'B — Hold fares ·',
+            log.airport,
+            'response',
+            {
+              competitorResponse: true,
+              awarenessBoost: true,
+              softenCompetitor: true,
+              airline: log.airline,
+            }
+          ),
           { id: 'premium', label: 'C — Hold premium · reputation push', hint: 'Accept softer loads short-term.', effect: 'hold_premium', airport: log.airport },
           { id: 'ignore', label: 'D — Do nothing for now', hint: 'Monitor loads in Routes.', effect: 'none' },
         ],
@@ -1407,16 +1407,10 @@
         teach: 'Positive events are openings — invest in marketing to capture freed demand, or simply enjoy stronger margins.',
         logLine: log.msg,
         options: [
-          {
-            id: 'market',
-            label: `A — Capitalize: $12k/mo marketing at ${log.airport}`,
-            hint: 'Capture the opening before someone else fills it.',
-            effect: 'marketing',
-            airport: log.airport,
-            amount: 12000,
+          marketingDecisionOption('market', 'A — Capitalize:', log.airport, 'capitalize', {
             competitorResponse: true,
             awarenessBoost: true,
-          },
+          }),
           { id: 'premium', label: 'B — Hold fares · take the demand bump', hint: 'Reputation +2; let loads rise naturally.', effect: 'hold_premium', airport: log.airport },
           { id: 'ignore', label: 'C — Do nothing', hint: 'The opening applies either way.', effect: 'none' },
         ],
@@ -1597,7 +1591,10 @@
           logLine: big.msg,
           options: [
             { id: 'routes', label: 'A — Review my routes', hint: 'Check load and fares.', effect: 'tab_routes', airport: big.airport },
-            { id: 'market', label: `B — Boost marketing at ${big.airport}`, hint: '+$12k/mo awareness.', effect: 'marketing', airport: big.airport, amount: 12000 },
+            marketingDecisionOption('market', 'B — Boost marketing', big.airport, 'capitalize', {
+              competitorResponse: true,
+              awarenessBoost: true,
+            }),
             { id: 'ignore', label: 'C — Ignore for now', effect: 'none' },
           ],
         });
@@ -1620,16 +1617,10 @@
           teach: 'Good news counts too. Reinvest in marketing to lock in share, or let margins improve on their own.',
           logLine: big.msg,
           options: [
-            {
-              id: 'market',
-              label: `A — Capitalize: $12k/mo marketing at ${big.airport}`,
-              hint: 'Capture freed demand.',
-              effect: 'marketing',
-              airport: big.airport,
-              amount: 12000,
+            marketingDecisionOption('market', 'A — Capitalize:', big.airport, 'capitalize', {
               competitorResponse: true,
               awarenessBoost: true,
-            },
+            }),
             { id: 'premium', label: 'B — Hold fares · enjoy the opening', effect: 'hold_premium', airport: big.airport },
             { id: 'ignore', label: 'C — Do nothing', effect: 'none' },
           ],
@@ -1775,15 +1766,87 @@
     return (state.routes || []).filter((r) => r.origin === iata || r.dest === iata);
   }
 
+  function airportScopedDailyEconomics(iata) {
+    let dayRev = 0;
+    let dayCost = 0;
+    let dayPax = 0;
+    (state.routes || []).forEach((route) => {
+      if (route.origin !== iata && route.dest !== iata) return;
+      const sim = simulateRouteDay(route);
+      dayRev += sim.revenue;
+      dayCost += sim.cost;
+      dayPax += sim.pax || 0;
+    });
+    const monthlyGross = Math.round(dayRev * 30);
+    const monthlyContribution = Math.round((dayRev - dayCost) * 30);
+    return { dayRev, dayCost, dayPax, monthlyGross, monthlyContribution };
+  }
+
+  /** Marketing $ scaled to ~3–5% of airport route revenue (regional airline benchmark). */
+  function scaledMarketingAmount(iata, purpose) {
+    const econ = airportScopedDailyEconomics(iata);
+    const routes = routesTouchingAirport(iata).length || 1;
+    const pctByPurpose = {
+      response: 0.045,
+      capitalize: 0.035,
+      surge: 0.03,
+      starter: 0.05,
+      coach: 0.04,
+      ota_alt: 0.038,
+    };
+    const pct = pctByPurpose[purpose] || 0.04;
+    const grossFloor = routes === 1 ? 55_000 : 80_000;
+    const monthlyGross = Math.max(econ.monthlyGross, grossFloor);
+    let amount = Math.round(monthlyGross * pct);
+    const min = routes === 1 ? 4_000 : 6_000;
+    const max = routes === 1 ? 14_000 : Math.min(40_000, Math.round(monthlyGross * 0.1));
+    return clampMoney(Math.min(max, Math.max(min, amount)));
+  }
+
+  function formatMarketingK(amount) {
+    const n = clampMoney(amount);
+    return (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1);
+  }
+
+  function marketingDecisionOption(id, labelCore, iata, purpose, extra) {
+    const amount = scaledMarketingAmount(iata, purpose);
+    return {
+      id,
+      label: `${labelCore} $${formatMarketingK(amount)}k/mo at ${iata}`,
+      hint: marketingPaybackHint(iata, amount),
+      effect: 'marketing',
+      airport: iata,
+      amount,
+      ...(extra || {}),
+    };
+  }
+
+  function marketingPaybackHint(iata, amount) {
+    const routes = routesTouchingAirport(iata);
+    const avgFare = routes.length
+      ? routes.reduce((s, r) => s + (r.fare || 129), 0) / routes.length
+      : 120;
+    const revPerPax = Math.max(65, Math.round(avgFare * 0.88 + 18));
+    const dailyCost = amount / 30;
+    const pax = Math.max(1, Math.ceil(dailyCost / revPerPax));
+    const pct =
+      airportScopedDailyEconomics(iata).monthlyGross > 0
+        ? Math.round((amount / airportScopedDailyEconomics(iata).monthlyGross) * 100)
+        : null;
+    const pctNote = pct != null ? `${pct}% of ${iata} route revenue · ` : '';
+    return `${pctNote}needs ~${pax} extra pax/day to cover spend`;
+  }
+
   function applyMarketingSpend(option) {
     const ap = option.airport;
     if (!ap) return;
     const amount = option.amount || 12000;
     const prev = clampMoney(state.marketing_spend_monthly[ap]);
-    const next = option.setAmount ? clampMoney(amount) : clampMoney(prev + amount);
+    const next = option.setAmount ? clampMoney(option.amount || amount) : clampMoney(prev + (option.amount || amount));
     state.marketing_spend_monthly[ap] = next;
     if (option.competitorResponse || option.awarenessBoost) {
-      state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + amount / 22000);
+      const awarenessDelta = option.setAmount ? Math.max(0, next - prev) : amount;
+      state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + awarenessDelta / 22000);
       if (option.softenCompetitor && option.airline && state.competitor_markets[ap]) {
         const m = state.competitor_markets[ap][option.airline];
         if (m) {
@@ -1881,7 +1944,8 @@
   }
 
   function fareWarResponseOptions(iata, airline, pct) {
-    const amount = 15000;
+    const amount = scaledMarketingAmount(iata, 'response');
+    const amtK = (amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1);
     return [
       {
         id: 'match',
@@ -1893,8 +1957,8 @@
       },
       {
         id: 'market',
-        label: `B — Hold fares · invest $${Math.round(amount / 1000)}k/mo marketing at ${iata}`,
-        hint: 'Build awareness & demand — offsets pressure over 2–4 weeks without cutting price.',
+        label: `B — Hold fares · $${amtK}k/mo marketing at ${iata}`,
+        hint: marketingPaybackHint(iata, amount),
         effect: 'marketing',
         airport: iata,
         amount,
@@ -2508,7 +2572,7 @@
         triggerOnStart: true,
         title: 'Phase 1 — Run your first week (paused → slow)',
         body:
-          'Your <b>CMH–DAY</b> route is tuned for profit: <b>10/wk</b>, fare <b>$139</b>, and <b>$20k/mo</b> CMH marketing already running. ' +
+          'Your <b>CMH–DAY</b> route is tuned for profit: <b>10/wk</b>, fare <b>$139</b>, and modest <b>CMH marketing</b> (~4–5% of route revenue) already running. ' +
           'Open <b>Financials</b> and watch <b>Daily P&L</b> and <b>Avg load</b> in the HUD.',
         teach:
           'Do <b>not</b> fast-forward (▶▶▶) until Daily P&L stays green. Overhead (lease + gate + HQ) bills every day whether the plane is full or empty.',
@@ -2544,21 +2608,19 @@
         options: [
           {
             id: 'fare_mkt',
-            label: 'A — Fare $139 + CMH marketing $28k/mo',
+            label: 'A — Fare $139 + scaled CMH marketing',
             hint: 'One-click tune for CMH–DAY.',
             effect: 'playbook_tune_cmh_day',
             routeId,
             airport: 'CMH',
-            amount: 28_000,
             fare: 139,
           },
           {
             id: 'mkt_only',
-            label: 'B — CMH marketing only → $28k/mo',
+            label: 'B — CMH marketing only (scaled to revenue)',
             hint: 'Keep fare; buy awareness.',
             effect: 'set_marketing',
             airport: 'CMH',
-            amount: 28_000,
           },
           {
             id: 'skip',
@@ -2681,12 +2743,40 @@
     return body;
   }
 
+  function enrichPlaybookOptions(options) {
+    return (options || []).map((o) => {
+      if (o.effect === 'playbook_tune_cmh_day' && o.airport) {
+        const amount = scaledMarketingAmount(o.airport, 'coach');
+        return {
+          ...o,
+          amount,
+          setAmount: true,
+          label: `A — Fare $${o.fare || 139} + ${o.airport} marketing $${formatMarketingK(amount)}k/mo`,
+          hint: marketingPaybackHint(o.airport, amount),
+        };
+      }
+      if (o.effect === 'set_marketing' && o.airport) {
+        const amount = scaledMarketingAmount(o.airport, 'coach');
+        return {
+          ...o,
+          amount,
+          setAmount: true,
+          label: `B — ${o.airport} marketing → $${formatMarketingK(amount)}k/mo`,
+          hint: marketingPaybackHint(o.airport, amount),
+        };
+      }
+      return o;
+    });
+  }
+
   function buildPlaybookDecision(phase) {
     const route = routeByEndpoints('CMH', 'DAY') || state.routes[0];
-    const options = (phase.options || []).map((o) => ({
-      ...o,
-      routeId: o.routeId || (route && route.id),
-    }));
+    const options = enrichPlaybookOptions(
+      (phase.options || []).map((o) => ({
+        ...o,
+        routeId: o.routeId || (route && route.id),
+      }))
+    );
     return {
       winningPlaybook: true,
       playbookId: phase.id,
@@ -2775,18 +2865,24 @@
       const route = routeByEndpoints('CMH', 'DAY') || routeById(option.routeId);
       if (route) setRouteFare(route.id, option.fare || 139, 'manual');
       if (option.airport) {
-        state.marketing_spend_monthly[option.airport] = clampMoney(option.amount || 28_000);
-        pushPlayerEvent(`coach: CMH marketing → ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo`);
+        applyMarketingSpend({
+          airport: option.airport,
+          amount: option.amount || scaledMarketingAmount(option.airport, 'coach'),
+          setAmount: true,
+          competitorResponse: true,
+          awarenessBoost: true,
+        });
       }
-      saveGame();
-      renderAll();
       return;
     }
     if (option.effect === 'set_marketing' && option.airport) {
-      state.marketing_spend_monthly[option.airport] = clampMoney(option.amount || 12_000);
-      pushPlayerEvent(`coach: ${option.airport} marketing → ${fmtMoney(state.marketing_spend_monthly[option.airport])}/mo`);
-      saveGame();
-      renderAll();
+      applyMarketingSpend({
+        airport: option.airport,
+        amount: option.amount || scaledMarketingAmount(option.airport, 'coach'),
+        setAmount: true,
+        competitorResponse: true,
+        awarenessBoost: true,
+      });
       return;
     }
     if (option.effect === 'set_route_fare' && option.routeId) {
@@ -3247,14 +3343,7 @@
             months: 3,
             discount: 0.5,
           },
-          {
-            id: 'market',
-            label: 'B — Skip OTA · invest $12k/mo direct marketing',
-            hint: 'Keep revenue per booking; grow awareness yourself.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 12000,
-          },
+          marketingDecisionOption('market', 'B — Skip OTA · invest', iata, 'ota_alt'),
           {
             id: 'ignore',
             label: 'C — Ignore for now',
@@ -3284,18 +3373,12 @@
             airport: iata,
             pct: 0.08,
           },
-          {
-            id: 'market',
-            label: `B — Hold fares · $15k/mo marketing at ${iata}`,
-            hint: 'Fight the seat dump with awareness instead of price.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 15000,
+          marketingDecisionOption('market', 'B — Hold fares ·', iata, 'response', {
             competitorResponse: true,
             awarenessBoost: true,
             softenCompetitor: true,
             airline: incumbent.airline,
-          },
+          }),
           {
             id: 'premium',
             label: 'C — Hold premium · reputation push',
@@ -3328,16 +3411,10 @@
         teach: 'Positive shifts happen too. Marketing locks in the opening; holding fares lets margins improve on their own.',
         logLine: `${incumbent.airline} capacity pullback at ${iata}`,
         options: [
-          {
-            id: 'market',
-            label: `A — Invest $12k/mo marketing at ${iata}`,
-            hint: 'Capture the opening before rivals refill it.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 12000,
+          marketingDecisionOption('market', 'A — Invest', iata, 'capitalize', {
             competitorResponse: true,
             awarenessBoost: true,
-          },
+          }),
           { id: 'premium', label: 'B — Hold fares · take stronger loads', hint: 'Reputation +2.', effect: 'hold_premium', airport: iata },
           { id: 'ignore', label: 'C — Do nothing', hint: 'Benefit applies without spending.', effect: 'none' },
         ],
@@ -3360,16 +3437,10 @@
         teach: 'Surges favor airlines with frequency and awareness — modest marketing can compound a hot market.',
         logLine: `Travel demand surge at ${iata}`,
         options: [
-          {
-            id: 'market',
-            label: `A — Ride the wave: $10k/mo marketing at ${iata}`,
-            hint: 'Stack awareness on top of the surge.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 10000,
+          marketingDecisionOption('market', 'A — Ride the wave:', iata, 'surge', {
             competitorResponse: true,
             awarenessBoost: true,
-          },
+          }),
           { id: 'premium', label: 'B — Hold fares · let loads rise', effect: 'hold_premium', airport: iata },
           { id: 'ignore', label: 'C — Do nothing', hint: 'Surge already active.', effect: 'none' },
         ],
@@ -3392,16 +3463,10 @@
         logLine: `${incumbent.airline} fare increase at ${iata}`,
         options: [
           { id: 'hold', label: 'A — Hold fares · enjoy stronger margins', hint: 'Loads may rise without a fare change.', effect: 'none' },
-          {
-            id: 'market',
-            label: `B — Invest $10k/mo marketing while they retreat`,
-            hint: 'Win permanent share during their pullback.',
-            effect: 'marketing',
-            airport: iata,
-            amount: 10000,
+          marketingDecisionOption('market', 'B — Invest', iata, 'capitalize', {
             competitorResponse: true,
             awarenessBoost: true,
-          },
+          }),
           {
             id: 'raise',
             label: `C — Raise fares ~5% on ${iata} routes`,
@@ -6482,13 +6547,20 @@
     return stateSum + clampMoney(inv.national) + clampMoney(inv.world);
   }
 
+  function airportMarketingDemandLift(iata) {
+    const gross = Math.max(airportScopedDailyEconomics(iata).monthlyGross, 40_000);
+    const spend = clampMoney(state.marketing_spend_monthly[iata]);
+    if (spend <= 0) return 0;
+    return Math.min(0.28, (spend / gross) * 3.0);
+  }
+
   function marketingDemandBonus(origin, dest) {
     ensureMarketingInvestments();
     let mult = 1;
     const o = airport(origin);
     const d = airport(dest);
-    mult += clampMoney(state.marketing_spend_monthly[origin]) / 75000;
-    if (d) mult += clampMoney(state.marketing_spend_monthly[dest]) / 110000;
+    mult += airportMarketingDemandLift(origin);
+    if (d) mult += airportMarketingDemandLift(dest) * 0.65;
     if (o && o.state) mult += clampMoney(state.marketing_investments.state[o.state]) / 180000;
     mult += clampMoney(state.marketing_investments.national) / 420000;
     mult += clampMoney(state.marketing_investments.world) / 900000;

@@ -913,7 +913,7 @@ SCENARIOS = {
         'equity_pct': 100.0,
         'reputation': 32,
         'brand_awareness': {'CMH': 62, 'DAY': 48},
-        'marketing_spend_monthly': {'CMH': 20_000},
+        'marketing_spend_monthly': {'CMH': 9_000},
         'financing_tier': 'startup',
         'bond_rating': 'BB',
         'player_name': 'CEO',
@@ -1187,7 +1187,8 @@ FINANCING_OPTIONS = {
 
 FUEL_BASE_USD_GAL = 2.85
 CREW_COST_PER_BLOCK_HOUR = 420
-AIRPORT_FEE_PER_DEPARTURE = 2800
+# Landing + pax facility per departure touch (~$400–550 for regional jets at mid-size US airports).
+AIRPORT_FEE_PER_DEPARTURE = 450
 
 # US macro baseline (2026 present-day scenario).
 MACRO_USA_BASE = {
