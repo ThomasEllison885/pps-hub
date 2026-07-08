@@ -704,49 +704,42 @@
     min-height: 1.2em;
   }
 
-  /* Desktop: map stays fixed; only the right panel scrolls. */
+  /*
+   * Layout: page can scroll so HUD can leave the view and the map becomes majority.
+   * Map is tall (~72vh) and sticky; side panel scrolls independently.
+   */
   #screen-game.active {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
+    display: block;
+    min-height: 100dvh;
+    height: auto;
+    overflow: visible;
   }
   #screen-game .game-header,
   #screen-game .speed-bar,
   #screen-game #pause-banner {
-    flex-shrink: 0;
+    position: relative;
+    z-index: 20;
   }
-  /* Header can host the open rankings panel without growing the page past the viewport. */
+  /* Rankings open inside header — keep header from eating the whole viewport. */
   #screen-game .game-header {
-    max-height: min(78vh, calc(100dvh - 72px));
-    overflow-x: hidden;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
+    max-height: none;
+    overflow: visible;
     align-content: flex-start;
   }
   .game-layout {
     display: grid;
     grid-template-columns: 1fr minmax(280px, 340px);
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: hidden;
+    align-items: start;
+    min-height: 72vh;
+    gap: 0;
   }
   @media (min-width: 1100px) {
-    .game-layout { grid-template-columns: 1.45fr minmax(300px, 360px); }
+    .game-layout { grid-template-columns: 1.55fr minmax(300px, 360px); }
   }
   @media (max-width: 900px) {
-    #screen-game.active {
-      height: auto;
-      min-height: 100dvh;
-      overflow: visible;
-    }
     .game-layout {
       grid-template-columns: 1fr;
       min-height: 0;
-      flex: none;
-      overflow: visible;
     }
     #screen-game { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
     .game-header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
@@ -797,9 +790,20 @@
     }
     .map-wrap.map-collapsed .map-collapse-bar { display: flex; }
     #runway-map {
-      min-height: 200px;
-      height: min(36vh, 280px);
-      max-height: 280px;
+      min-height: min(52vh, 420px);
+      height: min(52vh, 420px);
+      max-height: none;
+      flex: none;
+    }
+    .map-wrap {
+      height: auto;
+      min-height: 0;
+      position: relative;
+      top: auto;
+    }
+    .side-panel {
+      height: auto;
+      max-height: none;
     }
     .map-controls button {
       width: 44px;
@@ -909,14 +913,17 @@
     cursor: pointer;
   }
   .map-wrap {
-    position: relative;
+    position: sticky;
+    top: 0;
+    z-index: 5;
     padding: 12px;
     overflow: hidden;
     touch-action: manipulation;
-    min-height: 0;
-    height: 100%;
+    min-height: 72vh;
+    height: 72vh;
     display: flex;
     flex-direction: column;
+    background: var(--bg);
   }
   .map-wrap.mapbox-active {
     touch-action: pan-x pan-y pinch-zoom;
@@ -954,7 +961,7 @@
   #runway-map {
     width: 100%;
     flex: 1 1 auto;
-    min-height: 280px;
+    min-height: 0;
     max-height: none;
     height: 100%;
     display: block;
@@ -1537,13 +1544,16 @@
     background: var(--panel);
     display: flex;
     flex-direction: column;
-    min-height: 0;
-    height: 100%;
-    max-height: 100%;
+    min-height: 72vh;
+    height: 72vh;
+    max-height: 72vh;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    position: sticky;
+    top: 0;
+    z-index: 6;
   }
   .tabs {
     display: flex;
@@ -2298,7 +2308,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=61"></script>
-<script src="/static/runway/game.js?v=61"></script>
+<script src="/static/runway/economics.js?v=62"></script>
+<script src="/static/runway/game.js?v=62"></script>
 </body>
 </html>
