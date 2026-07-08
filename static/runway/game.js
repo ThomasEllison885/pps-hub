@@ -1,5 +1,5 @@
 /**
- * Runway — startup airline simulation (MVP v0.1)
+ * RouteLab — airline network economics simulation (MVP v0.1)
  */
 (function () {
   'use strict';
@@ -23,7 +23,7 @@
   let selectedRival = null;
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
-  let pendingEmblem = 'wing';
+  let pendingEmblem = 'routes';
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
@@ -1935,6 +1935,47 @@
     const opts = bootstrap.emblem_options || [];
     const hit = opts.find((o) => o.id === id);
     return hit ? hit.glyph : '✈';
+  }
+
+  function getRoutelabBrand() {
+    const brand = (bootstrap && bootstrap.routelab) || {};
+    return {
+      name: brand.name || 'RouteLab',
+      logo_url: brand.logo_url || '/static/routelab/routelab-app-logo.jpg',
+      tagline:
+        brand.tagline ||
+        'Airline network economics — routes, gates, rivals, and capital.',
+    };
+  }
+
+  function routelabBrandLogoHtml(size, alt) {
+    const brand = getRoutelabBrand();
+    const sz = size || 72;
+    const radius = sz >= 56 ? 14 : 10;
+    const label = alt || brand.name;
+    return `<img class="routelab-brand-logo${sz <= 44 ? ' sm' : ''}" src="${brand.logo_url}" alt="${label}" width="${sz}" height="${sz}" style="border-radius:${radius}px">`;
+  }
+
+  function renderStartBrand() {
+    const brand = getRoutelabBrand();
+    const logo = $('start-brand-logo');
+    const name = $('start-brand-name');
+    const tag = $('start-brand-tagline');
+    if (logo) {
+      logo.src = brand.logo_url;
+      logo.alt = brand.name;
+    }
+    if (name) name.textContent = brand.name;
+    if (tag) tag.textContent = brand.tagline;
+    document.title = `${brand.name} · Airline Simulation`;
+    let favicon = document.querySelector('link[rel="icon"]');
+    if (!favicon) {
+      favicon = document.createElement('link');
+      favicon.rel = 'icon';
+      document.head.appendChild(favicon);
+    }
+    favicon.href = brand.logo_url;
+    favicon.type = 'image/jpeg';
   }
 
   function airlineLogoHtml(name, emblemId, size) {
@@ -5628,6 +5669,7 @@
   async function init() {
     bootstrap = window.RUNWAY_BOOTSTRAP;
     if (!bootstrap) return;
+    renderStartBrand();
     initialAirports = JSON.parse(JSON.stringify(bootstrap.airports));
     await loadMapConfig();
     sanitizeAirportGateCounts();
@@ -5729,6 +5771,7 @@
       location.reload();
     },
   };
+  window.RouteLab = window.Runway;
 
   document.addEventListener('DOMContentLoaded', init);
 })();

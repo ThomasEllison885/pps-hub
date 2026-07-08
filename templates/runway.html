@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Runway · Airline Simulation</title>
+<title>RouteLab · Airline Simulation</title>
+<link rel="icon" href="/static/routelab/routelab-app-logo.jpg" type="image/jpeg">
 {% if mapbox_token %}
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.9.4/mapbox-gl.js"></script>
@@ -54,6 +55,21 @@
     padding: 32px 24px 48px;
   }
   #screen-start.name-step-active .start-hero { display: none; }
+  .start-brand {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-bottom: 8px;
+  }
+  .routelab-brand-logo {
+    width: 72px;
+    height: 72px;
+    border-radius: 14px;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+  .routelab-brand-logo.sm { width: 40px; height: 40px; border-radius: 10px; }
   .start-wrap h1 {
     font-family: 'DM Serif Display', Georgia, serif;
     font-size: 2.4rem;
@@ -1039,9 +1055,14 @@
 <div id="screen-start" class="screen active">
   <div class="start-wrap">
     <div class="start-hero">
-      <h1>Runway</h1>
-      <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
-      <p class="muted" style="margin-bottom:24px;">MVP v0.5 · competitor AI · ancillaries · utilization & AOG</p>
+      <div class="start-brand" id="start-brand">
+        <img class="routelab-brand-logo" id="start-brand-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="72" height="72">
+        <div>
+          <h1 id="start-brand-name">RouteLab</h1>
+          <p class="tag" id="start-brand-tagline">Airline network economics — routes, gates, rivals, and capital.</p>
+        </div>
+      </div>
+      <p class="muted" style="margin-bottom:24px;">MVP v0.5 · competitor AI · ancillaries · utilization &amp; AOG</p>
     </div>
     <div id="scenario-picker">
       <div id="scenario-list"></div>
@@ -1089,7 +1110,7 @@
         <b id="hud-cash">$0</b>
       </div>
       <div class="stat-pill" id="hud-pill-runway">
-        <span class="stat-pill-label">Runway</span>
+        <span class="stat-pill-label">Cash runway</span>
         <b id="hud-runway">—</b>
       </div>
       <div class="stat-pill">
@@ -1156,6 +1177,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=26"></script>
+<script src="/static/runway/game.js?v=27"></script>
 </body>
 </html>

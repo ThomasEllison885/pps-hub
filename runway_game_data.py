@@ -1,4 +1,4 @@
-"""Runway — startup airline simulation data (MVP v0.1)."""
+"""RouteLab — airline network economics simulation data (MVP v0.1)."""
 
 import os
 
@@ -795,6 +795,7 @@ LEAGUE_BY_REGION = {
 }
 
 EMBLEM_OPTIONS = [
+    {'id': 'routes', 'label': 'Route network', 'glyph': '⛓'},
     {'id': 'wing', 'label': 'Wing', 'glyph': '✈'},
     {'id': 'compass', 'label': 'Compass', 'glyph': '◎'},
     {'id': 'star', 'label': 'Star', 'glyph': '★'},
@@ -827,6 +828,11 @@ def get_runway_bootstrap():
         'league_by_region': LEAGUE_BY_REGION,
         'league_scopes': LEAGUE_SCOPES,
         'emblem_options': EMBLEM_OPTIONS,
+        'routelab': {
+            'name': 'RouteLab',
+            'logo_url': '/static/routelab/routelab-app-logo.jpg',
+            'tagline': 'Airline network economics — routes, gates, rivals, and capital.',
+        },
     }
 
 
