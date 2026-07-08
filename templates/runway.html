@@ -28,12 +28,32 @@
   }
   .screen { display: none; }
   .screen.active { display: block; }
+  #screen-start.active {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #screen-game.active { display: block; }
 
   .start-wrap {
+    width: 100%;
     max-width: 900px;
     margin: 0 auto;
-    padding: 48px 24px;
+    padding: 48px 24px 64px;
+    flex: 0 0 auto;
   }
+  #screen-start.name-step-active .start-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 560px;
+    padding: 32px 24px 48px;
+  }
+  #screen-start.name-step-active .start-hero { display: none; }
   .start-wrap h1 {
     font-family: 'DM Serif Display', Georgia, serif;
     font-size: 2.4rem;
@@ -448,11 +468,20 @@
     z-index: 200;
     background: rgba(4, 10, 18, 0.72);
     backdrop-filter: blur(4px);
-    align-items: center;
-    justify-content: center;
     padding: 24px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  #decision-modal.active { display: flex; }
+  #decision-modal.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  #decision-modal.active .decision-card {
+    margin: auto 0;
+    flex-shrink: 0;
+  }
   #decision-modal.suppressed { display: none !important; }
   #route-launch-modal {
     display: none;
@@ -461,12 +490,20 @@
     z-index: 210;
     background: rgba(4, 10, 18, 0.78);
     backdrop-filter: blur(5px);
-    align-items: center;
-    justify-content: center;
     padding: 20px;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
-  #route-launch-modal.active { display: flex; }
+  #route-launch-modal.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  #route-launch-modal.active .route-launch-card {
+    margin: auto 0;
+    flex-shrink: 0;
+  }
   #route-launch-modal.route-launch-open { z-index: 220; }
   .briefing-list li { font-size: 0.76rem; line-height: 1.4; }
   .route-launch-card {
@@ -952,7 +989,7 @@
   }
 
   #scenario-name-step { display: none; }
-  #scenario-name-step.active { display: block; }
+  #scenario-name-step.active { display: block; width: 100%; }
   #scenario-picker.hidden { display: none; }
   .name-step-card {
     background: var(--panel);
@@ -960,7 +997,9 @@
     border-radius: 12px;
     padding: 24px 22px;
     margin-top: 8px;
+    width: 100%;
   }
+  #screen-start.name-step-active .name-step-card { margin-top: 0; }
   .name-step-card h2 { font-size: 1.2rem; color: var(--gold); margin-bottom: 6px; }
   .name-step-card label {
     display: flex;
@@ -989,9 +1028,11 @@
 
 <div id="screen-start" class="screen active">
   <div class="start-wrap">
-    <h1>Runway</h1>
-    <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
-    <p class="muted" style="margin-bottom:24px;">MVP v0.5 · competitor AI · ancillaries · utilization & AOG</p>
+    <div class="start-hero">
+      <h1>Runway</h1>
+      <p class="tag">A startup airline simulation — real airports, real financing mechanics, razor-thin margins.</p>
+      <p class="muted" style="margin-bottom:24px;">MVP v0.5 · competitor AI · ancillaries · utilization & AOG</p>
+    </div>
     <div id="scenario-picker">
       <div id="scenario-list"></div>
     </div>
@@ -1105,6 +1146,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=24"></script>
+<script src="/static/runway/game.js?v=25"></script>
 </body>
 </html>

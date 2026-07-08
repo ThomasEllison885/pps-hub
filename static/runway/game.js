@@ -5395,8 +5395,11 @@
     pendingScenarioId = null;
     const picker = $('scenario-picker');
     const nameStep = $('scenario-name-step');
+    const startScreen = $('screen-start');
     if (picker) picker.classList.remove('hidden');
     if (nameStep) nameStep.classList.remove('active');
+    if (startScreen) startScreen.classList.remove('name-step-active');
+    window.scrollTo(0, 0);
   }
 
   function renderEmblemPicker() {
@@ -5423,16 +5426,26 @@
     const brief = $('name-step-brief');
     const playerInput = $('player-name-input');
     const airlineInput = $('airline-name-input');
+    const startScreen = $('screen-start');
     if (picker) picker.classList.add('hidden');
     if (nameStep) nameStep.classList.add('active');
+    if (startScreen) startScreen.classList.add('name-step-active');
+    window.scrollTo(0, 0);
     if (title) title.textContent = sc.name;
     if (brief) brief.textContent = sc.briefing;
     if (playerInput) playerInput.value = sc.player_name || '';
     if (airlineInput) airlineInput.value = sc.airline_name || '';
     renderEmblemPicker();
+    if (nameStep) {
+      requestAnimationFrame(() => {
+        nameStep.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    }
     if (playerInput) {
-      playerInput.focus();
-      playerInput.select();
+      requestAnimationFrame(() => {
+        playerInput.focus({ preventScroll: true });
+        playerInput.select();
+      });
     }
   }
 
