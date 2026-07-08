@@ -215,6 +215,37 @@ ROUTE_ECONOMICS = {
     'marginal_payback_warn_years': 3.0,
     'ramp_load_multipliers': [0.55, 0.78, 0.92],
     'ramp_cost_creep_per_year': 0.03,
+    'avg_pax_load_factor': 0.80,
+    'rival_traffic_buffer': 1.12,
+    'market_capture': {
+        'origin_share_floor': 0.0005,
+        'pair_share_floor': 0.03,
+        'capture_cap': 0.88,
+        'presence_origin_target': 0.08,
+        'presence_scale_min': 0.42,
+        'presence_scale_range': 0.58,
+        'rep_divisor': 450,
+        'awareness_factor': 0.35,
+        'freq_presence_base': 0.72,
+        'freq_presence_max_add': 0.28,
+        'freq_presence_divisor': 42,
+        'origin_share_cap': 0.95,
+    },
+    'imputed_pair': {
+        'size_multiplier': 3.2,
+        'dist_divisor': 180,
+        'min_weekly': 4,
+    },
+    'market_departures': {
+        'avg_pax_tiers': [
+            {'max_pax_m': 0.6, 'avg_pax': 48},
+            {'max_pax_m': 3, 'avg_pax': 80},
+            {'max_pax_m': 12, 'avg_pax': 102},
+            {'max_pax_m': 35, 'avg_pax': 118},
+            {'max_pax_m': 1e9, 'avg_pax': 132},
+        ],
+        'min_daily': 2,
+    },
     'projection_note': (
         'Launch projections use conservative ramp-up, static competition, and HQ overhead. '
         'Actual results vary with GDP, inflation, marketing, and rival moves.'
@@ -855,7 +886,7 @@ SCENARIOS = {
                 'origin': 'CMH',
                 'dest': 'DAY',
                 'aircraft_type': 'e145',
-                'frequency_week': 14,
+                'frequency_week': 7,
                 'fare': 149,
                 'fare_mode': 'auto',
                 'aircraft_id': 'ga-1',

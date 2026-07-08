@@ -1279,9 +1279,76 @@
     display: none;
     background: #3d1515;
     color: #ffb4b4;
-    text-align: center;
-    padding: 8px;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    padding: 8px 14px;
     font-size: 0.85rem;
+    font-weight: 600;
+  }
+  .pause-banner-text { flex: 1 1 auto; text-align: center; }
+  .pause-banner-note {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #ffccaa;
+    flex: 1 1 100%;
+    text-align: center;
+  }
+  .pause-resume-chip {
+    flex-shrink: 0;
+    background: rgba(0, 200, 150, 0.2);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 999px;
+    padding: 4px 14px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .pause-resume-chip:hover { background: rgba(0, 200, 150, 0.35); }
+  .launch-limits-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 0 0 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .launch-limit-chip {
+    font-size: 0.68rem;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+  }
+  .launch-limit-chip.warn { color: #ffcc88; border: 1px solid rgba(255, 200, 100, 0.35); }
+  .launch-limit-chip.danger { color: #ff9b7a; border: 1px solid rgba(255, 120, 100, 0.4); }
+  .launch-limit-bn { font-size: 0.64rem; margin-left: auto; }
+  .avail-market-scope summary {
+    cursor: pointer;
+    list-style: none;
+    margin: 0 0 6px;
+  }
+  .avail-market-scope summary::-webkit-details-marker { display: none; }
+  .avail-market-scope[open] summary { margin-bottom: 8px; }
+  .judgment-market-line {
+    font-size: 0.74rem;
+    line-height: 1.45;
+    margin: 4px 0 8px;
+    color: var(--muted);
+  }
+  .judgment-market-line.thin { color: #ff9b7a; }
+  .ops-profit-how {
+    margin-top: 10px;
+    font-size: 0.72rem;
+  }
+  .ops-profit-how summary {
+    cursor: pointer;
+    color: var(--accent);
     font-weight: 600;
   }
   .back-link {
@@ -1767,6 +1834,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=45"></script>
+<script src="/static/runway/economics.js?v=46"></script>
+<script src="/static/runway/game.js?v=46"></script>
 </body>
 </html>

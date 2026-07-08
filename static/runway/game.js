@@ -40,6 +40,7 @@
   let decisionQueue = [];
   let activeDecision = null;
   let decisionSpeedBeforePause = 'day';
+  let coalescedDecisionCount = 0;
   let mapDrag = {
     active: false,
     moved: false,
@@ -62,6 +63,7 @@
   const $ = (id) => document.getElementById(id);
 
   function routeEconomics() {
+    if (global.RunwayEconomics && bootstrap) return global.RunwayEconomics.mergeConfig(bootstrap);
     return (
       bootstrap.route_economics || {
         hub_profit_target_years: 2.5,
@@ -71,6 +73,8 @@
       }
     );
   }
+
+  const RunwayEcon = () => global.RunwayEconomics;
 
   function airportGateWeeklyCapacity(ap) {
     if (!ap) return DEPARTURES_PER_GATE_PER_WEEK;
@@ -442,6 +446,8 @@
     const sharePct = formatMarketSharePct(
       plannedWeekly / Math.max(1, mkt.originMarketWeekly || 1)
     );
+    const originShare = plannedWeekly / Math.max(1, mkt.originMarketWeekly || 1);
+    const collapseMarket = originShare >= 0.12 || (mkt.captureFactor || 0) >= 0.35;
 
     let rows = availabilityBarRow(
       `${mkt.origin} deps`,
@@ -474,14 +480,79 @@
           ? `<p class="avail-market-note muted">Aircraft over-scheduled — only ~<b>${Math.round((opts.schedScale || 1) * 100)}%</b> of planned frequency can fly.</p>`
           : '';
 
-    return `<div class="avail-market-scope">
-      <p class="avail-market-title">Market scope <span class="muted">(all airlines)</span></p>
+    return `<details class="avail-market-scope"${collapseMarket ? '' : ' open'}>
+      <summary class="avail-market-title">Market scope <span class="muted">(all airlines)</span> · you <b>${sharePct}</b> of ${mkt.origin}</summary>
       ${rows}
       <p class="avail-market-note muted"><b>${mkt.origin}</b> sees ~<b>${Math.round(mkt.originMarketDaily || 0)}</b> departures/day (~<b>${Math.round(mkt.originMarketWeekly || 0)}</b>/wk). You would operate <b>${plannedDaily.toFixed(1)}</b>/day — <b>${sharePct}</b> of that airport's traffic. Gate slots are separate; this is total market size.</p>
       ${mkt.destMarketDaily ? `<p class="avail-market-note muted"><b>${mkt.dest}</b> market ~<b>${Math.round(mkt.destMarketDaily)}</b>/day — you don't need a gate there to land, but you're not originating from ${mkt.dest} on this route.</p>` : ''}
       ${pairBlock}
       ${planeNote}
-    </div>`;
+    </details>`;
+  }
+
+  function launchLimitsStripHtml(draft) {
+    if (!draft || !draft.origin) return '';
+    const ctx = routeAvailabilityContext(draft.origin, draft.dest, draft.aircraftId, draft.freq);
+    if (!ctx) return '';
+    const chips = [];
+    if (ctx.gate) {
+      const pct = ctx.gate.max > 0 ? Math.min(100, (ctx.gate.after / ctx.gate.max) * 100) : 0;
+      const cls = pct >= 92 ? 'danger' : pct >= 78 ? 'warn' : '';
+      chips.push(
+        `<span class="launch-limit-chip ${cls}" title="Gate departures per week">Gate <b>${ctx.gate.after}/${ctx.gate.max}</b>/wk</span>`
+      );
+    }
+    if (ctx.aircraft) {
+      const pct = ctx.aircraft.cap > 0 ? Math.min(100, (ctx.aircraft.after / ctx.aircraft.cap) * 100) : 0;
+      const cls = pct >= 92 ? 'danger' : pct >= 78 ? 'warn' : '';
+      chips.push(
+        `<span class="launch-limit-chip ${cls}" title="Block hours scheduled on this aircraft">Aircraft <b>${ctx.aircraft.after.toFixed(1)}/${ctx.aircraft.cap.toFixed(1)}</b> hr/wk</span>`
+      );
+    }
+    if (ctx.market) {
+      const share = formatMarketSharePct(
+        (ctx.market.playerOriginDeps || 0) / Math.max(1, ctx.market.originMarketWeekly || 1)
+      );
+      const cap = formatMarketSharePct(ctx.market.captureFactor || 0);
+      const cls = (ctx.market.captureFactor || 0) < 0.1 ? 'warn' : '';
+      chips.push(
+        `<span class="launch-limit-chip ${cls}" title="Your share of airport departures and O-D demand capture">Market <b>${share}</b> · <b>${cap}</b> capture</span>`
+      );
+    }
+    if (!chips.length) return '';
+    const bn =
+      ctx.bottleneck === 'gate'
+        ? 'gate'
+        : ctx.bottleneck === 'aircraft'
+          ? 'aircraft'
+          : ctx.bottleneck === 'airport_presence' || ctx.bottleneck === 'route_competition'
+            ? 'market'
+            : '';
+    return `<div class="launch-limits-strip" aria-label="Three limits: gate, aircraft, market">${chips.join('')}${
+      bn ? `<span class="launch-limit-bn muted">Limiting: <b>${bn}</b></span>` : ''
+    }</div>`;
+  }
+
+  function marketJudgmentOneLiner(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    if (!plane) return '';
+    const via = estimateRouteViability(
+      draft.origin,
+      draft.dest,
+      plane.type,
+      draft.freq,
+      draft.fare,
+      draft.aircraftId
+    );
+    const mkt = via.market;
+    if (!mkt) return '';
+    const share = formatMarketSharePct(mkt.originShare || 0);
+    const cap = formatMarketSharePct(mkt.captureFactor || 0);
+    const loadPct = (via.load * 100).toFixed(0);
+    const thin = via.load < 0.45;
+    return `<p class="judgment-market-line${thin ? ' thin' : ''}">Market slice: <b>${share}</b> of <b>${draft.origin}</b> departures · <b>${cap}</b> demand capture → ~<b>${loadPct}%</b> est. load${
+      thin ? ' — thin market; smaller aircraft or more weekly frequency usually helps.' : '.'
+    }</p>`;
   }
 
   function availabilityBarRow(label, used, max, unit, bottleneckKey, rowKey, opts) {
@@ -1312,6 +1383,9 @@
     if (!logs.length) return;
 
     logs.forEach((l) => pushEvent(formatCompetitorEventMsg(l), competitorEventTier(l.type)));
+    if (trigger === 'player_route' && logs.length) {
+      showEventToast(formatCompetitorEventMsg(logs[0]), 'bad');
+    }
     queueReactiveCompetitorDecision(logs.find((l) => l.big && (l.type === 'fare_cut' || l.type === 'capacity')));
     state.last_reactive_competitor_day = state.day;
   }
@@ -1657,8 +1731,8 @@
     state.onboarding_done = true;
     renderDecisionModal();
     clearTutorialHighlight();
-    const banner = $('pause-banner');
-    if (banner) banner.style.display = 'none';
+    coalescedDecisionCount = 0;
+    renderPauseBanner();
   }
 
   function showRouteFormError(msg) {
@@ -1974,7 +2048,7 @@
     const routeLabel = route ? `${route.origin}–${route.dest}` : `${hub}–DAY`;
 
     if (scenarioId === 'beginner_2026' || sc.tutorial) {
-      const total = 6;
+      const total = 7;
       return [
         tutorialStep(
           scenarioId,
@@ -2051,9 +2125,25 @@
           scenarioId,
           6,
           total,
+          'Market scope — why loads look thin',
+          'When you launch a route, <b>Market scope</b> shows the whole airport — not just your gate. ' +
+            '<b>CMH</b> runs ~300 departures/week from all airlines; your one E145 at 7/wk is roughly <b>2%</b> of that traffic. ' +
+            'Demand capture blends airport share, city-pair competition, and frequency — thin loads are normal until you add planes or frequency.',
+          'Gate slots cap how many flights <em>you</em> can run; market scope caps how many passengers you can realistically win. ' +
+            'Check the three limits strip on launch: <b>Gate · Aircraft · Market</b>.',
+          'Open Routes tab →',
+          'tab_routes',
+          hub,
+          false,
+          { selector: '#panel-routes', label: 'Launch modal — Market scope panel' }
+        ),
+        tutorialStep(
+          scenarioId,
+          7,
+          total,
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
-            'Competitor alerts pause the clock and drop you to <b>slow speed</b> so you can read them — press ▶ when you want normal day speed again.',
+            'Competitor alerts pause the clock — use the <b>Resume ▶</b> chip or finish the alert, then run at day speed again.',
           'Watch cash runway in the HUD. If load factor stays above ~70%, consider another route or marketing spend at your origin.',
           'Got it — let me play →',
           'tutorial_finish',
@@ -2261,6 +2351,48 @@
     return decisionSpeedBeforePause || speedBeforePause || 'day';
   }
 
+  function renderPauseBanner() {
+    const banner = $('pause-banner');
+    if (!banner || !state) return;
+    const hasDecision = !!(activeDecision || decisionQueue.length);
+    const manualPause = state.speed === 'pause' && state.onboarding_done && !routeLaunchActive && !hasDecision;
+    const show = !!(state.paused_reason || hasDecision || manualPause);
+    if (!show) {
+      banner.style.display = 'none';
+      banner.innerHTML = '';
+      return;
+    }
+    let text = state.paused_reason || '';
+    if (!text && hasDecision && activeDecision) {
+      text = activeDecision.onboarding
+        ? activeDecision.tutorial
+          ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
+          : 'Getting started — pick a first step'
+        : 'Market shift — decision required';
+    } else if (!text && manualPause) {
+      text = 'Clock paused — press Resume when ready';
+    }
+    const coalescedNote =
+      coalescedDecisionCount > 0
+        ? `<span class="pause-banner-note">${coalescedDecisionCount} more alert${coalescedDecisionCount === 1 ? '' : 's'} logged to <b>Log</b> while you read this one</span>`
+        : '';
+    const resumeBtn = hasDecision
+      ? ''
+      : `<button type="button" class="pause-resume-chip" data-pause-resume title="Resume time">Resume ▶</button>`;
+    banner.innerHTML = `<span class="pause-banner-text">Paused — ${text}</span>${coalescedNote}${resumeBtn}`;
+    banner.style.display = 'flex';
+    const resume = banner.querySelector('[data-pause-resume]');
+    if (resume) {
+      resume.onclick = () => {
+        state.paused_reason = null;
+        coalescedDecisionCount = 0;
+        resumeSpeedAfterInterrupt();
+        renderPauseBanner();
+        renderHud();
+      };
+    }
+  }
+
   function pauseForInterrupt() {
     if (!state || state.speed === 'pause') return;
     decisionSpeedBeforePause = state.speed || speedBeforePause || 'day';
@@ -2314,6 +2446,7 @@
     }
     activeDecision = null;
     state.paused_reason = null;
+    coalescedDecisionCount = 0;
     renderDecisionModal();
     if (decisionQueue.length) showNextDecision();
     else if (!onboarding) {
@@ -2336,21 +2469,15 @@
       : 'Market shift — decision required';
     renderDecisionModal();
     renderHud();
-    const banner = $('pause-banner');
-    if (banner) {
-      banner.style.display = 'block';
-      banner.textContent = activeDecision.onboarding
-        ? activeDecision.tutorial
-          ? `Paused — tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?' } (▶ when finished)`
-          : 'Paused — choose a first step below (▶ runs the clock when ready)'
-        : `Paused: ${state.paused_reason}`;
-    }
+    renderPauseBanner();
   }
 
   function queueDecision(decision) {
     if (!decision.onboarding && !decision.tutorial && (activeDecision || decisionQueue.length)) {
       const note = decision.logLine || decision.title || 'Market event';
       pushEvent(`${note} <span class="muted">(logged while you handle another alert)</span>`);
+      coalescedDecisionCount += 1;
+      renderPauseBanner();
       return;
     }
     decisionQueue.push(decision);
@@ -2431,12 +2558,22 @@
       }
     }
 
-    const idlePlane = (state.fleet || []).find((p) => isPlaneAvailable(p) && planeMonthUtilizationPct(p) < 60);
+    const underGate = allGateUtilizations().find((u) => u.underutilized || u.idle);
+    if (!underGate) return;
+    const idlePlane = (state.fleet || []).find((p) => {
+      if (!isPlaneAvailable(p) || planeMonthUtilizationPct(p) >= 60) return false;
+      const routesOn = (state.routes || []).filter((r) => r.aircraft_id === p.id);
+      if (!routesOn.length) return true;
+      return routesOn.some((r) => r.origin === underGate.iata);
+    });
     if (idlePlane) {
       const bonus = Math.round(80_000 + Math.random() * 120_000);
       state.cash += bonus;
       state.last_windfall_event_day = state.day;
-      pushEvent(`Charter contract: a corporate client chartered your idle ${idlePlane.id} for a one-off trip — <b>${fmtMoney(bonus)}</b> booked.`, 'good');
+      pushEvent(
+        `Charter contract: spare gate time at <b>${underGate.iata}</b> let you fly a one-off on ${idlePlane.id} — <b>${fmtMoney(bonus)}</b> booked.`,
+        'good'
+      );
     }
   }
 
@@ -2697,6 +2834,9 @@
       daily_pnl: 0,
       events: [],
       milestones: [],
+      starter_route_count: (base.routes || []).length,
+      positive_day_streak: 0,
+      ff_month_confirmed: false,
       game_over: false,
       paused_reason: null,
       onboarding_done: false,
@@ -3629,6 +3769,12 @@
       entry.trend = oldRank != null ? oldRank - entry.rank : 0;
     });
 
+    if (player && player.rank <= 3) {
+      markMilestoneOnce(
+        'league_top_3',
+        `${state.airline_name} cracked the <b>top 3</b> in the ${region} league — rivals are watching.`
+      );
+    }
     if (player && prev.player != null && player.rank < prev.player) {
       pushEvent(
         `League (${region}): ${state.airline_name} rose to <b>#${player.rank}</b> in the league.`,
@@ -3915,6 +4061,11 @@
     state.bonds = Array.isArray(state.bonds) ? state.bonds : [];
     state.events = Array.isArray(state.events) ? state.events : [];
     state.milestones = Array.isArray(state.milestones) ? state.milestones : [];
+    if (state.starter_route_count == null) {
+      state.starter_route_count = state.milestones.includes('first_route') ? 0 : state.routes.length;
+    }
+    if (state.positive_day_streak == null) state.positive_day_streak = 0;
+    if (state.ff_month_confirmed == null) state.ff_month_confirmed = false;
     state.revenue_history = Array.isArray(state.revenue_history) ? state.revenue_history : [];
     state.marketing_spend_monthly = state.marketing_spend_monthly || {};
     state.brand_awareness = state.brand_awareness || {};
@@ -4063,11 +4214,17 @@
     });
 
     m.country_health = computeCountryHealth();
+    const yearN = Math.floor(state.day / 365);
+    const trail30 = (state.pnl_history || []).reduce((a, b) => a + b, 0);
+    const table = buildLeagueTable();
+    const player = table.find((e) => e.isPlayer);
+    const rankNote = player ? ` · league <b>#${player.rank}</b>` : '';
     pushEvent(
-      `US economy Y${Math.floor(state.day / 365) + 1}: inflation ${m.inflation_pct.toFixed(1)}%, ` +
-        `GDP ${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%, ` +
-        `travel spend ${m.travel_spend_growth_pct >= 0 ? '+' : ''}${m.travel_spend_growth_pct.toFixed(1)}%, ` +
-        `health ${m.country_health.toFixed(0)}/100`
+      `Year ${yearN} scorecard — trailing 30d P&L <b class="${trail30 >= 0 ? '' : 'danger'}">${fmtMoney(trail30)}</b>, ` +
+        `<b>${state.routes.length}</b> routes, cash <b>${fmtMoney(state.cash)}</b>${rankNote}. ` +
+        `Macro: inflation ${m.inflation_pct.toFixed(1)}%, GDP ${m.gdp_growth_pct >= 0 ? '+' : ''}${m.gdp_growth_pct.toFixed(1)}%, ` +
+        `travel ${m.travel_spend_growth_pct >= 0 ? '+' : ''}${m.travel_spend_growth_pct.toFixed(1)}%, health ${m.country_health.toFixed(0)}/100`,
+      trail30 > 0 ? 'good' : 'neutral'
     );
   }
 
@@ -4311,14 +4468,16 @@
   }
 
   function airportMarketDeparturesDaily(ap) {
+    const E = RunwayEcon();
+    if (E) return E.airportMarketDeparturesDaily(ap, routeEconomics());
     if (!ap) return 50;
     if (ap.market_departures_daily > 0) return ap.market_departures_daily;
-    const pax = ap.annual_pax_m || 1;
-    const avgPax = pax < 0.6 ? 48 : pax < 3 ? 80 : pax < 12 ? 102 : pax < 35 ? 118 : 132;
-    return Math.max(2, Math.round((pax * 1e6) / 365 / (avgPax * 0.8)));
+    return 50;
   }
 
   function airportMarketDeparturesWeekly(ap) {
+    const E = RunwayEcon();
+    if (E) return E.airportMarketDeparturesWeekly(ap, routeEconomics());
     if (!ap) return 300;
     if (ap.market_departures_weekly > 0) return ap.market_departures_weekly;
     return airportMarketDeparturesDaily(ap) * (ap.operating_days_per_week || 6);
@@ -4335,7 +4494,8 @@
     if (!ap) return 100;
     const fromTraffic = airportMarketDeparturesWeekly(ap);
     const fromSeededRivals = competitorDeparturesWeeklyFrom(iata);
-    return Math.max(fromTraffic, Math.round(fromSeededRivals * 1.12));
+    const buf = routeEconomics().rival_traffic_buffer || 1.12;
+    return Math.max(fromTraffic, Math.round(fromSeededRivals * buf));
   }
 
   function playerDeparturesWeeklyFrom(iata, excludeRouteId, addWeekly) {
@@ -4362,8 +4522,9 @@
     const d = airport(dest);
     if (!o || !d) return 6;
     const dist = haversineNm(o.lat, o.lon, d.lat, d.lon);
-    const size = Math.sqrt((o.annual_pax_m || 0.5) * (d.annual_pax_m || 0.5));
-    return Math.max(4, Math.round(size * 3.2 + dist / 180));
+    const E = RunwayEcon();
+    if (E) return E.imputedPairMarketWeekly(o, d, dist, routeEconomics());
+    return 6;
   }
 
   function routeMarketContext(route, opts) {
@@ -4383,28 +4544,31 @@
     );
     const playerDestDeps = playerDeparturesWeeklyFrom(route.dest, excludeRouteId, 0);
 
-    const originShare = Math.min(0.95, playerOriginDeps / Math.max(1, originMarket));
-    const destShare = Math.min(0.95, playerDestDeps / Math.max(1, destMarket));
-
     const compPair = competitorWeeklyOnPair(route.origin, route.dest);
     const imputedPair = imputedPairMarketWeekly(route.origin, route.dest);
-    const pairDenom = Math.max(1, effectivePlayerFreq + compPair + imputedPair);
-    const pairCapacityShare = effectivePlayerFreq / pairDenom;
     const playerOriginDepsCurrent = playerDeparturesWeeklyFrom(route.origin, excludeRouteId, 0);
-
-    const repBoost = 1 + (state.reputation || 0) / 450;
-    const awareBoost =
-      1 +
-      (((state.brand_awareness[route.origin] || 5) + (state.brand_awareness[route.dest] || 5)) / 2 / 100) *
-        0.35;
-    const freqPresence = 0.72 + Math.min(0.28, effectivePlayerFreq / 42);
-
-    const shareCore = Math.sqrt(Math.max(0.0005, originShare) * Math.max(0.03, pairCapacityShare));
-    const presenceScale = 0.42 + 0.58 * Math.min(1, Math.sqrt(originShare / 0.08));
-    const capture = Math.min(
-      0.88,
-      shareCore * presenceScale * repBoost * awareBoost * freqPresence
-    );
+    const E = RunwayEcon();
+    const cap = E
+      ? E.computeMarketCapture(
+          {
+            playerOriginDeps,
+            originMarketWeekly: originMarket,
+            destMarketWeekly: destMarket,
+            playerDestDeps,
+            effectivePlayerFreq,
+            compPairWeekly: compPair,
+            imputedPairWeekly: imputedPair,
+            reputation: state.reputation || 0,
+            brandAwareOrigin: state.brand_awareness[route.origin] || 5,
+            brandAwareDest: state.brand_awareness[route.dest] || 5,
+          },
+          routeEconomics()
+        )
+      : null;
+    const originShare = cap ? cap.originShare : playerOriginDeps / Math.max(1, originMarket);
+    const destShare = cap ? cap.destShare : playerDestDeps / Math.max(1, destMarket);
+    const pairCapacityShare = cap ? cap.pairCapacityShare : effectivePlayerFreq / Math.max(1, effectivePlayerFreq + compPair + imputedPair);
+    const capture = cap ? cap.captureFactor : 0.1;
 
     const oAp = airport(route.origin);
     const dAp = airport(route.dest);
@@ -4666,6 +4830,18 @@
     pushEvent(msg, 'milestone');
   }
 
+  function recordPositiveDayStreak(pnl) {
+    if (!state) return;
+    if (pnl > 0) {
+      state.positive_day_streak = (state.positive_day_streak || 0) + 1;
+      if (state.positive_day_streak >= 7) {
+        markMilestoneOnce('first_green_week', `${state.airline_name} posted <b>7 profitable days in a row</b> — overhead is covered.`);
+      }
+    } else {
+      state.positive_day_streak = 0;
+    }
+  }
+
   function checkPositiveMilestones() {
     if (!state || state.game_over) return;
 
@@ -4673,7 +4849,15 @@
       const sum30 = state.pnl_history.reduce((a, b) => a + b, 0);
       if (sum30 > 0) markMilestoneOnce('first_profitable_month', `${state.airline_name} closed a <b>profitable trailing month</b> — the model is working.`);
     }
-    if ((state.routes || []).length >= 1) markMilestoneOnce('first_route', `${state.airline_name} launched its first route. Wheels up!`);
+    (state.routes || []).forEach((route) => {
+      const st = route.stats || {};
+      if (st.days >= 7 && st.load_sum / st.days >= 0.5) {
+        markMilestoneOnce(
+          `load_50_${route.id}`,
+          `<b>${route.origin}–${route.dest}</b> averaged <b>${Math.round((st.load_sum / st.days) * 100)}%</b> load over the last week — solid demand.`
+        );
+      }
+    });
     if ((state.fleet || []).length >= 3) markMilestoneOnce('fleet_3', `Fleet milestone: ${state.airline_name} now operates <b>3 aircraft</b>.`);
     if ((state.fleet || []).length >= 5) markMilestoneOnce('fleet_5', `Fleet milestone: ${state.airline_name} now operates <b>5 aircraft</b>.`);
     if ((state.routes || []).length >= 5) markMilestoneOnce('routes_5', `Network milestone: ${state.airline_name} now flies <b>5 routes</b>.`);
@@ -4693,6 +4877,7 @@
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
       recordPnlHistory(state.daily_pnl);
+      recordPositiveDayStreak(state.daily_pnl);
       updateDailyMetrics(econ);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
@@ -4726,6 +4911,7 @@
       state.day += 1;
       dayAdvanced = true;
       recordPnlHistory(state.daily_pnl);
+      recordPositiveDayStreak(state.daily_pnl);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       checkPositiveMilestones();
@@ -4754,6 +4940,14 @@
   function setSpeed(speedId) {
     if (!state) return;
     speedId = resolveSpeedId(speedId);
+    if (speedId === 'month' && !state.ff_month_confirmed) {
+      const ok = window.confirm(
+        'Fast-forward one month per tick? Alerts will still pause the clock and log extras to the Event Log. Continue?'
+      );
+      if (!ok) return;
+      state.ff_month_confirmed = true;
+      saveGame();
+    }
     if (speedId !== 'pause') speedBeforePause = speedId;
     state.speed = speedId;
     if (tickTimer) clearInterval(tickTimer);
@@ -5837,6 +6031,7 @@
     return `<div class="route-judgment ${econ.verdictClass}">
       <p class="judgment-kicker">Business judgment</p>
       <p class="judgment-verdict"><strong>${econ.verdictLabel}</strong></p>
+      ${marketJudgmentOneLiner(draft)}
       ${recHtml}
       <dl class="stat-dl judgment-stats">
         <dt>Est. route margin (steady-state)</dt><dd>${fmtMoney(econ.monthlyVariable)}/mo <span class="muted">(${loadPct}% load · ~${econ.via.dailyPax} pax/day${econ.schedScale < 0.98 ? ` · aircraft flies ~${Math.round(econ.schedScale * 100)}% of ${draft.freq}/wk — plane shared` : ''} · ${(bootstrap.ancillary_modes || []).find((m) => m.id === (state.ancillary_strategy || 'auto'))?.label || 'Balanced'} strategy)</span></dd>
@@ -6016,6 +6211,7 @@
         <p class="decision-kicker">Launch route</p>
         <h2>${d.origin} → ${d.dest}</h2>
         <div id="rl-availability">${availabilityPanelHtml(routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq), { title: 'Capacity check' })}</div>
+        <div id="rl-limits">${launchLimitsStripHtml(d)}</div>
         <div class="form-grid" style="margin-bottom:8px;">
           <label>Fare $
             <input type="number" id="rl-fare" min="49" max="899" value="${d.fare}">
@@ -6052,8 +6248,10 @@
     const refreshPreview = () => {
       const prev = $('rl-preview');
       const judgment = $('rl-judgment');
+      const limits = $('rl-limits');
       if (prev) prev.innerHTML = routeLaunchPreviewHtml(routeLaunchDraft);
       if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
+      if (limits) limits.innerHTML = launchLimitsStripHtml(routeLaunchDraft);
     };
 
     const syncDraftFromForm = () => {
@@ -6369,6 +6567,13 @@
       history: [],
     };
     state.routes.push(route);
+    const starter = state.starter_route_count || 0;
+    const routeCount = state.routes.length;
+    if (routeCount === 1 && starter === 0) {
+      markMilestoneOnce('first_route', `${state.airline_name} launched its first route. Wheels up!`);
+    } else if (routeCount > starter) {
+      markMilestoneOnce('first_new_route', `${state.airline_name} added <b>${origin}–${dest}</b> — network growing.`);
+    }
     const otaNote = (extras.featured_ota || []).length ? ` · OTA featured: ${extras.featured_ota.join(', ')}` : '';
     pushPlayerEvent(
       `opened ${origin}–${dest} (${freq}x/wk @ $${finalFare}) · planned ~${via.dailyPax} pax/day (${(via.load * 100).toFixed(0)}% load)${otaNote}`
@@ -7590,9 +7795,21 @@
     if (netDaily < -200 || (fixedDaily > routeMargin && state.day > 21)) {
       let text = `Losing <b>${fmtMoney(Math.abs(netDaily))}/day</b> after overhead. Routes earn <b>${fmtMoney(routeMargin)}/day</b> variable margin; gates, leases, and marketing cost <b>${fmtMoney(fixedDaily)}/day</b>. `;
       if (worst) {
+        const fareHint = (() => {
+          const rec = recommendLaunchFare({
+            origin: worst.route.origin,
+            dest: worst.route.dest,
+            aircraftId: worst.route.aircraft_id,
+            freq: worst.route.frequency_week,
+            fare: worst.route.fare,
+            stationCost: 0,
+            investments: { airport: 0, state: 0, national: 0, world: 0 },
+          });
+          return rec ? ` Model starting fare hint: <b>$${rec.fare}</b> (market $${rec.market}).` : '';
+        })();
         text += `Weakest: <b>${worst.route.origin}–${worst.route.dest}</b> (${fmtMoney(worst.pnl)}/day`;
         if (worst.load < 0.4) text += `, ${(worst.load * 100).toFixed(0)}% load — try a lower fare or less frequency`;
-        text += '). ';
+        text += `).${fareHint} `;
       }
       if (best) {
         text += `Winner: <b>${best.route.origin}–${best.route.dest}</b> (+${fmtMoney(best.pnl)}/day) — add frequency if gate and aircraft hours allow.`;
@@ -7635,9 +7852,19 @@
 
     if (thin.length && state.routes.length >= 1) {
       const r = thin[0].route;
+      const rec = recommendLaunchFare({
+        origin: r.origin,
+        dest: r.dest,
+        aircraftId: r.aircraft_id,
+        freq: r.frequency_week,
+        fare: r.fare,
+        stationCost: 0,
+        investments: { airport: 0, state: 0, national: 0, world: 0 },
+      });
+      const fareHint = rec ? ` Try fare near <b>$${rec.fare}</b> (market $${rec.market}) — hint only.` : '';
       return {
         step: 0,
-        text: `<b>${r.origin}–${r.dest}</b> is only <b>${(thin[0].load * 100).toFixed(0)}%</b> full — at your airport share, loads stay thin until frequency or fleet grows. Lower fare or switch to a smaller aircraft.`,
+        text: `<b>${r.origin}–${r.dest}</b> is only <b>${(thin[0].load * 100).toFixed(0)}%</b> full — at your airport share, loads stay thin until frequency or fleet grows.${fareHint}`,
         actions: [
           { label: `Review ${r.origin}–${r.dest}`, effect: 'route_review', routeId: r.id },
           { label: 'Open Fleet', effect: 'tab', tab: 'fleet' },
@@ -7757,6 +7984,15 @@
             })
             .join('')}</div>`
         : '';
+    const profitHow = `<details class="ops-profit-how">
+        <summary>How profit works</summary>
+        <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:6px 0 0;">
+          <b>Route margin</b> = ticket + ancillary revenue minus fuel, crew, and airport fees.
+          <b>Net</b> subtracts gate lease, aircraft lease, marketing, OTA, and HQ overhead split across your network.
+          Thin loads often mean low <b>market share</b> at the origin — not a broken route.
+          Grow frequency or fleet before opening a second thin market.
+        </p>
+      </details>`;
     el.className = `ops-guide${collapsedClass}${toneClass}`;
     el.innerHTML = `<div class="ops-guide-head">
         <strong>${ctx.profit ? 'Profit playbook' : 'What to do next'}</strong>
@@ -7765,6 +8001,7 @@
       <div class="ops-guide-body">
         <p>${stepLabel}${ctx.text}</p>
         ${actions}
+        ${profitHow}
       </div>`;
     const collapseBtn = el.querySelector('[data-ops-collapse]');
     if (collapseBtn) {
@@ -8636,15 +8873,7 @@
     } catch (err) {
       console.error('Runway render error: renderAirportPanel', err);
     }
-    const banner = $('pause-banner');
-    if (banner) {
-      if (state.paused_reason) {
-        banner.textContent = `Paused: ${state.paused_reason}`;
-        banner.style.display = 'block';
-      } else {
-        banner.style.display = 'none';
-      }
-    }
+    renderPauseBanner();
   }
 
   function submitRoute() {

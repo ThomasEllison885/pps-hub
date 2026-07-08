@@ -50,12 +50,70 @@ Not a promise — a **conservative projection**:
 
 Cumulative column = upfront + sum of yearly net. Competition in judgment stays **static**; live sim adds rival moves, GDP, fuel, etc.
 
+## Market scope & demand capture
+
+Total airport traffic is **not** the same as your gate slots. A regional hub like CMH runs ~300 departures/week across all carriers; one E145 at 7/wk is ~2% of that market.
+
+Pure math lives in `static/runway/economics.js` (`window.RunwayEconomics`), loaded before `game.js`. Config from `ROUTE_ECONOMICS` in `runway_game_data.py`.
+
+### Airport market departures
+
+When `market_departures_daily` / `market_departures_weekly` are not set on an airport:
+
+```
+daily_deps = max(min_daily, round(annual_pax_m × 1e6 / 365 / (avg_pax × load_factor)))
+weekly_deps = daily_deps × operating_days_per_week
+```
+
+`avg_pax` comes from tiered `market_departures.avg_pax_tiers` by `annual_pax_m`. Default `load_factor` = 0.80.
+
+### Imputed city-pair market
+
+When no competitor frequency is known for a pair:
+
+```
+pair_weekly = max(min_weekly, round(sqrt(origin_pax × dest_pax) × size_multiplier + dist_nm / dist_divisor))
+```
+
+Defaults: `size_multiplier` 3.2, `dist_divisor` 180, `min_weekly` 4.
+
+### Capture factor (addressable O-D demand)
+
+```
+originShare = min(cap, player_origin_deps / origin_market_weekly)
+pairCapacityShare = player_freq / (player_freq + comp_pair_weekly + imputed_pair_weekly)
+shareCore = sqrt(max(origin_floor, originShare) × max(pair_floor, pairCapacityShare))
+presenceScale = presence_scale_min + presence_scale_range × min(1, sqrt(originShare / presence_origin_target))
+repBoost = 1 + reputation / rep_divisor
+awareBoost = 1 + ((brand_origin + brand_dest) / 2 / 100) × awareness_factor
+freqPresence = freq_presence_base + min(freq_presence_max_add, player_freq / freq_presence_divisor)
+capture = min(capture_cap, shareCore × presenceScale × repBoost × awareBoost × freqPresence)
+```
+
+Default floors: origin 0.05%, pair 3%. Cap 88%. Rival traffic uses `rival_traffic_buffer` (default 1.12) on competitor pair frequency in live sim.
+
+### Load estimate
+
+```
+load = min(0.95, demand / max(daily_seats, 1))
+```
+
+Demand = addressable O-D × capture × fare elasticity × GDP/travel macro.
+
+### Regression tests
+
+```bash
+node static/runway/test_economics.js
+```
+
+Expects DAY ~94 daily deps, CMH ~300/day, thin 7/wk capture &lt; 12%.
+
 ## Fare → demand → ROI
 
 - `marketFareForPair()` — distance, wealth, aircraft comfort.
 - `fareDemandFactor()` — elasticity from wealth/luxury; fare above market reduces demand (~0.82× per 100% over market).
 - Judgment **recalculates on every fare/freq change** in the launch modal.
-- `recommendLaunchFare()` sweeps fares ±28% of market and suggests a starting point — **hint only**, not a guarantee.
+- `recommendLaunchFare()` sweeps fares ±28% of market and suggests a starting point — **hint only**, not a guarantee. Profit playbook surfaces the same hint on thin routes.
 
 ## Airline ancillary strategy
 
@@ -117,6 +175,8 @@ Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + av
 | Concern | Location |
 |---------|----------|
 | Airport ops, ROUTE_ECONOMICS | `runway_game_data.py` |
+| Pure capture / market math | `static/runway/economics.js` |
+| Node regression tests | `static/runway/test_economics.js` |
 | Sim + judgment UI | `static/runway/game.js` |
 | `projectRouteBusinessCase`, `recommendLaunchFare` | game.js |
 | Gate capacity | `airportGateWeeklyCapacity`, `gateCapacityError` |
