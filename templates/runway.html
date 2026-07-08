@@ -681,6 +681,13 @@
   }
   .mkt-box { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
   .mkt-box .btn { margin-top: 8px; }
+  .mkt-panel {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .mkt-panel .invest-row { margin-bottom: 8px; }
+  .mkt-panel .btn { margin-top: 8px; }
   .incumbent-list li { font-size: 0.78rem; }
 
   .side-panel {
@@ -838,6 +845,16 @@
     font-size: 0.75rem;
   }
   .route-card-hint { font-size: 0.68rem; margin-top: 6px; }
+  .route-forecast {
+    font-size: 0.7rem;
+    margin: 4px 0 6px;
+    color: var(--muted);
+  }
+  .route-forecast-warn {
+    font-size: 0.7rem;
+    margin: 4px 0 6px;
+    color: #ff9b7a;
+  }
   .chip-load-good { color: #5dffa8; }
   .chip-load-warn { color: var(--gold); }
   .chip-load-bad { color: var(--danger); }
@@ -1085,6 +1102,6 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/game.js?v=22"></script>
+<script src="/static/runway/game.js?v=23"></script>
 </body>
 </html>
