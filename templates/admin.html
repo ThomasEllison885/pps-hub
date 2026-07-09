@@ -586,20 +586,49 @@
     // Do not trim password — login no longer strips spaces either.
     const password = document.getElementById('newPasswordInput').value;
     const msg = document.getElementById('modalMsg');
-    if (!password || password.length < 6) { msg.textContent = 'Password must be at least 6 characters.'; msg.className = 'modal-msg error'; return; }
+    if (!activeUserKey) {
+      msg.textContent = 'No team member selected. Close this dialog and click Reset again.';
+      msg.className = 'modal-msg error';
+      return;
+    }
+    if (!password || password.length < 6) {
+      msg.textContent = 'Password must be at least 6 characters.';
+      msg.className = 'modal-msg error';
+      return;
+    }
+    msg.textContent = 'Saving…';
+    msg.className = 'modal-msg';
     try {
       const fd = new FormData();
       fd.append('user_key', activeUserKey);
       fd.append('new_password', password);
-      const resp = await fetch('/admin/reset-password', { method: 'POST', body: fd });
-      const data = await resp.json();
-      if (data.success) {
-        msg.textContent = (data.action === 'created' ? 'Account created and password set.' : 'Password updated.') + ' Login lockout cleared.';
-        msg.className = 'modal-msg success';
-        setTimeout(closeReset, 1500);
+      const resp = await fetch('/admin/reset-password', {
+        method: 'POST',
+        body: fd,
+        credentials: 'same-origin',
+        headers: { 'Accept': 'application/json' },
+      });
+      let data = {};
+      try { data = await resp.json(); } catch (_) {
+        msg.textContent = 'Server returned a non-JSON response (HTTP ' + resp.status + '). You may have been signed out — refresh Admin and try again.';
+        msg.className = 'modal-msg error';
+        return;
       }
-      else { msg.textContent = data.error || 'Something went wrong.'; msg.className = 'modal-msg error'; }
-    } catch(e) { msg.textContent = 'Network error.'; msg.className = 'modal-msg error'; }
+      if (data.success) {
+        const unlockNote = data.unlocked === false
+          ? ' Password saved, but unlock may need a second click on Unlock.'
+          : ' Login lockout cleared.';
+        msg.textContent = (data.action === 'created' ? 'Account created and password set.' : 'Password updated.') + unlockNote;
+        msg.className = 'modal-msg success';
+        setTimeout(closeReset, 1800);
+      } else {
+        msg.textContent = data.error || ('Could not reset password (HTTP ' + resp.status + ').');
+        msg.className = 'modal-msg error';
+      }
+    } catch (e) {
+      msg.textContent = 'Network error — check your connection and try again.';
+      msg.className = 'modal-msg error';
+    }
   }
   async function unlockLogin(userKey, displayName) {
     if (!confirm('Clear failed sign-in lockout for ' + displayName + '?')) return;

@@ -518,11 +518,25 @@ CONSULTANTS = {
 
 # ── DATABASE ────────────────────────────────────────────────────────────────────
 
+def _database_url():
+    """Normalize Render/Heroku-style postgres:// URLs for psycopg2."""
+    url = (DATABASE_URL or '').strip()
+    if not url:
+        return ''
+    if url.startswith('postgres://'):
+        url = 'postgresql://' + url[len('postgres://'):]
+    return url
+
+
 def get_db():
-    if not DATABASE_URL:
+    url = _database_url()
+    if not url:
         return None
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require', connect_timeout=10)
-    return conn
+    try:
+        return psycopg2.connect(url, sslmode='require', connect_timeout=10)
+    except Exception as e:
+        print(f'get_db connect error: {e}')
+        return None
 
 
 def init_db():
@@ -888,6 +902,10 @@ def init_db():
     ''')
     try:
         cur.execute('ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE')
+    except Exception:
+        pass
+    try:
+        cur.execute('ALTER TABLE hub_users ALTER COLUMN password_hash TYPE TEXT')
     except Exception:
         pass
 
@@ -2527,36 +2545,83 @@ def _safe_check_password(stored_hash, password):
         return False
 
 
+def _ensure_hub_users_password_schema(cur):
+    """Idempotent schema fixes so password resets don't fail on older DBs."""
+    try:
+        cur.execute('ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE')
+    except Exception as e:
+        print(f'hub_users must_change_password migrate: {e}')
+    try:
+        # scrypt hashes are fine under 500, but TEXT avoids edge-case truncations forever
+        cur.execute('ALTER TABLE hub_users ALTER COLUMN password_hash TYPE TEXT')
+    except Exception as e:
+        print(f'hub_users password_hash migrate: {e}')
+
+
 def _upsert_hub_user_password(user_key, new_password, must_change=False):
-    """Create or update hub_users row — fixes login when user is in USERS but missing from DB."""
+    """Create or update hub_users row — fixes login when user is in USERS but missing from DB.
+
+    Returns (ok: bool, action_or_error: str).
+    """
     user_def = USERS.get(user_key)
-    if not user_def or not new_password or len(new_password) < 6:
-        return False, 'invalid'
-    hashed = generate_password_hash(new_password)
-    conn = get_db()
-    if not conn:
-        return False, 'no_db'
-    cur = conn.cursor()
-    cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (user_key,))
-    exists = cur.fetchone()
-    if exists:
-        cur.execute(
-            'UPDATE hub_users SET password_hash = %s, must_change_password = %s WHERE user_key = %s',
-            (hashed, bool(must_change), user_key),
-        )
-        action = 'updated'
-    else:
-        cur.execute(
-            '''INSERT INTO hub_users
-               (user_key, display_name, password_hash, role, must_change_password)
-               VALUES (%s, %s, %s, %s, %s)''',
-            (user_key, user_def['display'], hashed, user_def.get('role', 'consultant'), bool(must_change)),
-        )
-        action = 'created'
-    conn.commit()
-    cur.close()
-    conn.close()
-    return True, action
+    if not user_def:
+        return False, 'unknown_user'
+    if not new_password or len(new_password) < 6:
+        return False, 'password_too_short'
+    try:
+        # Explicit method — stable length/format across Werkzeug versions
+        hashed = generate_password_hash(new_password, method='pbkdf2:sha256')
+    except Exception as e:
+        print(f'generate_password_hash failed: {e}')
+        return False, 'hash_failed'
+
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return False, 'no_db'
+        cur = conn.cursor()
+        _ensure_hub_users_password_schema(cur)
+
+        cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (user_key,))
+        exists = cur.fetchone()
+        if exists:
+            cur.execute(
+                'UPDATE hub_users SET password_hash = %s, must_change_password = %s WHERE user_key = %s',
+                (hashed, bool(must_change), user_key),
+            )
+            action = 'updated'
+        else:
+            cur.execute(
+                '''INSERT INTO hub_users
+                   (user_key, display_name, password_hash, role, must_change_password)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (
+                    user_key,
+                    user_def['display'],
+                    hashed,
+                    user_def.get('role', 'consultant'),
+                    bool(must_change),
+                ),
+            )
+            action = 'created'
+        conn.commit()
+        cur.close()
+        return True, action
+    except Exception as e:
+        print(f'_upsert_hub_user_password error for {user_key}: {e}')
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+        return False, f'db_error:{type(e).__name__}'
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _establish_session(user_key, user_def, db_user=None):
@@ -4224,20 +4289,55 @@ def admin_vault_delete():
 @app.route('/admin/reset-password', methods=['POST'])
 @require_admin
 def admin_reset_password():
-    user_key = request.form.get('user_key')
+    user_key = (request.form.get('user_key') or '').strip()
     new_password = request.form.get('new_password', '')  # do not strip — match login
-    if not user_key or not new_password or len(new_password.strip()) < 6:
-        return jsonify({'error': 'Invalid request'}), 400
+    if not user_key:
+        return jsonify({'error': 'No team member selected. Close and open Reset again.'}), 400
+    if not new_password or len(new_password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters.'}), 400
     if user_key not in USERS:
-        return jsonify({'error': 'Unknown user'}), 400
+        return jsonify({'error': f'Unknown user “{user_key}”.'}), 400
     try:
         ok, action = _upsert_hub_user_password(user_key, new_password, must_change=False)
         if not ok:
-            return jsonify({'error': 'Database unavailable'}), 503
-        clear_login_failures(get_db, user_key)
-        return jsonify({'success': True, 'action': action, 'unlocked': True})
+            reason = action or 'unknown'
+            friendly = {
+                'no_db': (
+                    'Cannot reach the database right now. '
+                    'Check Admin → System Health (database_connect), then try again in a minute.'
+                ),
+                'password_too_short': 'Password must be at least 6 characters.',
+                'unknown_user': 'Unknown user.',
+                'hash_failed': 'Could not encrypt password. Try a different password.',
+            }.get(reason)
+            if not friendly and reason.startswith('db_error:'):
+                friendly = (
+                    f'Database rejected the password save ({reason.split(":", 1)[-1]}). '
+                    'Try again; if it keeps failing, check System Health.'
+                )
+            return jsonify({
+                'error': friendly or 'Could not save password.',
+                'reason': reason,
+            }), 503 if reason in ('no_db',) or str(reason).startswith('db_error:') else 400
+        # Unlock is best-effort — password is already saved
+        unlocked = True
+        try:
+            clear_login_failures(get_db, user_key)
+        except Exception as unlock_err:
+            print(f'clear_login_failures after reset failed for {user_key}: {unlock_err}')
+            unlocked = False
+        return jsonify({
+            'success': True,
+            'action': action,
+            'unlocked': unlocked,
+            'user_key': user_key,
+            'display': USERS[user_key].get('display'),
+        })
     except Exception as e:
-        return _api_error(e)
+        _log_exception(e, 'admin_reset_password')
+        return jsonify({
+            'error': f'Password reset failed ({type(e).__name__}). Check System Health / database.',
+        }), 500
 
 
 @app.route('/admin/unlock-login', methods=['POST'])
@@ -6205,10 +6305,16 @@ def reset_password_with_token(token):
                 resp = redirect(url_for('login'))
                 resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
                 return resp
-            error = 'Database unavailable. Try again or contact Thomas.'
+            if action == 'no_db' or str(action).startswith('db_error:'):
+                error = 'Database is temporarily unavailable. Wait a minute and try the link again, or contact Thomas.'
+            elif action == 'password_too_short':
+                error = 'Password must be at least 8 characters.'
+            else:
+                error = 'Could not save the new password. Contact Thomas or Stephanie.'
+            print(f'reset password upsert failed for {user_key}: {action}')
         except Exception as e:
             print(f'reset password error for {user_key}: {e}')
-            error = 'Something went wrong. Try again or contact Thomas.'
+            error = 'Something went wrong saving the password. Try again or contact Thomas.'
     return _no_store_html('reset_password.html', error=error, token=token)
 
 
