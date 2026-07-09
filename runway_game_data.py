@@ -115,13 +115,33 @@ OHIO_COMPETITOR_ROUTE_SEEDS = [
     {'airline': 'Allegiant', 'origin': 'CAK', 'dest': 'CVG', 'frequency_week': 3, 'fare': 75, 'tier': 'lcc'},
     {'airline': 'Delta', 'origin': 'CVG', 'dest': 'DTW', 'frequency_week': 21, 'fare': 189, 'tier': 'legacy'},
     {'airline': 'Delta', 'origin': 'DTW', 'dest': 'CMH', 'frequency_week': 14, 'fare': 159, 'tier': 'legacy'},
+    {'airline': 'Delta', 'origin': 'DTW', 'dest': 'CLE', 'frequency_week': 21, 'fare': 149, 'tier': 'legacy'},
+    {'airline': 'United', 'origin': 'CLE', 'dest': 'ORD', 'frequency_week': 28, 'fare': 159, 'tier': 'legacy'},
+    {'airline': 'United', 'origin': 'CLE', 'dest': 'EWR', 'frequency_week': 21, 'fare': 189, 'tier': 'legacy'},
+    {'airline': 'Frontier', 'origin': 'CLE', 'dest': 'DEN', 'frequency_week': 7, 'fare': 99, 'tier': 'lcc'},
+    {'airline': 'Southwest', 'origin': 'CLE', 'dest': 'MDW', 'frequency_week': 14, 'fare': 119, 'tier': 'lcc'},
+    {'airline': 'Southwest', 'origin': 'CLE', 'dest': 'BWI', 'frequency_week': 10, 'fare': 129, 'tier': 'lcc'},
     {'airline': 'Southwest', 'origin': 'CMH', 'dest': 'CVG', 'frequency_week': 7, 'fare': 119, 'tier': 'lcc'},
     {'airline': 'American', 'origin': 'CMH', 'dest': 'DAY', 'frequency_week': 14, 'fare': 139, 'tier': 'legacy'},
+    {'airline': 'American', 'origin': 'CLE', 'dest': 'CLT', 'frequency_week': 14, 'fare': 169, 'tier': 'legacy'},
     {'airline': 'Frontier', 'origin': 'CMH', 'dest': 'CVG', 'frequency_week': 4, 'fare': 89, 'tier': 'lcc'},
     {'airline': 'United', 'origin': 'CMH', 'dest': 'IND', 'frequency_week': 14, 'fare': 149, 'tier': 'legacy'},
     {'airline': 'Southwest', 'origin': 'IND', 'dest': 'CMH', 'frequency_week': 7, 'fare': 129, 'tier': 'lcc'},
     {'airline': 'American', 'origin': 'PIT', 'dest': 'CMH', 'frequency_week': 7, 'fare': 159, 'tier': 'legacy'},
     {'airline': 'Delta', 'origin': 'CVG', 'dest': 'CMH', 'frequency_week': 14, 'fare': 169, 'tier': 'legacy'},
+    {'airline': 'United', 'origin': 'CLE', 'dest': 'CMH', 'frequency_week': 7, 'fare': 129, 'tier': 'legacy'},
+    {'airline': 'Contour Airlines', 'origin': 'PKB', 'dest': 'CLT', 'frequency_week': 12, 'fare': 189, 'tier': 'regional'},
+    {'airline': 'Contour Airlines', 'origin': 'CKB', 'dest': 'CLT', 'frequency_week': 10, 'fare': 179, 'tier': 'regional'},
+    {'airline': 'Allegiant', 'origin': 'CKB', 'dest': 'MCO', 'frequency_week': 3, 'fare': 89, 'tier': 'lcc'},
+    {'airline': 'Allegiant', 'origin': 'HTS', 'dest': 'MCO', 'frequency_week': 3, 'fare': 79, 'tier': 'lcc'},
+    {'airline': 'American', 'origin': 'HTS', 'dest': 'CLT', 'frequency_week': 7, 'fare': 169, 'tier': 'legacy'},
+    {'airline': 'Contour Airlines', 'origin': 'LAF', 'dest': 'ORD', 'frequency_week': 12, 'fare': 149, 'tier': 'regional'},
+    {'airline': 'Contour Airlines', 'origin': 'BMG', 'dest': 'ORD', 'frequency_week': 10, 'fare': 139, 'tier': 'regional'},
+    {'airline': 'United', 'origin': 'CAK', 'dest': 'ORD', 'frequency_week': 10, 'fare': 149, 'tier': 'legacy'},
+    {'airline': 'American', 'origin': 'CAK', 'dest': 'CLT', 'frequency_week': 7, 'fare': 159, 'tier': 'legacy'},
+    {'airline': 'Allegiant', 'origin': 'YNG', 'dest': 'TPA', 'frequency_week': 2, 'fare': 69, 'tier': 'lcc'},
+    {'airline': 'Southwest', 'origin': 'PIT', 'dest': 'MDW', 'frequency_week': 14, 'fare': 109, 'tier': 'lcc'},
+    {'airline': 'Delta', 'origin': 'DTW', 'dest': 'IND', 'frequency_week': 14, 'fare': 149, 'tier': 'legacy'},
 ]
 
 # Full Midwest competitor network (Ohio seeds + PA/KY/IN/MI/TN/IL/WI/MN/MO/IA/WV).
@@ -316,31 +336,41 @@ _AIRPORT_ROWS = [
     ('PVU', 'Provo Municipal', 'Provo', 40.22, -111.72, 0.7, 0.8, 6, 4, False, 'Breeze', 0.35),
     ('ISP', 'Long Island MacArthur', 'Islip', 40.79, -73.10, 20.1, 1.5, 10, 5, False, None, 0.08),
     ('LIT', 'Bill and Hillary Clinton', 'Little Rock', 34.73, -92.22, 0.7, 2, 14, 7, False, None, 0.05),
-    # Ohio regionals — small terminals for turboprop / ERJ ops
+    # Ohio — majors + regionals (CLE was missing; LCK/MFD expand the state playbook)
+    ('CLE', 'Cleveland Hopkins Intl', 'Cleveland', 41.41, -81.85, 2.05, 10.0, 52, 16, False, 'United', 0.23, 'OH'),
     ('DAY', 'James M Cox Dayton Intl', 'Dayton', 39.90, -84.22, 0.85, 2.2, 18, 14, False, None, 0.06, 'OH'),
     ('LUK', 'Cincinnati Lunken', 'Cincinnati', 39.10, -84.42, 2.2, 0.45, 9, 7, False, None, 0.04, 'OH'),
     ('TOL', 'Toledo Express', 'Toledo', 41.59, -83.81, 0.65, 0.8, 14, 11, False, None, 0.05, 'OH'),
     ('CAK', 'Akron-Canton', 'Akron', 40.92, -81.44, 0.70, 1.6, 16, 12, False, None, 0.06, 'OH'),
     ('YNG', 'Youngstown-Warren', 'Youngstown', 41.26, -80.68, 0.45, 0.15, 8, 6, False, None, 0.03, 'OH'),
     ('FDY', 'Findlay Airport', 'Findlay', 41.01, -83.67, 0.10, 0.05, 6, 4, False, None, 0.02, 'OH'),
-    # Ohio-region neighbors
+    ('LCK', 'Rickenbacker Intl', 'Columbus', 39.81, -82.93, 2.1, 0.12, 8, 5, False, None, 0.04, 'OH'),
+    ('MFD', 'Mansfield Lahm Regional', 'Mansfield', 40.82, -82.52, 0.12, 0.04, 4, 3, False, None, 0.02, 'OH'),
+    # Kentucky (OH border + state regionals)
     ('LEX', 'Blue Grass', 'Lexington', 38.04, -84.61, 0.75, 1.4, 12, 10, False, None, 0.06, 'KY'),
     ('SDF', 'Louisville Muhammad Ali Intl', 'Louisville', 38.17, -85.74, 1.2, 4.5, 22, 14, False, None, 0.10, 'KY'),
     ('OWB', 'Owensboro-Daviess County', 'Owensboro', 37.74, -87.17, 0.12, 0.06, 6, 4, False, None, 0.02, 'KY'),
     ('PAH', 'Barkley Regional', 'Paducah', 37.06, -88.77, 0.10, 0.05, 6, 4, False, None, 0.02, 'KY'),
-    # Pennsylvania regionals
+    ('BWG', 'Bowling Green-Warren County', 'Bowling Green', 36.96, -86.42, 0.18, 0.08, 5, 4, False, None, 0.03, 'KY'),
+    # Pennsylvania — focus west + existing system airports
     ('MDT', 'Harrisburg Intl', 'Harrisburg', 40.19, -76.76, 0.65, 1.3, 14, 10, False, None, 0.08, 'PA'),
     ('ABE', 'Lehigh Valley Intl', 'Allentown', 40.65, -75.44, 0.85, 0.9, 10, 8, False, None, 0.07, 'PA'),
     ('AVP', 'Wilkes-Barre/Scranton Intl', 'Scranton', 41.34, -75.72, 0.55, 0.55, 8, 6, False, None, 0.06, 'PA'),
     ('ERI', 'Erie Intl', 'Erie', 42.08, -80.18, 0.28, 0.22, 6, 5, False, None, 0.05, 'PA'),
     ('LBE', 'Arnold Palmer Regional', 'Latrobe', 40.28, -79.40, 0.35, 0.18, 6, 4, False, None, 0.05, 'PA'),
     ('IPT', 'Williamsport Regional', 'Williamsport', 41.24, -76.92, 0.12, 0.08, 4, 3, False, None, 0.03, 'PA'),
+    ('JST', 'Johnstown-Cambria County', 'Johnstown', 40.32, -78.83, 0.14, 0.06, 4, 3, False, None, 0.03, 'PA'),
+    ('AOO', 'Altoona-Blair County', 'Altoona', 40.30, -78.32, 0.12, 0.05, 4, 3, False, None, 0.03, 'PA'),
+    ('DUJ', 'DuBois Regional', 'DuBois', 41.18, -78.90, 0.08, 0.04, 4, 3, False, None, 0.02, 'PA'),
+    ('BFD', 'Bradford Regional', 'Bradford', 41.80, -78.64, 0.08, 0.03, 3, 2, False, None, 0.02, 'PA'),
     # Indiana regionals
     ('FWA', 'Fort Wayne Intl', 'Fort Wayne', 40.98, -85.19, 0.65, 0.95, 14, 10, False, None, 0.08, 'IN'),
     ('SBN', 'South Bend Intl', 'South Bend', 41.71, -86.32, 0.32, 0.72, 12, 9, False, None, 0.07, 'IN'),
     ('EVV', 'Evansville Regional', 'Evansville', 38.04, -87.53, 0.32, 0.38, 8, 6, False, None, 0.06, 'IN'),
     ('GYY', 'Gary/Chicago Intl', 'Gary', 41.62, -87.41, 0.70, 0.12, 6, 4, False, None, 0.04, 'IN'),
     ('HUF', 'Terre Haute Regional', 'Terre Haute', 39.45, -87.31, 0.18, 0.05, 4, 3, False, None, 0.02, 'IN'),
+    ('LAF', 'Purdue University Airport', 'Lafayette', 40.41, -86.94, 0.22, 0.12, 5, 4, False, None, 0.04, 'IN'),
+    ('BMG', 'Monroe County', 'Bloomington', 39.14, -86.62, 0.18, 0.08, 4, 3, False, None, 0.03, 'IN'),
     # Michigan regionals
     ('LAN', 'Capital Region Intl', 'Lansing', 42.78, -84.59, 0.48, 0.52, 10, 8, False, None, 0.06, 'MI'),
     ('FNT', 'Bishop Intl', 'Flint', 42.97, -83.74, 0.42, 0.48, 10, 8, False, None, 0.06, 'MI'),
@@ -348,6 +378,9 @@ _AIRPORT_ROWS = [
     ('AZO', 'Kalamazoo/Battle Creek Intl', 'Kalamazoo', 42.24, -85.55, 0.26, 0.22, 6, 5, False, None, 0.05, 'MI'),
     ('TVC', 'Cherry Capital', 'Traverse City', 44.74, -85.58, 0.15, 0.55, 10, 8, False, None, 0.06, 'MI'),
     ('MKG', 'Muskegon County', 'Muskegon', 43.17, -86.24, 0.17, 0.08, 4, 3, False, None, 0.03, 'MI'),
+    ('PLN', 'Pellston Regional', 'Pellston', 45.57, -84.80, 0.04, 0.06, 4, 3, False, None, 0.03, 'MI'),
+    ('APN', 'Alpena County Regional', 'Alpena', 45.08, -83.56, 0.03, 0.04, 3, 2, False, None, 0.02, 'MI'),
+    ('CIU', 'Chippewa County Intl', 'Sault Ste Marie', 46.25, -84.47, 0.04, 0.05, 4, 3, False, None, 0.03, 'MI'),
     # Tennessee regionals
     ('TYS', 'McGhee Tyson', 'Knoxville', 35.81, -83.99, 0.88, 2.8, 18, 12, False, None, 0.12, 'TN'),
     ('CHA', 'Chattanooga Metropolitan', 'Chattanooga', 35.04, -85.20, 0.58, 0.62, 10, 8, False, None, 0.07, 'TN'),
@@ -369,9 +402,13 @@ _AIRPORT_ROWS = [
     # Iowa regionals
     ('CID', 'The Eastern Iowa', 'Cedar Rapids', 41.89, -91.71, 0.28, 1.45, 12, 9, False, None, 0.08, 'IA'),
     ('DBQ', 'Dubuque Regional', 'Dubuque', 42.40, -90.71, 0.10, 0.05, 4, 3, False, None, 0.02, 'IA'),
-    # West Virginia
+    # West Virginia (full commercial set near OH border)
     ('CRW', 'Yeager', 'Charleston', 38.37, -81.59, 0.26, 0.42, 10, 8, False, None, 0.06, 'WV'),
     ('HTS', 'Tri-State', 'Huntington', 38.37, -82.56, 0.14, 0.28, 8, 6, False, None, 0.05, 'WV'),
+    ('PKB', 'Mid-Ohio Valley Regional', 'Parkersburg', 39.35, -81.44, 0.12, 0.05, 4, 3, False, None, 0.03, 'WV'),
+    ('CKB', 'North Central West Virginia', 'Clarksburg', 39.30, -80.23, 0.12, 0.10, 5, 4, False, None, 0.04, 'WV'),
+    ('MGW', 'Morgantown Municipal', 'Morgantown', 39.64, -79.92, 0.14, 0.06, 4, 3, False, None, 0.03, 'WV'),
+    ('EKN', 'Elkins-Randolph County', 'Elkins', 38.89, -79.86, 0.05, 0.02, 3, 2, False, None, 0.02, 'WV'),
 ]
 
 # Real-world passenger incumbents (approx. market share for sim flavor, 2025–2026 public sources).
@@ -392,9 +429,20 @@ INCUMBENTS_BY_IATA = {
         {'airline': 'Frontier', 'share': 0.09, 'tier': 'lcc'},
         {'airline': 'Allegiant', 'share': 0.07, 'tier': 'lcc'},
     ],
+    'CLE': [
+        # Wikipedia / CLE stats Jan–Dec 2025: United ~23%, Frontier ~21%, SWA ~13%, AA ~11%, DL ~10%
+        {'airline': 'United', 'share': 0.23, 'tier': 'legacy'},
+        {'airline': 'Frontier', 'share': 0.21, 'tier': 'lcc'},
+        {'airline': 'Southwest', 'share': 0.13, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.11, 'tier': 'legacy'},
+        {'airline': 'Delta', 'share': 0.10, 'tier': 'legacy'},
+        {'airline': 'Spirit', 'share': 0.06, 'tier': 'lcc'},
+        {'airline': 'Allegiant', 'share': 0.04, 'tier': 'lcc'},
+    ],
     'DAY': [
         {'airline': 'Allegiant', 'share': 0.52, 'tier': 'lcc'},
         {'airline': 'American', 'share': 0.28, 'tier': 'legacy'},
+        {'airline': 'United', 'share': 0.08, 'tier': 'legacy'},
     ],
     'LUK': [
         {'airline': 'Ultimate Air Shuttle', 'share': 0.42, 'tier': 'shuttle'},
@@ -404,10 +452,12 @@ INCUMBENTS_BY_IATA = {
         {'airline': 'Allegiant', 'share': 0.34, 'tier': 'lcc'},
         {'airline': 'American', 'share': 0.22, 'tier': 'legacy'},
         {'airline': 'United', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'Breeze', 'share': 0.08, 'tier': 'lcc'},
     ],
     'TOL': [
         {'airline': 'Allegiant', 'share': 0.44, 'tier': 'lcc'},
         {'airline': 'American', 'share': 0.20, 'tier': 'legacy'},
+        {'airline': 'Breeze', 'share': 0.10, 'tier': 'lcc'},
     ],
     'YNG': [
         {'airline': 'Allegiant', 'share': 0.35, 'tier': 'lcc'},
@@ -415,6 +465,15 @@ INCUMBENTS_BY_IATA = {
     ],
     'FDY': [
         {'airline': 'Charter / GA', 'share': 0.55, 'tier': 'charter'},
+    ],
+    'LCK': [
+        # Primarily cargo (Amazon Air / freighters); thin scheduled pax / charter
+        {'airline': 'Charter / GA', 'share': 0.48, 'tier': 'charter'},
+        {'airline': 'Allegiant', 'share': 0.18, 'tier': 'lcc'},
+    ],
+    'MFD': [
+        {'airline': 'Contour Airlines', 'share': 0.55, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.30, 'tier': 'charter'},
     ],
     'IND': [
         {'airline': 'Southwest', 'share': 0.30, 'tier': 'lcc'},
@@ -456,6 +515,10 @@ INCUMBENTS_BY_IATA = {
         {'airline': 'United', 'share': 0.28, 'tier': 'legacy'},
         {'airline': 'Charter / GA', 'share': 0.35, 'tier': 'charter'},
     ],
+    'BWG': [
+        {'airline': 'Allegiant', 'share': 0.40, 'tier': 'lcc'},
+        {'airline': 'Charter / GA', 'share': 0.28, 'tier': 'charter'},
+    ],
     # Pennsylvania
     'PHL': [
         {'airline': 'American', 'share': 0.58, 'tier': 'legacy'},
@@ -495,6 +558,22 @@ INCUMBENTS_BY_IATA = {
         {'airline': 'American', 'share': 0.38, 'tier': 'legacy'},
         {'airline': 'Charter / GA', 'share': 0.32, 'tier': 'charter'},
     ],
+    'JST': [
+        {'airline': 'Southern Airways Express', 'share': 0.42, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.28, 'tier': 'charter'},
+    ],
+    'AOO': [
+        {'airline': 'Southern Airways Express', 'share': 0.40, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.30, 'tier': 'charter'},
+    ],
+    'DUJ': [
+        {'airline': 'Southern Airways Express', 'share': 0.45, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.28, 'tier': 'charter'},
+    ],
+    'BFD': [
+        {'airline': 'Southern Airways Express', 'share': 0.42, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.32, 'tier': 'charter'},
+    ],
     # Indiana regionals
     'FWA': [
         {'airline': 'American', 'share': 0.30, 'tier': 'legacy'},
@@ -519,6 +598,15 @@ INCUMBENTS_BY_IATA = {
     ],
     'HUF': [
         {'airline': 'Charter / GA', 'share': 0.52, 'tier': 'charter'},
+    ],
+    'LAF': [
+        {'airline': 'Contour Airlines', 'share': 0.48, 'tier': 'regional'},
+        {'airline': 'American', 'share': 0.18, 'tier': 'legacy'},
+        {'airline': 'Charter / GA', 'share': 0.16, 'tier': 'charter'},
+    ],
+    'BMG': [
+        {'airline': 'Contour Airlines', 'share': 0.50, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.28, 'tier': 'charter'},
     ],
     # Michigan regionals
     'GRR': [
@@ -556,6 +644,19 @@ INCUMBENTS_BY_IATA = {
     'MKG': [
         {'airline': 'Charter / GA', 'share': 0.45, 'tier': 'charter'},
         {'airline': 'Southern Airways Express', 'share': 0.18, 'tier': 'regional'},
+    ],
+    'PLN': [
+        {'airline': 'Delta', 'share': 0.36, 'tier': 'legacy'},
+        {'airline': 'Contour Airlines', 'share': 0.22, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.18, 'tier': 'charter'},
+    ],
+    'APN': [
+        {'airline': 'Contour Airlines', 'share': 0.48, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.30, 'tier': 'charter'},
+    ],
+    'CIU': [
+        {'airline': 'Contour Airlines', 'share': 0.50, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.28, 'tier': 'charter'},
     ],
     # Tennessee
     'BNA': [
@@ -698,15 +799,43 @@ INCUMBENTS_BY_IATA = {
         {'airline': 'United', 'share': 0.16, 'tier': 'legacy'},
     ],
     'HTS': [
-        {'airline': 'Allegiant', 'share': 0.32, 'tier': 'lcc'},
-        {'airline': 'American', 'share': 0.26, 'tier': 'legacy'},
+        {'airline': 'Allegiant', 'share': 0.38, 'tier': 'lcc'},
+        {'airline': 'American', 'share': 0.28, 'tier': 'legacy'},
+    ],
+    'PKB': [
+        # Contour EAS to CLT (2025–2026)
+        {'airline': 'Contour Airlines', 'share': 0.72, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.18, 'tier': 'charter'},
+    ],
+    'CKB': [
+        {'airline': 'Allegiant', 'share': 0.48, 'tier': 'lcc'},
+        {'airline': 'Contour Airlines', 'share': 0.28, 'tier': 'regional'},
+    ],
+    'MGW': [
+        {'airline': 'Contour Airlines', 'share': 0.55, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.25, 'tier': 'charter'},
+    ],
+    'EKN': [
+        {'airline': 'Contour Airlines', 'share': 0.48, 'tier': 'regional'},
+        {'airline': 'Charter / GA', 'share': 0.32, 'tier': 'charter'},
     ],
 }
 
-OHIO_REGION_IATA = [
-    'DAY', 'LUK', 'CVG', 'CMH', 'TOL', 'CAK', 'YNG', 'FDY',
-    'IND', 'PIT', 'LEX', 'SDF', 'DTW',
-]
+# Ohio scenario map: Ohio + all bordering states (MI, IN, KY, WV, PA).
+OHIO_REGION_IATA = sorted({
+    # Ohio
+    'CLE', 'CMH', 'CVG', 'DAY', 'CAK', 'TOL', 'LUK', 'YNG', 'FDY', 'LCK', 'MFD',
+    # Michigan
+    'DTW', 'GRR', 'LAN', 'FNT', 'MBS', 'AZO', 'TVC', 'MKG', 'PLN', 'APN', 'CIU',
+    # Indiana
+    'IND', 'FWA', 'SBN', 'EVV', 'GYY', 'HUF', 'LAF', 'BMG',
+    # Kentucky
+    'LEX', 'SDF', 'OWB', 'PAH', 'BWG',
+    # West Virginia
+    'CRW', 'HTS', 'PKB', 'CKB', 'MGW', 'EKN',
+    # Pennsylvania (west + system airports already in data)
+    'PIT', 'ERI', 'LBE', 'JST', 'AOO', 'DUJ', 'BFD', 'MDT', 'ABE', 'AVP', 'IPT', 'PHL',
+})
 
 # Financial health / scale for competitor intel (approximate public-market flavor).
 # Competitor brands. Private builds use real logo files under static/runway/logos/.
@@ -805,6 +934,10 @@ AIRLINE_PROFILES = {
     'Southern Airways Express': {
         'tier': 'regional', 'financial_health': 0.50, 'route_sensitivity': 0.90, 'cash_runway_years': 0.7,
         'brand': {'code': '9X', 'primary': '#0B3D5C', 'secondary': '#D4A017', 'accent': '#FFFFFF', 'mark': 'southern'},
+    },
+    'Contour Airlines': {
+        'tier': 'regional', 'financial_health': 0.52, 'route_sensitivity': 0.88, 'cash_runway_years': 0.8,
+        'brand': {'code': 'LF', 'primary': '#0A2F4A', 'secondary': '#2BB0ED', 'accent': '#FFFFFF', 'mark': 'southern'},
     },
     'Charter / GA': {
         'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4,
@@ -913,7 +1046,8 @@ def _build_airport(r):
         'lease_exclusive_monthly': int(12_000 + r[6] * 800 + (20 if r[9] else 0)),
         'lease_common_monthly': int(5_000 + r[6] * 350),
         'seasonal_reliability': 0.92 if iata in (
-            'ORD', 'DTW', 'BOS', 'MSP', 'DEN', 'MKE', 'GRR', 'LAN', 'FNT', 'MBS', 'DLH', 'RST', 'CWA', 'TVC',
+            'ORD', 'DTW', 'CLE', 'BOS', 'MSP', 'DEN', 'MKE', 'GRR', 'LAN', 'FNT', 'MBS',
+            'DLH', 'RST', 'CWA', 'TVC', 'PLN', 'APN', 'CIU', 'ERI', 'BFD', 'DUJ',
         ) else 0.98,
         'regional': regional_flag,
         'ops_hours_per_day': ops_hours,
@@ -1073,9 +1207,9 @@ SCENARIOS = {
         'year': 2026,
         'region': 'ohio',
         'briefing': (
-            'You are building a regional airline in Ohio and nearby markets. Allegiant dominates Dayton; '
-            'Delta still matters at CVG; Lunken is turboprop and shuttle territory. Lease a PC-12, win thin '
-            'routes like DAY–CMH, and watch net worth grow before you take on Detroit or Cincinnati mainline.'
+            'You are building a regional airline across <b>Ohio and every bordering state</b> (MI, IN, KY, WV, PA). '
+            'Allegiant still owns Dayton; United and Frontier fight over Cleveland; Contour and Southern Airways '
+            'hold thin EAS fields. Lease a PC-12, win DAY–CMH or TOL–CLE style hops, then challenge the majors.'
         ),
         'cash': 3_200_000,
         'debt': [],
@@ -1451,21 +1585,27 @@ TICK_MS = {
 
 # Well-traveled city pairs (either direction) — boosts route suggestions & demand hint.
 COMMON_ROUTE_PAIRS = [
-    # Ohio core
+    # Ohio core (+ CLE)
     ('DAY', 'CMH'), ('DAY', 'CVG'), ('DAY', 'IND'), ('CVG', 'CMH'), ('CVG', 'IND'),
     ('CMH', 'IND'), ('CMH', 'BNA'), ('CMH', 'ORD'), ('DAY', 'ORD'), ('LUK', 'CVG'),
     ('LUK', 'CMH'), ('CAK', 'CMH'), ('TOL', 'ORD'), ('YNG', 'PIT'), ('CAK', 'PIT'),
+    ('CLE', 'CMH'), ('CLE', 'PIT'), ('CLE', 'DTW'), ('CLE', 'ORD'), ('CLE', 'CAK'),
+    ('CLE', 'YNG'), ('TOL', 'DTW'), ('TOL', 'CMH'), ('LCK', 'CMH'), ('MFD', 'CMH'),
     # Pennsylvania
     ('PHL', 'PIT'), ('PIT', 'CMH'), ('PIT', 'ORD'), ('MDT', 'ORD'), ('ABE', 'ORD'),
-    ('AVP', 'PIT'), ('ERI', 'PIT'), ('LBE', 'PIT'), ('PHL', 'MDW'),
+    ('AVP', 'PIT'), ('ERI', 'PIT'), ('LBE', 'PIT'), ('PHL', 'MDW'), ('PIT', 'CLE'),
+    ('JST', 'PIT'), ('AOO', 'PIT'), ('DUJ', 'PIT'), ('BFD', 'PIT'), ('ERI', 'CLE'),
     # Kentucky
     ('LEX', 'CVG'), ('LEX', 'CMH'), ('SDF', 'BNA'), ('SDF', 'CVG'), ('SDF', 'IND'),
+    ('BWG', 'SDF'), ('PAH', 'SDF'),
     # Indiana
     ('IND', 'ORD'), ('IND', 'DTW'), ('IND', 'MDW'), ('FWA', 'ORD'), ('SBN', 'ORD'),
-    ('EVV', 'IND'), ('GYY', 'ORD'), ('SBN', 'DTW'),
+    ('EVV', 'IND'), ('GYY', 'ORD'), ('SBN', 'DTW'), ('LAF', 'ORD'), ('BMG', 'ORD'),
+    ('FWA', 'DTW'), ('FWA', 'CMH'),
     # Michigan
     ('DTW', 'ORD'), ('DTW', 'MSP'), ('GRR', 'ORD'), ('GRR', 'DTW'), ('LAN', 'DTW'),
-    ('FNT', 'ORD'), ('MBS', 'DTW'), ('TVC', 'ORD'), ('AZO', 'ORD'),
+    ('FNT', 'ORD'), ('MBS', 'DTW'), ('TVC', 'ORD'), ('AZO', 'ORD'), ('PLN', 'DTW'),
+    ('APN', 'DTW'), ('CIU', 'DTW'), ('FNT', 'DTW'),
     # Tennessee
     ('BNA', 'MDW'), ('BNA', 'STL'), ('BNA', 'CMH'), ('TYS', 'BNA'), ('CHA', 'BNA'),
     ('MEM', 'BNA'), ('MEM', 'DTW'), ('TRI', 'CMH'),
@@ -1478,20 +1618,13 @@ COMMON_ROUTE_PAIRS = [
     ('SGF', 'ORD'), ('MCI', 'STL'),
     # West Virginia
     ('CRW', 'CMH'), ('CRW', 'CVG'), ('HTS', 'CMH'), ('HTS', 'PIT'),
+    ('PKB', 'CLT'), ('CKB', 'CLT'), ('MGW', 'PIT'), ('HTS', 'CLT'), ('CRW', 'CLT'),
     # National anchors (non-midwest pairs kept for other scenarios)
     ('BNA', 'ATL'), ('OMA', 'DEN'), ('RDU', 'ATL'), ('AUS', 'DFW'),
 ]
 
-# Full Midwest playfield — PA, OH, KY, IN, MI, TN, IL, WI, MN, MO, IA, WV.
+# Full Midwest playfield — Ohio ring + TN/IL/WI/MN/MO/IA Great Lakes expansion.
 MIDWEST_REGION_IATA = sorted(set(OHIO_REGION_IATA + [
-    # Pennsylvania
-    'PHL', 'MDT', 'ABE', 'AVP', 'ERI', 'LBE', 'IPT',
-    # Kentucky extras
-    'OWB', 'PAH',
-    # Indiana
-    'FWA', 'SBN', 'EVV', 'GYY', 'HUF',
-    # Michigan
-    'GRR', 'LAN', 'FNT', 'MBS', 'AZO', 'TVC', 'MKG',
     # Tennessee
     'BNA', 'MEM', 'TYS', 'CHA', 'TRI',
     # Illinois
@@ -1504,24 +1637,24 @@ MIDWEST_REGION_IATA = sorted(set(OHIO_REGION_IATA + [
     'STL', 'MCI', 'SGF',
     # Iowa
     'DSM', 'OMA', 'CID', 'DBQ',
-    # West Virginia
-    'CRW', 'HTS',
-    # Already in OHIO_REGION or above: IND PIT DTW GRR LEX SDF BNA MEM DSM OMA CVG CMH
 ]))
 
 LEAGUE_SCOPES = {
     'ohio': {
-        'label': 'Ohio & nearby',
+        'label': 'Ohio & bordering states',
         'airports': OHIO_REGION_IATA,
-        'airlines': ['Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit'],
-        'overhead_weight': 0.04,
+        'airlines': [
+            'Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit',
+            'Breeze', 'Contour Airlines', 'Southern Airways Express',
+        ],
+        'overhead_weight': 0.05,
     },
     'midwest': {
         'label': 'Midwest (PA · OH · KY · IN · MI · TN · Great Lakes)',
         'airports': MIDWEST_REGION_IATA,
         'airlines': [
             'Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue',
-            'Sun Country', 'Southern Airways Express',
+            'Sun Country', 'Southern Airways Express', 'Contour Airlines', 'Breeze',
         ],
         'overhead_weight': 0.15,
     },

@@ -4,7 +4,7 @@ Design framework stored from Thomas's v0.2 spec. **Playable MVP:** `/runway` —
 
 ## MVP shipped (v0.1+)
 
-- ~99 real US airports on geographic map (Ohio / Midwest / national scopes)
+- ~120 real US airports on geographic map (Ohio + bordering states / Midwest / national scopes)
 - 7 scenarios including Ohio tutorials, Winning Path coach, regional, greenfield, exit CEO, inheritance
 - Financing: seed equity, growth equity, bank loans, corporate bonds, asset-backed bonds, debt restructure
 - Gate leasing, fleet (PC-12 through B737), routes with P&L, marketing per city
