@@ -13,7 +13,48 @@ const code = fs.readFileSync(path.join(__dirname, 'economics.js'), 'utf8');
 eval(code);
 
 const E = window.RunwayEconomics;
+// Empty merge = JS defaults (fallback path).
 const cfg = E.mergeConfig({});
+// Bootstrap-shaped payload mirrors runway_game_data.ROUTE_ECONOMICS live values.
+const cfgFromBootstrap = E.mergeConfig({
+  route_economics: {
+    hub_profit_target_years: 2.5,
+    marginal_payback_warn_years: 3.0,
+    ramp_load_multipliers: [0.55, 0.78, 0.92],
+    ramp_cost_creep_per_year: 0.03,
+    avg_pax_load_factor: 0.8,
+    rival_traffic_buffer: 1.12,
+    cancel_load_threshold: 0.1,
+    market_capture: {
+      origin_share_floor: 0.002,
+      pair_share_floor: 0.06,
+      capture_cap: 0.9,
+      origin_presence_min: 0.55,
+      presence_origin_target: 0.04,
+      rep_divisor: 400,
+      awareness_factor: 0.42,
+      freq_presence_base: 0.85,
+      freq_presence_max_add: 0.22,
+      freq_presence_divisor: 28,
+      origin_share_cap: 0.95,
+      mature_capture_floor: 0.14,
+      // legacy dead keys must not break merge
+      presence_scale_min: 0.42,
+      presence_scale_range: 0.58,
+    },
+    imputed_pair: { size_multiplier: 3.2, dist_divisor: 180, min_weekly: 4 },
+    market_departures: {
+      avg_pax_tiers: [
+        { max_pax_m: 0.6, avg_pax: 48 },
+        { max_pax_m: 3, avg_pax: 80 },
+        { max_pax_m: 12, avg_pax: 102 },
+        { max_pax_m: 35, avg_pax: 118 },
+        { max_pax_m: 1e9, avg_pax: 132 },
+      ],
+      min_daily: 2,
+    },
+  },
+});
 
 let passed = 0;
 let failed = 0;
@@ -26,6 +67,17 @@ function assert(cond, msg) {
     console.error('FAIL:', msg);
   }
 }
+
+// Bootstrap + defaults must agree on live knobs (single source of truth).
+assert(cfgFromBootstrap.market_capture.pair_share_floor === 0.06, 'bootstrap pair_share_floor 0.06');
+assert(cfgFromBootstrap.market_capture.origin_presence_min === 0.55, 'bootstrap origin_presence_min');
+assert(cfgFromBootstrap.market_capture.mature_capture_floor === 0.14, 'bootstrap mature_capture_floor');
+assert(cfgFromBootstrap.cancel_load_threshold === 0.1, 'bootstrap cancel_load_threshold');
+assert(
+  cfgFromBootstrap.market_capture.presence_scale_min == null,
+  'legacy presence_scale_min stripped'
+);
+assert(cfg.market_capture.pair_share_floor === cfgFromBootstrap.market_capture.pair_share_floor, 'empty merge matches bootstrap pair floor');
 
 // DAY ~2.2M pax → ~94 daily deps
 const dayAp = {

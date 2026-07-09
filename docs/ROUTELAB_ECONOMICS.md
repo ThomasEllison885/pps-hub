@@ -54,7 +54,9 @@ Cumulative column = upfront + sum of yearly net. Competition in judgment stays *
 
 Total airport traffic is **not** the same as your gate slots. A regional hub like CMH runs ~300 departures/week across all carriers; one E145 at 7/wk is ~2% of that market.
 
-Pure math lives in `static/runway/economics.js` (`window.RunwayEconomics`), loaded before `game.js`. Config from `ROUTE_ECONOMICS` in `runway_game_data.py`.
+Pure math lives in `static/runway/economics.js` (`window.RunwayEconomics`), loaded before `game.js`. **Single source of truth for live knobs:** `ROUTE_ECONOMICS` in `runway_game_data.py` (bootstrap). JS `DEFAULTS` are fallbacks only when a key is missing — keep them aligned. After tuning: `node static/runway/test_economics.js`.
+
+`simulateRouteDay(route, { commit: true })` only on day ticks — HUD/Studio previews must not accumulate block hours or mutate smooth load. Route Studio judgment passes **draft** marketing + OTA into demand so spend lifts projected load.
 
 ### Airport market departures
 

@@ -209,7 +209,10 @@ ANCILLARY_MODES = [
     {'id': 'minimal', 'label': 'All-inclusive', 'desc': 'Fewer fees, more ticket in the quoted fare.'},
 ]
 
-# Creator-tunable route / hub economics (mirrored in game.js via bootstrap).
+# Creator-tunable route / hub economics — single source of truth for live balance.
+# Must stay aligned with static/runway/economics.js DEFAULTS (mergeConfig uses both:
+# Python wins on keys present here; JS fills any missing keys).
+# After edits: node static/runway/test_economics.js
 ROUTE_ECONOMICS = {
     'hub_profit_target_years': 2.5,
     'marginal_payback_warn_years': 3.0,
@@ -217,19 +220,22 @@ ROUTE_ECONOMICS = {
     'ramp_cost_creep_per_year': 0.03,
     'avg_pax_load_factor': 0.80,
     'rival_traffic_buffer': 1.12,
+    # Cancel only truly hopeless non-established services (load is also day-smoothed in game.js).
+    'cancel_load_threshold': 0.1,
     'market_capture': {
-        'origin_share_floor': 0.0005,
-        'pair_share_floor': 0.03,
-        'capture_cap': 0.88,
-        'presence_origin_target': 0.08,
-        'presence_scale_min': 0.42,
-        'presence_scale_range': 0.58,
-        'rep_divisor': 450,
-        'awareness_factor': 0.35,
-        'freq_presence_base': 0.72,
-        'freq_presence_max_add': 0.28,
-        'freq_presence_divisor': 42,
+        # Pair-first capture (airport share is a soft presence boost only).
+        'origin_share_floor': 0.002,
+        'pair_share_floor': 0.06,
+        'capture_cap': 0.9,
+        'origin_presence_min': 0.55,
+        'presence_origin_target': 0.04,
+        'rep_divisor': 400,
+        'awareness_factor': 0.42,
+        'freq_presence_base': 0.85,
+        'freq_presence_max_add': 0.22,
+        'freq_presence_divisor': 28,
         'origin_share_cap': 0.95,
+        'mature_capture_floor': 0.14,
     },
     'imputed_pair': {
         'size_multiplier': 3.2,
@@ -247,7 +253,8 @@ ROUTE_ECONOMICS = {
         'min_daily': 2,
     },
     'projection_note': (
-        'Launch projections use conservative ramp-up, static competition, and HQ overhead. '
+        'Launch projections use conservative ramp-up, static competition, HQ overhead, '
+        'and draft marketing/OTA from Route Studio. '
         'Actual results vary with GDP, inflation, marketing, and rival moves.'
     ),
 }

@@ -1,10 +1,14 @@
 /**
- * Route Lab — pure economics helpers (config from bootstrap.route_economics).
+ * Route Lab — pure economics helpers.
+ * Live balance: runway_game_data.py → ROUTE_ECONOMICS → bootstrap.route_economics.
+ * DEFAULTS below are fallbacks only when a key is missing from bootstrap
+ * (keep in sync with Python ROUTE_ECONOMICS).
  * Loaded before game.js; exposed as window.RunwayEconomics.
  */
 (function (global) {
   'use strict';
 
+  /** Fallback defaults — mirror runway_game_data.ROUTE_ECONOMICS */
   const DEFAULTS = {
     hub_profit_target_years: 2.5,
     marginal_payback_warn_years: 3.0,
@@ -20,7 +24,6 @@
       origin_share_floor: 0.002,
       pair_share_floor: 0.06,
       capture_cap: 0.9,
-      // Soft origin presence: min weight when almost no airport share
       origin_presence_min: 0.55,
       presence_origin_target: 0.04,
       rep_divisor: 400,
@@ -29,7 +32,6 @@
       freq_presence_max_add: 0.22,
       freq_presence_divisor: 28,
       origin_share_cap: 0.95,
-      // Established / mature pair boost (brand + common city pair)
       mature_capture_floor: 0.14,
     },
     imputed_pair: {
@@ -48,15 +50,28 @@
       min_daily: 2,
     },
     rival_traffic_buffer: 1.12,
-    // Cancel only truly hopeless non-established services (load is also day-smoothed in game.js).
     cancel_load_threshold: 0.1,
   };
 
   function mergeConfig(bootstrap) {
     const src = (bootstrap && bootstrap.route_economics) || {};
     const mc = { ...DEFAULTS.market_capture, ...(src.market_capture || {}) };
+    // Drop legacy dead keys so they never confuse creators.
+    delete mc.presence_scale_min;
+    delete mc.presence_scale_range;
     const ip = { ...DEFAULTS.imputed_pair, ...(src.imputed_pair || {}) };
-    const md = { ...DEFAULTS.market_departures, ...(src.market_departures || {}) };
+    const mdSrc = src.market_departures || {};
+    const md = {
+      ...DEFAULTS.market_departures,
+      ...mdSrc,
+      avg_pax_tiers: mdSrc.avg_pax_tiers || DEFAULTS.market_departures.avg_pax_tiers,
+    };
+    // Python uses 1e9 as last-tier max; JS avgPax treats Infinity the same.
+    if (md.avg_pax_tiers && md.avg_pax_tiers.length) {
+      md.avg_pax_tiers = md.avg_pax_tiers.map((t) =>
+        t.max_pax_m >= 1e8 ? { ...t, max_pax_m: Infinity } : t
+      );
+    }
     return {
       ...DEFAULTS,
       ...src,
@@ -64,6 +79,8 @@
       imputed_pair: ip,
       market_departures: md,
       ramp_load_multipliers: src.ramp_load_multipliers || DEFAULTS.ramp_load_multipliers,
+      cancel_load_threshold:
+        src.cancel_load_threshold != null ? src.cancel_load_threshold : DEFAULTS.cancel_load_threshold,
     };
   }
 

@@ -5674,9 +5674,16 @@
     return gdpFactor * travelFactor * healthFactor;
   }
 
-  function otaEffects() {
+  /**
+   * OTA demand/revenue effects.
+   * opts.draftOta — Route Studio draft { [platformId]: { list, feature, hubPush } }
+   * treats draft list as if already listed for projection.
+   */
+  function otaEffects(opts) {
+    opts = opts || {};
     ensureMacro();
     const m = state.macro;
+    const draftOta = opts.draftOta || null;
     const penetration = m.ota_market_penetration_pct / 100;
     let demandBoost = 1;
     let revenueMult = 1;
@@ -5684,7 +5691,8 @@
     let listingCost = 0;
 
     (bootstrap.ota_platforms || []).forEach((p) => {
-      if (!m.ota_listed[p.id]) return;
+      const draftList = !!(draftOta && draftOta[p.id] && draftOta[p.id].list);
+      if (!m.ota_listed[p.id] && !draftList) return;
       let fee = p.listing_monthly;
       const promo = m.ota_promo && m.ota_promo[p.id];
       if (promo && promo.months_left > 0) fee *= 1 - (promo.discount || 0);
@@ -5692,7 +5700,7 @@
       const share = penetration * p.demand_reach;
       demandBoost += share;
       revenueMult *= 1 - (p.commission_pct / 100) * share * 0.85;
-      marketingAmplify = Math.max(marketingAmplify, p.marketing_amplify);
+      marketingAmplify = Math.max(marketingAmplify, p.marketing_amplify || 1);
     });
 
     return {
@@ -5872,7 +5880,7 @@
     return marketFareForPair(originIata, destIata, acType);
   }
 
-  function estimateRouteViability(originIata, destIata, aircraftTypeId, freq, fare, aircraftId) {
+  function estimateRouteViability(originIata, destIata, aircraftTypeId, freq, fare, aircraftId, demandOpts) {
     const ac = aircraftType(aircraftTypeId);
     if (!ac) return { label: 'Unknown', tier: 'bad', load: 0, dailyPax: 0 };
     const mock = {
@@ -5882,11 +5890,26 @@
       aircraft_id: aircraftId,
       frequency_week: freq,
       fare,
+      featured_ota: (demandOpts && demandOpts.featured_ota) || undefined,
     };
-    let demand = demandForRoute(mock, { isProposed: !state.routes.some((r) => r.id === mock.id), proposedFreq: freq });
-    if (isCommonRoutePair(originIata, destIata)) demand *= 1.12;
+    if (demandOpts && demandOpts.draftOta) {
+      const featured = [];
+      Object.keys(demandOpts.draftOta).forEach((pid) => {
+        if (demandOpts.draftOta[pid] && demandOpts.draftOta[pid].feature) featured.push(pid);
+      });
+      if (featured.length) mock.featured_ota = featured;
+    }
+    const dOpts = {
+      isProposed: !state.routes.some((r) => r.origin === originIata && r.dest === destIata),
+      proposedFreq: freq,
+      ...(demandOpts || {}),
+    };
+    let demand = demandForRoute(mock, dOpts);
+    // Note: common-pair boost is already applied inside demandForRoute (×1.18).
+    // Do not double-apply here — judgment must match live sim.
     const mkt = routeMarketContext(mock, { isProposed: true, proposedFreq: freq, excludeRouteId: null });
-    const seats = ac.seats_max || ac.seats;
+    const plane = aircraftId ? state.fleet.find((f) => f.id === aircraftId) : null;
+    const seats = plane ? fleetSeatCount(plane) : ac.seats_max || ac.seats;
     const schedScale = aircraftId ? planeScheduleScaleForRoute(aircraftId, mock) : 1;
     const effectiveFreq = freq * schedScale;
     const dailySeats = seats * (effectiveFreq / 7);
@@ -6161,6 +6184,7 @@
   }
 
   function demandForRoute(route, opts) {
+    opts = opts || {};
     const o = airport(route.origin);
     const d = airport(route.dest);
     const ac = aircraftType(route.aircraft_type);
@@ -6192,13 +6216,15 @@
     const hubPenalty = Math.max(0.55, compPenalty);
     const awareO = (state.brand_awareness[route.origin] || 5) / 100;
     const awareD = (state.brand_awareness[route.dest] || 5) / 100;
-    const marketing = (0.55 + (awareO + awareD) / 2) * marketingDemandBonus(route.origin, route.dest);
+    const marketing =
+      (0.55 + (awareO + awareD) / 2) *
+      marketingDemandBonus(route.origin, route.dest, opts);
     const rep = 1 + state.reputation / 200;
     const fareFactor = fareDemandFactor(route, o, d);
     const overlap = 1 - competitorRouteOverlapPenalty(route) * 0.72;
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
-    const ota = otaEffects();
+    const ota = otaEffects(opts);
     const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
     const marketCapture = routeMarketCaptureFactor(route, opts);
 
@@ -6225,13 +6251,19 @@
       const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
       if (p) demand *= 1 + (p.demand_reach || 0.1) * 0.45;
     });
-    const hubPush = state.hub_ota_push && state.hub_ota_push[route.origin];
-    if (hubPush && hubPush.length) {
-      hubPush.forEach((pid) => {
-        const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
-        if (p) demand *= 1 + (p.demand_reach || 0.08) * 0.35;
+    // Live hub push, or draft hub push from Route Studio
+    const hubPushIds = new Set(
+      (state.hub_ota_push && state.hub_ota_push[route.origin]) || []
+    );
+    if (opts.draftOta) {
+      Object.keys(opts.draftOta).forEach((pid) => {
+        if (opts.draftOta[pid] && opts.draftOta[pid].hubPush) hubPushIds.add(pid);
       });
     }
+    hubPushIds.forEach((pid) => {
+      const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
+      if (p) demand *= 1 + (p.demand_reach || 0.08) * 0.35;
+    });
     return demand;
   }
 
@@ -6241,8 +6273,11 @@
   /**
    * Smooth load so a single decision (fare, marketing, rival move) cannot
    * yank avg load from healthy → 0% overnight. Caps day-over-day change.
+   * Only mutates route when opts.commit is true (authoritative day tick).
    */
-  function stabilizeRouteLoad(route, rawLoad) {
+  function stabilizeRouteLoad(route, rawLoad, opts) {
+    opts = opts || {};
+    const commit = !!opts.commit;
     if (!route || !Number.isFinite(rawLoad)) return rawLoad;
     const prev =
       route.yesterday_load != null && Number.isFinite(route.yesterday_load)
@@ -6263,6 +6298,8 @@
     }
     next = Math.max(0, Math.min(0.92, next));
 
+    if (!commit) return next;
+
     // Commit once per calendar day so re-renders don't re-blend.
     if (route._load_commit_day !== state.day) {
       route.smooth_load = next;
@@ -6282,7 +6319,15 @@
     });
   }
 
-  function simulateRouteDay(route) {
+  /**
+   * Simulate one day of a route.
+   * opts.commit — only true from authoritative day ticks. Previews (HUD, Studio,
+   * league) must leave block hours and smooth_load untouched.
+   * opts.airportSpendByIata / opts.investments / opts.draftOta — Studio draft projection.
+   */
+  function simulateRouteDay(route, opts) {
+    opts = opts || {};
+    const commit = !!opts.commit;
     const empty = {
       revenue: 0,
       cost: 0,
@@ -6312,11 +6357,11 @@
     const schedScale = plane ? planeScheduleScaleForRoute(plane.id, route) : 1;
     const flightsToday = (route.frequency_week / 7) * schedScale;
     const dailySeats = seats * flightsToday;
-    const mkt = routeMarketContext(route);
+    const mkt = routeMarketContext(route, opts);
     simulatingDemandDepth += 1;
     let demand;
     try {
-      demand = demandForRoute(route);
+      demand = demandForRoute(route, opts);
     } finally {
       simulatingDemandDepth -= 1;
     }
@@ -6327,7 +6372,7 @@
     }
 
     // Day-to-day stability: never jump more than ~12 pts overnight (checks & balances).
-    let load = stabilizeRouteLoad(route, rawLoad);
+    let load = stabilizeRouteLoad(route, rawLoad, { commit });
 
     const reverse = findReverseRoute(route);
     const ferryReturn = !reverse;
@@ -6361,7 +6406,7 @@
     }
 
     const pax = Math.floor(dailySeats * load);
-    const ota = otaEffects();
+    const ota = otaEffects(opts);
     const ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult;
     const ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult;
     const revenue = ticketRev + ancillaryRev;
@@ -6371,7 +6416,8 @@
     if (ferryReturn) {
       block += blockHours(dist, ac) * flightsToday * 0.92;
     }
-    if (plane) {
+    // Only authoritative day ticks accumulate utilization / AOG risk.
+    if (commit && plane) {
       plane.block_hours_month = (plane.block_hours_month || 0) + block;
     }
     const fuel = block * ac.fuel_gal_hr * state.fuel_price;
@@ -6402,7 +6448,7 @@
     let dayRev = 0;
     let dayCost = 0;
     state.routes.forEach((route) => {
-      const r = simulateRouteDay(route);
+      const r = simulateRouteDay(route, { commit: true });
       dayRev += r.revenue;
       dayCost += r.cost;
     });
@@ -7901,25 +7947,49 @@
     return stateSum + clampMoney(inv.national) + clampMoney(inv.world);
   }
 
-  function airportMarketingDemandLift(iata) {
+  function airportMarketingDemandLift(iata, opts) {
+    opts = opts || {};
     // Must not call simulateRouteDay / airportScopedDailyEconomics (infinite recursion via demandForRoute).
     const gross = Math.max(airportGrossProxyMonthly(iata), 40_000);
-    const spend = clampMoney(state.marketing_spend_monthly[iata]);
+    let spend = clampMoney(state.marketing_spend_monthly[iata]);
+    if (opts.airportSpendByIata && opts.airportSpendByIata[iata] != null) {
+      spend = clampMoney(opts.airportSpendByIata[iata]);
+    }
     if (spend <= 0) return 0;
     // ~$5–12k/mo at a thin station should feel like +10–25% demand, not a rounding error.
     return Math.min(0.35, (spend / gross) * 3.6);
   }
 
-  function marketingDemandBonus(origin, dest) {
+  /**
+   * Marketing demand multiplier. opts.investments / opts.airportSpendByIata for Studio drafts
+   * so judgment load rises when the player turns ads on before launch.
+   */
+  function marketingDemandBonus(origin, dest, opts) {
+    opts = opts || {};
     ensureMarketingInvestments();
+    const inv = opts.investments || null;
     let mult = 1;
     const o = airport(origin);
     const d = airport(dest);
-    mult += airportMarketingDemandLift(origin);
-    if (d) mult += airportMarketingDemandLift(dest) * 0.65;
-    if (o && o.state) mult += clampMoney(state.marketing_investments.state[o.state]) / 140000;
-    mult += clampMoney(state.marketing_investments.national) / 320000;
-    mult += clampMoney(state.marketing_investments.world) / 700000;
+    mult += airportMarketingDemandLift(origin, opts);
+    if (d) mult += airportMarketingDemandLift(dest, opts) * 0.65;
+    if (o && o.state) {
+      const stateSpend =
+        inv && inv.state != null
+          ? clampMoney(inv.state)
+          : clampMoney(state.marketing_investments.state[o.state]);
+      mult += stateSpend / 140000;
+    }
+    const national =
+      inv && inv.national != null
+        ? clampMoney(inv.national)
+        : clampMoney(state.marketing_investments.national);
+    const world =
+      inv && inv.world != null
+        ? clampMoney(inv.world)
+        : clampMoney(state.marketing_investments.world);
+    mult += national / 320000;
+    mult += world / 700000;
     return Math.min(1.65, mult);
   }
 
@@ -8035,6 +8105,23 @@
     if (!plane || !ac) return null;
 
     const routesAtOrigin = state.routes.filter((r) => r.origin === draft.origin).length;
+    // Draft marketing/OTA so judgment load rises when ads/distribution are selected
+    // (cost and demand must use the same snapshot — otherwise more spend looks worse).
+    const airportSpendByIata = {
+      ...(state.marketing_spend_monthly || {}),
+      [draft.origin]: clampMoney(draft.investments?.airport),
+    };
+    const featured = [];
+    (bootstrap.ota_platforms || []).forEach((p) => {
+      const o = draft.ota && draft.ota[p.id];
+      if (o && o.feature) featured.push(p.id);
+    });
+    const projOpts = {
+      commit: false,
+      airportSpendByIata,
+      investments: draft.investments || {},
+      draftOta: draft.ota || {},
+    };
     const mockRoute = {
       origin: draft.origin,
       dest: draft.dest,
@@ -8044,15 +8131,17 @@
       fare: draft.fare,
       fare_mode: 'manual',
       ancillary_mode: state.ancillary_strategy || 'auto',
+      featured_ota: featured,
     };
-    const sim = simulateRouteDay(mockRoute);
+    const sim = simulateRouteDay(mockRoute, projOpts);
     const via = estimateRouteViability(
       draft.origin,
       draft.dest,
       plane.type,
       draft.freq,
       draft.fare,
-      draft.aircraftId
+      draft.aircraftId,
+      projOpts
     );
     const schedScale = planeScheduleScaleForRoute(plane.id, mockRoute);
     const dailyVariable = (sim.revenue || 0) - (sim.cost || 0);
