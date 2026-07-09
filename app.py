@@ -525,18 +525,40 @@ def _database_url():
         return ''
     if url.startswith('postgres://'):
         url = 'postgresql://' + url[len('postgres://'):]
+    # Strip query sslmode so we can control it explicitly (avoids double-setting).
+    if '?' in url:
+        base, qs = url.split('?', 1)
+        parts = [p for p in qs.split('&') if p and not p.lower().startswith('sslmode=')]
+        url = base + (('?' + '&'.join(parts)) if parts else '')
     return url
 
 
+# Last connect failure (sanitized) — for /health diagnostics, not shown to end users.
+_DB_LAST_ERROR = ''
+
+
 def get_db():
+    """Open a short-lived Postgres connection. Returns None if unavailable."""
+    global _DB_LAST_ERROR
     url = _database_url()
     if not url:
+        _DB_LAST_ERROR = 'DATABASE_URL not set'
         return None
-    try:
-        return psycopg2.connect(url, sslmode='require', connect_timeout=10)
-    except Exception as e:
-        print(f'get_db connect error: {e}')
-        return None
+    # Try common SSL modes used by Render / managed Postgres.
+    last_err = None
+    for sslmode in ('require', 'prefer', 'allow'):
+        try:
+            conn = psycopg2.connect(url, sslmode=sslmode, connect_timeout=10)
+            _DB_LAST_ERROR = ''
+            return conn
+        except Exception as e:
+            last_err = e
+            continue
+    msg = str(last_err) if last_err else 'unknown connect failure'
+    # Never log credentials; psycopg2 errors usually omit the password.
+    _DB_LAST_ERROR = msg[:240]
+    print(f'get_db connect error: {_DB_LAST_ERROR}')
+    return None
 
 
 def init_db():
@@ -2456,6 +2478,8 @@ def health():
         'internal_api_configured': bool(INTERNAL_API_KEY),
         'database_configured': bool(DATABASE_URL),
         'database_connected': db_ok,
+        # Sanitized connect failure for ops (no password; may include host/role).
+        'database_error': ('' if db_ok else (_DB_LAST_ERROR or ''))[:240],
         'smtp_configured': bool(
             os.environ.get('SMTP_HOST', '').strip()
             and os.environ.get('SMTP_USER', '').strip()
