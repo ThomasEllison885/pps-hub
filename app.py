@@ -2636,119 +2636,152 @@ def _resolve_login_user_key(raw):
     return raw
 
 
+def _login_redirect_with_error(error, selected_user='', next_url=''):
+    """Post/Redirect/Get so a refresh never re-submits the password form."""
+    session['login_flash_error'] = error or ''
+    session['login_flash_user'] = selected_user or ''
+    if next_url:
+        session['login_next'] = next_url
+    return redirect(url_for('login'))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_key'):
         return _post_login_redirect()
 
-    error = None
-    selected_user = ''
     next_url = safe_next_url(request.args.get('next', ''))
     if next_url:
         session['login_next'] = next_url
 
-    if request.method == 'POST':
-        next_from_form = safe_next_url(request.form.get('next', ''))
-        if next_from_form:
-            session['login_next'] = next_from_form
-        # Do NOT strip password — spaces can be intentional; strip only identity.
-        user_key = _resolve_login_user_key(request.form.get('user_key', ''))
-        password = request.form.get('password', '') or ''
-        selected_user = user_key
-        ip = client_ip(request)
+    # GET: show form (and any one-shot flash from a failed POST)
+    if request.method == 'GET':
+        error = session.pop('login_flash_error', None) or None
+        selected_user = session.pop('login_flash_user', '') or ''
+        return render_template(
+            'login.html',
+            users=sorted(USERS.items(), key=lambda x: x[1]['display']),
+            error=error,
+            selected_user=selected_user,
+            next_url=next_url or session.get('login_next') or '',
+        )
 
-        if not user_key or user_key not in USERS:
-            error = 'Select your name from the list.'
-        else:
-            locked, fail_count, mins_left = is_login_locked(get_db, user_key)
-            if locked:
-                wait = mins_left if mins_left is not None else LOGIN_LOCKOUT_MINUTES
-                error = (
-                    f'Too many failed sign-in attempts ({fail_count}). '
-                    f'Wait about {wait} minute{"s" if wait != 1 else ""}, or use Forgot Password. '
-                    f'Thomas or Stephanie can also unlock you from Admin.'
-                )
-            else:
-                logged_in = False
-                db_user = None
-                db_available = False
+    # POST
+    next_from_form = safe_next_url(request.form.get('next', ''))
+    if next_from_form:
+        session['login_next'] = next_from_form
+        next_url = next_from_form
+    # Do NOT strip password — spaces can be intentional; strip only identity.
+    user_key = _resolve_login_user_key(request.form.get('user_key', ''))
+    password = request.form.get('password', '') or ''
+    selected_user = user_key if user_key in USERS else ''
+    ip = client_ip(request)
 
-                # Optional break-glass master password (env only, disabled when unset)
-                if MASTER_PASSWORD and password == MASTER_PASSWORD:
-                    user = USERS.get(user_key)
-                    if user:
-                        session['role'] = 'admin'
-                        session['admin'] = True
-                        session['proposal_access'] = list(CONSULTANTS.keys())
-                        _establish_session(user_key, user)
-                        record_login_attempt(get_db, user_key, True, ip)
-                        clear_login_failures(get_db, user_key)
-                        _update_last_login(user_key)
-                        return _post_login_redirect()
+    if not user_key or user_key not in USERS:
+        return _login_redirect_with_error(
+            'Select your name from the list, then enter your password.',
+            '',
+            next_url,
+        )
 
-                try:
-                    conn = get_db()
-                    if conn:
-                        db_available = True
-                        cur = conn.cursor(cursor_factory=RealDictCursor)
-                        cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
-                        db_user = cur.fetchone()
-                        cur.close()
-                        conn.close()
+    if not password:
+        return _login_redirect_with_error(
+            'Enter your password.',
+            selected_user,
+            next_url,
+        )
 
-                        if db_user and _safe_check_password(db_user.get('password_hash'), password):
-                            user = USERS.get(user_key, {})
-                            _establish_session(user_key, user, db_user)
-                            record_login_attempt(get_db, user_key, True, ip)
-                            clear_login_failures(get_db, user_key)
-                            _update_last_login(user_key)
-                            logged_in = True
-                            if session.get('must_change_password'):
-                                return redirect(url_for('change_password'))
-                            return _post_login_redirect()
+    # Always verify credentials first. A correct password must work even during
+    # a temporary lockout (lockout only blocks guessing, not real sign-in).
+    try:
+        # Optional break-glass master password (env only, disabled when unset)
+        if MASTER_PASSWORD and password == MASTER_PASSWORD:
+            user = USERS.get(user_key)
+            if user:
+                session['role'] = 'admin'
+                session['admin'] = True
+                session['proposal_access'] = list(CONSULTANTS.keys())
+                _establish_session(user_key, user)
+                record_login_attempt(get_db, user_key, True, ip)
+                clear_login_failures(get_db, user_key)
+                _update_last_login(user_key)
+                return _post_login_redirect()
 
-                    if not logged_in:
-                        if not db_available:
-                            error = (
-                                'Sign-in is temporarily unavailable (database). '
-                                'Please try again in a moment — this is not a wrong password.'
-                            )
-                        elif user_key in USERS and not db_user:
-                            # Only count as a real failure once identity is known / activated path
-                            record_login_attempt(get_db, user_key, False, ip)
-                            error = (
-                                'Your Hub account is not activated yet. '
-                                'Use Forgot Password, or ask Thomas or Stephanie to set your password from Admin.'
-                            )
-                        else:
-                            record_login_attempt(get_db, user_key, False, ip)
-                            locked_now, fails, mins = is_login_locked(get_db, user_key)
-                            remaining = max(0, MAX_LOGIN_FAILURES - fails)
-                            if locked_now:
-                                wait = mins if mins is not None else LOGIN_LOCKOUT_MINUTES
-                                error = (
-                                    f'Incorrect password. Account locked for about {wait} minute'
-                                    f'{"s" if wait != 1 else ""}. Use Forgot Password or ask Admin to unlock.'
-                                )
-                            else:
-                                error = (
-                                    f'Incorrect password. {remaining} attempt'
-                                    f'{"s" if remaining != 1 else ""} left before a temporary lock. '
-                                    f'Use Forgot Password if you are unsure.'
-                                )
-                except Exception as e:
-                    print(f"Login error for {user_key or 'unknown'}: {e}")
-                    error = 'Something went wrong on our side. Please try again or contact Thomas.'
+        conn = get_db()
+        if not conn:
+            return _login_redirect_with_error(
+                'Sign-in is temporarily unavailable (database). '
+                'Please try again in a moment — this is not a wrong password.',
+                selected_user,
+                next_url,
+            )
 
-                if not logged_in and not error and not DATABASE_URL:
-                    error = 'Database unavailable. Please try again shortly.'
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
+        db_user = cur.fetchone()
+        cur.close()
+        conn.close()
 
-    return render_template('login.html',
-                           users=sorted(USERS.items(), key=lambda x: x[1]['display']),
-                           error=error,
-                           selected_user=selected_user,
-                           next_url=next_url or '')
+        if db_user and _safe_check_password(db_user.get('password_hash'), password):
+            user = USERS.get(user_key, {})
+            _establish_session(user_key, user, db_user)
+            record_login_attempt(get_db, user_key, True, ip)
+            clear_login_failures(get_db, user_key)
+            _update_last_login(user_key)
+            if session.get('must_change_password'):
+                return redirect(url_for('change_password'))
+            return _post_login_redirect()
 
+        # Wrong password / inactive account — apply lockout only to real wrong passwords
+        if not db_user:
+            # Do NOT count toward lockout: nothing to guess; activation is the fix.
+            return _login_redirect_with_error(
+                'Your Hub account is not activated yet. '
+                'Use Forgot Password, or ask Thomas or Stephanie to set your password from Admin.',
+                selected_user,
+                next_url,
+            )
+
+        locked, fail_count, mins_left = is_login_locked(get_db, user_key)
+        if locked:
+            wait = mins_left if mins_left is not None else LOGIN_LOCKOUT_MINUTES
+            # Password already checked above and was wrong. Correct password
+            # always succeeds before this branch (lockout is for guesses only).
+            return _login_redirect_with_error(
+                f'That password is not correct, and this account is temporarily locked '
+                f'after {fail_count} failed tries (~{wait} min left). '
+                f'Use Forgot Password to set a new one (that unlocks you), '
+                f'or ask Thomas/Stephanie to Unlock or Reset from Admin.',
+                selected_user,
+                next_url,
+            )
+
+        record_login_attempt(get_db, user_key, False, ip)
+        locked_now, fails, mins = is_login_locked(get_db, user_key)
+        remaining = max(0, MAX_LOGIN_FAILURES - fails)
+        if locked_now:
+            wait = mins if mins is not None else LOGIN_LOCKOUT_MINUTES
+            return _login_redirect_with_error(
+                f'Incorrect password. Account locked for about {wait} minute'
+                f'{"s" if wait != 1 else ""}. Use Forgot Password (unlocks you) '
+                f'or ask Admin to Unlock.',
+                selected_user,
+                next_url,
+            )
+        return _login_redirect_with_error(
+            f'Incorrect password. {remaining} attempt'
+            f'{"s" if remaining != 1 else ""} left before a temporary lock. '
+            f'Use Forgot Password if you are unsure.',
+            selected_user,
+            next_url,
+        )
+    except Exception as e:
+        print(f"Login error for {user_key or 'unknown'}: {e}")
+        return _login_redirect_with_error(
+            'Something went wrong on our side. Please try again or contact Thomas.',
+            selected_user,
+            next_url,
+        )
 
 def _touch_last_active(user_key, force=False):
     """Record user activity. force=True on explicit login; otherwise throttle to 30 min."""
@@ -3981,6 +4014,42 @@ def admin():
     except Exception as e:
         print(f"Admin error: {e}")
 
+    # Annotate lockouts so admin can unlock stuck teammates at a glance.
+    annotated = []
+    for row in rows:
+        item = dict(row)
+        try:
+            locked, fails, mins = is_login_locked(get_db, item.get('user_key'))
+            item['login_locked'] = locked
+            item['login_failures'] = fails
+            item['login_mins_left'] = mins
+        except Exception:
+            item['login_locked'] = False
+            item['login_failures'] = 0
+            item['login_mins_left'] = None
+        item['missing_hub_row'] = False
+        annotated.append(item)
+    rows = annotated
+
+    # Ensure every USERS profile appears even if hub_users row is missing (can't log in).
+    present = {r.get('user_key') for r in rows}
+    for key, udef in USERS.items():
+        if key in present:
+            continue
+        locked, fails, mins = is_login_locked(get_db, key)
+        rows.append({
+            'user_key': key,
+            'display_name': udef.get('display', key),
+            'role': udef.get('role', ''),
+            'last_login': None,
+            'must_change_password': False,
+            'missing_hub_row': True,
+            'login_locked': locked,
+            'login_failures': fails,
+            'login_mins_left': mins,
+        })
+    rows = sorted(rows, key=lambda r: (r.get('display_name') or '').lower())
+
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            unread_feedback=unread_feedback,
@@ -4167,6 +4236,26 @@ def admin_unlock_login():
     try:
         clear_login_failures(get_db, user_key)
         return jsonify({'success': True, 'user_key': user_key})
+    except Exception as e:
+        return _api_error(e)
+
+
+@app.route('/api/internal/unlock-login', methods=['POST'])
+def internal_unlock_login():
+    """Ops helper: clear lockout without an admin browser session."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    data = request.get_json(silent=True) or {}
+    user_key = (request.form.get('user_key') or data.get('user_key') or '').strip()
+    if not user_key or user_key not in USERS:
+        return jsonify({'error': 'Unknown user'}), 400
+    try:
+        clear_login_failures(get_db, user_key)
+        return jsonify({
+            'success': True,
+            'user_key': user_key,
+            'display': USERS[user_key].get('display'),
+        })
     except Exception as e:
         return _api_error(e)
 
@@ -6051,7 +6140,10 @@ def forgot_password():
                     f'Reset your PPS password: {link}\n\nThis link expires in 1 hour.',
                 )
                 if ok:
-                    message = f'If {to_email} is on file, a reset link was sent.'
+                    # Reset email path also clears lockout so they aren't blocked
+                    # while waiting for the link.
+                    clear_login_failures(get_db, user_key)
+                    message = f'If {to_email} is on file, a reset link was sent. Any temporary lockout was cleared.'
                 else:
                     print(f'Password reset email failed: {detail}')
                     error = 'Could not send email. Contact Thomas or Stephanie.'

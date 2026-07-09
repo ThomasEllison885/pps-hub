@@ -50,10 +50,10 @@
     <p class="sub">Sign in to access your PPS tools</p>
     <form method="POST" action="/login" autocomplete="on">
       {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
-      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
       <div class="field">
-        <label>Your Name</label>
-        <select name="user_key" required autocomplete="username">
+        <label for="login-user">Your Name</label>
+        <select id="login-user" name="user_key" required autocomplete="username" autofocus>
           <option value="" disabled {% if not selected_user %}selected{% endif %}>Select your name…</option>
           {% for key, user in users %}
           <option value="{{ key }}" {% if selected_user == key %}selected{% endif %}>{{ user.display }}</option>
@@ -61,12 +61,18 @@
         </select>
       </div>
       <div class="field">
-        <label>Password</label>
-        <input type="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
       </div>
       <button type="submit" class="btn">Sign In →</button>
     </form>
-    <p style="margin-top:20px;font-size:13px;"><a href="/forgot-password" style="color:var(--blue);text-decoration:none;">Forgot password?</a></p>
+    <p style="margin-top:20px;font-size:13px;line-height:1.5;">
+      <a href="/forgot-password" style="color:var(--blue);text-decoration:none;font-weight:600;">Forgot password?</a>
+      <span style="color:#999;"> — sets a new password and clears any temporary lockout.</span>
+    </p>
+    <p style="margin-top:10px;font-size:12px;color:#aaa;line-height:1.4;">
+      Tip: open this page fresh (or use Forgot password) if you keep seeing an old error after refresh.
+    </p>
   </div>
 </div>
 </body>

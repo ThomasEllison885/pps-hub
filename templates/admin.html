@@ -334,8 +334,20 @@
       <tbody>
         {% for u in users %}
         {% set udef = user_definitions.get(u.user_key, {}) %}
-        <tr>
-          <td><a href="/admin/member/{{ u.user_key }}" class="name-link">{{ u.display_name }}</a></td>
+        <tr{% if u.login_locked or u.missing_hub_row %} style="background:{% if u.login_locked %}#fff5f5{% else %}#fffbeb{% endif %};"{% endif %}>
+          <td>
+            <a href="/admin/member/{{ u.user_key }}" class="name-link">{{ u.display_name }}</a>
+            {% if u.login_locked %}
+            <div style="font-size:11px;color:#c00;font-weight:600;margin-top:3px;">
+              🔒 Locked{% if u.login_mins_left %} · ~{{ u.login_mins_left }}m left{% endif %}
+              {% if u.login_failures %} · {{ u.login_failures }} fails{% endif %}
+            </div>
+            {% elif u.missing_hub_row %}
+            <div style="font-size:11px;color:#b45309;font-weight:600;margin-top:3px;">
+              ⚠ No password set — use Reset to activate
+            </div>
+            {% endif %}
+          </td>
           <td>
             <span class="role-badge {{ u.role }}">
               {% if u.role == 'pm' %}PM
@@ -370,7 +382,7 @@
           </td>
           <td style="white-space:nowrap;">
             <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
-            <button class="reset-btn" style="margin-left:6px;background:#f0f6fb;color:var(--dark-blue);" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
+            <button class="reset-btn" style="margin-left:6px;background:{% if u.login_locked %}#fee;color:#c00;border-color:#f5c2c2;{% else %}#f0f6fb;color:var(--dark-blue);{% endif %}" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
           </td>
         </tr>
         {% endfor %}
