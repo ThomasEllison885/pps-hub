@@ -112,8 +112,8 @@ assert(marketingSpend < 118_000 * 0.2, `marketing ${marketingSpend} < 20% of E14
 const pair = E.imputedPairMarketWeekly(cmhAp, dayAp, 72, cfg);
 assert(pair >= 4 && pair < 30, `CMH-DAY imputed pair ${pair}`);
 
-// Cancel threshold present
-assert(cfg.cancel_load_threshold === 0.12, `cancel threshold ${cfg.cancel_load_threshold}`);
+// Cancel threshold present (non-established only in game; established never cancels)
+assert(cfg.cancel_load_threshold > 0 && cfg.cancel_load_threshold <= 0.15, `cancel threshold ${cfg.cancel_load_threshold}`);
 
 console.log(`\nEconomics tests: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

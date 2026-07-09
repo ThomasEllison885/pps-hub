@@ -48,8 +48,8 @@
       min_daily: 2,
     },
     rival_traffic_buffer: 1.12,
-    // Cancel departures when projected load is hopeless (variable cost avoided).
-    cancel_load_threshold: 0.12,
+    // Cancel only truly hopeless non-established services (load is also day-smoothed in game.js).
+    cancel_load_threshold: 0.1,
   };
 
   function mergeConfig(bootstrap) {

@@ -2938,17 +2938,37 @@
       return;
     }
     if (option.effect === 'playbook_tune_cmh_day') {
+      const fare = option.fare || 139;
+      // Apply to both legs of the pair so return traffic stays aligned.
+      ['CMH-DAY', 'DAY-CMH'].forEach((pair) => {
+        const [o, d] = pair.split('-');
+        const r = routeByEndpoints(o, d);
+        if (r) setRouteFare(r.id, fare, 'manual');
+      });
       const route = routeByEndpoints('CMH', 'DAY') || routeById(option.routeId);
-      if (route) setRouteFare(route.id, option.fare || 139, 'manual');
+      if (route && !routeByEndpoints('CMH', 'DAY')) setRouteFare(route.id, fare, 'manual');
       if (option.airport) {
+        const amt = option.amount || scaledMarketingAmount(option.airport, 'coach');
         applyMarketingSpend({
           airport: option.airport,
-          amount: option.amount || scaledMarketingAmount(option.airport, 'coach'),
+          amount: amt,
           setAmount: true,
           competitorResponse: true,
           awarenessBoost: true,
         });
       }
+      // Light DAY marketing so return demand keeps pace (does not replace CMH spend).
+      if (!state.marketing_spend_monthly.DAY || state.marketing_spend_monthly.DAY < 3000) {
+        applyMarketingSpend({
+          airport: 'DAY',
+          amount: Math.min(4500, scaledMarketingAmount('DAY', 'coach')),
+          setAmount: true,
+          awarenessBoost: true,
+        });
+      }
+      pushPlayerEvent(
+        `coach: fare $${fare} both ways CMH⇄DAY + modest marketing — load moves gradually, not overnight.`
+      );
       return;
     }
     if (option.effect === 'set_marketing' && option.airport) {
@@ -3984,8 +4004,8 @@
       if (pnl > 0) profitable += 1;
       if (r.canceled) canceled += 1;
       if (r.ferryReturn && !r.canceled && r.flightsToday > 0) ferry += 1;
-      // Canceled departures don't pull avg load to zero — they simply didn't fly.
-      if (!r.grounded && !r.canceled && Number.isFinite(r.load)) {
+      // Use projected load even when canceled (HUD must not flash 0% overnight).
+      if (!r.grounded && Number.isFinite(r.load)) {
         loadSum += r.load;
         loadN += 1;
       }
@@ -5873,6 +5893,50 @@
   /** Depth guard: demand path must never re-enter full route simulation. */
   let simulatingDemandDepth = 0;
 
+  /**
+   * Smooth load so a single decision (fare, marketing, rival move) cannot
+   * yank avg load from healthy → 0% overnight. Caps day-over-day change.
+   */
+  function stabilizeRouteLoad(route, rawLoad) {
+    if (!route || !Number.isFinite(rawLoad)) return rawLoad;
+    const prev =
+      route.yesterday_load != null && Number.isFinite(route.yesterday_load)
+        ? route.yesterday_load
+        : route.smooth_load != null && Number.isFinite(route.smooth_load)
+          ? route.smooth_load
+          : null;
+
+    let next = rawLoad;
+    if (prev != null) {
+      // Blend + hard cap ±12 percentage points per day
+      const blended = prev * 0.58 + rawLoad * 0.42;
+      const maxDelta = 0.12;
+      next = Math.max(prev - maxDelta, Math.min(prev + maxDelta, blended));
+    }
+    if (route.established || route.force_fly) {
+      next = Math.max(0.4, next);
+    }
+    next = Math.max(0, Math.min(0.92, next));
+
+    // Commit once per calendar day so re-renders don't re-blend.
+    if (route._load_commit_day !== state.day) {
+      route.smooth_load = next;
+      route._load_commit_day = state.day;
+    } else if (route.smooth_load != null && Number.isFinite(route.smooth_load)) {
+      next = route.smooth_load;
+    }
+    return next;
+  }
+
+  function commitRouteLoadHistory() {
+    if (!state || !state.routes) return;
+    state.routes.forEach((r) => {
+      if (r.smooth_load != null && Number.isFinite(r.smooth_load)) {
+        r.yesterday_load = r.smooth_load;
+      }
+    });
+  }
+
   function simulateRouteDay(route) {
     const empty = {
       revenue: 0,
@@ -5911,29 +5975,43 @@
     } finally {
       simulatingDemandDepth -= 1;
     }
-    let load = Math.min(0.92, demand / Math.max(dailySeats, 1));
+    let rawLoad = Math.min(0.92, demand / Math.max(dailySeats, 1));
+    // Established / starter routes keep a floor so tutorial doesn't free-fall to empty.
+    if (route.established || route.force_fly) {
+      rawLoad = Math.max(0.4, rawLoad);
+    }
+
+    // Day-to-day stability: never jump more than ~12 pts overnight (checks & balances).
+    let load = stabilizeRouteLoad(route, rawLoad);
+
     const reverse = findReverseRoute(route);
     const ferryReturn = !reverse;
     const cancelThreshold = (routeEconomics().cancel_load_threshold != null
       ? routeEconomics().cancel_load_threshold
-      : 0.12);
+      : 0.1);
 
-    // Airlines cancel hopeless departures rather than burn fuel at 1–10% load.
-    if (load < cancelThreshold && flightsToday > 0 && !route.force_fly) {
+    // Cancel only truly hopeless non-established services (and never on day 0–21).
+    const canCancel =
+      !route.established &&
+      !route.force_fly &&
+      (state.day || 0) > 21 &&
+      load < cancelThreshold &&
+      flightsToday > 0;
+    if (canCancel) {
       const oneWayBlock = blockHours(dist, ac) * flightsToday;
-      // Tiny cancellation / positioning cost — far below a full empty flight.
       const cancelCost = oneWayBlock * bootstrap.crew_cost_per_block_hour * 0.15;
       return {
         ...empty,
         cost: cancelCost,
-        load: 0,
+        load, // keep projected load for HUD (not fake 0%)
         canceled: true,
         ferryReturn,
         schedScale,
         flightsToday: 0,
         market: mkt,
         demand,
-        cancelReason: `load ${(load * 100).toFixed(0)}% below cancel threshold`,
+        rawLoad,
+        cancelReason: `projected load ${(rawLoad * 100).toFixed(0)}% — departures scrubbed to save fuel`,
       };
     }
 
@@ -6065,6 +6143,8 @@
     if (!decisionPending && state.onboarding_done) checkWinningPlaybookDayTriggers();
 
     processAirportDemandSurges();
+    // Lock today's smoothed loads as baseline for tomorrow (prevents overnight free-falls).
+    commitRouteLoadHistory();
   }
 
   function applyMonthlyReputation(dayRev, dayCost) {
@@ -9186,24 +9266,22 @@
     const ap = airport(iata);
     if (!ap || !state) return;
     const gate = state.gates.find((g) => g.airport === iata);
-    const routesFrom = state.routes.filter((r) => r.origin === iata);
-    const compRoutes = competitorRoutesAt(iata);
-    const hasCompetition = (ap.incumbents && ap.incumbents.length) || compRoutes.length > 0;
+    const hasCompetition =
+      (ap.incumbents && ap.incumbents.length) || competitorRoutesAt(iata).length > 0;
 
+    // Always land on gate / your position — not Routes. Scout first, then act.
     airportSections = {
       market: false,
-      competition: !!gate && hasCompetition,
-      position: !gate || !hasCompetition,
+      competition: false,
+      position: true,
     };
-    if (!gate) airportSections.position = true;
-
-    if (routesFrom.length) {
-      switchTab('routes');
-    } else if (!gate) {
-      scheduleContextPulse('#ap-section-position');
-    } else if (hasCompetition) {
-      scheduleContextPulse('#ap-section-competition');
+    if (gate && hasCompetition) {
+      // Optional: show competition collapsed closed; position stays open.
+      airportSections.competition = false;
     }
+
+    // Do not switch tabs away from where the player is — keep airport panel focused.
+    scheduleContextPulse('#ap-section-position', true);
   }
 
   function scheduleContextPulse(selector, scrollParent) {
@@ -9217,6 +9295,15 @@
       el.classList.add('context-pulse');
       contextPulseTimer = setTimeout(() => el.classList.remove('context-pulse'), 2400);
     });
+  }
+
+  function setupHudLoadClick() {
+    const pill = $('hud-pill-load');
+    if (!pill || pill._loadClick) return;
+    pill._loadClick = true;
+    pill.style.cursor = 'pointer';
+    pill.title = 'Click: open Routes — fares, frequency, and marketing drive load';
+    pill.addEventListener('click', () => focusLoadLevers());
   }
 
   function toggleHudPanel(name) {
@@ -9277,17 +9364,35 @@
         destLabel: '',
       };
     }
-    const routesFrom = state.routes.filter((r) => r.origin === iata);
     applyAirportContext(iata);
     renderAirportPanel(iata);
     drawMap();
-    const routesPanel = $('panel-routes');
-    if (routesPanel && routesPanel.classList.contains('active')) {
-      renderRoutes();
-      if (routesFrom.length) scheduleContextPulse(`.route-card[data-origin="${iata}"]`, '#panel-routes');
-    }
+    // Stay on airport scout — scroll to gate / position, not the Routes tab.
     const apPanel = $('airport-panel');
     if (apPanel) scrollSidePanelTo(apPanel, { block: 'nearest' });
+    requestAnimationFrame(() => {
+      const pos = document.querySelector('#ap-section-position');
+      if (pos) scrollSidePanelTo(pos, { block: 'nearest' });
+    });
+  }
+
+  /** Avg load HUD → Routes (fares, frequency, marketing on cards). */
+  function focusLoadLevers() {
+    if (!state) return;
+    switchTab('routes');
+    renderRoutes();
+    const panel = $('panel-routes') || $('tab-routes');
+    if (panel) scrollSidePanelTo(panel, { block: 'nearest' });
+    scheduleContextPulse('#tab-routes .route-card, #panel-routes .route-card', true);
+    const first = document.querySelector('#tab-routes .route-card, #panel-routes .route-card');
+    if (first) {
+      first.classList.add('context-pulse');
+      setTimeout(() => first.classList.remove('context-pulse'), 2400);
+    }
+    pushEvent(
+      'Load levers: fares, frequency, and marketing on <b>Routes</b>. Thin loads also cancel flights — keep both legs of a pair flying.',
+      'neutral'
+    );
   }
 
   function renderAirportPanel(iata) {
@@ -9373,33 +9478,47 @@
           : '';
     const canLeaseMore = ap.gates_available > 0;
     const positionBody = `
-      ${availFromHub}
-      ${hubRoutesHtml}
-      ${capPrompt}
-      ${routesFromList}
-      <dl class="stat-dl">
-        <dt>Your gates</dt><dd>${gateSummary}</dd>
-        <dt>Brand awareness</dt><dd>${(state.brand_awareness[iata] || 0).toFixed(0)}%</dd>
-      </dl>
+      <div class="ap-gate-hero ${gate ? 'has-gate' : 'no-gate'}">
+        <p style="margin:0 0 6px;font-size:0.88rem;line-height:1.4;">
+          ${
+            gate
+              ? `<b class="via-good">You have a gate</b> at ${iata} — ${gateSummary}`
+              : `<b class="danger">No gate yet</b> at ${iata}. Lease one to originate flights from here.`
+          }
+        </p>
+        <p class="muted" style="margin:0;font-size:0.72rem;">Brand awareness ${(state.brand_awareness[iata] || 0).toFixed(0)}%${
+          routesFromList ? '' : ''
+        }</p>
+        ${routesFromList || ''}
+      </div>
       ${
         canLeaseMore
           ? `<div class="btn-row" style="margin-top:8px;">
-        <button class="btn" onclick="Runway.leaseGate('${iata}','common',3)">${gate ? 'Add ' : ''}Common-use (3yr)</button>
-        <button class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">${gate ? 'Add ' : ''}Exclusive (5yr)</button>
+        <button type="button" class="btn" onclick="Runway.leaseGate('${iata}','common',3)">${gate ? 'Add ' : ''}Common-use (3yr)</button>
+        <button type="button" class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">${gate ? 'Add ' : ''}Exclusive (5yr)</button>
       </div>
-      <p class="muted" style="font-size:0.68rem;margin-top:6px;">${ap.gates_available} gate slot${ap.gates_available !== 1 ? 's' : ''} still open · 2-month deposit required.</p>`
+      <p class="muted" style="font-size:0.68rem;margin-top:6px;">${ap.gates_available} open slot${ap.gates_available !== 1 ? 's' : ''} · 2-month deposit</p>`
           : gate
-            ? '<p class="muted" style="font-size:0.68rem;margin-top:6px;">No additional gate slots at this airport.</p>'
-            : '<p class="muted" style="font-size:0.68rem;margin-top:6px;">No gates available — airport is full.</p>'
+            ? '<p class="muted" style="font-size:0.68rem;margin-top:6px;">No additional gate slots here.</p>'
+            : '<p class="muted" style="font-size:0.68rem;margin-top:6px;">Airport full — no gates available.</p>'
       }
-      ${renderMarketingPanelHtml(iata)}`;
+      ${capPrompt}
+      <details class="ap-more" style="margin-top:10px;">
+        <summary class="muted" style="cursor:pointer;font-size:0.75rem;">Capacity &amp; route ideas</summary>
+        ${availFromHub}
+        ${hubRoutesHtml}
+      </details>
+      <details class="ap-more" style="margin-top:8px;">
+        <summary class="muted" style="cursor:pointer;font-size:0.75rem;">Marketing at ${iata}</summary>
+        ${renderMarketingPanelHtml(iata)}
+      </details>`;
 
     panel.innerHTML = `
       <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
-      <p class="muted" style="font-size:0.75rem;margin-bottom:4px;">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
-      ${panelSectionHtml('market', 'Market snapshot', airportSections.market, marketBody)}
+      <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
+      ${panelSectionHtml('position', gate ? 'Your gate' : 'Lease a gate', true, positionBody)}
       ${panelSectionHtml('competition', 'Competition', airportSections.competition, competitionBody)}
-      ${panelSectionHtml('position', gate ? 'Your position' : 'Lease a gate', airportSections.position, positionBody)}
+      ${panelSectionHtml('market', 'Market snapshot', airportSections.market, marketBody)}
     `;
     bindAirportPanelToggles();
     bindGateCapacityActions(panel);
@@ -11491,6 +11610,7 @@
     setupRoutePanelDelegation();
     setupFleetPanelDelegation();
     setupScoreboardDelegation();
+    setupHudLoadClick();
     setupKeyboardShortcuts();
     setupMobileDock();
 
