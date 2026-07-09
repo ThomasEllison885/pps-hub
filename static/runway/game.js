@@ -26,7 +26,7 @@
   let fleetShopOpen = false;
   let hudPanels = { financials: false, economy: false };
   let hudFinancialsView = 'company';
-  let opsGuideCollapsed = false;
+  let opsGuideCollapsed = null; // null = not yet defaulted this session; see renderOpsGuide
   let airportSections = { market: false, competition: true, position: true };
   let contextPulseTimer = null;
   let scoreboardOpen = false;
@@ -10102,10 +10102,13 @@
       (ap.incumbents && ap.incumbents.length) || competitorRoutesAt(iata).length > 0;
 
     // Always land on gate / your position — not Routes. Scout first, then act.
+    // If a gate is already leased here, there's nothing actionable to show by default —
+    // collapse to a one-line summary. If there's no gate yet, keep it open since leasing
+    // one is the next required step.
     airportSections = {
       market: false,
       competition: false,
-      position: true,
+      position: !gate,
     };
     if (gate && hasCompetition) {
       // Optional: show competition collapsed closed; position stays open.
@@ -10345,10 +10348,11 @@
         ${renderMarketingPanelHtml(iata)}
       </details>`;
 
+    const positionTitle = gate ? `Your gate — ${gateSummary}` : 'Lease a gate';
     panel.innerHTML = `
       <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
       <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
-      ${panelSectionHtml('position', gate ? 'Your gate' : 'Lease a gate', true, positionBody)}
+      ${panelSectionHtml('position', positionTitle, airportSections.position, positionBody)}
       ${panelSectionHtml('competition', 'Competition', airportSections.competition, competitionBody)}
       ${panelSectionHtml('market', 'Market snapshot', airportSections.market, marketBody)}
     `;
@@ -10631,6 +10635,13 @@
     }
     const ctx = opsGuideContext();
     if (!ctx) return;
+    if (opsGuideCollapsed === null) {
+      // First render this session: stay open while genuinely onboarding or something needs
+      // attention; once the player is past setup and nothing is urgent, start collapsed to
+      // one line instead of permanently occupying sidebar space.
+      const onboarding = ctx.step >= 1 && ctx.step <= 4;
+      opsGuideCollapsed = !(onboarding || ctx.tone === 'warn' || ctx.profit);
+    }
     const collapsedClass = opsGuideCollapsed ? ' collapsed' : '';
     const toneClass = ctx.tone === 'good' ? ' ops-guide-good' : ctx.tone === 'warn' ? ' ops-guide-warn' : '';
     const stepLabel = ctx.step > 0 ? `<span class="ops-guide-step">Step ${ctx.step}</span>` : ctx.profit ? `<span class="ops-guide-step">Playbook</span>` : '';
@@ -11192,53 +11203,58 @@
             <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
           </div>
           ${forecastHtml}
-          ${gateNote}
           <div class="route-card-meta">
             <span>${route.frequency_week}/wk · ${acName}</span>
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
             <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
           </div>
-          <div class="route-levers">
-            <div class="route-lever">
-              <span class="route-lever-label">Frequency</span>
-              <div class="route-lever-row">
-                <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', -1)" title="Fewer flights/wk">−</button>
-                <strong class="route-lever-value">${route.frequency_week}<span class="muted">/wk</span></strong>
-                <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', 1)" title="More flights/wk">+</button>
+          <div class="route-card-footer-actions">
+            <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
+          </div>
+          <details class="ap-more route-card-tune">
+            <summary class="muted" style="cursor:pointer;font-size:0.75rem;">Tune this route</summary>
+            ${gateNote}
+            <div class="route-levers">
+              <div class="route-lever">
+                <span class="route-lever-label">Frequency</span>
+                <div class="route-lever-row">
+                  <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', -1)" title="Fewer flights/wk">−</button>
+                  <strong class="route-lever-value">${route.frequency_week}<span class="muted">/wk</span></strong>
+                  <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', 1)" title="More flights/wk">+</button>
+                </div>
+              </div>
+              <div class="route-lever">
+                <span class="route-lever-label">Marketing</span>
+                <button type="button" class="btn secondary route-mkt-boost" onclick="Runway.boostRouteMarketing('${route.id}', 3000)" title="Add $3k/mo airport ads at ${route.origin}">+ads $3k</button>
               </div>
             </div>
-            <div class="route-lever">
-              <span class="route-lever-label">Marketing</span>
-              <button type="button" class="btn secondary route-mkt-boost" onclick="Runway.boostRouteMarketing('${route.id}', 3000)" title="Add $3k/mo airport ads at ${route.origin}">+ads $3k</button>
+            <div class="route-card-controls">
+              <label>Aircraft (${seatN} seats)
+                <select onchange="Runway.setRouteAircraft('${route.id}', this.value)">
+                  ${fleetOptionsHtml(route.aircraft_id, route.origin, route.dest)}
+                </select>
+              </label>
+              <label>Fare $ (${modeLabel})
+                <input type="number" min="49" max="899" value="${route.fare}"
+                  onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
+              </label>
+              <label>Pricing
+                <select onchange="Runway.setRouteFareMode('${route.id}', this.value)">
+                  <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Dynamic</option>
+                  <option value="manual" ${mode === 'manual' ? 'selected' : ''}>Fixed</option>
+                </select>
+              </label>
+              <label>Ancillary
+                <select onchange="Runway.setRouteAncillary('${route.id}', this.value)">
+                  <option value="auto" ${anc === 'auto' ? 'selected' : ''}>Auto</option>
+                  <option value="aggressive" ${anc === 'aggressive' ? 'selected' : ''}>Heavy</option>
+                  <option value="minimal" ${anc === 'minimal' ? 'selected' : ''}>Min</option>
+                </select>
+              </label>
             </div>
-          </div>
-          <div class="route-card-controls">
-            <label>Aircraft (${seatN} seats)
-              <select onchange="Runway.setRouteAircraft('${route.id}', this.value)">
-                ${fleetOptionsHtml(route.aircraft_id, route.origin, route.dest)}
-              </select>
-            </label>
-            <label>Fare $ (${modeLabel})
-              <input type="number" min="49" max="899" value="${route.fare}"
-                onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
-            </label>
-            <label>Pricing
-              <select onchange="Runway.setRouteFareMode('${route.id}', this.value)">
-                <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Dynamic</option>
-                <option value="manual" ${mode === 'manual' ? 'selected' : ''}>Fixed</option>
-              </select>
-            </label>
-            <label>Ancillary
-              <select onchange="Runway.setRouteAncillary('${route.id}', this.value)">
-                <option value="auto" ${anc === 'auto' ? 'selected' : ''}>Auto</option>
-                <option value="aggressive" ${anc === 'aggressive' ? 'selected' : ''}>Heavy</option>
-                <option value="minimal" ${anc === 'minimal' ? 'selected' : ''}>Min</option>
-              </select>
-            </label>
-          </div>
-          ${fareRmNote}
-          <p class="route-card-hint muted">Buckets: ${bucketHint} · levers: freq · metal · marketing · fare</p>
-          <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
+            ${fareRmNote}
+            <p class="route-card-hint muted">Buckets: ${bucketHint} · levers: freq · metal · marketing · fare</p>
+          </details>
         </div>`;
     });
     html += '</div>';

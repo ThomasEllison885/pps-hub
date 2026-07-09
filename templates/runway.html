@@ -2152,8 +2152,22 @@
     border-color: rgba(255, 107, 107, 0.4);
     background: rgba(255, 107, 107, 0.07);
   }
-  .ap-more summary { list-style: none; }
+  .ap-more summary { list-style: none; cursor: pointer; }
   .ap-more summary::-webkit-details-marker { display: none; }
+  .ap-more summary::before {
+    content: '▸ ';
+    display: inline-block;
+    transition: transform 0.15s ease;
+  }
+  .ap-more[open] > summary::before {
+    transform: rotate(90deg);
+  }
+  /* Some collapsed-content children (grid/flex layouts) set an explicit `display`,
+     which is author CSS and beats the browser's native details-collapse UA rule.
+     Force them closed explicitly so collapsing actually hides them. */
+  .ap-more:not([open]) > *:not(summary) {
+    display: none !important;
+  }
   #hud-pill-load { cursor: pointer; }
   #hud-pill-load:hover { border-color: var(--accent); }
   .tab-panel h3, .tab-panel h4 { font-size: 0.95rem; margin-bottom: 8px; color: var(--gold); }
