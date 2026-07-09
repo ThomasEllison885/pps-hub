@@ -48,21 +48,21 @@
   <div class="card">
     <h1>Welcome Back</h1>
     <p class="sub">Sign in to access your PPS tools</p>
-    <form method="POST" action="/login">
+    <form method="POST" action="/login" autocomplete="on">
       {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
       {% if error %}<div class="error">{{ error }}</div>{% endif %}
       <div class="field">
         <label>Your Name</label>
-        <select name="user_key" required>
-          <option value="" disabled selected>Select your name…</option>
+        <select name="user_key" required autocomplete="username">
+          <option value="" disabled {% if not selected_user %}selected{% endif %}>Select your name…</option>
           {% for key, user in users %}
-          <option value="{{ key }}">{{ user.display }}</option>
+          <option value="{{ key }}" {% if selected_user == key %}selected{% endif %}>{{ user.display }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="field">
         <label>Password</label>
-        <input type="password" name="password" placeholder="Enter your password" required>
+        <input type="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
       </div>
       <button type="submit" class="btn">Sign In →</button>
     </form>

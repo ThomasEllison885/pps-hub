@@ -368,7 +368,10 @@
             <span style="color:#ddd;font-size:12px;">—</span>
             {% endif %}
           </td>
-          <td><button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button></td>
+          <td style="white-space:nowrap;">
+            <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
+            <button class="reset-btn" style="margin-left:6px;background:#f0f6fb;color:var(--dark-blue);" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -568,7 +571,8 @@
     activeUserKey = null;
   }
   async function confirmReset() {
-    const password = document.getElementById('newPasswordInput').value.trim();
+    // Do not trim password — login no longer strips spaces either.
+    const password = document.getElementById('newPasswordInput').value;
     const msg = document.getElementById('modalMsg');
     if (!password || password.length < 6) { msg.textContent = 'Password must be at least 6 characters.'; msg.className = 'modal-msg error'; return; }
     try {
@@ -578,12 +582,25 @@
       const resp = await fetch('/admin/reset-password', { method: 'POST', body: fd });
       const data = await resp.json();
       if (data.success) {
-        msg.textContent = data.action === 'created' ? 'Account created and password set.' : 'Password updated successfully.';
+        msg.textContent = (data.action === 'created' ? 'Account created and password set.' : 'Password updated.') + ' Login lockout cleared.';
         msg.className = 'modal-msg success';
         setTimeout(closeReset, 1500);
       }
       else { msg.textContent = data.error || 'Something went wrong.'; msg.className = 'modal-msg error'; }
     } catch(e) { msg.textContent = 'Network error.'; msg.className = 'modal-msg error'; }
+  }
+  async function unlockLogin(userKey, displayName) {
+    if (!confirm('Clear failed sign-in lockout for ' + displayName + '?')) return;
+    try {
+      const fd = new FormData();
+      fd.append('user_key', userKey);
+      const resp = await fetch('/admin/unlock-login', { method: 'POST', body: fd });
+      const data = await resp.json();
+      if (data.success) alert(displayName + ' can sign in again (lockout cleared).');
+      else alert(data.error || 'Unlock failed.');
+    } catch (e) {
+      alert('Network error.');
+    }
   }
   document.getElementById('modalOverlay').addEventListener('click', function(e) { if (e.target === this) closeReset(); });
 

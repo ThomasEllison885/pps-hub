@@ -44,6 +44,14 @@ def record_login_attempt(get_db, user_key, success, ip_address):
             'INSERT INTO login_attempts (user_key, success, ip_address) VALUES (%s, %s, %s)',
             (user_key or 'unknown', success, ip_address),
         )
+        # Successful login clears recent failures so a fixed password works immediately.
+        if success and user_key:
+            cur.execute(
+                '''DELETE FROM login_attempts
+                   WHERE user_key = %s AND success = FALSE
+                     AND attempted_at > NOW() - make_interval(mins => %s)''',
+                (user_key, LOGIN_LOCKOUT_MINUTES * 4),
+            )
         conn.commit()
         cur.close()
         conn.close()
@@ -51,27 +59,54 @@ def record_login_attempt(get_db, user_key, success, ip_address):
         print(f'login_attempt log error: {e}')
 
 
-def is_login_locked(get_db, user_key):
+def clear_login_failures(get_db, user_key):
+    """Admin/password-reset helper — lift lockout for this account."""
     if not user_key:
-        return False
+        return
     try:
         conn = get_db()
         if not conn:
-            return False
+            return
         cur = conn.cursor()
         cur.execute(
-            '''SELECT COUNT(*) FROM login_attempts
-               WHERE user_key = %s AND success = FALSE
-                 AND attempted_at > NOW() - make_interval(mins => %s)''',
-            (user_key, LOGIN_LOCKOUT_MINUTES),
+            'DELETE FROM login_attempts WHERE user_key = %s AND success = FALSE',
+            (user_key,),
         )
-        count = cur.fetchone()[0]
+        conn.commit()
         cur.close()
         conn.close()
-        return count >= MAX_LOGIN_FAILURES
+    except Exception as e:
+        print(f'clear_login_failures error: {e}')
+
+
+def is_login_locked(get_db, user_key):
+    """Return (locked: bool, failures: int, minutes_left: int|None)."""
+    if not user_key:
+        return False, 0, None
+    try:
+        conn = get_db()
+        if not conn:
+            return False, 0, None
+        cur = conn.cursor()
+        cur.execute(
+            '''SELECT COUNT(*),
+                      EXTRACT(EPOCH FROM (MAX(attempted_at) + make_interval(mins => %s) - NOW())) / 60.0
+               FROM login_attempts
+               WHERE user_key = %s AND success = FALSE
+                 AND attempted_at > NOW() - make_interval(mins => %s)''',
+            (LOGIN_LOCKOUT_MINUTES, user_key, LOGIN_LOCKOUT_MINUTES),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        count = int(row[0] or 0) if row else 0
+        mins_left = None
+        if row and row[1] is not None and count >= MAX_LOGIN_FAILURES:
+            mins_left = max(1, int(float(row[1]) + 0.999))
+        return count >= MAX_LOGIN_FAILURES, count, mins_left
     except Exception as e:
         print(f'login lock check error: {e}')
-        return False
+        return False, 0, None
 
 
 def generate_sso_code(get_db, user_key, display_name, role):

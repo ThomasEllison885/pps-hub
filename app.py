@@ -19,8 +19,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from auth_helpers import (
-    HUB_PUBLIC_URL, PROPOSAL_URL, PROFILE_URL, LOGIN_LOCKOUT_MINUTES,
-    safe_next_url, client_ip, record_login_attempt, is_login_locked,
+    HUB_PUBLIC_URL, PROPOSAL_URL, PROFILE_URL, LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES,
+    safe_next_url, client_ip, record_login_attempt, is_login_locked, clear_login_failures,
     generate_sso_code, exchange_sso_code,
     create_password_reset_token, peek_password_reset_token,
     consume_password_reset_token, reset_url_for_token,
@@ -2617,12 +2617,32 @@ def _pricing_summary_for_dashboard():
     }
 
 
+def _resolve_login_user_key(raw):
+    """Map form value or email to a USERS key (case-insensitive email OK)."""
+    raw = (raw or '').strip()
+    if not raw:
+        return ''
+    if raw in USERS:
+        return raw
+    lower = raw.lower()
+    for key, u in USERS.items():
+        email = (u.get('email') or '').strip().lower()
+        if email and email == lower:
+            return key
+        if key.lower() == lower:
+            return key
+        if (u.get('display') or '').strip().lower() == lower:
+            return key
+    return raw
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_key'):
         return _post_login_redirect()
 
     error = None
+    selected_user = ''
     next_url = safe_next_url(request.args.get('next', ''))
     if next_url:
         session['login_next'] = next_url
@@ -2631,66 +2651,102 @@ def login():
         next_from_form = safe_next_url(request.form.get('next', ''))
         if next_from_form:
             session['login_next'] = next_from_form
-        user_key = request.form.get('user_key', '').strip()
-        password = request.form.get('password', '').strip()
+        # Do NOT strip password — spaces can be intentional; strip only identity.
+        user_key = _resolve_login_user_key(request.form.get('user_key', ''))
+        password = request.form.get('password', '') or ''
+        selected_user = user_key
         ip = client_ip(request)
 
-        if is_login_locked(get_db, user_key):
-            error = f'Too many failed attempts. Try again in {LOGIN_LOCKOUT_MINUTES} minutes or use Forgot Password.'
+        if not user_key or user_key not in USERS:
+            error = 'Select your name from the list.'
         else:
-            logged_in = False
-            db_user = None
+            locked, fail_count, mins_left = is_login_locked(get_db, user_key)
+            if locked:
+                wait = mins_left if mins_left is not None else LOGIN_LOCKOUT_MINUTES
+                error = (
+                    f'Too many failed sign-in attempts ({fail_count}). '
+                    f'Wait about {wait} minute{"s" if wait != 1 else ""}, or use Forgot Password. '
+                    f'Thomas or Stephanie can also unlock you from Admin.'
+                )
+            else:
+                logged_in = False
+                db_user = None
+                db_available = False
 
-            # Optional break-glass master password (env only, disabled when unset)
-            if MASTER_PASSWORD and password == MASTER_PASSWORD:
-                user = USERS.get(user_key)
-                if user:
-                    session['role'] = 'admin'
-                    session['admin'] = True
-                    session['proposal_access'] = list(CONSULTANTS.keys())
-                    _establish_session(user_key, user)
-                    record_login_attempt(get_db, user_key, True, ip)
-                    _update_last_login(user_key)
-                    return _post_login_redirect()
-
-            try:
-                conn = get_db()
-                if conn:
-                    cur = conn.cursor(cursor_factory=RealDictCursor)
-                    cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
-                    db_user = cur.fetchone()
-                    cur.close()
-                    conn.close()
-
-                    if db_user and _safe_check_password(db_user.get('password_hash'), password):
-                        user = USERS.get(user_key, {})
-                        _establish_session(user_key, user, db_user)
+                # Optional break-glass master password (env only, disabled when unset)
+                if MASTER_PASSWORD and password == MASTER_PASSWORD:
+                    user = USERS.get(user_key)
+                    if user:
+                        session['role'] = 'admin'
+                        session['admin'] = True
+                        session['proposal_access'] = list(CONSULTANTS.keys())
+                        _establish_session(user_key, user)
                         record_login_attempt(get_db, user_key, True, ip)
+                        clear_login_failures(get_db, user_key)
                         _update_last_login(user_key)
-                        logged_in = True
-                        if session.get('must_change_password'):
-                            return redirect(url_for('change_password'))
                         return _post_login_redirect()
 
-                if not logged_in:
-                    record_login_attempt(get_db, user_key, False, ip)
-                    if user_key in USERS and not db_user:
-                        error = (
-                            'Your Hub account is not activated yet. '
-                            'Use Forgot Password, or ask Thomas or Stephanie to set your password from Admin.'
-                        )
-                    else:
-                        error = 'Incorrect password. Please try again.'
-            except Exception as e:
-                print(f"Login error for {user_key or 'unknown'}: {e}")
-                error = 'Something went wrong. Please try again or contact Thomas.'
+                try:
+                    conn = get_db()
+                    if conn:
+                        db_available = True
+                        cur = conn.cursor(cursor_factory=RealDictCursor)
+                        cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
+                        db_user = cur.fetchone()
+                        cur.close()
+                        conn.close()
 
-            if not logged_in and not error and not DATABASE_URL:
-                error = 'Database unavailable. Please try again shortly.'
+                        if db_user and _safe_check_password(db_user.get('password_hash'), password):
+                            user = USERS.get(user_key, {})
+                            _establish_session(user_key, user, db_user)
+                            record_login_attempt(get_db, user_key, True, ip)
+                            clear_login_failures(get_db, user_key)
+                            _update_last_login(user_key)
+                            logged_in = True
+                            if session.get('must_change_password'):
+                                return redirect(url_for('change_password'))
+                            return _post_login_redirect()
+
+                    if not logged_in:
+                        if not db_available:
+                            error = (
+                                'Sign-in is temporarily unavailable (database). '
+                                'Please try again in a moment — this is not a wrong password.'
+                            )
+                        elif user_key in USERS and not db_user:
+                            # Only count as a real failure once identity is known / activated path
+                            record_login_attempt(get_db, user_key, False, ip)
+                            error = (
+                                'Your Hub account is not activated yet. '
+                                'Use Forgot Password, or ask Thomas or Stephanie to set your password from Admin.'
+                            )
+                        else:
+                            record_login_attempt(get_db, user_key, False, ip)
+                            locked_now, fails, mins = is_login_locked(get_db, user_key)
+                            remaining = max(0, MAX_LOGIN_FAILURES - fails)
+                            if locked_now:
+                                wait = mins if mins is not None else LOGIN_LOCKOUT_MINUTES
+                                error = (
+                                    f'Incorrect password. Account locked for about {wait} minute'
+                                    f'{"s" if wait != 1 else ""}. Use Forgot Password or ask Admin to unlock.'
+                                )
+                            else:
+                                error = (
+                                    f'Incorrect password. {remaining} attempt'
+                                    f'{"s" if remaining != 1 else ""} left before a temporary lock. '
+                                    f'Use Forgot Password if you are unsure.'
+                                )
+                except Exception as e:
+                    print(f"Login error for {user_key or 'unknown'}: {e}")
+                    error = 'Something went wrong on our side. Please try again or contact Thomas.'
+
+                if not logged_in and not error and not DATABASE_URL:
+                    error = 'Database unavailable. Please try again shortly.'
 
     return render_template('login.html',
                            users=sorted(USERS.items(), key=lambda x: x[1]['display']),
                            error=error,
+                           selected_user=selected_user,
                            next_url=next_url or '')
 
 
@@ -4086,8 +4142,8 @@ def admin_vault_delete():
 @require_admin
 def admin_reset_password():
     user_key = request.form.get('user_key')
-    new_password = request.form.get('new_password', '').strip()
-    if not user_key or not new_password or len(new_password) < 6:
+    new_password = request.form.get('new_password', '')  # do not strip — match login
+    if not user_key or not new_password or len(new_password.strip()) < 6:
         return jsonify({'error': 'Invalid request'}), 400
     if user_key not in USERS:
         return jsonify({'error': 'Unknown user'}), 400
@@ -4095,7 +4151,22 @@ def admin_reset_password():
         ok, action = _upsert_hub_user_password(user_key, new_password, must_change=False)
         if not ok:
             return jsonify({'error': 'Database unavailable'}), 503
-        return jsonify({'success': True, 'action': action})
+        clear_login_failures(get_db, user_key)
+        return jsonify({'success': True, 'action': action, 'unlocked': True})
+    except Exception as e:
+        return _api_error(e)
+
+
+@app.route('/admin/unlock-login', methods=['POST'])
+@require_admin
+def admin_unlock_login():
+    """Clear failed login attempts so a teammate can sign in immediately."""
+    user_key = (request.form.get('user_key') or '').strip()
+    if not user_key or user_key not in USERS:
+        return jsonify({'error': 'Unknown user'}), 400
+    try:
+        clear_login_failures(get_db, user_key)
+        return jsonify({'success': True, 'user_key': user_key})
     except Exception as e:
         return _api_error(e)
 
@@ -6002,8 +6073,8 @@ def reset_password_with_token(token):
         return render_template('reset_password.html', error=None, token=token)
 
     token = request.form.get('token', '').strip()
-    new_password = request.form.get('new_password', '').strip()
-    confirm = request.form.get('confirm_password', '').strip()
+    new_password = request.form.get('new_password', '') or ''
+    confirm = request.form.get('confirm_password', '') or ''
     user_key = consume_password_reset_token(get_db, token)
     if not user_key:
         error = 'This reset link is invalid or has expired.'
@@ -6015,6 +6086,7 @@ def reset_password_with_token(token):
         try:
             ok, action = _upsert_hub_user_password(user_key, new_password, must_change=False)
             if ok:
+                clear_login_failures(get_db, user_key)
                 print(f'Password reset via token for {user_key} ({action})')
                 return redirect(url_for('login'))
             error = 'Database unavailable. Try again or contact Thomas.'
