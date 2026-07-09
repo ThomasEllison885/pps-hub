@@ -292,8 +292,8 @@
         : '';
     return (
       `This plane's already booked solid — cut your frequency, shift an existing route to another aircraft, or lease a second plane. ` +
-      `(One ${ac ? ac.name : 'plane'} can only be in one place at a time: ~${sched.cap.toFixed(1)} block-hr/wk available, ` +
-      `this plan needs ${sched.after.toFixed(1)} hr/wk${routeNote}.)`
+      `(One ${ac ? ac.name : 'plane'} can only be in one place at a time: ~${fmtHours(sched.cap)} block-hr/wk available, ` +
+      `this plan needs ${fmtHours(sched.after)} hr/wk${routeNote}.)`
     );
   }
 
@@ -589,7 +589,7 @@
       const pct = ctx.aircraft.cap > 0 ? Math.min(100, (ctx.aircraft.after / ctx.aircraft.cap) * 100) : 0;
       const cls = pct >= 92 ? 'danger' : pct >= 78 ? 'warn' : '';
       chips.push(
-        `<span class="launch-limit-chip ${cls}" title="Block hours scheduled on this aircraft">Aircraft <b>${ctx.aircraft.after.toFixed(1)}/${ctx.aircraft.cap.toFixed(1)}</b> hr/wk</span>`
+        `<span class="launch-limit-chip ${cls}" title="Block hours scheduled on this aircraft">Aircraft <b>${fmtHours(ctx.aircraft.after)}/${fmtHours(ctx.aircraft.cap)}</b> hr/wk</span>`
       );
     }
     if (ctx.market) {
@@ -638,17 +638,32 @@
     }</p>`;
   }
 
+  /** Clean display for block hours (avoids 37.400000000000006). */
+  function fmtHours(n, decimals) {
+    if (n == null || !Number.isFinite(+n)) return '—';
+    const d = decimals != null ? decimals : 1;
+    const v = +(+n).toFixed(d);
+    // Drop trailing .0 for whole numbers when using 1 decimal
+    if (d === 1 && Math.abs(v - Math.round(v)) < 1e-9) return String(Math.round(v));
+    return v.toFixed(d);
+  }
+
   function availabilityBarRow(label, used, max, unit, bottleneckKey, rowKey, opts) {
     opts = opts || {};
+    const dec = opts.decimals != null ? opts.decimals : 0;
     const pct = max > 0 ? Math.min(100, (used / max) * 100) : 0;
     const isBn = bottleneckKey === rowKey;
     const barClass = pct >= 92 ? 'danger' : pct >= 78 ? 'warn' : '';
     const bn = isBn ? '<span class="avail-bottleneck-badge">limiting</span>' : '';
-    const afterNote = opts.after != null && opts.after !== used ? ` → ${opts.after}${unit} planned` : '';
+    const afterVal = opts.after;
+    const afterNote =
+      afterVal != null && Number.isFinite(+afterVal) && Math.abs(+afterVal - +used) > 0.05
+        ? ` → ${fmtHours(afterVal, dec || 1)}${unit} planned`
+        : '';
     return `<div class="avail-row${isBn ? ' bottleneck' : ''}">
       <span class="avail-label">${label}${bn}</span>
       <div class="avail-bar ${barClass}"><span style="width:${pct}%"></span></div>
-      <span class="avail-meta">${used.toFixed(opts.decimals != null ? opts.decimals : 0)}/${max.toFixed(opts.decimals != null ? opts.decimals : 0)}${unit}${afterNote}</span>
+      <span class="avail-meta">${fmtHours(used, dec)}/${fmtHours(max, dec)}${unit}${afterNote}</span>
     </div>`;
   }
 
@@ -702,13 +717,13 @@
         const sel = ctx.plane && ctx.plane.id === p.id ? ' <span class="muted">(selected)</span>' : '';
         const freqNote =
           p.maxFreq > 0 ? `<b>+${p.maxFreq}/wk</b> on this route` : '<span class="danger">no hours left</span>';
-        fleetRows += `<li><b>${p.name}</b>${sel} · ${p.used.toFixed(1)}/${p.cap.toFixed(1)} hr scheduled · ${freqNote}</li>`;
+        fleetRows += `<li><b>${p.name}</b>${sel} · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr scheduled · ${freqNote}</li>`;
       });
       fleetRows += '</ul>';
     } else if (ctx.fleet.length) {
       fleetRows = '<ul class="avail-option-list">';
       ctx.fleet.forEach((p) => {
-        fleetRows += `<li><b>${p.name}</b> · ${p.used.toFixed(1)}/${p.cap.toFixed(1)} hr/wk · ${p.routesOn} route${p.routesOn === 1 ? '' : 's'}</li>`;
+        fleetRows += `<li><b>${p.name}</b> · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr/wk · ${p.routesOn} route${p.routesOn === 1 ? '' : 's'}</li>`;
       });
       fleetRows += '</ul>';
     }
@@ -797,7 +812,7 @@
       rows += `<div class="gate-hub-row">
         <strong style="font-size:0.72rem;min-width:72px;">${ac ? ac.name.split(' ').slice(-1)[0] : f.id}</strong>
         <div class="util-bar ${barClass}" style="flex:1;"><span style="width:${pct}%"></span></div>
-        <span class="muted" style="font-size:0.66rem;">${used.toFixed(1)}/${cap.toFixed(1)} hr · ${routesOn} rt</span>
+        <span class="muted" style="font-size:0.66rem;">${fmtHours(used)}/${fmtHours(cap)} hr · ${routesOn} rt</span>
       </div>`;
     });
     return `<p style="font-size:0.78rem;margin:12px 0 6px;color:var(--gold);font-weight:600;">Aircraft schedule</p>${rows}
@@ -5508,7 +5523,7 @@
           <dt>Reliability</dt><dd class="${relTone}"><b>${rel}</b>/100</dd>
           <dt>AOG risk (weekly check)</dt><dd>~${aogRisk.toFixed(1)}%</dd>
           <dt>Schedule util</dt><dd>${utilToday.toFixed(0)}% today · ${util.toFixed(0)}% MTD</dd>
-          <dt>Block hours</dt><dd><b>${blockUsed.toFixed(1)}</b> / ${blockCap.toFixed(1)} hr/wk scheduled</dd>
+          <dt>Block hours</dt><dd><b>${fmtHours(blockUsed)}</b> / ${fmtHours(blockCap)} hr/wk scheduled</dd>
           <dt>Seat load today</dt><dd>${
             seatLoad != null ? `${(seatLoad * 100).toFixed(0)}%` : routes.length ? '—' : 'idle'
           }</dd>
@@ -8826,7 +8841,7 @@
     const schedClass = sched && !sched.ok ? ' danger' : '';
     const schedNote =
       sched && plane
-        ? `<br><span class="muted${schedClass}">Aircraft <b>${plane.id}</b>: <b>${sched.after.toFixed(1)}/${sched.cap.toFixed(1)}</b> block-hr/wk` +
+        ? `<br><span class="muted${schedClass}">Aircraft <b>${plane.id}</b>: <b>${fmtHours(sched.after)}/${fmtHours(sched.cap)}</b> block-hr/wk` +
           (sched.routesOn > 0 ? ` (${sched.routesOn} other route${sched.routesOn === 1 ? '' : 's'} on this plane)` : '') +
           (via.schedScale < 0.98 ? ` · only ~${Math.round(via.schedScale * 100)}% of ${draft.freq}/wk can fly` : '') +
           `</span>`
