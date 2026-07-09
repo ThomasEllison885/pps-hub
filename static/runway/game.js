@@ -1677,30 +1677,25 @@
         });
       } else if (big.type === 'fare_cut') {
         queueDecision({
+          kind: 'threat',
           airport: big.airport,
-          kicker: `${fmtDate(state.day)} · Competitor pricing`,
-          title: `${big.airline} fare cut at ${big.airport}`,
+          kicker: `${fmtDate(state.day)} · Fare war`,
+          title: `${big.airline} undercuts at ${big.airport}`,
           body: `${big.msg}.${impact}`,
-          teach: 'Matching is optional. Marketing offsets fare pressure over time without sacrificing ticket price.',
+          teach: 'Price fight — match, ancillary, advertise, or wait. Resumes at Slow.',
           logLine: big.msg,
           options: fareWarResponseOptions(big.airport, big.airline, big.pct || 0.12),
         });
       } else if (big.type === 'exit') {
         queueDecision({
+          kind: 'opportunity',
           airport: big.airport,
           kicker: `${fmtDate(state.day)} · Market opening`,
-          title: `${big.airline} exited ${big.airport}`,
-          body: `${big.msg}. Competitor capacity left the market — your routes may see stronger loads.${impact}`,
-          teach: 'Good news counts too. Reinvest in marketing to lock in share, or let margins improve on their own.',
+          title: `${big.airline} leaves ${big.airport}`,
+          body: `${big.msg}. Capacity left the market — room to raise fares, add frequency, or advertise.${impact}`,
+          teach: 'Opening, not a fare war. Resumes at Slow so you can watch loads.',
           logLine: big.msg,
-          options: [
-            marketingDecisionOption('market', 'A — Capitalize:', big.airport, 'capitalize', {
-              competitorResponse: true,
-              awarenessBoost: true,
-            }),
-            { id: 'premium', label: 'B — Hold fares · enjoy the opening', effect: 'hold_premium', airport: big.airport },
-            { id: 'ignore', label: 'C — Do nothing', effect: 'none' },
-          ],
+          options: opportunityResponseOptions(big.airport, 'exit'),
         });
       }
     }
@@ -2057,21 +2052,41 @@
     });
   }
 
+  function bestRouteTouching(iata) {
+    const routes = routesTouchingAirport(iata);
+    if (!routes.length) return null;
+    // Prefer thinnest load / lowest frequency for "add capacity" responses
+    return [...routes].sort((a, b) => {
+      const la = a.smooth_load != null ? a.smooth_load : a.yesterday_load != null ? a.yesterday_load : 0.5;
+      const lb = b.smooth_load != null ? b.smooth_load : b.yesterday_load != null ? b.yesterday_load : 0.5;
+      return la - lb || (a.frequency_week || 0) - (b.frequency_week || 0);
+    })[0];
+  }
+
   function fareWarResponseOptions(iata, airline, pct) {
     const amount = scaledMarketingAmount(iata, 'response');
     const amtK = (amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1);
-    return [
+    const cutPct = Math.round((pct || 0.12) * 100);
+    const thin = bestRouteTouching(iata);
+    const opts = [
       {
         id: 'match',
-        label: `A — Match the ~${Math.round((pct || 0.12) * 100)}% fare cut`,
-        hint: 'Protect loads today; margin takes the hit.',
+        label: `A — Match the ~${cutPct}% cut on ${iata} routes`,
+        hint: `Defend seats today — ticket margin falls with ${airline}.`,
         effect: 'match_fares',
         airport: iata,
         pct: pct || 0.12,
       },
       {
+        id: 'ancillary',
+        label: 'B — Keep base fare · go ancillary-heavy',
+        hint: 'Compete on bags/seats fees without matching ticket price.',
+        effect: 'ancillary_aggressive',
+        airport: iata,
+      },
+      {
         id: 'market',
-        label: `B — Hold fares · $${amtK}k/mo marketing at ${iata}`,
+        label: `C — Hold fares · $${amtK}k/mo ads at ${iata}`,
         hint: marketingPaybackHint(iata, amount),
         effect: 'marketing',
         airport: iata,
@@ -2081,13 +2096,146 @@
         softenCompetitor: true,
         airline,
       },
+    ];
+    if (thin) {
+      opts.push({
+        id: 'freq',
+        label: `D — Add +2/wk on ${thin.origin}–${thin.dest} (match return)`,
+        hint: 'More frequency vs their cheap seats — uses gate/aircraft hours.',
+        effect: 'bump_route_freq',
+        routeId: thin.id,
+        delta: 2,
+        mirrorReturn: true,
+      });
+    }
+    opts.push({
+      id: 'ignore',
+      label: `${thin ? 'E' : 'D'} — Hold everything · watch loads`,
+      hint: 'No spend. Revisit Routes if load softens over the next week.',
+      effect: 'none',
+    });
+    return opts;
+  }
+
+  function opportunityResponseOptions(iata, kind) {
+    const amount = scaledMarketingAmount(iata, kind === 'surge' ? 'surge' : 'capitalize');
+    const amtK = (amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1);
+    const thin = bestRouteTouching(iata);
+    const opts = [];
+    if (kind === 'fare_rise' || kind === 'pullback' || kind === 'exit') {
+      opts.push({
+        id: 'raise',
+        label: `A — Raise fares ~5% on ${iata} routes`,
+        hint: 'Harvest margin while competitors ease pressure.',
+        effect: 'raise_fares',
+        airport: iata,
+        pct: 0.05,
+      });
+      opts.push({
+        id: 'hold_rep',
+        label: 'B — Hold fares · bank reputation',
+        hint: 'Loads should improve; reputation +2.',
+        effect: 'hold_premium',
+        airport: iata,
+      });
+    } else {
+      // demand surge
+      opts.push({
+        id: 'raise',
+        label: `A — Raise fares ~5% on ${iata} routes`,
+        hint: 'Hot market can absorb a small fare bump.',
+        effect: 'raise_fares',
+        airport: iata,
+        pct: 0.05,
+      });
+      opts.push({
+        id: 'hold_rep',
+        label: 'B — Hold fares · take the loads',
+        hint: 'Fill seats at current price; reputation +2.',
+        effect: 'hold_premium',
+        airport: iata,
+      });
+    }
+    opts.push({
+      id: 'market',
+      label: `C — Spend $${amtK}k/mo ads at ${iata}`,
+      hint: marketingPaybackHint(iata, amount),
+      effect: 'marketing',
+      airport: iata,
+      amount,
+      awarenessBoost: true,
+      competitorResponse: true,
+    });
+    if (thin) {
+      opts.push({
+        id: 'freq',
+        label: `D — Add +2/wk on ${thin.origin}–${thin.dest}`,
+        hint: 'Capture more of the opening with frequency (return matched).',
+        effect: 'bump_route_freq',
+        routeId: thin.id,
+        delta: 2,
+        mirrorReturn: true,
+      });
+    }
+    opts.push({
+      id: 'ignore',
+      label: `${thin ? 'E' : 'D'} — Ride it out · no change`,
+      hint: 'Market effect already applied; you spend nothing.',
+      effect: 'none',
+    });
+    return opts;
+  }
+
+  function capacityPressureOptions(iata, airline, pct) {
+    const amount = scaledMarketingAmount(iata, 'response');
+    const amtK = (amount / 1000).toFixed(amount % 1000 === 0 ? 0 : 1);
+    const thin = bestRouteTouching(iata);
+    const opts = [
       {
-        id: 'ignore',
-        label: 'C — Do nothing for now',
-        hint: 'Keep fares; watch loads and adjust manually in Routes.',
-        effect: 'none',
+        id: 'cut',
+        label: `A — Trim fares ~8% on ${iata} routes`,
+        hint: 'Defend load against their extra seats.',
+        effect: 'cut_fares',
+        airport: iata,
+        pct: 0.08,
+      },
+      {
+        id: 'ancillary',
+        label: 'B — Ancillary-heavy pricing (keep base fare)',
+        hint: 'Compete on bags/seats without a full fare war.',
+        effect: 'ancillary_aggressive',
+        airport: iata,
+      },
+      {
+        id: 'market',
+        label: `C — Hold fares · $${amtK}k/mo marketing`,
+        hint: marketingPaybackHint(iata, amount),
+        effect: 'marketing',
+        airport: iata,
+        amount,
+        competitorResponse: true,
+        awarenessBoost: true,
+        airline,
       },
     ];
+    if (thin) {
+      opts.push({
+        id: 'freq',
+        label: `D — Match capacity: +2/wk on ${thin.origin}–${thin.dest}`,
+        hint: 'Fight seats with seats (uses gate/aircraft).',
+        effect: 'bump_route_freq',
+        routeId: thin.id,
+        delta: 2,
+        mirrorReturn: true,
+      });
+    }
+    opts.push({
+      id: 'ignore',
+      label: `${thin ? 'E' : 'D'} — Do nothing · reassess in Routes`,
+      hint: 'Watch loads for a week before reacting.',
+      effect: 'none',
+    });
+    return opts;
   }
 
   function dismissDecisionsForRouteLaunch() {
@@ -3138,9 +3286,9 @@
   }
 
   function speedAfterInterrupt() {
-    // Restore whatever speed the player had chosen before the interrupt,
-    // rather than forcing them back down to slow every time.
-    return decisionSpeedBeforePause || speedBeforePause || 'day';
+    // After any alert / popup, always resume at Slow so the next days are
+    // readable — not full day/week/month speed where events blur together.
+    return 'slow';
   }
 
   function renderPauseBanner() {
@@ -3255,14 +3403,25 @@
       pushEvent(activeDecision.logLine || `Decision: ${activeDecision.title} — ${option.label}`);
     }
     activeDecision = null;
-    state.paused_reason = null;
     coalescedDecisionCount = 0;
     renderDecisionModal();
-    if (decisionQueue.length) showNextDecision();
-    else if (!onboarding) {
-      resumeSpeedAfterInterrupt();
+    if (decisionQueue.length) {
+      state.paused_reason = null;
+      showNextDecision();
+    } else if (!onboarding) {
+      decisionSpeedBeforePause = null;
+      setSpeed('slow');
+      state.paused_reason = 'Event handled — running at Slow so you can watch the impact';
+      // Clear reason after a short beat so the banner does not stick forever.
+      setTimeout(() => {
+        if (state && state.paused_reason && state.paused_reason.indexOf('Event handled') === 0) {
+          state.paused_reason = null;
+          renderPauseBanner();
+        }
+      }, 4500);
     } else {
       setSpeed('pause');
+      state.paused_reason = null;
     }
     saveGame();
     renderAll();
@@ -3272,13 +3431,16 @@
     if (activeDecision || !decisionQueue.length) return;
     activeDecision = decisionQueue.shift();
     pauseForInterrupt();
+    const kind = activeDecision.kind || (activeDecision.winningPlaybook ? 'coach' : activeDecision.onboarding ? 'tour' : 'alert');
     state.paused_reason = activeDecision.winningPlaybook
-      ? 'Winning path coach — timed profit steps'
+      ? 'Coach — choose a step, then time stays paused until you press ▶'
       : activeDecision.onboarding
         ? activeDecision.tutorial
           ? `Tutorial step ${activeDecision.tutorialStep || 1} of ${activeDecision.tutorialTotal || '?'}`
           : 'Getting started — pick a first step'
-        : 'Market shift — decision required';
+        : kind === 'opportunity'
+          ? 'Opportunity — clock paused (will resume at Slow)'
+          : 'Alert — clock paused (will resume at Slow)';
     renderDecisionModal();
     renderHud();
     renderPauseBanner();
@@ -3416,13 +3578,15 @@
       const pct = 0.14 + Math.random() * 0.12;
       bumpCompetitorMarket(iata, incumbent.airline, { fare_index: 1 - pct });
       decision = {
+        kind: 'threat',
         airport: iata,
-        kicker: `${fmtDate(state.day)} · ${ap.city}`,
-        title: `${incumbent.airline} cuts fares at ${iata}`,
+        kicker: `${fmtDate(state.day)} · Fare war · ${ap.city}`,
+        title: `${incumbent.airline} undercuts fares at ${iata}`,
         body:
-          `${incumbent.airline} dropped average fares about <b>${Math.round(pct * 100)}%</b> on overlapping city pairs. Shoppers are comparing every dollar — small moves won't matter; this one will.` +
+          `${incumbent.airline} dropped fares about <b>${Math.round(pct * 100)}%</b> on overlapping pairs from <b>${iata}</b>. ` +
+          `This is a <b>price</b> fight — different from a capacity dump or a demand surge.` +
           competitorImpactHtml({ airport: iata, type: 'fare_cut', airline: incumbent.airline }),
-        teach: 'Matching is one path — not the only one. Marketing fights back with demand; doing nothing is fine if loads hold.',
+        teach: 'Match tickets, lean on ancillaries, buy demand with ads, or wait. After you choose, the clock resumes at <b>Slow</b>.',
         logLine: `${incumbent.airline} fare war at ${iata} (−${Math.round(pct * 100)}%)`,
         options: fareWarResponseOptions(iata, incumbent.airline, pct),
       };
@@ -3458,43 +3622,17 @@
       const pct = 0.1 + Math.random() * 0.08;
       bumpCompetitorMarket(iata, incumbent.airline, { capacity_index: 1 + pct });
       decision = {
+        kind: 'threat',
         airport: iata,
-        kicker: `${fmtDate(state.day)} · Capacity`,
-        title: `${incumbent.airline} adds seats at ${iata}`,
+        kicker: `${fmtDate(state.day)} · Capacity dump · ${ap.city}`,
+        title: `${incumbent.airline} floods ${iata} with seats`,
         body:
-          `${incumbent.airline} filed <b>+${Math.round(pct * 100)}% capacity</b> on key markets from ${iata}. More seats usually mean fare pressure unless you differentiate.` +
+          `${incumbent.airline} added about <b>+${Math.round(pct * 100)}% capacity</b> from ${iata}. ` +
+          `This is a <b>supply</b> shock (more seats), not a pure fare cut — you can price, advertise, or match frequency.` +
           competitorImpactHtml({ airport: iata, type: 'capacity', airline: incumbent.airline }),
-        teach: 'Price cuts, marketing, premium positioning, or patience — pick the tool that fits your network.',
+        teach: 'Capacity wars burn cash if you only match seats. Fares and ancillaries often defend better. Resumes at Slow.',
         logLine: `${incumbent.airline} capacity increase at ${iata}`,
-        options: [
-          {
-            id: 'cut',
-            label: `A — Trim fares ~8% on ${iata} routes`,
-            hint: 'Defend load factor against extra seats.',
-            effect: 'cut_fares',
-            airport: iata,
-            pct: 0.08,
-          },
-          marketingDecisionOption('market', 'B — Hold fares ·', iata, 'response', {
-            competitorResponse: true,
-            awarenessBoost: true,
-            softenCompetitor: true,
-            airline: incumbent.airline,
-          }),
-          {
-            id: 'premium',
-            label: 'C — Hold premium · reputation push',
-            hint: 'Works when luxury demand exists; accept softer loads short-term.',
-            effect: 'hold_premium',
-            airport: iata,
-          },
-          {
-            id: 'ignore',
-            label: 'D — Do nothing for now',
-            hint: 'Monitor loads; adjust fares manually later.',
-            effect: 'none',
-          },
-        ],
+        options: capacityPressureOptions(iata, incumbent.airline, pct),
       };
     } else if (roll < 0.72) {
       const pct = 0.08 + Math.random() * 0.12;
@@ -3504,22 +3642,17 @@
         'good'
       );
       decision = {
+        kind: 'opportunity',
         airport: iata,
-        kicker: `${fmtDate(state.day)} · Opportunity`,
-        title: `${incumbent.airline} pulls back at ${iata}`,
+        kicker: `${fmtDate(state.day)} · Competitor retreat · ${ap.city}`,
+        title: `${incumbent.airline} pulls flights at ${iata}`,
         body:
-          `${incumbent.airline} cut schedules at <b>${iata}</b> by about <b>${Math.round(pct * 100)}%</b>. Freed gate time and demand should help your overlapping routes.` +
+          `${incumbent.airline} cut schedules at <b>${iata}</b> by about <b>${Math.round(pct * 100)}%</b>. ` +
+          `This is an <b>opening</b> — you can raise price, add frequency, advertise, or pocket the free lift.` +
           competitorImpactHtml({ airport: iata, type: 'pullback', airline: incumbent.airline }),
-        teach: 'Positive shifts happen too. Marketing locks in the opening; holding fares lets margins improve on their own.',
+        teach: 'Unlike a fare war, the market just got easier. Resumes at Slow so you can watch loads.',
         logLine: `${incumbent.airline} capacity pullback at ${iata}`,
-        options: [
-          marketingDecisionOption('market', 'A — Invest', iata, 'capitalize', {
-            competitorResponse: true,
-            awarenessBoost: true,
-          }),
-          { id: 'premium', label: 'B — Hold fares · take stronger loads', hint: 'Reputation +2.', effect: 'hold_premium', airport: iata },
-          { id: 'ignore', label: 'C — Do nothing', hint: 'Benefit applies without spending.', effect: 'none' },
-        ],
+        options: opportunityResponseOptions(iata, 'pullback'),
       };
     } else if (roll < 0.86) {
       const mult = 1.1 + Math.random() * 0.08;
@@ -3530,22 +3663,17 @@
         'good'
       );
       decision = {
+        kind: 'opportunity',
         airport: iata,
-        kicker: `${fmtDate(state.day)} · Demand surge`,
-        title: `Strong travel week at ${iata}`,
+        kicker: `${fmtDate(state.day)} · Demand surge · ${ap.city}`,
+        title: `Travel boom at ${iata} (~45 days)`,
         body:
-          `Corporate and leisure demand at <b>${iata}</b> is running <b>+${Math.round((mult - 1) * 100)}%</b> for the next month and a half. Your routes touching this airport should see a lift.` +
+          `Demand at <b>${iata}</b> is up <b>+${Math.round((mult - 1) * 100)}%</b> for ~45 days (already active). ` +
+          `This is a <b>demand</b> spike — not a competitor move. Harvest fares, add seats, or advertise into the heat.` +
           competitorImpactHtml({ airport: iata, type: 'demand_surge', airline: incumbent.airline }),
-        teach: 'Surges favor airlines with frequency and awareness — modest marketing can compound a hot market.',
+        teach: 'Surge is already on. Your choice is how to exploit it. Clock resumes at Slow.',
         logLine: `Travel demand surge at ${iata}`,
-        options: [
-          marketingDecisionOption('market', 'A — Ride the wave:', iata, 'surge', {
-            competitorResponse: true,
-            awarenessBoost: true,
-          }),
-          { id: 'premium', label: 'B — Hold fares · let loads rise', effect: 'hold_premium', airport: iata },
-          { id: 'ignore', label: 'C — Do nothing', hint: 'Surge already active.', effect: 'none' },
-        ],
+        options: opportunityResponseOptions(iata, 'surge'),
       };
     } else {
       const pct = 0.06 + Math.random() * 0.1;
@@ -3555,29 +3683,17 @@
         'good'
       );
       decision = {
+        kind: 'opportunity',
         airport: iata,
-        kicker: `${fmtDate(state.day)} · Competitor retreat`,
-        title: `${incumbent.airline} backs off fare war at ${iata}`,
+        kicker: `${fmtDate(state.day)} · Pricing room · ${ap.city}`,
+        title: `${incumbent.airline} raises fares at ${iata}`,
         body:
-          `${incumbent.airline} raised average fares about <b>${Math.round(pct * 100)}%</b> at <b>${iata}</b>. Shoppers are less price-sensitive — room to hold or raise your own fares.` +
+          `${incumbent.airline} raised fares about <b>${Math.round(pct * 100)}%</b> at <b>${iata}</b>. ` +
+          `Shoppers feel less pressure — room to raise, hold for reputation, advertise, or add frequency.` +
           competitorImpactHtml({ airport: iata, type: 'fare_rise', airline: incumbent.airline }),
-        teach: 'Not every alert is bad news. You can harvest margin, invest in share, or simply do nothing.',
+        teach: 'Different from a capacity pullback: the fight is on price, and they just stepped up. Resumes at Slow.',
         logLine: `${incumbent.airline} fare increase at ${iata}`,
-        options: [
-          { id: 'hold', label: 'A — Hold fares · enjoy stronger margins', hint: 'Loads may rise without a fare change.', effect: 'none' },
-          marketingDecisionOption('market', 'B — Invest', iata, 'capitalize', {
-            competitorResponse: true,
-            awarenessBoost: true,
-          }),
-          {
-            id: 'raise',
-            label: `C — Raise fares ~5% on ${iata} routes`,
-            hint: 'Capture margin while competitors price up.',
-            effect: 'raise_fares',
-            airport: iata,
-            pct: 0.05,
-          },
-        ],
+        options: opportunityResponseOptions(iata, 'fare_rise'),
       };
     }
 

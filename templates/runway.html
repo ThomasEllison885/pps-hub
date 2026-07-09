@@ -1193,6 +1193,10 @@
   }
   .decision-card.onboarding { border-color: #4a8f72; }
   .decision-card.onboarding .decision-kicker { color: var(--accent); }
+  .decision-card.decision-threat { border-color: rgba(255, 107, 107, 0.55); }
+  .decision-card.decision-threat .decision-kicker { color: var(--danger); }
+  .decision-card.decision-opportunity { border-color: rgba(93, 255, 168, 0.5); }
+  .decision-card.decision-opportunity .decision-kicker { color: #5dffa8; }
   .tutorial-progress {
     display: flex;
     gap: 6px;
@@ -2326,7 +2330,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=64"></script>
-<script src="/static/runway/game.js?v=64"></script>
+<script src="/static/runway/economics.js?v=65"></script>
+<script src="/static/runway/game.js?v=65"></script>
 </body>
 </html>
