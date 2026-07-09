@@ -1285,6 +1285,73 @@
     return Math.min(0.48, penalty);
   }
 
+  /**
+   * Single competitive-pressure score (0–100) for a route or airport.
+   * Collapses hub incumbents + fare wars + pair overlap into one meter + one tip.
+   */
+  function routeCompetitivePressure(route) {
+    if (!route) return null;
+    const o = airport(route.origin);
+    const d = airport(route.dest);
+    const hubN = Math.min(1, (incumbentPressure(o) + incumbentPressure(d)) / 2);
+    const fareN = Math.min(1, (competitorFarePressure(o) + competitorFarePressure(d)) / 2 / 0.38);
+    const ovRaw = competitorRouteOverlapPenalty(route);
+    const ovN = Math.min(1, ovRaw / 0.48);
+    const score = Math.round(Math.min(100, (hubN * 0.32 + fareN * 0.28 + ovN * 0.4) * 100));
+    let tip = 'Pressure is light — good place to grow frequency or brand.';
+    let driver = 'open';
+    if (ovN >= hubN && ovN >= fareN && ovN >= 0.25) {
+      tip = 'Rivals fly this pair — match fare, add frequency, or push airport ads.';
+      driver = 'pair';
+    } else if (hubN >= fareN && hubN >= 0.35) {
+      tip = 'Fortress hub pressure — denser frequency, marketing, or a thinner alternate city.';
+      driver = 'hub';
+    } else if (fareN >= 0.3) {
+      tip = 'Cheaper rival fares nearby — cut price, go ancillary-heavy, or out-advertise them.';
+      driver = 'fare';
+    } else if (score >= 30) {
+      tip = 'Moderate pressure — protect load with ads and steady frequency.';
+      driver = 'mixed';
+    }
+    const tier = score >= 55 ? 'high' : score >= 30 ? 'mid' : 'low';
+    return { score, tier, tip, driver, hubN, fareN, ovN };
+  }
+
+  function airportCompetitivePressure(iata) {
+    const ap = airport(iata);
+    if (!ap) return null;
+    const hubN = Math.min(1, incumbentPressure(ap));
+    const fareN = Math.min(1, competitorFarePressure(ap) / 0.38);
+    const comps = competitorRoutesAt(iata);
+    const ovN = Math.min(1, comps.length / 8);
+    const score = Math.round(Math.min(100, (hubN * 0.45 + fareN * 0.3 + ovN * 0.25) * 100));
+    let tip = 'Soft market — room to build brand and frequency.';
+    if (hubN >= 0.5) tip = 'Strong incumbent share — lease gates and fight with frequency + marketing.';
+    else if (fareN >= 0.35) tip = 'Fare fighting nearby — don’t race to the bottom without ads.';
+    else if (comps.length >= 3) tip = `${comps.length} rival routes touch this airport — watch pair overlap.`;
+    const tier = score >= 55 ? 'high' : score >= 30 ? 'mid' : 'low';
+    return { score, tier, tip, comps: comps.length };
+  }
+
+  function competitivePressureHtml(pressure, opts) {
+    opts = opts || {};
+    if (!pressure) return '';
+    const label =
+      pressure.tier === 'high' ? 'High' : pressure.tier === 'mid' ? 'Medium' : 'Low';
+    const compact = !!opts.compact;
+    if (compact) {
+      return `<span class="pressure-chip pressure-${pressure.tier}" title="${pressure.tip}">Pressure ${pressure.score} · ${label}</span>`;
+    }
+    return `<div class="pressure-meter pressure-${pressure.tier}" title="${pressure.tip}">
+      <div class="pressure-meter-head">
+        <span>Competitive pressure</span>
+        <strong>${pressure.score}<span class="muted">/100 · ${label}</span></strong>
+      </div>
+      <div class="pressure-bar"><span style="width:${pressure.score}%"></span></div>
+      <p class="pressure-tip muted">${pressure.tip}</p>
+    </div>`;
+  }
+
   function hasCompetitorRoute(airline, origin, dest) {
     return (state.competitor_routes || []).some(
       (r) =>
@@ -6956,11 +7023,38 @@
     });
   }
 
-  function tickDays(n) {
-    if (!state || state.game_over || n <= 0) return;
+  let yearTickBusy = false;
 
+  function updateSpeedHintLabel(speedId) {
+    const hint = $('speed-hint');
+    if (!hint) return;
+    const labels = isMobileLayout()
+      ? {
+          pause: 'Paused',
+          slow: '4-hour steps',
+          day: '1 day / tick',
+          week: '1 week / tick',
+          month: '1 month / tick',
+          year: '1 year / tick',
+        }
+      : {
+          pause: 'Paused',
+          slow: '4-hour steps',
+          day: '1 day / tick',
+          week: '1 week / tick — alerts will pause & slow you',
+          month: '1 month / tick — alerts will pause & slow you',
+          year: '365 days / tick — alerts still pause mid-year',
+        };
+    hint.textContent = labels[speedId] || '';
+  }
+
+  /** Core day loop without save/render — used by tickDays and year chunking. */
+  function tickDaysCore(n) {
+    if (!state || state.game_over || n <= 0) return 0;
+    let ran = 0;
     for (let i = 0; i < n; i++) {
       state.day += 1;
+      ran += 1;
       const econ = simulateDayEconomics();
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
@@ -6974,6 +7068,46 @@
       checkScenarioGoal();
       if (state.game_over || state.paused_reason) break;
     }
+    return ran;
+  }
+
+  function tickDays(n) {
+    if (!state || state.game_over || n <= 0) return;
+    // Year / long jumps: chunk so the browser can paint quarterly progress.
+    if (n >= 120) {
+      if (yearTickBusy) return;
+      yearTickBusy = true;
+      let remaining = n;
+      const step = () => {
+        if (!state || state.game_over) {
+          yearTickBusy = false;
+          return;
+        }
+        const chunk = Math.min(30, remaining);
+        tickDaysCore(chunk);
+        remaining -= chunk;
+        const hint = $('speed-hint');
+        if (hint && remaining > 0 && !state.paused_reason) {
+          const dayInYear = ((state.day - 1) % 365) + 1;
+          const q = Math.min(4, Math.ceil(dayInYear / 91.25));
+          hint.textContent = `Simulating… day ${state.day} · Q${q} · ${fmtMoney(state.cash)} cash`;
+        }
+        if (remaining > 0 && !state.paused_reason && !state.game_over) {
+          requestAnimationFrame(() => setTimeout(step, 0));
+        } else {
+          yearTickBusy = false;
+          saveGame();
+          renderAll();
+          if (state && state.speed) updateSpeedHintLabel(state.speed);
+        }
+      };
+      const hint = $('speed-hint');
+      if (hint) hint.textContent = `Simulating ${n} days…`;
+      step();
+      return;
+    }
+
+    tickDaysCore(n);
     saveGame();
     renderAll();
   }
@@ -7065,27 +7199,7 @@
     document.querySelectorAll('[data-speed]').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.speed === speedId);
     });
-    const hint = $('speed-hint');
-    if (hint) {
-      const labels = isMobileLayout()
-        ? {
-            pause: 'Paused',
-            slow: '4-hour steps',
-            day: '1 day / tick',
-            week: '1 week / tick',
-            month: '1 month / tick',
-            year: '1 year / tick',
-          }
-        : {
-            pause: 'Paused',
-            slow: '4-hour steps',
-            day: '1 day / tick',
-            week: '1 week / tick — alerts will pause & slow you',
-            month: '1 month / tick — alerts will pause & slow you',
-            year: '365 days / tick — alerts still pause mid-year',
-          };
-      hint.textContent = labels[speedId] || '';
-    }
+    updateSpeedHintLabel(speedId);
   }
 
   function setupMobileDock() {
@@ -9524,6 +9638,27 @@
     renderAll();
   }
 
+  /** Redeem / buy back bond principal with cash (counts toward max_debt goals). */
+  function payDownBond(bondId, amount) {
+    if (!state) return;
+    const b = (state.bonds || []).find((x) => x.id === bondId);
+    if (!b || !(b.principal > 0)) return;
+    const pay = Math.min(amount, b.principal, Math.max(0, state.cash));
+    if (pay < 1) return;
+    state.cash -= pay;
+    b.principal = Math.max(0, b.principal - pay);
+    if (b.principal <= 0) {
+      state.bonds = state.bonds.filter((x) => x !== b);
+      pushEvent(`${b.name} redeemed in full — ${fmtMoney(pay)} paid from cash.`, 'good');
+      markMilestoneOnce(`bond_retired_${bondId}`, `${state.airline_name} retired <b>${b.name}</b>.`);
+    } else {
+      pushEvent(`Bond buyback: paid ${fmtMoney(pay)} on ${b.name} — ${fmtMoney(b.principal)} still out.`, 'good');
+    }
+    checkScenarioGoal();
+    saveGame();
+    renderAll();
+  }
+
   function takeBankLoan() {
     const amount = state.financing_tier === 'serial' ? 20_000_000 : 8_000_000;
     const rate = state.financing_tier === 'distressed' ? 0.11 : 0.085;
@@ -9587,10 +9722,22 @@
 
   function restructureDebt() {
     const d = state.debt.find((x) => x.id === 'inherit_term');
-    if (!d) return;
+    if (!d) {
+      alert('No inherited term loan to restructure.');
+      return;
+    }
+    if (d.restructured) {
+      alert('Already restructured — use Pay down on the loan (or bonds) to cut principal toward your goal.');
+      return;
+    }
     d.monthly_payment = 185_000;
     d.rate = 0.078;
-    pushEvent('Creditors agreed to restructured payments (-30% monthly).', 'good');
+    d.restructured = true;
+    // Restructure eases cash burn only — principal is unchanged (goal max_debt still needs paydowns).
+    pushEvent(
+      'Creditors agreed to restructured payments (−30% monthly). Principal is unchanged — pay down the loan to hit debt goals.',
+      'good'
+    );
     saveGame();
     renderAll();
   }
@@ -10545,6 +10692,9 @@
           )
           .join('')}</ul>`;
     }
+    const apPressure = airportCompetitivePressure(iata);
+    const pressureBlock = competitivePressureHtml(apPressure);
+    competitionBody = pressureBlock + competitionBody;
 
     const gateSummary = myGates.length
       ? `${myGates.length} gate${myGates.length > 1 ? 's' : ''} · ${myGates.map((g) => `${g.tier} $${g.monthly.toLocaleString()}/mo`).join(' · ')}`
@@ -10914,6 +11064,25 @@
     return `<p class="ops-goal-line">Goal: ${parts.join(' · ')}</p>`;
   }
 
+  /** Compact goal for HUD pill (always visible). */
+  function goalHudSummary() {
+    const goal = scenarioGoal();
+    if (!goal) return null;
+    if (state.goal_won) {
+      return { short: 'Done', title: `${goal.label} · day ${state.goal_won.day}`, tone: 'good' };
+    }
+    const conds = goalConditions(goal);
+    if (!conds.length) return { short: '—', title: goal.label, tone: null };
+    const done = conds.filter((c) => c.done).length;
+    const pct = Math.round(conds.reduce((s, c) => s + (c.pct || 0), 0) / conds.length);
+    const next = conds.find((c) => !c.done) || conds[0];
+    return {
+      short: `${pct}%`,
+      title: `${goal.label} · ${next.progress} (${done}/${conds.length})`,
+      tone: pct >= 100 ? 'good' : pct >= 40 ? 'warn' : null,
+    };
+  }
+
   function renderOpsGuide() {
     const el = $('ops-guide');
     if (!el || !state) {
@@ -10968,13 +11137,14 @@
         </p>
       </details>`;
     el.className = `ops-guide${collapsedClass}${toneClass}`;
+    // Goal line stays outside collapsed body so progress never disappears when coach is hidden.
     el.innerHTML = `<div class="ops-guide-head">
         <strong>${ctx.profit ? 'Profit playbook' : 'What to do next'}</strong>
         <button type="button" class="ops-guide-toggle" data-ops-collapse>${opsGuideCollapsed ? 'Show' : 'Hide'}</button>
       </div>
+      ${goalProgressLineHtml()}
       <div class="ops-guide-body">
         <p>${stepLabel}${ctx.text}</p>
-        ${goalProgressLineHtml()}
         ${actions}
         ${profitHow}
       </div>`;
@@ -11099,6 +11269,19 @@
     setText('hud-airline', airlineLine);
     renderFinancialsPanel();
 
+    const goalPill = $('hud-pill-goal');
+    const goalSum = goalHudSummary();
+    if (goalPill) {
+      if (!goalSum) {
+        goalPill.style.display = 'none';
+      } else {
+        goalPill.style.display = '';
+        goalPill.title = goalSum.title;
+        setText('hud-goal', goalSum.short);
+        setStatPillTone('hud-pill-goal', goalSum.tone);
+      }
+    }
+
     const runwayMo = runwayMonths();
     if (state.cash < 0) setStatPillTone('hud-pill-runway', 'danger');
     else if (runwayMo < 4) setStatPillTone('hud-pill-runway', 'warn');
@@ -11172,6 +11355,12 @@
     const nw = computeNetWorthBreakdown() || {
       total: 0, equity_value: 0, cash: 0, fleet: 0, gates: 0, brand: 0, routes: 0, debt: 0, bonds: 0, lease_liabilities: 0,
     };
+    const totalOblig = totalDebtAndBondPrincipal();
+    const goal = scenarioGoal();
+    const debtGoalNote =
+      goal && goal.max_debt != null
+        ? `<p class="muted" style="font-size:0.75rem;margin:0 0 10px;">Scenario goal counts <b>loans + bonds</b> (now <b>${fmtMoney(totalOblig)}</b> · target below ${fmtMoney(goal.max_debt)}). Restructure lowers monthly payments only — use <b>Pay down</b> / bond buyback to cut principal.</p>`
+        : `<p class="muted" style="font-size:0.72rem;margin:0 0 10px;">Total loans + bonds outstanding: <b>${fmtMoney(totalOblig)}</b>. Restructure eases monthly cash, not principal.</p>`;
     const debtRows = state.debt.length
       ? state.debt
           .map((d) => {
@@ -11185,17 +11374,38 @@
               .join('');
             const payoffBtn = `<button type="button" class="btn secondary debt-pay-btn" ${canPayOff ? '' : 'disabled'} onclick="Runway.payDownDebt('${d.id}', ${d.principal})">Pay off ${fmtMoney(d.principal)}</button>`;
             return `<div class="debt-row">
-              <span>${d.name} <b>${fmtMoney(d.principal)}</b> @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment || 0)}/mo</span>
+              <span>${d.name} <b>${fmtMoney(d.principal)}</b> @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment || 0)}/mo${d.restructured ? ' · <span class="muted">restructured</span>' : ''}</span>
               <span class="debt-row-actions">${btns}${payoffBtn}</span>
             </div>`;
           })
           .join('')
-      : '<p class="muted">No debt.</p>';
+      : '<p class="muted">No bank loans.</p>';
+    const bondRows = (state.bonds || []).length
+      ? state.bonds
+          .map((b) => {
+            const canPayOff = state.cash >= b.principal && b.principal > 0;
+            const btns = [1_000_000, 5_000_000]
+              .filter((amt) => b.principal > amt)
+              .map(
+                (amt) =>
+                  `<button type="button" class="btn secondary debt-pay-btn" ${state.cash >= amt ? '' : 'disabled'} onclick="Runway.payDownBond('${b.id}', ${amt})">Buy back $${amt / 1_000_000}M</button>`
+              )
+              .join('');
+            const payoffBtn = `<button type="button" class="btn secondary debt-pay-btn" ${canPayOff ? '' : 'disabled'} onclick="Runway.payDownBond('${b.id}', ${b.principal})">Redeem ${fmtMoney(b.principal)}</button>`;
+            return `<div class="debt-row">
+              <span>${b.name} <b>${fmtMoney(b.principal)}</b> · ${(b.coupon * 100).toFixed(1)}% coupon${b.months_left != null ? ` · ${b.months_left} mo left` : ''}</span>
+              <span class="debt-row-actions">${btns}${payoffBtn}</span>
+            </div>`;
+          })
+          .join('')
+      : '<p class="muted">No bonds outstanding.</p>';
     let html = `<h3>Capital</h3>
-      <h4>Debt</h4>
+      ${debtGoalNote}
+      <h4>Loans</h4>
       ${debtRows}
-      <p style="margin-top:8px;">Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
-      <p class="muted">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
+      <h4 style="margin-top:12px;">Bonds</h4>
+      ${bondRows}
+      <p class="muted" style="margin-top:8px;">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
       <p class="muted">Idle cash yield: <b>${(cashInterestAnnualRate() * 100).toFixed(2)}%</b>/yr (nominal, inflation-linked, never negative)</p>
       <h4>Net worth</h4>
       <dl class="stat-dl">
@@ -11221,7 +11431,7 @@
     html += `<button class="btn secondary" onclick="Runway.takeBankLoan()">Bank term loan</button>`;
     if (tier === 'distressed') {
       html += `<button class="btn secondary" onclick="Runway.issueAssetBackedBonds()">Asset-backed bonds</button>`;
-      html += `<button class="btn secondary" onclick="Runway.restructureDebt()">Restructure inherited debt</button>`;
+      html += `<button class="btn secondary" onclick="Runway.restructureDebt()" title="Lowers monthly payment only — principal stays until you pay it down">Restructure loan payments</button>`;
     }
     html += `<button class="btn secondary" onclick="Runway.issueCorporateBonds()">Corporate bonds (needs revenue)</button>`;
     html += `</div>`;
@@ -11515,12 +11725,14 @@
             <span>${route.frequency_week}/wk · ${acName}</span>
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
             <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
+            ${competitivePressureHtml(routeCompetitivePressure(route), { compact: true })}
           </div>
           <div class="route-card-footer-actions">
             <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
           </div>
           <details class="ap-more route-card-tune">
             <summary class="muted" style="cursor:pointer;font-size:0.75rem;">Tune this route</summary>
+            ${competitivePressureHtml(routeCompetitivePressure(route))}
             ${gateNote}
             <div class="route-levers">
               <div class="route-lever">
@@ -12093,7 +12305,7 @@
       localStorage.setItem(SAVE_INDEX_KEY, JSON.stringify(index));
     } catch (e) {
       console.warn('Route Lab: save failed', e);
-      alert('Could not write save (browser storage full or blocked). Try Export JSON.');
+      alert('Could not write save (browser storage full or blocked). Try Download save file.');
     }
   }
 
@@ -12373,7 +12585,7 @@
         enterLoadedGame();
         pushEvent(`Imported save into ${slotLabel(target)}.`, 'good');
       } catch (e) {
-        alert('Could not read that file as JSON.');
+        alert('Could not read that save file. Pick a Route Lab download from this game.');
       }
     };
     reader.readAsText(file);
@@ -12408,11 +12620,11 @@
         const empty = !s.entry;
         const actions = isSave
           ? `<button type="button" class="btn" data-save-to="${s.id}">${empty ? 'Save here' : 'Overwrite'}</button>
-             ${empty ? '' : `<button type="button" class="btn secondary" data-export-slot="${s.id}">Export</button>`}`
+             ${empty ? '' : `<button type="button" class="btn secondary" data-export-slot="${s.id}">Download</button>`}`
           : empty
             ? ''
             : `<button type="button" class="btn" data-load-slot="${s.id}">Load</button>
-               <button type="button" class="btn secondary" data-export-slot="${s.id}">Export</button>
+               <button type="button" class="btn secondary" data-export-slot="${s.id}">Download</button>
                <button type="button" class="btn danger-outline" data-delete-slot="${s.id}">Delete</button>`;
         return `<div class="save-slot${empty ? ' empty' : ''}">
           <div>
@@ -12430,14 +12642,14 @@
       <p class="muted">${
         isSave
           ? 'Pick a slot. Autosave still runs in the background while you play; manual slots are yours to manage.'
-          : 'Load a slot, import a JSON file, or continue from the start screen. Airport data always comes from the latest game build.'
+          : 'Load a slot, open a saved file from your computer, or continue from the start screen. Airport data always comes from the latest game build.'
       }</p>
       ${rows}
       <div class="save-modal-footer">
         ${
           isSave
-            ? `<button type="button" class="btn secondary" id="save-export-current">Export JSON</button>`
-            : `<button type="button" class="btn secondary" id="save-import-btn">Import JSON…</button>`
+            ? `<button type="button" class="btn secondary" id="save-export-current">Download save file</button>`
+            : `<button type="button" class="btn secondary" id="save-import-btn">Open save file…</button>`
         }
         <button type="button" class="btn secondary" id="save-modal-close">Close</button>
         <span class="save-toast" id="save-modal-status"></span>
@@ -12513,13 +12725,13 @@
     box.classList.remove('hidden');
     box.innerHTML = `
       <h2>Saved airlines</h2>
-      <p>Resume where you left off, or open the load menu for all slots and JSON import.</p>
+      <p>Resume where you left off, open all save slots, or load a file from your computer.</p>
       <div class="btn-row" style="margin-top:0;">
         <button type="button" class="btn" id="btn-continue-save">Continue — ${
           recent && recent.meta ? recent.meta.airline_name : 'last save'
         }</button>
         <button type="button" class="btn secondary" id="btn-open-load">Load game…</button>
-        <button type="button" class="btn secondary" id="btn-import-start">Import JSON…</button>
+        <button type="button" class="btn secondary" id="btn-import-start">Open save file…</button>
       </div>
       <p class="muted" style="margin-top:10px;margin-bottom:0;font-size:0.78rem;">${metaLine}</p>`;
     const cont = $('btn-continue-save');
@@ -12900,6 +13112,7 @@
     raiseGrowthEquity,
     takeBankLoan,
     payDownDebt,
+    payDownBond,
     issueCorporateBonds,
     issueAssetBackedBonds,
     restructureDebt,
