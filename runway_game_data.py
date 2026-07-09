@@ -942,6 +942,10 @@ SCENARIOS = {
         'id': 'beginner_2026',
         'name': '2026 — Beginner (Ohio Tutorial)',
         'tagline': 'Step-by-step — routes, fleet, fares in Ohio.',
+        'goal': {
+            'label': 'Graduate: post a profitable trailing month',
+            'profit_month': True,
+        },
         'year': 2026,
         'region': 'ohio',
         'tutorial': True,
@@ -995,6 +999,10 @@ SCENARIOS = {
         'id': 'beginner_winning_2026',
         'name': '2026 — Winning Path (Ohio Coach)',
         'tagline': 'Same Ohio tutorial — round-trip CMH⇄DAY tuned for profit.',
+        'goal': {
+            'label': 'Graduate: post a profitable trailing month',
+            'profit_month': True,
+        },
         'year': 2026,
         'region': 'ohio',
         'tutorial': True,
@@ -1051,6 +1059,10 @@ SCENARIOS = {
         'id': 'ohio_regional_2026',
         'name': '2026 — Ohio Regional',
         'tagline': 'Real competitors · regional airports · prove the model locally.',
+        'goal': {
+            'label': 'Build Ohio to $20M annual revenue',
+            'ltm_revenue': 20_000_000,
+        },
         'year': 2026,
         'region': 'ohio',
         'briefing': (
@@ -1080,6 +1092,10 @@ SCENARIOS = {
         'id': 'midwest_regional_2026',
         'name': '2026 — Midwest Regional',
         'tagline': 'PA to the Great Lakes — thin routes, real rivals, turboprop economics.',
+        'goal': {
+            'label': 'Build the Midwest to $35M annual revenue',
+            'ltm_revenue': 35_000_000,
+        },
         'year': 2026,
         'region': 'midwest',
         'briefing': (
@@ -1111,6 +1127,11 @@ SCENARIOS = {
         'id': 'greenfield_2026',
         'name': '2026 — Greenfield Startup',
         'tagline': 'Pitch deck, no planes, brutal hubs.',
+        'goal': {
+            'label': 'Prove the model: $50M annual revenue and a profitable month',
+            'ltm_revenue': 50_000_000,
+            'profit_month': True,
+        },
         'year': 2026,
         'briefing': (
             'Present day. Fortress hubs are locked. You have a concept and $500K of founder savings. '
@@ -1132,6 +1153,11 @@ SCENARIOS = {
         'id': 'exit_ceo',
         'name': 'The Exit — Former Regional CEO',
         'tagline': 'Sold your last airline. Capital and credibility.',
+        'goal': {
+            'label': 'Build it bigger: $150M annual revenue and a profitable month',
+            'ltm_revenue': 150_000_000,
+            'profit_month': True,
+        },
         'year': 2026,
         'briefing': (
             'You sold a successful regional for $180M two years ago. You kept $45M liquid, gave 15% to a '
@@ -1155,6 +1181,11 @@ SCENARIOS = {
         'id': 'inheritance',
         'name': 'Inheritance — Lake State Air',
         'tagline': 'Debt-laden regional; fix it or fold.',
+        'goal': {
+            'label': 'Fix it: cut total debt below $14M with a profitable month',
+            'max_debt': 14_000_000,
+            'profit_month': True,
+        },
         'year': 2026,
         'briefing': (
             'A family member left you Lake State Air — 4 leased E175s, gates at GRR, DSM, and OMA, '

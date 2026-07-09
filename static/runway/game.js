@@ -1978,6 +1978,15 @@
       applyMarketingSpend(option);
     } else if (option.effect === 'hub_routes' && option.airport) {
       focusHubForRoutes(option.airport);
+    } else if (option.effect === 'open_tab' && option.tab) {
+      switchTab(option.tab);
+    } else if (option.effect === 'goal_hangar') {
+      setSpeed('pause');
+      saveGame();
+      showScreen('screen-start');
+      showScenarioPicker();
+      renderScenarioPicker();
+      renderStartSaves();
     } else if (option.effect === 'bump_route_freq' && option.routeId) {
       bumpRouteFrequency(option.routeId, option.delta || 1, {
         mirrorReturn: option.mirrorReturn !== false,
@@ -2436,9 +2445,14 @@
       ? `<p class="brief-coach muted">A short coach may check in as you grow — nothing to prepare for now.</p>`
       : '';
 
+    const goalNote = sc.goal
+      ? `<p class="brief-goal"><b>Your goal:</b> ${sc.goal.label}. No deadline — your finish time is recorded.</p>`
+      : '';
+
     const html = `
       <div class="brief-snapshot">
         <p class="brief-hero"><b>${state.airline_name}</b> · <b>${fmtMoney(state.cash)}</b> cash · clock <b>paused</b></p>
+        ${goalNote}
         <div class="brief-cards">${cardsHtml}</div>
         ${alertHtml}
         ${coachNote}
@@ -6674,8 +6688,60 @@
     }
   }
 
+  function queueRunwayPrimerDecision() {
+    if (!state || state.game_over) return;
+    if (state.milestones.includes('runway_primer')) return;
+    state.milestones.push('runway_primer');
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · CFO briefing`,
+      title: 'Cash runway is getting short',
+      body:
+        `<p>At the current burn rate, cash lasts about <b>${runwayMonths().toFixed(1)} months</b>. Nothing is wrong yet — this is the moment to plan, not panic.</p>` +
+        `<p class="muted" style="font-size:0.85rem;margin-top:8px;">Here is how trouble escalates if cash keeps falling:</p>` +
+        `<ul class="list" style="font-size:0.8rem;">` +
+        `<li><b>Under 2 months</b> — the game pauses and warns you.</li>` +
+        `<li><b>Cash below zero</b> — a creditor board convenes: restructure in Chapter 11, sell gates, or park fleet. Still playable.</li>` +
+        `<li><b>Chapter 11 fails</b> (deep insolvency or missed court deadline) — liquidation, game over.</li>` +
+        `</ul>`,
+      teach:
+        'Ways to extend runway: raise capital (Capital tab), cut unprofitable routes, trim marketing spend, or return idle aircraft. Raising money early is far cheaper than raising it desperate.',
+      logLine: 'CFO briefing: cash runway getting short',
+      options: [
+        {
+          id: 'primer_capital',
+          label: 'A — Review financing options',
+          hint: 'Open the Capital tab — equity, loans, and bonds.',
+          effect: 'open_tab',
+          tab: 'finance',
+        },
+        {
+          id: 'primer_routes',
+          label: 'B — Review route profitability',
+          hint: 'Open Routes — find what is burning cash.',
+          effect: 'open_tab',
+          tab: 'routes',
+        },
+        {
+          id: 'primer_ok',
+          label: 'C — Understood, carry on',
+          hint: 'No action now; the warnings above still apply.',
+          effect: 'none',
+        },
+      ],
+    });
+  }
+
   function checkSurvivalTriggers() {
     if (!state || state.game_over) return;
+
+    if (
+      runwayMonths() < 4 &&
+      state.cash > 0 &&
+      state.day > 14 &&
+      !state.milestones.includes('runway_primer')
+    ) {
+      queueRunwayPrimerDecision();
+    }
 
     if (runwayMonths() < 2 && state.cash > 0 && !state.milestones.includes('runway_warn')) {
       state.milestones.push('runway_warn');
@@ -6754,6 +6820,96 @@
     if (state.cash >= 20_000_000) markMilestoneOnce('cash_20m', `${state.airline_name} crossed <b>${fmtMoney(20_000_000)}</b> cash on hand.`);
   }
 
+  // ── SCENARIO GOALS ─────────────────────────────────────────────────
+  function scenarioGoal() {
+    if (!state || !state.scenario_id) return null;
+    const sc = bootstrap.scenarios[state.scenario_id];
+    return (sc && sc.goal) || null;
+  }
+
+  function trailingMonthPnl() {
+    const h = state.pnl_history || [];
+    if (h.length < 30) return null;
+    return h.reduce((a, b) => a + b, 0);
+  }
+
+  function totalDebtAndBondPrincipal() {
+    const debt = (state.debt || []).reduce((s, d) => s + (d.principal || 0), 0);
+    const bonds = (state.bonds || []).reduce((s, b) => s + (b.principal || 0), 0);
+    return debt + bonds;
+  }
+
+  function goalConditions(goal) {
+    if (!goal) return [];
+    const conds = [];
+    if (goal.ltm_revenue) {
+      const cur = state.ltm_revenue || 0;
+      conds.push({
+        label: `${fmtMoney(goal.ltm_revenue)} annual revenue`,
+        progress: `${fmtMoney(cur)} of ${fmtMoney(goal.ltm_revenue)}`,
+        pct: Math.min(100, (cur / goal.ltm_revenue) * 100),
+        done: cur >= goal.ltm_revenue,
+      });
+    }
+    if (goal.max_debt != null) {
+      const cur = totalDebtAndBondPrincipal();
+      conds.push({
+        label: `Total debt below ${fmtMoney(goal.max_debt)}`,
+        progress: `${fmtMoney(cur)} outstanding`,
+        pct: cur <= goal.max_debt ? 100 : Math.max(0, Math.min(100, (1 - (cur - goal.max_debt) / goal.max_debt) * 100)),
+        done: cur <= goal.max_debt,
+      });
+    }
+    if (goal.profit_month) {
+      const trail = trailingMonthPnl();
+      conds.push({
+        label: 'Profitable trailing month',
+        progress: trail == null ? 'collecting 30 days of data…' : `${fmtMoney(trail)} last 30 days`,
+        pct: trail != null && trail > 0 ? 100 : 0,
+        done: trail != null && trail > 0,
+      });
+    }
+    return conds;
+  }
+
+  function checkScenarioGoal() {
+    if (!state || state.game_over || state.goal_won) return;
+    const goal = scenarioGoal();
+    if (!goal) return;
+    const conds = goalConditions(goal);
+    if (!conds.length || !conds.every((c) => c.done)) return;
+    state.goal_won = { day: state.day };
+    pushEvent(`SCENARIO GOAL ACHIEVED — ${goal.label} (day ${state.day}).`, 'milestone');
+    queueGoalVictoryDecision(goal);
+  }
+
+  function queueGoalVictoryDecision(goal) {
+    const years = state.day >= 365 ? `${(state.day / 365).toFixed(1)} years` : `${state.day} days`;
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · Scenario goal`,
+      title: 'Goal achieved',
+      body:
+        `<p><b>${goal.label}</b> — done, in <b>${years}</b>.</p>` +
+        `<p class="muted" style="font-size:0.85rem;margin-top:8px;">${state.airline_name} did what this scenario asked of it. ` +
+        `The sky stays open: keep growing this airline, or take a fresh challenge from the hangar.</p>`,
+      logLine: `Scenario goal achieved on day ${state.day}`,
+      options: [
+        {
+          id: 'goal_continue',
+          label: 'A — Keep flying',
+          hint: 'Continue this airline in free play.',
+          effect: 'none',
+        },
+        {
+          id: 'goal_hangar',
+          label: 'B — Back to the hangar',
+          hint: 'Save and return to scenario select.',
+          effect: 'goal_hangar',
+        },
+      ],
+    });
+  }
+
   function tickDays(n) {
     if (!state || state.game_over || n <= 0) return;
 
@@ -6769,6 +6925,7 @@
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       checkPositiveMilestones();
+      checkScenarioGoal();
       if (state.game_over || state.paused_reason) break;
     }
     saveGame();
@@ -6802,6 +6959,7 @@
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       checkPositiveMilestones();
+      checkScenarioGoal();
       if (state.game_over || state.paused_reason) break;
     }
 
@@ -9253,6 +9411,30 @@
     renderAll();
   }
 
+  function payDownDebt(debtId, amount) {
+    if (!state) return;
+    const d = (state.debt || []).find((x) => x.id === debtId);
+    if (!d || !(d.principal > 0)) return;
+    const pay = Math.min(amount, d.principal, Math.max(0, state.cash));
+    if (pay < 1) return;
+    const before = d.principal;
+    state.cash -= pay;
+    d.principal = Math.max(0, d.principal - pay);
+    if (d.monthly_payment && before > 0) {
+      d.monthly_payment = Math.round(d.monthly_payment * (d.principal / before));
+    }
+    if (d.principal <= 0) {
+      state.debt = state.debt.filter((x) => x !== d);
+      pushEvent(`${d.name} fully repaid — final payment ${fmtMoney(pay)}. Debt retired.`, 'good');
+      markMilestoneOnce(`debt_retired_${debtId}`, `${state.airline_name} retired <b>${d.name}</b> in full.`);
+    } else {
+      pushEvent(`Paid down ${fmtMoney(pay)} of ${d.name} — ${fmtMoney(d.principal)} remaining.`, 'good');
+    }
+    checkScenarioGoal();
+    saveGame();
+    renderAll();
+  }
+
   function takeBankLoan() {
     const amount = state.financing_tier === 'serial' ? 20_000_000 : 8_000_000;
     const rate = state.financing_tier === 'distressed' ? 0.11 : 0.085;
@@ -10440,8 +10622,10 @@
             .map((d) => `${d.name} ${fmtMoney(d.principal)}`)
             .join(' · ')}</p>`
         : '';
+    const goalLine = sc.goal ? `<span class="scenario-goal">Goal: ${sc.goal.label}</span>` : '';
     return `<div class="scenario-snapshot">
       <span class="scenario-diff ${diff.tone}">${diff.label}</span>
+      ${goalLine}
       <div class="scenario-card-meta">${chips}</div>
       ${debt}
     </div>`;
@@ -10627,6 +10811,20 @@
     };
   }
 
+  function goalProgressLineHtml() {
+    const goal = scenarioGoal();
+    if (!goal) return '';
+    if (state.goal_won) {
+      return `<p class="ops-goal-line ops-goal-done">Goal achieved on day ${state.goal_won.day} — free play.</p>`;
+    }
+    const conds = goalConditions(goal);
+    if (!conds.length) return '';
+    const parts = conds.map(
+      (c) => `${c.done ? '<b class="via-good">✓</b>' : '○'} ${c.label} <span class="muted">(${c.progress})</span>`
+    );
+    return `<p class="ops-goal-line">Goal: ${parts.join(' · ')}</p>`;
+  }
+
   function renderOpsGuide() {
     const el = $('ops-guide');
     if (!el || !state) {
@@ -10687,6 +10885,7 @@
       </div>
       <div class="ops-guide-body">
         <p>${stepLabel}${ctx.text}</p>
+        ${goalProgressLineHtml()}
         ${actions}
         ${profitHow}
       </div>`;
@@ -10884,9 +11083,29 @@
     const nw = computeNetWorthBreakdown() || {
       total: 0, equity_value: 0, cash: 0, fleet: 0, gates: 0, brand: 0, routes: 0, debt: 0, bonds: 0, lease_liabilities: 0,
     };
+    const debtRows = state.debt.length
+      ? state.debt
+          .map((d) => {
+            const canPayOff = state.cash >= d.principal && d.principal > 0;
+            const btns = [1_000_000, 5_000_000]
+              .filter((amt) => d.principal > amt)
+              .map(
+                (amt) =>
+                  `<button type="button" class="btn secondary debt-pay-btn" ${state.cash >= amt ? '' : 'disabled'} onclick="Runway.payDownDebt('${d.id}', ${amt})">Pay $${amt / 1_000_000}M</button>`
+              )
+              .join('');
+            const payoffBtn = `<button type="button" class="btn secondary debt-pay-btn" ${canPayOff ? '' : 'disabled'} onclick="Runway.payDownDebt('${d.id}', ${d.principal})">Pay off ${fmtMoney(d.principal)}</button>`;
+            return `<div class="debt-row">
+              <span>${d.name} <b>${fmtMoney(d.principal)}</b> @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment || 0)}/mo</span>
+              <span class="debt-row-actions">${btns}${payoffBtn}</span>
+            </div>`;
+          })
+          .join('')
+      : '<p class="muted">No debt.</p>';
     let html = `<h3>Capital</h3>
-      <p>Debt: ${state.debt.map((d) => `${d.name} ${fmtMoney(d.principal)} @ ${(d.rate * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
-      <p>Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
+      <h4>Debt</h4>
+      ${debtRows}
+      <p style="margin-top:8px;">Bonds: ${state.bonds.map((b) => `${b.name} ${fmtMoney(b.principal)} coupon ${(b.coupon * 100).toFixed(1)}%`).join('<br>') || 'None'}</p>
       <p class="muted">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
       <p class="muted">Idle cash yield: <b>${(cashInterestAnnualRate() * 100).toFixed(2)}%</b>/yr (nominal, inflation-linked, never negative)</p>
       <h4>Net worth</h4>
@@ -12555,10 +12774,14 @@
           : s.tutorial
             ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended for new players</span>'
             : '';
+        const goalLine = s.goal
+          ? `<span class="scenario-goal">Goal: ${s.goal.label}</span>`
+          : '';
         return `<button type="button" class="scenario-card" data-scenario="${s.id}">
         <span class="scenario-diff ${diff.tone}">${diff.label}</span>
         <strong>${s.name}</strong>
         <span>${s.tagline}</span>
+        ${goalLine}
         <div class="scenario-card-meta">${chips}${tutorialBadge}</div>
         <p>${s.briefing}</p>
       </button>`;
@@ -12587,6 +12810,7 @@
     raiseSeed,
     raiseGrowthEquity,
     takeBankLoan,
+    payDownDebt,
     issueCorporateBonds,
     issueAssetBackedBonds,
     restructureDebt,

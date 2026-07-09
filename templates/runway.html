@@ -136,6 +136,37 @@
     gap: 6px;
     margin-top: 12px;
   }
+  .scenario-goal {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.78rem;
+    color: var(--gold) !important;
+  }
+  .brief-goal {
+    margin: 8px 0 0;
+    font-size: 0.85rem;
+    color: var(--gold);
+  }
+  .ops-goal-line {
+    margin-top: 6px;
+    font-size: 0.72rem;
+    color: var(--gold);
+    line-height: 1.5;
+  }
+  .ops-goal-line.ops-goal-done { color: var(--accent); }
+  .debt-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+  .debt-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .debt-pay-btn { font-size: 0.68rem; padding: 4px 10px; }
+  .debt-pay-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
   .scenario-chip {
     font-size: 0.68rem;
     padding: 3px 8px;
