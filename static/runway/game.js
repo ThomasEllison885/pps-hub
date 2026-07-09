@@ -37,6 +37,7 @@
   let routeLaunchStep = 1; // 1 Market · 2 Product · 3 Growth · 4 Launch
   let routeFormDraft = null;
   let routeReviewRouteId = null;
+  let planeDetailId = null;
   let pendingEmblem = 'routes';
   let pendingAncillaryStrategy = 'auto';
   let state = null;
@@ -1849,9 +1850,102 @@
     return plane && (!plane.aog_days_left || plane.aog_days_left <= 0);
   }
 
+  function ensurePlaneTelemetry(plane) {
+    if (!plane) return plane;
+    if (plane.aog_days_left == null) plane.aog_days_left = 0;
+    if (plane.block_hours_month == null) plane.block_hours_month = 0;
+    if (plane.total_aog_days == null) plane.total_aog_days = 0;
+    if (!Array.isArray(plane.aog_log)) plane.aog_log = [];
+    if (plane.acquired_day == null) plane.acquired_day = Math.max(0, (state && state.day) || 0);
+    if (plane.aog_events == null) plane.aog_events = 0;
+    const ac = aircraftType(plane.type);
+    if (!plane.leased && plane.life_months_left == null && ac) {
+      plane.life_months_left = (ac.lifespan_years || 25) * 12;
+    }
+    if (plane.leased && plane.lease_months_left == null) plane.lease_months_left = 60;
+    return plane;
+  }
+
+  /** Reliability 0–100 from utilization stress + AOG history (display + AOG risk context). */
+  function planeReliabilityScore(plane) {
+    ensurePlaneTelemetry(plane);
+    const util = planeMonthUtilizationPct(plane);
+    let score = 90;
+    // Sweet spot ~50–78% monthly utilization
+    if (util > 94) score -= 22;
+    else if (util > 85) score -= 12;
+    else if (util > 78) score -= 5;
+    else if (util < 25 && (state.routes || []).some((r) => r.aircraft_id === plane.id)) score -= 4;
+    score -= Math.min(28, (plane.total_aog_days || 0) * 1.4);
+    score -= Math.min(18, (plane.aog_events || 0) * 3.5);
+    if (plane.aog_days_left > 0) score -= 15;
+    // Age wear on owned metal
+    if (!plane.leased) {
+      const ac = aircraftType(plane.type);
+      const lifeTotal = (ac && ac.lifespan_years ? ac.lifespan_years : 25) * 12;
+      const left = plane.life_months_left != null ? plane.life_months_left : lifeTotal;
+      const usedPct = 1 - left / Math.max(1, lifeTotal);
+      if (usedPct > 0.7) score -= 10;
+      else if (usedPct > 0.5) score -= 5;
+    }
+    return Math.max(12, Math.min(99, Math.round(score)));
+  }
+
+  function planeAogRiskPct(plane) {
+    if (!isPlaneAvailable(plane)) return 0;
+    const util = planeMonthUtilizationPct(plane);
+    let risk = 0.006;
+    if (util > 82) risk = 0.018;
+    if (util > 94) risk = 0.032;
+    // Soften with reliability
+    const rel = planeReliabilityScore(plane) / 100;
+    risk *= 1.35 - rel * 0.5;
+    return Math.min(12, risk * 100);
+  }
+
+  function planeUsefulLifeInfo(plane) {
+    ensurePlaneTelemetry(plane);
+    const ac = aircraftType(plane.type);
+    if (plane.leased) {
+      const left = plane.lease_months_left || 0;
+      const total = 60;
+      return {
+        kind: 'lease',
+        label: 'Lease remaining',
+        monthsLeft: left,
+        yearsLeft: left / 12,
+        pctLeft: Math.max(0, Math.min(100, (left / total) * 100)),
+        detail: `${left} months on lease · deposit already paid`,
+      };
+    }
+    const lifeTotal = (ac && ac.lifespan_years ? ac.lifespan_years : 25) * 12;
+    const left = plane.life_months_left != null ? plane.life_months_left : lifeTotal;
+    return {
+      kind: 'owned',
+      label: 'Useful life left',
+      monthsLeft: left,
+      yearsLeft: left / 12,
+      pctLeft: Math.max(0, Math.min(100, (left / lifeTotal) * 100)),
+      detail: `${Math.ceil(left / 12)} of ${ac ? ac.lifespan_years || 25 : 25} years remaining · retired at 0`,
+    };
+  }
+
+  function recordPlaneAog(plane, daysOut, util) {
+    ensurePlaneTelemetry(plane);
+    plane.aog_events = (plane.aog_events || 0) + 1;
+    plane.total_aog_days = (plane.total_aog_days || 0) + daysOut;
+    plane.aog_log.push({
+      day: state.day,
+      days: daysOut,
+      util: Math.round(util),
+    });
+    if (plane.aog_log.length > 24) plane.aog_log.shift();
+  }
+
   function processFleetDay() {
     if (!state || !state.fleet) return;
     state.fleet.forEach((plane) => {
+      ensurePlaneTelemetry(plane);
       if (plane.aog_days_left > 0) {
         plane.aog_days_left -= 1;
         if (plane.aog_days_left === 0) {
@@ -1868,8 +1962,11 @@
         let risk = 0.006;
         if (util > 82) risk = 0.018;
         if (util > 94) risk = 0.032;
+        const rel = planeReliabilityScore(plane) / 100;
+        risk *= 1.35 - rel * 0.5;
         if (Math.random() < risk) {
           plane.aog_days_left = 1 + Math.floor(Math.random() * 4);
+          recordPlaneAog(plane, plane.aog_days_left, util);
           const ac = aircraftType(plane.type);
           const affected = (state.routes || []).filter((r) => r.aircraft_id === plane.id).length;
           pushEvent(
@@ -3146,6 +3243,10 @@
       lease_months_left: 60,
       aog_days_left: 0,
       block_hours_month: 0,
+      total_aog_days: 0,
+      aog_events: 0,
+      aog_log: [],
+      acquired_day: state.day || 0,
     };
     state.fleet.push(plane);
     pushPlayerEvent(`coach: leased ${ac.name} (${ac.seats} seats) — ${fmtMoney(deposit)} deposit`);
@@ -5305,6 +5406,176 @@
     resumeSpeedAfterInterrupt();
   }
 
+  function planeById(planeId) {
+    return (state.fleet || []).find((f) => f.id === planeId) || null;
+  }
+
+  function renderPlaneDetailModal() {
+    const overlay = $('plane-detail-modal');
+    if (!overlay) return;
+    if (!planeDetailId || !state) {
+      overlay.classList.remove('active');
+      overlay.innerHTML = '';
+      document.body.classList.remove('plane-detail-active');
+      return;
+    }
+    const plane = planeById(planeDetailId);
+    if (!plane) {
+      planeDetailId = null;
+      renderPlaneDetailModal();
+      return;
+    }
+    ensurePlaneTelemetry(plane);
+    const ac = aircraftType(plane.type);
+    const seats = fleetSeatCount(plane);
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+    const util = planeMonthUtilizationPct(plane);
+    const utilToday = planeUtilizationPct(plane);
+    const rel = planeReliabilityScore(plane);
+    const aogRisk = planeAogRiskPct(plane);
+    const life = planeUsefulLifeInfo(plane);
+    const blockCap = planeWeeklyBlockHoursCapacity(plane);
+    const blockUsed = planeWeeklyBlockHoursUsed(plane.id);
+    const seatLoad = planeSeatLoadToday(plane.id);
+    const maintMo = plane.leased ? 0 : ac ? ac.maintenance_monthly || 0 : 0;
+    const leaseMo = plane.leased && ac ? ac.lease_monthly || 0 : 0;
+    const comfort = ac ? comfortStars(ac.comfort_rating) : '—';
+    const daysOwned = Math.max(0, (state.day || 0) - (plane.acquired_day || 0));
+    const relTone = rel >= 80 ? 'chip-load-good' : rel >= 55 ? 'chip-load-warn' : 'chip-load-bad';
+    const utilBarClass = util < 40 ? 'util-bad' : util > 85 ? 'util-warn' : '';
+    const lifeBarClass = life.pctLeft < 25 ? 'util-bad' : life.pctLeft < 50 ? 'util-warn' : '';
+
+    const routeRows = routes.length
+      ? routes
+          .map((r) => {
+            const sim = simulateRouteDay(r);
+            const load =
+              sim.grounded
+                ? 'AOG'
+                : Number.isFinite(sim.load)
+                  ? `${(sim.load * 100).toFixed(0)}%`
+                  : '—';
+            return `<tr>
+              <td><button type="button" class="linkish" data-plane-open-route="${r.id}">${r.origin}–${r.dest}</button></td>
+              <td>${r.frequency_week}/wk</td>
+              <td>$${r.fare}</td>
+              <td>${load}</td>
+              <td class="${sim.revenue - sim.cost >= 0 ? '' : 'danger'}">${fmtMoney(sim.revenue - sim.cost)}/d</td>
+            </tr>`;
+          })
+          .join('')
+      : '<tr><td colspan="5" class="muted">No routes assigned — open Routes or Route Studio.</td></tr>';
+
+    const logRows =
+      plane.aog_log && plane.aog_log.length
+        ? [...plane.aog_log]
+            .reverse()
+            .slice(0, 12)
+            .map(
+              (e) =>
+                `<li><span class="muted">${fmtDate(e.day)}</span> — AOG ${e.days}d out · util was ${e.util != null ? e.util + '%' : '—'}</li>`
+            )
+            .join('')
+        : '<li class="muted">No AOG events recorded yet — keep monthly utilization out of the red zone.</li>';
+
+    const statusLine = plane.aog_days_left > 0
+      ? `<span class="danger">On ground (AOG) — ${plane.aog_days_left} day${plane.aog_days_left === 1 ? '' : 's'} left</span>`
+      : '<span class="via-good">In service</span>';
+
+    overlay.innerHTML = `
+      <div class="route-review-card plane-detail-card" role="dialog" aria-modal="true" aria-label="Aircraft detail">
+        <button type="button" class="btn secondary route-review-close" data-plane-detail-close>← Back to fleet</button>
+        <p class="decision-kicker">Aircraft</p>
+        <h2>${ac ? ac.name : plane.type}</h2>
+        <p class="muted" style="font-size:0.76rem;line-height:1.45;margin-bottom:12px;">
+          ${plane.id} · ${plane.leased ? 'Leased' : 'Owned'} · ${seats} seats · ${ac ? ac.range_nm + ' nm' : '—'}
+          · Comfort ${comfort} · ${statusLine}
+        </p>
+        <dl class="stat-dl route-review-summary">
+          <dt>Reliability</dt><dd class="${relTone}"><b>${rel}</b>/100</dd>
+          <dt>AOG risk (weekly check)</dt><dd>~${aogRisk.toFixed(1)}%</dd>
+          <dt>Schedule util</dt><dd>${utilToday.toFixed(0)}% today · ${util.toFixed(0)}% MTD</dd>
+          <dt>Block hours</dt><dd><b>${blockUsed.toFixed(1)}</b> / ${blockCap.toFixed(1)} hr/wk scheduled</dd>
+          <dt>Seat load today</dt><dd>${
+            seatLoad != null ? `${(seatLoad * 100).toFixed(0)}%` : routes.length ? '—' : 'idle'
+          }</dd>
+          <dt>In fleet</dt><dd>${daysOwned} day${daysOwned === 1 ? '' : 's'}${
+            plane.acquired_day != null ? ` <span class="muted">(from ${fmtDate(plane.acquired_day)})</span>` : ''
+          }</dd>
+          <dt>Monthly cost</dt><dd>${
+            plane.leased
+              ? `${fmtMoney(leaseMo)} lease`
+              : `${fmtMoney(maintMo)} maintenance`
+          }</dd>
+          <dt>AOG history</dt><dd>${plane.aog_events || 0} events · ${plane.total_aog_days || 0} days grounded</dd>
+        </dl>
+
+        <div class="plane-life-block">
+          <div class="pressure-meter-head">
+            <span>${life.label}</span>
+            <strong>${
+              life.kind === 'lease'
+                ? `${life.monthsLeft} mo`
+                : `${life.yearsLeft.toFixed(1)} yr`
+            } <span class="muted">(${life.pctLeft.toFixed(0)}% left)</span></strong>
+          </div>
+          <div class="util-bar ${lifeBarClass}"><span style="width:${life.pctLeft}%"></span></div>
+          <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">${life.detail}</p>
+        </div>
+
+        <div class="plane-life-block" style="margin-top:10px;">
+          <div class="pressure-meter-head">
+            <span>Monthly utilization (block hours)</span>
+            <strong>${util.toFixed(0)}%</strong>
+          </div>
+          <div class="util-bar ${utilBarClass}"><span style="width:${Math.min(100, util)}%"></span></div>
+          <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">
+            High util raises AOG risk; very low util wastes lease cost. Target roughly 50–80% MTD.
+          </p>
+        </div>
+
+        <h4 class="rival-section-title" style="margin-top:14px;">Assigned routes</h4>
+        <table class="route-review-table">
+          <thead><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Load</th><th>P&amp;L</th></tr></thead>
+          <tbody>${routeRows}</tbody>
+        </table>
+
+        <h4 class="rival-section-title">Maintenance log</h4>
+        <ul class="list" style="font-size:0.78rem;">${logRows}</ul>
+        <p class="muted" style="font-size:0.68rem;margin-top:10px;">
+          AOG = aircraft on ground. Lease bills continue while grounded. Reliability falls after repeated AOGs and extreme utilization.
+        </p>
+      </div>`;
+    overlay.classList.add('active');
+    document.body.classList.add('plane-detail-active');
+    overlay.querySelector('[data-plane-detail-close]')?.addEventListener('click', closePlaneDetail);
+    overlay.querySelectorAll('[data-plane-open-route]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const rid = btn.getAttribute('data-plane-open-route');
+        closePlaneDetail();
+        openRouteReview(rid);
+      });
+    });
+    overlay.onclick = (e) => {
+      if (e.target === overlay) closePlaneDetail();
+    };
+  }
+
+  function openPlaneDetail(planeId) {
+    if (!state || !planeId) return;
+    const plane = planeById(planeId);
+    if (!plane) return;
+    pauseForInterrupt();
+    planeDetailId = planeId;
+    renderPlaneDetailModal();
+  }
+
+  function closePlaneDetail() {
+    planeDetailId = null;
+    renderPlaneDetailModal();
+    resumeSpeedAfterInterrupt();
+  }
+
   function backfillRouteForecast(route) {
     if (route.launch_forecast_load != null) return;
     const via = estimateRouteViability(
@@ -5680,14 +5951,7 @@
       if (!ac) return;
       if (f.seats == null) f.seats = ac.seats;
       if (f.leased == null) f.leased = true;
-      if (!f.leased && f.life_months_left == null) {
-        f.life_months_left = (ac.lifespan_years || 25) * 12;
-      }
-      if (f.leased && f.lease_months_left == null) {
-        f.lease_months_left = 60;
-      }
-      if (f.aog_days_left == null) f.aog_days_left = 0;
-      if (f.block_hours_month == null) f.block_hours_month = 0;
+      ensurePlaneTelemetry(f);
     });
     (state.routes || []).forEach((r) => {
       if (!r.aircraft_id && state.fleet.length) {
@@ -6558,7 +6822,11 @@
       if (!decisionPending) processMonthlyGateEfficiency();
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
-        if (f.leased) return true;
+        ensurePlaneTelemetry(f);
+        if (f.leased) {
+          f.lease_months_left = Math.max(0, (f.lease_months_left || 0) - 1);
+          return true;
+        }
         f.life_months_left = (f.life_months_left || 0) - 1;
         if (f.life_months_left <= 0) {
           retired.push(f);
@@ -9451,6 +9719,10 @@
         lease_months_left: 60,
         aog_days_left: 0,
         block_hours_month: 0,
+        total_aog_days: 0,
+        aog_events: 0,
+        aog_log: [],
+        acquired_day: state.day || 0,
       });
       pushPlayerEvent(`leased ${ac.name} (${seatCount} seats).`);
     } else {
@@ -9474,6 +9746,10 @@
         life_months_left: (ac.lifespan_years || 25) * 12,
         aog_days_left: 0,
         block_hours_month: 0,
+        total_aog_days: 0,
+        aog_events: 0,
+        aog_log: [],
+        acquired_day: state.day || 0,
       });
       pushPlayerEvent(`purchased ${ac.name} (${seatCount} seats).`);
     }
@@ -11466,21 +11742,25 @@
             : assigned
               ? '—'
               : 'idle';
+        ensurePlaneTelemetry(f);
         const aog = f.aog_days_left > 0 ? ` <span class="danger">AOG ${f.aog_days_left}d</span>` : '';
-        const utilBarClass = util < 40 ? 'util-bad' : util > 85 ? '' : 'util-warn';
+        const utilBarClass = util < 40 ? 'util-bad' : util > 85 ? 'util-warn' : '';
         const blockCap = planeWeeklyBlockHoursCapacity(f);
         const blockUsed = planeWeeklyBlockHoursUsed(f.id);
-        html += `<div class="fleet-owned-card">
+        const rel = planeReliabilityScore(f);
+        const relTone = rel >= 80 ? 'chip-load-good' : rel >= 55 ? 'chip-load-warn' : 'chip-load-bad';
+        html += `<button type="button" class="fleet-owned-card fleet-owned-card-btn" data-plane-detail="${f.id}" title="Open aircraft details">
           <strong>${ac.name}</strong>${aog}
           <span class="muted">${seats} seats · ${f.leased ? 'Leased' : 'Owned'} · ${life}</span>
           <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'} · <b>${blockUsed.toFixed(1)}/${blockCap.toFixed(1)}</b> block-hr/wk scheduled</span>
-          <span class="muted" style="font-size:0.7rem;">Seat load: ${seatLoadLabel} · Schedule util ${utilToday.toFixed(0)}% today / ${util.toFixed(0)}% MTD</span>
+          <span class="muted" style="font-size:0.7rem;">Seat load: ${seatLoadLabel} · Util ${utilToday.toFixed(0)}% today / ${util.toFixed(0)}% MTD · Reliability <b class="${relTone}">${rel}</b></span>
           <div class="util-bar ${utilBarClass}"><span style="width:${Math.min(100, util)}%"></span></div>
-        </div>`;
+          <span class="fleet-card-hint muted">Tap for maintenance · reliability · life →</span>
+        </button>`;
       });
       html += '</div>';
       html +=
-        '<p class="muted" style="font-size:0.72rem;">Leased aircraft bill monthly even when <b>AOG</b>. Match size to route demand.</p>';
+        '<p class="muted" style="font-size:0.72rem;">Tap a plane for the full info page. Leased aircraft bill monthly even when <b>AOG</b>.</p>';
     }
 
     html += `<div class="btn-row">
@@ -11542,6 +11822,12 @@
     if (!panel || panel._fleetDelegation) return;
     panel._fleetDelegation = true;
     panel.addEventListener('click', (e) => {
+      const planeBtn = e.target.closest('[data-plane-detail]');
+      if (planeBtn) {
+        e.preventDefault();
+        openPlaneDetail(planeBtn.getAttribute('data-plane-detail'));
+        return;
+      }
       const btn = e.target.closest('[data-fleet-action]');
       if (!btn || btn.disabled) return;
       e.preventDefault();
@@ -12216,6 +12502,12 @@
       else renderAirportEmpty();
     } catch (err) {
       console.error('Runway render error: renderAirportPanel', err);
+    }
+    try {
+      if (planeDetailId) renderPlaneDetailModal();
+      if (routeReviewRouteId) renderRouteReviewModal();
+    } catch (err) {
+      console.error('Runway render error: detail modals', err);
     }
     renderPauseBanner();
   }
@@ -13134,6 +13426,8 @@
     closeRivalDetail,
     openRouteReview,
     closeRouteReview,
+    openPlaneDetail,
+    closePlaneDetail,
     setEmblem: (id) => {
       pendingEmblem = id;
       document.querySelectorAll('[data-emblem]').forEach((btn) => {

@@ -1018,7 +1018,8 @@
     }
     #decision-modal,
     #route-launch-modal,
-    #route-review-modal {
+    #route-review-modal,
+    #plane-detail-modal {
       padding-bottom: calc(20px + 58px + env(safe-area-inset-bottom));
     }
     #decision-modal.tutorial-modal-left,
@@ -2531,6 +2532,62 @@
     line-height: 1.4;
   }
   .fleet-owned-card strong { color: #fff; font-size: 0.82rem; }
+  button.fleet-owned-card-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    transition: border-color 0.12s ease, transform 0.1s ease;
+  }
+  button.fleet-owned-card-btn:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+  }
+  .fleet-card-hint {
+    font-size: 0.66rem;
+    margin-top: 4px;
+    color: var(--accent);
+  }
+  #plane-detail-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 216;
+    background: rgba(4, 10, 18, 0.82);
+    backdrop-filter: blur(5px);
+    padding: 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #plane-detail-modal.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+  }
+  body.plane-detail-active { overflow: hidden; }
+  .plane-detail-card { max-width: 640px; }
+  .plane-life-block {
+    padding: 10px 11px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.5);
+  }
+  button.linkish {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
   .util-bar {
     height: 4px;
     border-radius: 2px;
@@ -2883,6 +2940,7 @@
 <div id="decision-modal" aria-live="polite"></div>
 <div id="route-launch-modal" aria-live="polite"></div>
 <div id="route-review-modal" aria-live="polite"></div>
+<div id="plane-detail-modal" aria-live="polite"></div>
 <div id="save-load-modal" role="dialog" aria-modal="true" aria-labelledby="save-load-title"></div>
 <input type="file" id="save-import-input" accept="application/json,.json" hidden>
 
@@ -2996,7 +3054,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=67"></script>
-<script src="/static/runway/game.js?v=67"></script>
+<script src="/static/runway/economics.js?v=68"></script>
+<script src="/static/runway/game.js?v=68"></script>
 </body>
 </html>
