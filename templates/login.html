@@ -2,78 +2,491 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<link rel="stylesheet" href="/static/pps-global.css?v=3">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="/static/pps-global.css?v=4">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
 {% include '_pwa_head.html' %}
 <title>PPS Hub · Sign In</title>
 <style>
-  .wrap { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 64px); padding: 24px 20px 40px; }
+  /* Mobile-first login — large touch targets, 16px fields (no iOS zoom) */
+  *, *::before, *::after { box-sizing: border-box; }
 
-  .card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 40px 40px 44px; width: 100%; max-width: 420px; text-align: center; }
-  .card h1 { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark-blue); margin-bottom: 6px; }
-  .card .sub { font-size: 14px; color: #888; margin-bottom: 32px; }
+  body {
+    margin: 0;
+    background: var(--bg, #F2F7FB);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
 
-  .field { text-align: left; margin-bottom: 18px; }
-  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
-  .field select, .field input {
-    width: 100%; padding: 11px 14px; border: 1.5px solid var(--border);
-    border-radius: 8px; font-size: 14px; font-family: 'DM Sans', sans-serif;
-    color: var(--gray); background: white; outline: none; transition: border-color 0.2s;
+  .login-header {
+    height: var(--header-h, 56px);
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+    background: #fff;
+    border-bottom: 1px solid var(--border, #e2e8f0);
+  }
+  .login-header-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .login-header img { height: 28px; width: auto; }
+  .login-header-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dark-blue, #003366);
+  }
+
+  .brand-strip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 4px;
+  }
+  .brand-strip .brand-logo { height: 40px; width: auto; }
+  .brand-strip .brand-motto {
+    width: min(100%, 320px);
+    height: auto;
+    opacity: 0.92;
+  }
+
+  .wrap {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: calc(100dvh - 56px);
+    padding: 12px 14px 32px;
+    padding-bottom: max(32px, env(safe-area-inset-bottom));
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 4px 20px rgba(0, 40, 80, 0.1);
+    padding: 22px 18px 24px;
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+  }
+  .card h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 1.45rem;
+    color: var(--dark-blue, #003366);
+    margin: 0 0 4px;
+  }
+  .card .sub {
+    font-size: 0.9rem;
+    color: #888;
+    margin: 0 0 18px;
+    line-height: 1.4;
+  }
+
+  .success {
+    background: #E8F5E9;
+    color: #2E7D32;
+    border: 1px solid #c8e6c9;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    text-align: left;
+    line-height: 1.45;
+  }
+  .error {
+    background: #FEE;
+    color: #B91C1C;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+    text-align: left;
+    line-height: 1.45;
+  }
+  .error a {
+    color: #B91C1C;
+    font-weight: 700;
+    text-decoration: underline;
+  }
+  .error .error-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .error .error-actions a,
+  .error .error-actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 40px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+  }
+  .error .btn-forgot {
+    background: #B91C1C;
+    color: #fff !important;
+    text-decoration: none !important;
+  }
+  .error .btn-dismiss {
+    background: #fff;
+    color: #B91C1C;
+    border: 1px solid #fecaca !important;
+  }
+
+  .field { text-align: left; margin-bottom: 16px; }
+  .field-label {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--dark-blue, #003366);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+
+  /* Tappable name list — reliable on phones (native <select> is flaky) */
+  .name-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(42vh, 320px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 2px;
+    margin: 0 -2px;
+  }
+  .name-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 48px;
+    padding: 10px 14px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+    font-size: 1rem; /* 16px — prevents iOS focus zoom */
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--gray, #334155);
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .name-option:active { background: #f8fafc; }
+  .name-option:has(input:checked),
+  .name-option.is-selected {
+    border-color: var(--blue, #004C8C);
+    background: #f0f7fc;
+    box-shadow: 0 0 0 1px var(--blue, #004C8C);
+    color: var(--dark-blue, #003366);
+    font-weight: 600;
+  }
+  .name-option input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+  .name-option .radio-dot {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #cbd5e1;
+    background: #fff;
+    position: relative;
+  }
+  .name-option.is-selected .radio-dot,
+  .name-option:has(input:checked) .radio-dot {
+    border-color: var(--blue, #004C8C);
+  }
+  .name-option.is-selected .radio-dot::after,
+  .name-option:has(input:checked) .radio-dot::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--blue, #004C8C);
+  }
+
+  .password-wrap { position: relative; }
+  .password-wrap input {
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 52px 12px 14px;
+    border: 1.5px solid var(--border, #e2e8f0);
+    border-radius: 10px;
+    font-size: 1rem; /* 16px — critical for iOS */
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--gray, #334155);
+    background: #fff;
+    outline: none;
+    -webkit-appearance: none;
     appearance: none;
   }
-  .field select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; background-color: white; padding-right: 36px; }
-  .field select:focus, .field input:focus { border-color: var(--blue); }
+  .password-wrap input:focus {
+    border-color: var(--blue, #004C8C);
+    box-shadow: 0 0 0 3px rgba(0, 76, 140, 0.12);
+  }
+  .toggle-pw {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    min-width: 44px;
+    min-height: 44px;
+    border: none;
+    background: transparent;
+    color: var(--blue, #004C8C);
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 8px;
+    -webkit-tap-highlight-color: transparent;
+  }
 
-  .btn { width: 100%; background: var(--dark-blue); color: white; border: none; padding: 13px; border-radius: 8px; font-size: 15px; font-weight: 600; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.2s; margin-top: 4px; }
-  .btn:hover { background: var(--blue); }
+  .btn {
+    width: 100%;
+    min-height: 52px;
+    background: var(--dark-blue, #003366);
+    color: #fff;
+    border: none;
+    padding: 14px 16px;
+    border-radius: 10px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    font-family: 'DM Sans', system-ui, sans-serif;
+    cursor: pointer;
+    margin-top: 6px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .btn:active { background: var(--blue, #004C8C); }
+  .btn:disabled {
+    opacity: 0.7;
+    cursor: wait;
+  }
 
-  .error { background: #FEE; color: #C00; border-radius: 6px; padding: 10px 14px; font-size: 13px; margin-bottom: 18px; text-align: left; }
+  .help-links {
+    margin-top: 18px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .help-links a {
+    color: var(--blue, #004C8C);
+    font-weight: 700;
+    text-decoration: none;
+    display: inline-block;
+    padding: 8px 4px;
+    min-height: 44px;
+    line-height: 28px;
+  }
+  .help-note {
+    margin-top: 4px;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    line-height: 1.4;
+  }
+
+  /* Larger screens: keep strip motto, slightly roomier card */
+  @media (min-width: 480px) {
+    .brand-strip { padding: 22px 24px 8px; gap: 14px; }
+    .brand-strip .brand-logo { height: 48px; }
+    .brand-strip .brand-motto { width: min(100%, 400px); }
+    .card { padding: 32px 28px 36px; }
+    .card h1 { font-size: 1.6rem; }
+    .name-list { max-height: none; }
+  }
+
+  /* Very small phones: hide motto so form is above the fold */
+  @media (max-height: 700px), (max-width: 380px) {
+    .brand-strip .brand-motto { display: none; }
+    .brand-strip { padding: 10px 12px 0; }
+    .brand-strip .brand-logo { height: 34px; }
+    .wrap { padding-top: 8px; }
+    .card { padding: 18px 14px 20px; }
+    .card h1 { font-size: 1.3rem; }
+    .card .sub { margin-bottom: 12px; font-size: 0.85rem; }
+    .name-list { max-height: min(36vh, 240px); }
+  }
 </style>
 </head>
 <body>
-<header class="pps-header" style="cursor:pointer;" onclick="window.location.href='/dashboard'">
-  <div class="pps-header-left">
-    <img src="/static/logo.png?v=3" alt="Pure Property Solutions" class="pps-header-logo">
-    <div class="pps-header-divider"></div>
-    <span class="pps-header-title">PPS Hub</span>
+<header class="login-header">
+  <div class="login-header-inner">
+    <img src="/static/logo.png?v=3" alt="Pure Property Solutions">
+    <span class="login-header-title">PPS Hub · Sign In</span>
   </div>
 </header>
 
-<div class="pps-login-strip">
-  <img src="/static/logo.png?v=3" alt="Pure Property Solutions" class="pps-login-logo">
-  <img src="/static/PPS_statement1_MED.jpg?v=3" alt="The Pure Way: Trust. Quality. Results.™" class="pps-login-motto">
+<div class="brand-strip">
+  <img src="/static/logo.png?v=3" alt="" class="brand-logo" aria-hidden="true">
+  <img src="/static/PPS_statement1_MED.jpg?v=3" alt="The Pure Way: Trust. Quality. Results.™" class="brand-motto">
 </div>
 
 <div class="wrap">
   <div class="card">
     <h1>Welcome Back</h1>
-    <p class="sub">Sign in to access your PPS tools</p>
-    <form method="POST" action="/login" autocomplete="on">
+    <p class="sub">Tap your name, enter your password</p>
+
+    <form method="POST" action="/login" id="login-form" autocomplete="on">
       {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
-      {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+
+      {% if success %}
+      <div class="success" role="status">{{ success }}</div>
+      {% endif %}
+      {% if error %}
+      <div class="error" id="login-error" role="alert">
+        <div>{{ error }}</div>
+        <div class="error-actions">
+          <a class="btn-forgot" href="/forgot-password">Forgot password</a>
+          <button type="button" class="btn-dismiss" id="dismiss-error">Try again</button>
+        </div>
+      </div>
+      {% endif %}
+
       <div class="field">
-        <label for="login-user">Your Name</label>
-        <select id="login-user" name="user_key" required autocomplete="username" autofocus>
-          <option value="" disabled {% if not selected_user %}selected{% endif %}>Select your name…</option>
+        <span class="field-label" id="name-label">Your name</span>
+        <div class="name-list" role="radiogroup" aria-labelledby="name-label">
           {% for key, user in users %}
-          <option value="{{ key }}" {% if selected_user == key %}selected{% endif %}>{{ user.display }}</option>
+          <label class="name-option{% if selected_user == key %} is-selected{% endif %}">
+            <input type="radio" name="user_key" value="{{ key }}"
+              {% if selected_user == key %}checked{% endif %}
+              required
+              autocomplete="{% if selected_user == key %}username{% else %}off{% endif %}">
+            <span class="radio-dot" aria-hidden="true"></span>
+            <span>{{ user.display }}</span>
+          </label>
           {% endfor %}
-        </select>
+        </div>
       </div>
+
+      {# Helps iOS/Android password managers map account → password #}
+      <input type="text" name="username_hint" id="username-hint" value="{% if selected_user %}{{ selected_user }}{% endif %}"
+        autocomplete="username" tabindex="-1" aria-hidden="true"
+        style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0;" readonly>
+
       <div class="field">
-        <label for="login-password">Password</label>
-        <input id="login-password" type="password" name="password" placeholder="Enter your password" required autocomplete="current-password">
+        <label class="field-label" for="login-password">Password</label>
+        <div class="password-wrap">
+          <input id="login-password" type="password" name="password"
+            placeholder="Your password" required
+            autocomplete="current-password"
+            enterkeyhint="go"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false">
+          <button type="button" class="toggle-pw" id="toggle-pw" aria-label="Show password">Show</button>
+        </div>
       </div>
-      <button type="submit" class="btn">Sign In →</button>
+
+      <button type="submit" class="btn" id="login-submit">Sign In</button>
     </form>
-    <p style="margin-top:20px;font-size:13px;line-height:1.5;">
-      <a href="/forgot-password" style="color:var(--blue);text-decoration:none;font-weight:600;">Forgot password?</a>
-      <span style="color:#999;"> — sets a new password and clears any temporary lockout.</span>
-    </p>
-    <p style="margin-top:10px;font-size:12px;color:#aaa;line-height:1.4;">
-      Tip: open this page fresh (or use Forgot password) if you keep seeing an old error after refresh.
-    </p>
+
+    <div class="help-links">
+      <a href="/forgot-password">Forgot password?</a>
+      <p class="help-note">Resets your password and clears any temporary lockout. Works on phone email apps.</p>
+    </div>
   </div>
 </div>
+
+<script>
+(function () {
+  var form = document.getElementById('login-form');
+  var submitBtn = document.getElementById('login-submit');
+  var pw = document.getElementById('login-password');
+  var toggle = document.getElementById('toggle-pw');
+  var hint = document.getElementById('username-hint');
+  var err = document.getElementById('login-error');
+  var dismiss = document.getElementById('dismiss-error');
+
+  // Highlight selected name + feed password managers
+  var options = document.querySelectorAll('.name-option');
+  options.forEach(function (label) {
+    var input = label.querySelector('input[type="radio"]');
+    if (!input) return;
+    function sync() {
+      if (!input.checked) return;
+      options.forEach(function (o) { o.classList.remove('is-selected'); });
+      label.classList.add('is-selected');
+      if (hint) hint.value = input.value;
+      // Scroll selected name into view on short screens
+      try {
+        label.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } catch (e) {}
+    }
+    input.addEventListener('change', sync);
+    label.addEventListener('click', function () {
+      // Ensure radio is selected even if label hit area is odd on some WebViews
+      input.checked = true;
+      sync();
+    });
+  });
+
+  if (toggle && pw) {
+    toggle.addEventListener('click', function () {
+      var show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      toggle.textContent = show ? 'Hide' : 'Show';
+      toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    });
+  }
+
+  if (dismiss && err) {
+    dismiss.addEventListener('click', function () {
+      err.remove();
+      if (pw) {
+        pw.value = '';
+        pw.focus();
+      }
+    });
+  }
+
+  // Guard double-tap on slow mobile networks
+  if (form && submitBtn) {
+    form.addEventListener('submit', function (e) {
+      var picked = form.querySelector('input[name="user_key"]:checked');
+      if (!picked) {
+        e.preventDefault();
+        alert('Please tap your name in the list first.');
+        return;
+      }
+      if (submitBtn.disabled) {
+        e.preventDefault();
+        return;
+      }
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in…';
+      // Re-enable if browser keeps page (e.g. validation quirk)
+      setTimeout(function () {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Sign In';
+        }
+      }, 12000);
+    });
+  }
+
+  // If an error was shown, scroll it into view (keyboard / fold cases)
+  if (err) {
+    try { err.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+  }
+})();
+</script>
 </body>
 </html>

@@ -5,7 +5,7 @@ import threading
 import base64
 from io import BytesIO
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -2642,7 +2642,19 @@ def _login_redirect_with_error(error, selected_user='', next_url=''):
     session['login_flash_user'] = selected_user or ''
     if next_url:
         session['login_next'] = next_url
-    return redirect(url_for('login'))
+    resp = redirect(url_for('login'))
+    # Phones cache POST/GET aggressively — never cache auth screens.
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
+
+
+def _no_store_html(template_name, **ctx):
+    """Render HTML that mobile browsers must not keep as a stale error screen."""
+    resp = make_response(render_template(template_name, **ctx))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -2657,11 +2669,13 @@ def login():
     # GET: show form (and any one-shot flash from a failed POST)
     if request.method == 'GET':
         error = session.pop('login_flash_error', None) or None
+        success = session.pop('login_flash_success', None) or None
         selected_user = session.pop('login_flash_user', '') or ''
-        return render_template(
+        return _no_store_html(
             'login.html',
             users=sorted(USERS.items(), key=lambda x: x[1]['display']),
             error=error,
+            success=success,
             selected_user=selected_user,
             next_url=next_url or session.get('login_next') or '',
         )
@@ -6119,10 +6133,10 @@ def forgot_password():
     message = None
     error = None
     if request.method == 'POST':
-        user_key = request.form.get('user_key', '').strip()
+        user_key = _resolve_login_user_key(request.form.get('user_key', ''))
         user_def = USERS.get(user_key)
         if not user_def:
-            error = 'Select your name from the list.'
+            error = 'Tap your name in the list first.'
         else:
             token = create_password_reset_token(get_db, user_key)
             to_email = user_def.get('email', '')
@@ -6143,11 +6157,14 @@ def forgot_password():
                     # Reset email path also clears lockout so they aren't blocked
                     # while waiting for the link.
                     clear_login_failures(get_db, user_key)
-                    message = f'If {to_email} is on file, a reset link was sent. Any temporary lockout was cleared.'
+                    message = (
+                        f'If {to_email} is on file, a reset link was sent. '
+                        f'Open it on this phone. Any temporary lockout was cleared.'
+                    )
                 else:
                     print(f'Password reset email failed: {detail}')
                     error = 'Could not send email. Contact Thomas or Stephanie.'
-    return render_template(
+    return _no_store_html(
         'forgot_password.html',
         users=sorted(USERS.items(), key=lambda x: x[1]['display']),
         message=message,
@@ -6161,8 +6178,8 @@ def reset_password_with_token(token):
     if request.method == 'GET':
         if not peek_password_reset_token(get_db, token):
             error = 'This reset link is invalid or has expired.'
-            return render_template('reset_password.html', error=error, token=None)
-        return render_template('reset_password.html', error=None, token=token)
+            return _no_store_html('reset_password.html', error=error, token=None)
+        return _no_store_html('reset_password.html', error=None, token=token)
 
     token = request.form.get('token', '').strip()
     new_password = request.form.get('new_password', '') or ''
@@ -6180,12 +6197,19 @@ def reset_password_with_token(token):
             if ok:
                 clear_login_failures(get_db, user_key)
                 print(f'Password reset via token for {user_key} ({action})')
-                return redirect(url_for('login'))
+                session['login_flash_user'] = user_key
+                session['login_flash_success'] = (
+                    'Password updated. Tap your name and sign in with the new password.'
+                )
+                session.pop('login_flash_error', None)
+                resp = redirect(url_for('login'))
+                resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+                return resp
             error = 'Database unavailable. Try again or contact Thomas.'
         except Exception as e:
             print(f'reset password error for {user_key}: {e}')
             error = 'Something went wrong. Try again or contact Thomas.'
-    return render_template('reset_password.html', error=error, token=token)
+    return _no_store_html('reset_password.html', error=error, token=token)
 
 
 @app.route('/change-password', methods=['GET', 'POST'])
