@@ -12300,13 +12300,16 @@
   function renderAncillaryStrategyPicker() {
     const box = $('ancillary-strategy-picker');
     if (!box || !bootstrap.ancillary_modes) return;
+    // Dedicated strategy cards (not emblem-opt — labels were hidden by logo CSS)
     box.innerHTML = bootstrap.ancillary_modes
-      .map(
-        (m) =>
-          `<button type="button" class="emblem-opt${pendingAncillaryStrategy === m.id ? ' active' : ''}" data-ancillary-strategy="${m.id}" title="${m.desc}" onclick="Runway.setPendingAncillaryStrategy('${m.id}')">
-            <span class="emblem-label">${m.label}</span>
-          </button>`
-      )
+      .map((m) => {
+        const active = pendingAncillaryStrategy === m.id ? ' active' : '';
+        const desc = (m.desc || '').replace(/"/g, '&quot;');
+        return `<button type="button" class="strategy-opt${active}" data-ancillary-strategy="${m.id}" title="${desc}" onclick="Runway.setPendingAncillaryStrategy('${m.id}')">
+            <span class="strategy-opt-label">${m.label || m.id}</span>
+            <span class="strategy-opt-desc">${m.desc || ''}</span>
+          </button>`;
+      })
       .join('');
   }
 

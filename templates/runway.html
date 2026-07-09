@@ -54,15 +54,15 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    max-width: 560px;
-    padding: 32px 24px 48px;
+    max-width: 640px;
+    padding: 32px max(16px, env(safe-area-inset-right)) 48px max(16px, env(safe-area-inset-left));
   }
   #screen-start.name-step-active .start-hero { display: none; }
   .start-brand {
     display: flex;
     align-items: center;
-    gap: 18px;
-    margin-bottom: 8px;
+    gap: 20px;
+    margin-bottom: 12px;
   }
   .routelab-brand-logo {
     width: 72px;
@@ -71,6 +71,14 @@
     object-fit: cover;
     flex-shrink: 0;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  }
+  /* Start screen product mark — larger than in-game HUD */
+  #start-brand-logo.routelab-brand-logo,
+  .start-brand .routelab-brand-logo {
+    width: 104px;
+    height: 104px;
+    border-radius: 18px;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
   }
   .routelab-brand-logo.sm { width: 56px; height: 56px; border-radius: 12px; }
   .routelab-brand-logo.lg { width: 64px; height: 64px; border-radius: 14px; }
@@ -149,8 +157,8 @@
   .scenario-diff.mid { color: var(--gold); }
   .scenario-diff.hard { color: var(--danger); }
   .start-intro {
-    margin-bottom: 28px;
-    padding: 18px 20px;
+    margin-bottom: 20px;
+    padding: 16px 18px;
     border: 1px solid var(--border);
     border-radius: 12px;
     background: rgba(15, 28, 46, 0.65);
@@ -158,16 +166,34 @@
   .start-intro h2 {
     font-size: 1.05rem;
     color: var(--gold);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
+  .start-intro > p { margin-bottom: 0; }
   .start-flow {
-    margin: 12px 0 0;
-    padding-left: 1.2rem;
-    font-size: 0.88rem;
-    line-height: 1.65;
-    color: var(--text);
+    margin: 10px 0 0;
+    padding-left: 1.15rem;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    color: var(--muted);
   }
-  .start-flow li { margin-bottom: 4px; }
+  .start-flow li { margin-bottom: 2px; }
+  .start-flow-details {
+    margin-top: 10px;
+  }
+  .start-flow-details > summary {
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+    list-style: none;
+  }
+  .start-flow-details > summary::-webkit-details-marker { display: none; }
+  .start-flow-details > summary::before {
+    content: '▸ ';
+    display: inline-block;
+    transition: transform 0.12s ease;
+  }
+  .start-flow-details[open] > summary::before { transform: rotate(90deg); }
   .scenario-snapshot {
     margin: 14px 0 18px;
     padding: 12px 14px;
@@ -466,7 +492,51 @@
   .emblem-glyph { font-size: 1.35rem; line-height: 1; }
   .emblem-glyph-svg { display: flex; line-height: 0; }
   .emblem-glyph-svg svg { width: 48px; height: 48px; border-radius: 11px; }
-  .emblem-label { display: none; }
+  /* Emblem marks are visual-only; strategy picker uses .strategy-opt instead */
+  .emblem-opt .emblem-label { display: none; }
+
+  .strategy-picker {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin: 10px 0 4px;
+  }
+  @media (min-width: 420px) {
+    .strategy-picker { grid-template-columns: 1fr 1fr 1fr; }
+  }
+  .strategy-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    width: 100%;
+    min-width: 0;
+    padding: 12px 12px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    text-align: left;
+  }
+  .strategy-opt:hover { border-color: var(--accent); }
+  .strategy-opt.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 200, 150, 0.28);
+    background: rgba(0, 200, 150, 0.08);
+  }
+  .strategy-opt-label {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.25;
+  }
+  .strategy-opt-desc {
+    font-size: 0.7rem;
+    color: var(--muted);
+    line-height: 1.35;
+  }
   .hud-identity { flex: 1 1 140px; min-width: 120px; }
   .hud-primary {
     display: flex;
@@ -769,13 +839,13 @@
   }
   .game-layout {
     display: grid;
-    grid-template-columns: 1fr minmax(280px, 340px);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
     align-items: start;
     min-height: 72vh;
     gap: 0;
   }
   @media (min-width: 1100px) {
-    .game-layout { grid-template-columns: 1.55fr minmax(300px, 360px); }
+    .game-layout { grid-template-columns: minmax(0, 1.55fr) minmax(300px, 360px); }
   }
   @media (max-width: 900px) {
     .game-layout {
@@ -2012,6 +2082,7 @@
     background: var(--panel);
     display: flex;
     flex-direction: column;
+    min-width: 0; /* prevent grid bleed / right-edge clip */
     min-height: 72vh;
     height: 72vh;
     max-height: 72vh;
@@ -2022,6 +2093,12 @@
     position: sticky;
     top: 0;
     z-index: 6;
+    /* Room for scrollbar so cards aren't shaved on the right */
+    scrollbar-gutter: stable;
+  }
+  .side-panel > * {
+    min-width: 0;
+    max-width: 100%;
   }
   .tabs {
     display: flex;
@@ -2040,8 +2117,24 @@
     border-bottom: 2px solid transparent;
   }
   .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-panel { display: none; padding: 16px; overflow: visible; flex: 0 0 auto; font-size: 0.85rem; line-height: 1.5; }
+  .tab-panel {
+    display: none;
+    padding: 14px 14px 20px;
+    overflow: visible;
+    flex: 0 0 auto;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    min-width: 0;
+    max-width: 100%;
+  }
   .tab-panel.active { display: block; }
+  .tab-panel .route-card,
+  .tab-panel .panel-card,
+  .tab-panel .route-studio-cta-card,
+  .tab-panel .fleet-owned-card {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
   .tabs { flex-shrink: 0; position: sticky; top: 0; z-index: 2; background: var(--panel); }
   #ops-guide { flex-shrink: 0; }
   #airport-panel { flex-shrink: 0; }
@@ -2293,9 +2386,10 @@
   }
   .route-card-controls {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 6px;
     margin-top: 6px;
+    max-width: 100%;
   }
   .route-card-controls label {
     display: flex;
@@ -2303,6 +2397,7 @@
     gap: 3px;
     font-size: 0.68rem;
     color: var(--muted);
+    min-width: 0;
   }
   .route-card-controls input,
   .route-card-controls select {
@@ -2313,6 +2408,10 @@
     color: var(--text);
     font: inherit;
     font-size: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
   .route-card-hint { font-size: 0.68rem; margin-top: 6px; }
   .route-forecast {
@@ -2602,6 +2701,8 @@
     padding: 24px 22px;
     margin-top: 8px;
     width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
   #screen-start.name-step-active .name-step-card { margin-top: 0; }
   .name-step-card h2 { font-size: 1.2rem; color: var(--gold); margin-bottom: 6px; }
@@ -2637,7 +2738,7 @@
     </div>
     <div class="start-hero">
       <div class="start-brand" id="start-brand">
-        <img class="routelab-brand-logo" id="start-brand-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="72" height="72">
+        <img class="routelab-brand-logo" id="start-brand-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="104" height="104">
         <div>
           <h1 id="start-brand-name">Route Lab</h1>
           <p class="tag" id="start-brand-tagline">Airline network economics — routes, gates, rivals, and capital.</p>
@@ -2648,14 +2749,17 @@
       <div id="start-saves" class="start-saves hidden" aria-live="polite"></div>
       <div class="start-intro" id="start-intro">
         <h2>Choose a starting situation</h2>
-        <p class="muted" style="font-size:0.88rem;line-height:1.5;">Each scenario starts you with different cash, aircraft, gates, and rivals. <b>New here?</b> Pick the Ohio tutorial — it walks you through the game. Use <b>Load game</b> to resume a saved airline instead of starting over.</p>
-        <ol class="start-flow">
-          <li><b>Map</b> — click airports, see competitors, lease gates</li>
-          <li><b>Fleet</b> — lease aircraft for your routes</li>
-          <li><b>Routes</b> — launch flights, set fares, review the business case</li>
-          <li><b>▶</b> — run time forward; rivals react in the log</li>
-          <li><b>Save</b> — write to a slot anytime; Load resumes that airline</li>
-        </ol>
+        <p class="muted" style="font-size:0.88rem;line-height:1.5;"><b>New here?</b> Pick the recommended path — it coaches you to profit. Or <b>Load</b> a saved airline.</p>
+        <details class="start-flow-details">
+          <summary>How a session works</summary>
+          <ol class="start-flow">
+            <li><b>Map</b> — airports, competitors, lease gates</li>
+            <li><b>Fleet</b> — lease aircraft</li>
+            <li><b>Routes</b> — launch markets in Route Studio</li>
+            <li><b>▶</b> — run time; rivals react in the log</li>
+            <li><b>Save</b> — slots anytime; Load resumes</li>
+          </ol>
+        </details>
       </div>
       <div id="scenario-list"></div>
     </div>
@@ -2670,9 +2774,9 @@
         <label for="airline-name-input">Airline name
           <input type="text" id="airline-name-input" maxlength="48" autocomplete="organization" placeholder="Buckeye Air">
         </label>
-        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Pricing strategy (company-wide)</p>
-        <div class="emblem-picker" id="ancillary-strategy-picker"></div>
-        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Choose your mark</p>
+        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Pricing strategy</p>
+        <div class="strategy-picker" id="ancillary-strategy-picker" role="group" aria-label="Pricing strategy"></div>
+        <p class="muted" style="font-size:0.8rem;margin-top:16px;">Airline mark</p>
         <div class="emblem-picker" id="emblem-picker" aria-label="Airline mark"></div>
         <div class="btn-row">
           <button type="button" class="btn" id="btn-start-game">Start airline</button>
