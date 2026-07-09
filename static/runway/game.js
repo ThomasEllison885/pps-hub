@@ -182,25 +182,36 @@
     return Math.max(1, Math.min(28, weekly));
   }
 
+  /** Round block hours for stable UI math (avoids 37.400000000000006). */
+  function cleanHours(n, decimals) {
+    const d = decimals != null ? decimals : 2;
+    const x = +n;
+    if (!Number.isFinite(x)) return 0;
+    const f = 10 ** d;
+    return Math.round(x * f) / f;
+  }
+
   function routeWeeklyBlockHours(route) {
     const ac = aircraftType(route.aircraft_type);
     if (!ac) return 0;
     const dist = routeDistance(route);
     if (!Number.isFinite(dist)) return 0;
-    return blockHours(dist, ac) * (route.frequency_week || 0);
+    return cleanHours(blockHours(dist, ac) * (route.frequency_week || 0));
   }
 
   function planeWeeklyBlockHoursCapacity(plane) {
     const ac = aircraftType(plane.type);
     const daily = ac?.target_block_hours_day || 8;
-    return daily * 6;
+    return cleanHours(daily * 6, 1);
   }
 
   function planeWeeklyBlockHoursUsed(planeId, excludeRouteId) {
-    return (state.routes || []).reduce((sum, r) => {
-      if (r.aircraft_id !== planeId || r.id === excludeRouteId) return sum;
-      return sum + routeWeeklyBlockHours(r);
-    }, 0);
+    return cleanHours(
+      (state.routes || []).reduce((sum, r) => {
+        if (r.aircraft_id !== planeId || r.id === excludeRouteId) return sum;
+        return sum + routeWeeklyBlockHours(r);
+      }, 0)
+    );
   }
 
   function planeScheduleScaleForRoute(planeId, mockRoute, excludeRouteId) {
@@ -228,19 +239,19 @@
     const plane = state.fleet.find((f) => f.id === planeId);
     if (!plane) return null;
     const cap = planeWeeklyBlockHoursCapacity(plane);
-    let used = planeWeeklyBlockHoursUsed(planeId, excludeRouteId);
+    const baseUsed = planeWeeklyBlockHoursUsed(planeId, excludeRouteId);
+    let after = baseUsed;
     const ac = aircraftType(acTypeId);
     const oAp = airport(origin);
     const dAp = airport(dest);
     if (freq > 0 && ac && oAp && dAp) {
       const dist = haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon);
-      used += blockHours(dist, ac) * freq;
+      after = cleanHours(baseUsed + blockHours(dist, ac) * freq);
     }
-    const after = used;
-    const remaining = Math.max(0, cap - used);
+    const remaining = cleanHours(Math.max(0, cap - after));
     return {
       cap,
-      used: planeWeeklyBlockHoursUsed(planeId, excludeRouteId),
+      used: baseUsed,
       after,
       ok: after <= cap + 0.05,
       remaining,
@@ -6378,7 +6389,7 @@
   function blockHours(distNm, ac) {
     const cruiseKt = (ac && ac.cruise_kts) || 420;
     const cruise = (distNm || 0) / cruiseKt;
-    return Math.max(0.55, cruise + 0.4);
+    return cleanHours(Math.max(0.55, cruise + 0.4));
   }
 
   function findReverseRoute(route, excludeId) {
@@ -12111,11 +12122,11 @@
         const sel = selectedId === f.id ? ' selected' : '';
         const cap = planeWeeklyBlockHoursCapacity(f);
         const used = planeWeeklyBlockHoursUsed(f.id);
-        const hrNote = `${used.toFixed(0)}/${cap.toFixed(0)} hr/wk`;
+        const hrNote = `${fmtHours(used)}/${fmtHours(cap)} hr/wk`;
         const routeNote =
           origin && dest
             ? ` · +${maxFrequencyForAircraft(f.id, origin, dest, f.type)}/wk`
-            : ` · ${Math.max(0, cap - used).toFixed(0)} hr open`;
+            : ` · ${fmtHours(Math.max(0, cap - used))} hr open`;
         return `<option value="${f.id}"${sel}>${label} (${fleetSeatCount(f)} seats · ${hrNote}${routeNote})</option>`;
       })
       .join('');
