@@ -34,6 +34,7 @@
   let selectedRival = null;
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
+  let routeLaunchStep = 1; // 1 Market · 2 Product · 3 Growth · 4 Launch
   let routeFormDraft = null;
   let routeReviewRouteId = null;
   let pendingEmblem = 'routes';
@@ -3878,8 +3879,134 @@
     const route = state.routes.find((r) => r.id === routeId);
     if (!route) return;
     route.ancillary_mode = mode || 'auto';
+    pushPlayerEvent(
+      `${route.origin}–${route.dest}: ancillary package → ${mode === 'aggressive' ? 'heavy' : mode === 'minimal' ? 'minimal' : 'auto'}.`
+    );
     saveGame();
     renderRoutes();
+  }
+
+  /**
+   * Set absolute weekly frequency (mirrors return leg by default).
+   * delta helpers call this via adjustRouteFrequency.
+   */
+  function setRouteFrequency(routeId, newFreq, opts) {
+    opts = opts || {};
+    const mirrorReturn = opts.mirrorReturn !== false;
+    const quiet = !!opts.quiet;
+    const route = routeById(routeId);
+    if (!route) return false;
+    const target = Math.max(1, Math.min(28, Math.round(+newFreq || 1)));
+    const before = route.frequency_week || 0;
+    if (target === before) return true;
+
+    if (target > before) {
+      return bumpRouteFrequency(routeId, target - before, opts);
+    }
+
+    // Decrease
+    const routeMax = maxFrequencyForRoute(route.origin, route.dest, route.aircraft_type);
+    const capped = Math.min(target, routeMax);
+    if (capped >= before) return false;
+    route.frequency_week = capped;
+    const actualCut = before - capped;
+    if (!quiet) {
+      pushPlayerEvent(
+        `reduced ${route.origin}–${route.dest} to ${capped}x/wk (−${actualCut}) — fewer seats, lower gate use at ${route.origin}.`
+      );
+    }
+    if (mirrorReturn && actualCut > 0) {
+      const reverse = findReverseRoute(route);
+      if (reverse) {
+        const revTarget = Math.max(1, (reverse.frequency_week || 0) - actualCut);
+        setRouteFrequency(reverse.id, revTarget, { mirrorReturn: false, quiet: true });
+        if (!quiet) {
+          pushPlayerEvent(
+            `matched return ${reverse.origin}–${reverse.dest} −${actualCut}/wk — keep both legs balanced.`
+          );
+        }
+      }
+    }
+    if (!quiet) {
+      saveGame();
+      renderRoutes();
+      if (selectedAirport === route.origin || selectedAirport === route.dest) {
+        renderAirportPanel(selectedAirport);
+      }
+      renderOpsGuide();
+      renderHud();
+    }
+    return true;
+  }
+
+  function adjustRouteFrequency(routeId, delta) {
+    const route = routeById(routeId);
+    if (!route || !delta) return false;
+    const next = Math.max(1, (route.frequency_week || 0) + Math.round(delta));
+    return setRouteFrequency(routeId, next);
+  }
+
+  function setRouteAircraft(routeId, aircraftId) {
+    const route = routeById(routeId);
+    if (!route || !aircraftId) return false;
+    const plane = state.fleet.find((f) => f.id === aircraftId);
+    if (!plane) {
+      alert('Aircraft not in fleet.');
+      return false;
+    }
+    if (plane.id === route.aircraft_id) return true;
+    const ac = aircraftType(plane.type);
+    const oAp = airport(route.origin);
+    const dAp = airport(route.dest);
+    if (oAp && dAp && ac) {
+      const dist = haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon);
+      if (dist > (ac.range_nm || 0)) {
+        alert(`${ac.name} cannot fly ${route.origin}–${route.dest} (${Math.round(dist)} nm exceeds range).`);
+        return false;
+      }
+    }
+    const schedErr = aircraftScheduleError(
+      plane.id,
+      route.origin,
+      route.dest,
+      route.frequency_week || 7,
+      plane.type,
+      route.id
+    );
+    if (schedErr) {
+      alert(schedErr);
+      return false;
+    }
+    const prevType = route.aircraft_type;
+    route.aircraft_id = plane.id;
+    route.aircraft_type = plane.type;
+    // Keep fare roughly market-aligned if still on auto
+    if (route.fare_mode === 'auto') {
+      route.fare = marketFareForPair(route.origin, route.dest, plane.type);
+      route.market_fare = route.fare;
+    }
+    pushPlayerEvent(
+      `reassigned ${route.origin}–${route.dest} to ${ac ? ac.name : plane.type}` +
+        (prevType !== plane.type ? ` (was ${prevType})` : '') +
+        ` — ${fleetSeatCount(plane)} seats, different unit economics.`
+    );
+    saveGame();
+    renderRoutes();
+    renderHud();
+    renderFleet();
+    return true;
+  }
+
+  function boostRouteMarketing(routeId, amount) {
+    const route = routeById(routeId);
+    if (!route) return false;
+    const add = Math.max(1000, Math.round(+amount || 3000));
+    applyMarketingSpend({
+      airport: route.origin,
+      amount: add,
+      setAmount: false,
+    });
+    return true;
   }
 
   function resetRouteFare(routeId) {
@@ -6941,6 +7068,11 @@
       destLabel: '',
     });
     renderRoutes({ forceForm: true });
+    // Jump straight into Route Studio from this hub when ready
+    if (hasGateAt(iata) && state.fleet.length) {
+      openRouteStudio({ origin: iata, step: 1 });
+      return;
+    }
     const form = $('route-launch-form');
     if (form) scrollSidePanelTo(form, { block: 'nearest' });
   }
@@ -7627,18 +7759,23 @@
     const oAp = airport(origin);
     const plane = state.fleet.find((f) => f.id === aircraftId);
     const acType = plane ? plane.type : null;
-    const marketFare = marketFareForPair(origin, dest, acType);
+    const marketFare =
+      origin && dest && origin !== dest ? marketFareForPair(origin, dest, acType) : 129;
     const f = fare || marketFare;
+    const returnExists =
+      !!(dest && origin) &&
+      (state.routes || []).some((r) => r.origin === dest && r.dest === origin);
     const draft = {
-      origin,
-      dest,
-      aircraftId,
+      origin: origin || '',
+      dest: dest || '',
+      aircraftId: aircraftId || '',
       freq: freq || 7,
       fare: f,
       fareMode: 'manual',
-      stationCost: stationSetupCost(origin, dest),
+      withReturn: !returnExists,
+      stationCost: stationSetupCost(origin || dest, dest || origin),
       investments: {
-        airport: clampMoney(state.marketing_spend_monthly[origin]),
+        airport: clampMoney(state.marketing_spend_monthly[origin] || 0),
         state: oAp && oAp.state ? clampMoney(state.marketing_investments?.state?.[oAp.state]) : 0,
         national: clampMoney(state.marketing_investments?.national),
         world: clampMoney(state.marketing_investments?.world),
@@ -7925,6 +8062,9 @@
   }
 
   function routeLaunchPreviewHtml(draft) {
+    if (!draft || !draft.origin || !draft.dest || draft.origin === draft.dest) {
+      return '<span class="muted">Pick origin and destination to preview demand.</span>';
+    }
     const plane = state.fleet.find((f) => f.id === draft.aircraftId);
     const acType = plane ? plane.type : null;
     if (!acType) return '<span class="danger">Select an aircraft.</span>';
@@ -8005,17 +8145,143 @@
     return draft.ota;
   }
 
-  function renderRouteLaunchModal() {
-    const overlay = $('route-launch-modal');
-    if (!overlay) return;
-    if (!routeLaunchDraft) {
-      overlay.classList.remove('active');
-      overlay.innerHTML = '';
-      setRouteLaunchActive(false);
-      return;
+  function routeStudioStepsMeta() {
+    return [
+      { id: 1, key: 'market', label: 'Market', blurb: 'Pick the city pair' },
+      { id: 2, key: 'product', label: 'Product', blurb: 'Aircraft, seats & price' },
+      { id: 3, key: 'growth', label: 'Growth', blurb: 'Marketing & distribution' },
+      { id: 4, key: 'launch', label: 'Launch', blurb: 'Business case & go' },
+    ];
+  }
+
+  function routeStudioStepperHtml(step) {
+    return `<nav class="studio-stepper" aria-label="Route Studio steps">
+      ${routeStudioStepsMeta()
+        .map((s) => {
+          const cls =
+            s.id === step ? 'active' : s.id < step ? 'done' : '';
+          return `<button type="button" class="studio-step ${cls}" data-studio-goto="${s.id}" ${
+            s.id > step + 1 ? 'disabled' : ''
+          }>
+            <span class="studio-step-num">${s.id < step ? '✓' : s.id}</span>
+            <span class="studio-step-label">${s.label}</span>
+            <span class="studio-step-blurb">${s.blurb}</span>
+          </button>`;
+        })
+        .join('<span class="studio-step-rail" aria-hidden="true"></span>')}
+    </nav>`;
+  }
+
+  function routeStudioMarketStepHtml(d) {
+    const oAp = airport(d.origin);
+    const dAp = airport(d.dest);
+    const oLabel = oAp ? airportLabel(oAp) : d.origin || '';
+    const dLabel = dAp ? airportLabel(dAp) : d.dest || '';
+    const util = d.origin && hasGateAt(d.origin) ? gateUtilizationAt(d.origin) : null;
+    const gateNote =
+      d.origin && hasGateAt(d.origin)
+        ? util
+          ? `<span class="studio-pill ok">${util.remaining} deps/wk open at ${d.origin}</span>`
+          : `<span class="studio-pill ok">Gate leased at ${d.origin}</span>`
+        : d.origin
+          ? `<span class="studio-pill bad">Lease a gate at ${d.origin} first</span>`
+          : '';
+    let marketIntel = '';
+    if (d.origin && d.dest && oAp && dAp) {
+      const dist = Math.round(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon));
+      const plane = state.fleet.find((f) => f.id === d.aircraftId) || state.fleet[0];
+      const acType = plane ? plane.type : recommendAircraftTypeForPair(d.origin, d.dest);
+      const via = estimateRouteViability(d.origin, d.dest, acType, d.freq || 7, d.fare, plane && plane.id);
+      const market = marketFareForPair(d.origin, d.dest, acType);
+      marketIntel = `<div class="studio-intel">
+        <div class="studio-intel-stat"><span class="muted">Distance</span><strong>${dist} nm</strong></div>
+        <div class="studio-intel-stat"><span class="muted">Market fare</span><strong>$${market}</strong></div>
+        <div class="studio-intel-stat"><span class="muted">Est. demand</span><strong>~${via.dailyPax} pax/day</strong></div>
+        <div class="studio-intel-stat"><span class="muted">Est. load</span><strong>${(via.load * 100).toFixed(0)}%</strong></div>
+      </div>`;
     }
-    const d = routeLaunchDraft;
-    ensureRouteLaunchOta(d);
+    return `<div class="studio-step-body" data-studio-step="1">
+      <header class="studio-step-head">
+        <p class="studio-kicker">Step 1 · Market</p>
+        <h2>Where do you want to fly?</h2>
+        <p class="studio-lead">Choose origin and destination. This is a <b>network decision</b> — not just a fare slider. Demand, gates, and competitors all start here.</p>
+        ${gateNote}
+      </header>
+      <datalist id="studio-airport-list">${airportDatalistHtml()}</datalist>
+      <div class="studio-pair-grid">
+        <label class="studio-field">
+          <span>Origin (your gate)</span>
+          <input type="text" id="rl-origin-search" list="studio-airport-list" placeholder="DAY — Dayton" value="${oLabel}">
+          <input type="hidden" id="rl-origin-code" value="${d.origin || ''}">
+        </label>
+        <div class="studio-pair-arrow" aria-hidden="true">→</div>
+        <label class="studio-field">
+          <span>Destination</span>
+          <input type="text" id="rl-dest-search" list="studio-airport-list" placeholder="CVG — Cincinnati" value="${dLabel}">
+          <input type="hidden" id="rl-dest-code" value="${d.dest || ''}">
+        </label>
+      </div>
+      ${marketIntel}
+      <div id="rl-studio-suggestions" class="studio-suggestions"></div>
+    </div>`;
+  }
+
+  function routeStudioProductStepHtml(d) {
+    const freqCap = launchFrequencyCap(d);
+    const returnExists = (state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
+    return `<div class="studio-step-body" data-studio-step="2">
+      <header class="studio-step-head">
+        <p class="studio-kicker">Step 2 · Product &amp; ops</p>
+        <h2>${d.origin || '—'} → ${d.dest || '—'}</h2>
+        <p class="studio-lead">Frequency and aircraft shape capacity and cost more than price alone. More flights win share; the wrong metal burns cash.</p>
+      </header>
+      <div id="rl-availability">${availabilityPanelHtml(
+        routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq),
+        { title: 'Capacity check' }
+      )}</div>
+      <div id="rl-limits">${launchLimitsStripHtml(d)}</div>
+      <div class="studio-product-grid">
+        <label class="studio-field studio-field-wide">
+          <span>Aircraft</span>
+          <select id="rl-aircraft">${fleetOptionsHtml(d.aircraftId, d.origin, d.dest)}</select>
+        </label>
+        <label class="studio-field">
+          <span>Frequency / week <em class="muted">(max ${freqCap})</em></span>
+          <div class="studio-stepper-input">
+            <button type="button" class="studio-nudge" data-rl-nudge="freq" data-delta="-1">−</button>
+            <input type="number" id="rl-freq" min="1" max="${freqCap}" value="${d.freq}">
+            <button type="button" class="studio-nudge" data-rl-nudge="freq" data-delta="1">+</button>
+          </div>
+        </label>
+        <label class="studio-field">
+          <span>Launch fare $</span>
+          <div class="studio-stepper-input">
+            <button type="button" class="studio-nudge" data-rl-nudge="fare" data-delta="-10">−</button>
+            <input type="number" id="rl-fare" min="49" max="899" value="${d.fare}">
+            <button type="button" class="studio-nudge" data-rl-nudge="fare" data-delta="10">+</button>
+          </div>
+        </label>
+      </div>
+      <div class="studio-return-box">
+        <label>
+          <input type="checkbox" id="rl-with-return" ${
+            returnExists ? '' : d.withReturn !== false ? 'checked' : ''
+          } ${returnExists ? 'disabled' : ''}>
+          <span>
+            <strong>Launch with return leg</strong> (${d.dest || '…'} → ${d.origin || '…'})
+            <em class="muted">Same aircraft, fare &amp; frequency. One-way only = empty ferry home.${
+              d.dest && !hasGateAt(d.dest)
+                ? ` Needs a gate at <b>${d.dest}</b>.`
+                : ''
+            }${returnExists ? ' Return already flying.' : ''}</em>
+          </span>
+        </label>
+      </div>
+      <div class="route-launch-preview" id="rl-preview"></div>
+    </div>`;
+  }
+
+  function routeStudioGrowthStepHtml(d) {
     const oAp = airport(d.origin);
     const channels = bootstrap.marketing_channels || [];
     const channelRows = channels
@@ -8068,182 +8334,512 @@
       })
       .join('');
 
-    let previewHtml = '';
-    let judgmentHtml = '';
-    try {
-      previewHtml = routeLaunchPreviewHtml(d);
-      judgmentHtml = routeBusinessJudgmentHtml(d);
-    } catch (err) {
-      console.error('Runway: route launch preview failed', err);
-      previewHtml = '<span class="danger">Preview unavailable — you can still confirm launch.</span>';
-      judgmentHtml = '';
-    }
-
-    overlay.innerHTML = `
-      <div class="route-launch-card" role="dialog" aria-modal="true">
-        <p class="decision-kicker">Launch route</p>
-        <h2>${d.origin} → ${d.dest}</h2>
-        <div id="rl-availability">${availabilityPanelHtml(routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq), { title: 'Capacity check' })}</div>
-        <div id="rl-limits">${launchLimitsStripHtml(d)}</div>
-        <div class="form-grid" style="margin-bottom:8px;">
-          <label>Fare $
-            <input type="number" id="rl-fare" min="49" max="899" value="${d.fare}">
-          </label>
-          <label>Freq / wk <span class="muted" style="font-weight:400;">(max ${launchFrequencyCap(d)}/wk)</span>
-            <input type="number" id="rl-freq" min="1" max="${launchFrequencyCap(d)}" value="${d.freq}">
-          </label>
-        </div>
-        <div class="route-launch-preview" id="rl-preview">${previewHtml}</div>
-        <div class="route-launch-judgment" id="rl-judgment">${judgmentHtml}</div>
-        <p class="route-launch-section">Station build-out (one-time)</p>
-        <p style="font-size:0.76rem;line-height:1.4;">Counters, signage, ground ops setup at <b>${d.origin}</b> — <b>${fmtMoney(d.stationCost)}</b> due at launch. Additional gates let you run more simultaneous departures.</p>
-        <div class="route-return-box" style="margin:12px 0;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:rgba(0,200,150,0.06);">
-          <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:0.88rem;line-height:1.4;">
-            <input type="checkbox" id="rl-with-return" ${
-              (state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin) ? '' : 'checked'
-            } style="margin-top:3px;" ${(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin) ? 'disabled' : ''}>
-            <span><strong>Launch with return leg</strong> (${d.dest} → ${d.origin}) — same aircraft, fare, and frequency.
-              <span class="muted" style="display:block;font-size:0.76rem;margin-top:4px;">Airlines fill both directions. One-way only means an empty ferry home and much worse P&amp;L.${
-                hasGateAt(d.dest)
-                  ? ''
-                  : ` Requires a gate at <b>${d.dest}</b> (lease on the map first).`
-              }</span>
-            </span>
-          </label>
-        </div>
-        <details class="route-launch-advanced">
-          <summary class="route-launch-section" style="cursor:pointer;">Advanced: Marketing &amp; distribution (optional)</summary>
-          <p class="route-launch-section">Marketing investments</p>
-          ${channelRows}
-          <p class="route-launch-section">Distribution — OTAs (pay to play)</p>
-          ${otaRows}
-        </details>
-        <div class="route-launch-actions">
-          <button type="button" class="btn" id="rl-confirm" onclick="Runway.confirmRouteLaunch()">Confirm launch</button>
-          <button type="button" class="btn secondary" id="rl-cancel" onclick="Runway.cancelRouteLaunch()">Cancel</button>
-        </div>
-      </div>`;
-    overlay.classList.add('active');
-    setRouteLaunchActive(true);
-    dismissDecisionsForRouteLaunch();
-    overlay.scrollTop = 0;
-    requestAnimationFrame(() => {
-      const card = overlay.querySelector('.route-launch-card');
-      if (card) card.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    });
-
-    const refreshPreview = () => {
-      const prev = $('rl-preview');
-      const judgment = $('rl-judgment');
-      const limits = $('rl-limits');
-      if (prev) prev.innerHTML = routeLaunchPreviewHtml(routeLaunchDraft);
-      if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
-      if (limits) limits.innerHTML = launchLimitsStripHtml(routeLaunchDraft);
-    };
-
-    const syncDraftFromForm = () => {
-      const fareEl = $('rl-fare');
-      const freqEl = $('rl-freq');
-      if (fareEl) routeLaunchDraft.fare = +fareEl.value || routeLaunchDraft.fare;
-      if (freqEl) routeLaunchDraft.freq = +(freqEl && freqEl.value) || routeLaunchDraft.freq;
-      document.querySelectorAll('#route-launch-modal [data-inv-amount]').forEach((inp) => {
-        const key = inp.dataset.invAmount;
-        const toggle = document.querySelector(`#route-launch-modal [data-inv-toggle="${key}"]`);
-        const on = !toggle || toggle.checked;
-        routeLaunchDraft.investments[key] = on ? clampMoney(inp.valueAsNumber) : 0;
-      });
-      (bootstrap.ota_platforms || []).forEach((p) => {
-        const list = document.querySelector(`#route-launch-modal [data-ota-list="${p.id}"]`);
-        const feat = document.querySelector(`#route-launch-modal [data-ota-feature="${p.id}"]`);
-        const hub = document.querySelector(`#route-launch-modal [data-ota-hub="${p.id}"]`);
-        routeLaunchDraft.ota[p.id] = {
-          list: !!(list && list.checked),
-          feature: !!(feat && feat.checked),
-          hubPush: !!(hub && hub.checked),
-        };
-      });
-      updateLaunchAvailabilityPanel(routeLaunchDraft);
-      refreshPreview();
-    };
-
-    bindAvailabilityActions(overlay);
-
-    ['rl-fare', 'rl-freq'].forEach((id) => {
-      const el = $(id);
-      if (el) el.addEventListener('input', syncDraftFromForm);
-    });
-    overlay.querySelectorAll('input').forEach((inp) => {
-      inp.addEventListener('change', syncDraftFromForm);
-      inp.addEventListener('input', syncDraftFromForm);
-    });
-
-    const cancel = $('rl-cancel');
-    if (cancel) cancel.addEventListener('click', cancelRouteLaunch);
-    const confirm = $('rl-confirm');
-    if (confirm) confirm.addEventListener('click', confirmRouteLaunch);
-    overlay.onclick = (e) => {
-      if (e.target === overlay) cancelRouteLaunch();
-    };
+    return `<div class="studio-step-body" data-studio-step="3">
+      <header class="studio-step-head">
+        <p class="studio-kicker">Step 3 · Growth engines</p>
+        <h2>Fill the seats you just planned</h2>
+        <p class="studio-lead">Marketing and OTAs lift demand independently of fare. Airport ads are the strongest local lever; distribution gets you on the shelf.</p>
+      </header>
+      <div class="studio-station-card">
+        <p class="route-launch-section" style="margin-top:0;">Station build-out (one-time)</p>
+        <p style="font-size:0.84rem;line-height:1.45;margin:0;">Counters, signage, ground ops at <b>${d.origin}</b> — <b class="studio-money">${fmtMoney(d.stationCost)}</b> due at launch. Extra gates unlock more departures/week.</p>
+      </div>
+      <p class="route-launch-section">Marketing investments</p>
+      ${channelRows}
+      <p class="route-launch-section">Distribution — OTAs (pay to play)</p>
+      ${otaRows || '<p class="muted">No OTA platforms configured.</p>'}
+    </div>`;
   }
 
-  function openRouteLaunchModal(origin, dest, aircraftId, freq, fare) {
-    dismissDecisionsForRouteLaunch();
-    showRouteFormError('');
-    if (!hasGateAt(origin)) {
-      alert(`Lease a gate at ${origin} first (Airport panel). You can hold multiple gates where available.`);
-      selectAirport(origin);
-      return;
-    }
-    if (!aircraftId || !state.fleet.find((f) => f.id === aircraftId)) {
-      alert('Select an aircraft from your fleet.');
-      return;
-    }
-    if (origin === dest) {
-      alert('Origin and destination must differ.');
-      return;
-    }
-    try {
-      routeLaunchDraft = buildRouteLaunchDraft(origin, dest, aircraftId, freq, fare);
-      renderRouteLaunchModal();
-      if (!$('route-launch-modal')?.classList.contains('active')) {
-        showRouteFormError('Could not open launch dialog — try again or hard-refresh.');
-      }
-    } catch (err) {
-      console.error('Runway: openRouteLaunchModal failed', err);
-      routeLaunchDraft = null;
-      showRouteFormError('Route launch failed to open. Hard-refresh (Cmd+Shift+R) and try again.');
-      alert('Route launch failed to open. Check the browser console for details.');
-    }
+  function routeStudioLaunchStepHtml(d) {
+    return `<div class="studio-step-body" data-studio-step="4">
+      <header class="studio-step-head">
+        <p class="studio-kicker">Step 4 · Commit</p>
+        <h2>Launch ${d.origin} → ${d.dest}</h2>
+        <p class="studio-lead">Review the business case. Frequency, metal, and marketing are locked at launch — you can still tune them later on the route card.</p>
+      </header>
+      <div class="studio-launch-summary">
+        <div class="studio-summary-chip"><span class="muted">Aircraft</span><strong id="rl-sum-ac">—</strong></div>
+        <div class="studio-summary-chip"><span class="muted">Frequency</span><strong id="rl-sum-freq">${d.freq}/wk</strong></div>
+        <div class="studio-summary-chip"><span class="muted">Fare</span><strong id="rl-sum-fare">$${d.fare}</strong></div>
+        <div class="studio-summary-chip"><span class="muted">Station</span><strong>${fmtMoney(d.stationCost)}</strong></div>
+        <div class="studio-summary-chip"><span class="muted">Airport ads</span><strong id="rl-sum-mkt">${fmtMoney(d.investments.airport)}/mo</strong></div>
+      </div>
+      <div id="rl-availability">${availabilityPanelHtml(
+        routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq),
+        { title: 'Capacity check' }
+      )}</div>
+      <div class="route-launch-preview" id="rl-preview"></div>
+      <div class="route-launch-judgment" id="rl-judgment"></div>
+    </div>`;
   }
 
-  function cancelRouteLaunch() {
-    routeLaunchDraft = null;
-    renderRouteLaunchModal();
+  function routeStudioBodyHtml(d, step) {
+    if (step === 1) return routeStudioMarketStepHtml(d);
+    if (step === 2) return routeStudioProductStepHtml(d);
+    if (step === 3) return routeStudioGrowthStepHtml(d);
+    return routeStudioLaunchStepHtml(d);
   }
 
-  function confirmRouteLaunch() {
+  function syncRouteStudioDraftFromDom() {
     if (!routeLaunchDraft) return;
-    const d = routeLaunchDraft;
+    const oSearch = $('rl-origin-search');
+    const dSearch = $('rl-dest-search');
+    const oHidden = $('rl-origin-code');
+    const dHidden = $('rl-dest-code');
+    if (oSearch) {
+      const oAp = resolveAirportQuery(oSearch.value) || airport(oHidden && oHidden.value);
+      if (oAp) {
+        routeLaunchDraft.origin = oAp.iata;
+        if (oHidden) oHidden.value = oAp.iata;
+      }
+    }
+    if (dSearch) {
+      const dAp = resolveAirportQuery(dSearch.value) || airport(dHidden && dHidden.value);
+      if (dAp) {
+        routeLaunchDraft.dest = dAp.iata;
+        if (dHidden) dHidden.value = dAp.iata;
+      }
+    }
+    const acEl = $('rl-aircraft');
+    if (acEl && acEl.value) routeLaunchDraft.aircraftId = acEl.value;
     const fareEl = $('rl-fare');
     const freqEl = $('rl-freq');
-    if (fareEl) d.fare = +fareEl.value || d.fare;
-    if (freqEl) d.freq = +(freqEl && freqEl.value) || d.freq;
+    if (fareEl) routeLaunchDraft.fare = +fareEl.value || routeLaunchDraft.fare;
+    if (freqEl) routeLaunchDraft.freq = +freqEl.value || routeLaunchDraft.freq;
+    const withRet = $('rl-with-return');
+    if (withRet && !withRet.disabled) routeLaunchDraft.withReturn = !!withRet.checked;
     document.querySelectorAll('#route-launch-modal [data-inv-amount]').forEach((inp) => {
       const key = inp.dataset.invAmount;
       const toggle = document.querySelector(`#route-launch-modal [data-inv-toggle="${key}"]`);
       const on = !toggle || toggle.checked;
-      d.investments[key] = on ? clampMoney(inp.valueAsNumber) : 0;
+      routeLaunchDraft.investments[key] = on ? clampMoney(inp.valueAsNumber) : 0;
     });
     (bootstrap.ota_platforms || []).forEach((p) => {
       const list = document.querySelector(`#route-launch-modal [data-ota-list="${p.id}"]`);
       const feat = document.querySelector(`#route-launch-modal [data-ota-feature="${p.id}"]`);
       const hub = document.querySelector(`#route-launch-modal [data-ota-hub="${p.id}"]`);
-      d.ota[p.id] = {
-        list: !!(list && list.checked),
-        feature: !!(feat && feat.checked),
-        hubPush: !!(hub && hub.checked),
-      };
+      if (list || feat || hub) {
+        routeLaunchDraft.ota[p.id] = {
+          list: !!(list && list.checked),
+          feature: !!(feat && feat.checked),
+          hubPush: !!(hub && hub.checked),
+        };
+      }
     });
+    if (routeLaunchDraft.origin) {
+      routeLaunchDraft.stationCost = stationSetupCost(
+        routeLaunchDraft.origin,
+        routeLaunchDraft.dest || routeLaunchDraft.origin
+      );
+    }
+  }
+
+  function refreshRouteStudioLivePanels() {
+    if (!routeLaunchDraft) return;
+    const d = routeLaunchDraft;
+    const prev = $('rl-preview');
+    const judgment = $('rl-judgment');
+    const limits = $('rl-limits');
+    try {
+      if (prev) prev.innerHTML = routeLaunchPreviewHtml(d);
+      if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(d);
+      if (limits) limits.innerHTML = launchLimitsStripHtml(d);
+    } catch (err) {
+      console.error('Runway: studio preview failed', err);
+    }
+    updateLaunchAvailabilityPanel(d);
+    const sumAc = $('rl-sum-ac');
+    const sumFreq = $('rl-sum-freq');
+    const sumFare = $('rl-sum-fare');
+    const sumMkt = $('rl-sum-mkt');
+    if (sumAc) {
+      const plane = state.fleet.find((f) => f.id === d.aircraftId);
+      const ac = plane ? aircraftType(plane.type) : null;
+      sumAc.textContent = ac
+        ? `${ac.name} · ${fleetSeatCount(plane)} seats`
+        : '—';
+    }
+    if (sumFreq) sumFreq.textContent = `${d.freq}/wk`;
+    if (sumFare) sumFare.textContent = `$${d.fare}`;
+    if (sumMkt) sumMkt.textContent = `${fmtMoney(d.investments.airport)}/mo`;
+  }
+
+  function canAdvanceRouteStudioStep(fromStep) {
+    syncRouteStudioDraftFromDom();
+    const d = routeLaunchDraft;
+    if (!d) return 'Studio closed.';
+    if (fromStep >= 1) {
+      if (!d.origin || !airport(d.origin)) return 'Pick a valid origin airport.';
+      if (!hasGateAt(d.origin)) {
+        return `Lease a gate at ${d.origin} first (map → airport → Your position).`;
+      }
+      if (!d.dest || !airport(d.dest)) return 'Pick a valid destination.';
+      if (d.origin === d.dest) return 'Origin and destination must differ.';
+    }
+    if (fromStep >= 2) {
+      if (!d.aircraftId || !state.fleet.find((f) => f.id === d.aircraftId)) {
+        return 'Select an aircraft from your fleet.';
+      }
+      const err = validateOpenRoute(d.origin, d.dest, d.aircraftId, d.freq);
+      if (err) return err;
+    }
+    return null;
+  }
+
+  function setRouteStudioStep(step) {
+    if (!routeLaunchDraft) return;
+    const next = Math.max(1, Math.min(4, Math.round(step)));
+    syncRouteStudioDraftFromDom();
+    if (next > routeLaunchStep) {
+      for (let s = routeLaunchStep; s < next; s++) {
+        const err = canAdvanceRouteStudioStep(s);
+        if (err) {
+          alert(err);
+          return;
+        }
+      }
+    }
+    if (!routeLaunchDraft.aircraftId && state.fleet[0]) {
+      routeLaunchDraft.aircraftId = state.fleet[0].id;
+    }
+    if (
+      routeLaunchDraft.origin &&
+      routeLaunchDraft.dest &&
+      routeLaunchDraft.origin !== routeLaunchDraft.dest
+    ) {
+      const plane = state.fleet.find((f) => f.id === routeLaunchDraft.aircraftId);
+      if (!routeLaunchDraft.fare || routeLaunchDraft.fare === 129) {
+        routeLaunchDraft.fare = marketFareForPair(
+          routeLaunchDraft.origin,
+          routeLaunchDraft.dest,
+          plane ? plane.type : null
+        );
+      }
+      routeLaunchDraft.stationCost = stationSetupCost(
+        routeLaunchDraft.origin,
+        routeLaunchDraft.dest
+      );
+    }
+    routeLaunchStep = next;
+    renderRouteLaunchModal();
+  }
+
+  function renderStudioSuggestions() {
+    const box = $('rl-studio-suggestions');
+    if (!box || !routeLaunchDraft) return;
+    const origin = routeLaunchDraft.origin;
+    if (!origin || !hasGateAt(origin)) {
+      box.innerHTML = origin
+        ? `<p class="muted">Lease a gate at <b>${origin}</b> to see launch-ready markets.</p>`
+        : '<p class="muted">Select an origin to see demand suggestions.</p>';
+      return;
+    }
+    const ideas = routeSuggestionsFrom(origin)
+      .map((s) => enrichRouteSuggestion(origin, s))
+      .filter((s) => s.status === 'ready' || s.status === 'limited')
+      .slice(0, 8);
+    if (!ideas.length) {
+      box.innerHTML = '<p class="muted">No ready destinations in range — add fleet hours or gates.</p>';
+      return;
+    }
+    box.innerHTML = `<p class="studio-suggest-label">Ready markets from ${origin}</p>
+      <div class="studio-suggest-grid">
+        ${ideas
+          .map((s) => {
+            const freq = s.status === 'limited' && s.maxFreq > 0 ? s.maxFreq : s.freq;
+            return `<button type="button" class="studio-suggest-card" data-studio-pick="${s.dest}"
+              data-ac-type="${s.acType}" data-aircraft-id="${s.bestPlaneId || ''}"
+              data-fare="${s.fare}" data-freq="${freq}">
+              <strong>${origin} → ${s.dest}</strong>
+              <span class="muted">${s.destCity}</span>
+              <span class="studio-suggest-meta">${s.dist} nm · ${freq}/wk · ~${s.dailyPax} pax · ${(s.load * 100).toFixed(0)}% load</span>
+              <span class="studio-suggest-via via-${s.tier}">${s.label}</span>
+            </button>`;
+          })
+          .join('')}
+      </div>`;
+  }
+
+  function applyStudioMarketPick(btn) {
+    if (!routeLaunchDraft || !btn) return;
+    const dest = btn.dataset.studioPick;
+    const dAp = airport(dest);
+    if (!dAp) return;
+    routeLaunchDraft.dest = dest;
+    routeLaunchDraft.freq = +(btn.dataset.freq) || 7;
+    routeLaunchDraft.fare = +(btn.dataset.fare) || routeLaunchDraft.fare;
+    const plane = btn.dataset.aircraftId
+      ? state.fleet.find((f) => f.id === btn.dataset.aircraftId)
+      : state.fleet.find((f) => f.type === btn.dataset.acType) || state.fleet[0];
+    if (plane) routeLaunchDraft.aircraftId = plane.id;
+    routeLaunchStep = 2;
+    renderRouteLaunchModal();
+  }
+
+  function renderRouteLaunchModal() {
+    const overlay = $('route-launch-modal');
+    if (!overlay) return;
+    if (!routeLaunchDraft) {
+      overlay.classList.remove('active');
+      overlay.classList.remove('route-studio');
+      overlay.innerHTML = '';
+      setRouteLaunchActive(false);
+      return;
+    }
+    const d = routeLaunchDraft;
+    ensureRouteLaunchOta(d);
+    if (!d.aircraftId && state.fleet[0]) d.aircraftId = state.fleet[0].id;
+    const step = Math.max(1, Math.min(4, routeLaunchStep || 1));
+    routeLaunchStep = step;
+    const meta = routeStudioStepsMeta().find((s) => s.id === step) || routeStudioStepsMeta()[0];
+
+    let liveRail = '';
+    try {
+      if (d.origin && d.dest && d.aircraftId) {
+        liveRail = `<aside class="studio-rail">
+          <p class="studio-rail-title">Live case</p>
+          <div class="route-launch-preview" id="rl-rail-preview">${routeLaunchPreviewHtml(d)}</div>
+          <div id="rl-rail-judgment" class="studio-rail-judgment">${
+            step >= 2 ? routeBusinessJudgmentHtml(d) : '<p class="muted" style="font-size:0.72rem;">Complete product step for full P&amp;L judgment.</p>'
+          }</div>
+        </aside>`;
+      } else {
+        liveRail = `<aside class="studio-rail studio-rail-empty">
+          <p class="studio-rail-title">Live case</p>
+          <p class="muted" style="font-size:0.78rem;line-height:1.45;">Pick origin &amp; destination to see demand, load, and cash impact update live.</p>
+        </aside>`;
+      }
+    } catch (err) {
+      console.error('Runway: studio rail failed', err);
+      liveRail = `<aside class="studio-rail"><p class="danger">Preview unavailable</p></aside>`;
+    }
+
+    overlay.innerHTML = `
+      <div class="route-studio-shell" role="dialog" aria-modal="true" aria-label="Route Studio">
+        <header class="studio-topbar">
+          <div class="studio-brand">
+            <span class="studio-brand-mark">✈</span>
+            <div>
+              <p class="studio-brand-kicker">Route Studio</p>
+              <h1>Open a new market</h1>
+            </div>
+          </div>
+          <p class="studio-step-indicator">Step ${step} of 4 · ${meta.label}</p>
+          <button type="button" class="studio-close" id="rl-cancel" title="Close">✕</button>
+        </header>
+        ${routeStudioStepperHtml(step)}
+        <div class="studio-main">
+          <div class="studio-content">${routeStudioBodyHtml(d, step)}</div>
+          ${liveRail}
+        </div>
+        <footer class="studio-footer">
+          <button type="button" class="btn secondary" id="rl-back" ${step <= 1 ? 'disabled' : ''}>← Back</button>
+          <div class="studio-footer-actions">
+            <button type="button" class="btn secondary" id="rl-cancel-2">Cancel</button>
+            ${
+              step < 4
+                ? `<button type="button" class="btn studio-primary" id="rl-next">Continue →</button>`
+                : `<button type="button" class="btn studio-primary" id="rl-confirm">Confirm launch</button>`
+            }
+          </div>
+        </footer>
+      </div>`;
+    overlay.classList.add('active', 'route-studio');
+    setRouteLaunchActive(true);
+    dismissDecisionsForRouteLaunch();
+    overlay.scrollTop = 0;
+
+    // Fill live previews in body (product/launch steps)
+    refreshRouteStudioLivePanels();
+    if (step === 1) renderStudioSuggestions();
+
+    const syncAndRefresh = () => {
+      syncRouteStudioDraftFromDom();
+      // Soft refresh of rail without full re-render when possible
+      const railPrev = $('rl-rail-preview');
+      const railJudg = $('rl-rail-judgment');
+      try {
+        if (railPrev && routeLaunchDraft.origin && routeLaunchDraft.dest) {
+          railPrev.innerHTML = routeLaunchPreviewHtml(routeLaunchDraft);
+        }
+        if (railJudg && routeLaunchStep >= 2 && routeLaunchDraft.origin && routeLaunchDraft.dest) {
+          railJudg.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
+        }
+      } catch (e) { /* ignore live rail glitches */ }
+      refreshRouteStudioLivePanels();
+      if (routeLaunchStep === 1) {
+        // Update market intel / suggestions only on origin change via re-render is heavy;
+        // suggestions re-bind on pick.
+      }
+    };
+
+    // Origin/dest binding
+    const bindAirportField = (searchId, hiddenId) => {
+      const input = $(searchId);
+      const hidden = $(hiddenId);
+      if (!input || !hidden) return;
+      const apply = () => {
+        const ap = resolveAirportQuery(input.value);
+        if (ap) {
+          const prevCode = searchId === 'rl-origin-search' ? routeLaunchDraft.origin : routeLaunchDraft.dest;
+          const changed = prevCode !== ap.iata;
+          hidden.value = ap.iata;
+          if (searchId === 'rl-origin-search') {
+            routeLaunchDraft.origin = ap.iata;
+            routeLaunchDraft.stationCost = stationSetupCost(
+              ap.iata,
+              routeLaunchDraft.dest || ap.iata
+            );
+            routeLaunchDraft.investments.airport = clampMoney(
+              state.marketing_spend_monthly[ap.iata]
+            );
+          } else {
+            routeLaunchDraft.dest = ap.iata;
+          }
+          syncAndRefresh();
+          // Full re-render only when the resolved code changes (keeps focus while typing)
+          if (routeLaunchStep === 1 && changed) {
+            renderRouteLaunchModal();
+            const focusId = searchId;
+            requestAnimationFrame(() => {
+              const el = $(focusId);
+              if (el) {
+                el.focus();
+                try {
+                  el.selectionStart = el.selectionEnd = el.value.length;
+                } catch (e) { /* ignore */ }
+              }
+            });
+          } else if (routeLaunchStep === 1) {
+            renderStudioSuggestions();
+          }
+        }
+      };
+      input.addEventListener('change', apply);
+      input.addEventListener('blur', apply);
+      input.addEventListener('input', () => {
+        window.clearTimeout(input._studioDebounce);
+        input._studioDebounce = window.setTimeout(apply, 280);
+      });
+    };
+    bindAirportField('rl-origin-search', 'rl-origin-code');
+    bindAirportField('rl-dest-search', 'rl-dest-code');
+
+    overlay.querySelectorAll('[data-studio-pick]').forEach((btn) => {
+      btn.addEventListener('click', () => applyStudioMarketPick(btn));
+    });
+    overlay.querySelectorAll('[data-studio-goto]').forEach((btn) => {
+      btn.addEventListener('click', () => setRouteStudioStep(+btn.dataset.studioGoto));
+    });
+    overlay.querySelectorAll('[data-rl-nudge]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const kind = btn.dataset.rlNudge;
+        const delta = +btn.dataset.delta || 0;
+        if (kind === 'freq') {
+          const el = $('rl-freq');
+          if (el) {
+            const cap = launchFrequencyCap(routeLaunchDraft);
+            el.value = Math.max(1, Math.min(cap, (+el.value || 7) + delta));
+          }
+        } else if (kind === 'fare') {
+          const el = $('rl-fare');
+          if (el) el.value = Math.max(49, Math.min(899, (+el.value || 129) + delta));
+        }
+        syncAndRefresh();
+      });
+    });
+
+    bindAvailabilityActions(overlay);
+    overlay.querySelectorAll('input, select').forEach((inp) => {
+      inp.addEventListener('change', syncAndRefresh);
+      inp.addEventListener('input', syncAndRefresh);
+    });
+
+    const back = $('rl-back');
+    if (back) {
+      back.addEventListener('click', () => setRouteStudioStep(routeLaunchStep - 1));
+    }
+    const next = $('rl-next');
+    if (next) {
+      next.addEventListener('click', () => setRouteStudioStep(routeLaunchStep + 1));
+    }
+    const confirm = $('rl-confirm');
+    if (confirm) confirm.addEventListener('click', confirmRouteLaunch);
+    const cancel = () => cancelRouteLaunch();
+    const c1 = $('rl-cancel');
+    const c2 = $('rl-cancel-2');
+    if (c1) c1.addEventListener('click', cancel);
+    if (c2) c2.addEventListener('click', cancel);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) cancelRouteLaunch();
+    };
+  }
+
+  function openRouteStudio(opts) {
+    opts = opts || {};
+    dismissDecisionsForRouteLaunch();
+    showRouteFormError('');
+    const origin = opts.origin || defaultRouteOrigin() || (state.gates[0] && state.gates[0].airport) || '';
+    const dest = opts.dest || '';
+    let aircraftId = opts.aircraftId || (state.fleet[0] && state.fleet[0].id) || '';
+    const freq = opts.freq || 7;
+    const fare = opts.fare || null;
+
+    if (origin && !hasGateAt(origin) && !opts.allowNoGate) {
+      // Still open studio so player sees market step with gate warning
+    }
+    if (!state.fleet.length && opts.requireFleet !== false) {
+      // Allow opening — product step will block
+    }
+
+    try {
+      routeLaunchDraft = buildRouteLaunchDraft(
+        origin || (bootstrap.airports[0] && bootstrap.airports[0].iata) || 'DAY',
+        dest || origin || 'DAY',
+        aircraftId,
+        freq,
+        fare
+      );
+      // If no real dest yet, clear dest so market step is empty destination
+      if (!opts.dest) {
+        routeLaunchDraft.dest = '';
+      }
+      if (!aircraftId) routeLaunchDraft.aircraftId = '';
+      routeLaunchStep = opts.step || (opts.dest && aircraftId ? 2 : 1);
+      renderRouteLaunchModal();
+      if (!$('route-launch-modal')?.classList.contains('active')) {
+        showRouteFormError('Could not open Route Studio — try again or hard-refresh.');
+      }
+    } catch (err) {
+      console.error('Runway: openRouteStudio failed', err);
+      routeLaunchDraft = null;
+      showRouteFormError('Route Studio failed to open. Hard-refresh (Cmd+Shift+R) and try again.');
+      alert('Route Studio failed to open. Check the browser console for details.');
+    }
+  }
+
+  function openRouteLaunchModal(origin, dest, aircraftId, freq, fare) {
+    openRouteStudio({
+      origin,
+      dest,
+      aircraftId,
+      freq,
+      fare,
+      step: dest && aircraftId ? 2 : 1,
+    });
+  }
+
+  function cancelRouteLaunch() {
+    routeLaunchDraft = null;
+    routeLaunchStep = 1;
+    renderRouteLaunchModal();
+  }
+
+  function confirmRouteLaunch() {
+    if (!routeLaunchDraft) return;
+    syncRouteStudioDraftFromDom();
+    const d = routeLaunchDraft;
 
     let upfront = d.stationCost;
     ensureMacro();
@@ -8253,9 +8849,8 @@
       if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly;
     });
 
-    const withReturnEl = $('rl-with-return');
     const wantReturn =
-      !!(withReturnEl && withReturnEl.checked) &&
+      d.withReturn !== false &&
       !(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
 
     const routeErr = validateOpenRoute(d.origin, d.dest, d.aircraftId, d.freq);
@@ -8312,6 +8907,7 @@
     state.marketing_investments.world = clampMoney(d.investments.world);
 
     routeLaunchDraft = null;
+    routeLaunchStep = 1;
     renderRouteLaunchModal();
 
     const launched = openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, {
@@ -10391,7 +10987,7 @@
 
   function runningRoutesHtml() {
     if (!state.routes.length) {
-      return '<p class="muted" style="font-size:0.78rem;">No routes yet — launch one below from your gate.</p>';
+      return '<p class="muted" style="font-size:0.78rem;">No routes yet — open <b>Route Studio</b> to launch your first market.</p>';
     }
     const ranked = sortPlayerRoutesByPillar(scoreboardSortBy);
     const rankById = {};
@@ -10502,6 +11098,13 @@
         const gateNote = originUtil.gates
           ? `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">${route.origin} gate: <b>${route.frequency_week}</b> of <b>${originUtil.max}</b>/wk (${gateSharePct.toFixed(0)}% of your gate) · <b>${originUtil.remaining}</b> open</p>${mktNote}${mktImpactNote}${schedNote}${capActionHtml}`
           : `${mktNote}${mktImpactNote}${schedNote}`;
+        const plane = route.aircraft_id
+          ? state.fleet.find((f) => f.id === route.aircraft_id)
+          : null;
+        const acName = plane
+          ? (aircraftType(plane.type) || {}).name || plane.type
+          : route.aircraft_type || '—';
+        const seatN = plane ? fleetSeatCount(plane) : '—';
         html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
           <div class="route-card-head">
             <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
@@ -10512,11 +11115,30 @@
           ${forecastHtml}
           ${gateNote}
           <div class="route-card-meta">
-            <span>${route.frequency_week}/wk</span>
+            <span>${route.frequency_week}/wk · ${acName}</span>
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
             <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
           </div>
+          <div class="route-levers">
+            <div class="route-lever">
+              <span class="route-lever-label">Frequency</span>
+              <div class="route-lever-row">
+                <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', -1)" title="Fewer flights/wk">−</button>
+                <strong class="route-lever-value">${route.frequency_week}<span class="muted">/wk</span></strong>
+                <button type="button" class="studio-nudge" onclick="Runway.adjustRouteFrequency('${route.id}', 1)" title="More flights/wk">+</button>
+              </div>
+            </div>
+            <div class="route-lever">
+              <span class="route-lever-label">Marketing</span>
+              <button type="button" class="btn secondary route-mkt-boost" onclick="Runway.boostRouteMarketing('${route.id}', 3000)" title="Add $3k/mo airport ads at ${route.origin}">+ads $3k</button>
+            </div>
+          </div>
           <div class="route-card-controls">
+            <label>Aircraft (${seatN} seats)
+              <select onchange="Runway.setRouteAircraft('${route.id}', this.value)">
+                ${fleetOptionsHtml(route.aircraft_id, route.origin, route.dest)}
+              </select>
+            </label>
             <label>Fare $ (${modeLabel})
               <input type="number" min="49" max="899" value="${route.fare}"
                 onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
@@ -10536,7 +11158,7 @@
             </label>
           </div>
           ${fareRmNote}
-          <p class="route-card-hint muted">Buckets: ${bucketHint}</p>
+          <p class="route-card-hint muted">Buckets: ${bucketHint} · levers: freq · metal · marketing · fare</p>
           <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
         </div>`;
     });
@@ -10572,55 +11194,62 @@
 
   function routeLaunchFormHtml(draft) {
     const defOrigin = draft.origin || defaultRouteOrigin();
+    const util = hasGateAt(defOrigin) ? gateUtilizationAt(defOrigin) : null;
+    const gateNote = hasGateAt(defOrigin)
+      ? util
+        ? `Gate at <b>${defOrigin}</b>: <b>${util.used}/${util.max}</b>/wk used · <b>${util.remaining}</b> open`
+        : `Gate leased at <b>${defOrigin}</b>`
+      : defOrigin
+        ? `<span class="danger">Lease a gate at ${defOrigin} first (map → airport)</span>`
+        : 'Select a hub on the map';
+    const capBanner = util && util.underutilized ? gateUtilizationPromptHtml(util, { compact: true }) : '';
+    const fleetReady = state.fleet.length > 0;
+    // Hidden fields keep captureRouteFormDraft / suggestions working
     const defAp = airport(defOrigin);
     const defLabel = draft.originLabel || (defAp ? airportLabel(defAp) : '');
     const destAp = draft.dest ? airport(draft.dest) : null;
     const destLabel = draft.destLabel || (destAp ? airportLabel(destAp) : '');
     const aircraftId = draft.aircraftId || (state.fleet[0] && state.fleet[0].id) || '';
-    const freq = draft.freq || '7';
-    const fare = draft.fare || '129';
-
-    const util = hasGateAt(defOrigin) ? gateUtilizationAt(defOrigin) : null;
-    const gateNote = hasGateAt(defOrigin)
-      ? util
-        ? ` · <b>${util.used}/${util.max}</b> departures/wk used (<b>${util.remaining}</b> open)`
-        : '<span class="muted"> · gate leased</span>'
-      : '<span class="danger"> · lease a gate here first</span>';
-    const capBanner = util && util.underutilized ? gateUtilizationPromptHtml(util, { compact: true }) : '';
-    const availCtx = routeAvailabilityContext(
-      defOrigin,
-      draft.dest || null,
-      aircraftId || null,
-      +freq || 7
-    );
-    const availPanel = availabilityPanelHtml(availCtx, { title: 'Capacity & options' });
-    return `<p class="ops-section-title">Launch route</p>
-      ${capBanner}
-      <p class="muted route-origin-hint" style="font-size:0.75rem;">Launching from <b>${defOrigin}</b>${gateNote} — pick a destination below or enter manually.</p>
-      <div id="route-availability-panel">${availPanel}</div>
-      <div id="route-suggestions"></div>
-      <datalist id="airport-list">${airportDatalistHtml()}</datalist>
-      <div id="route-preview" class="route-preview muted"></div>
-      <p id="route-form-error" class="route-form-error" style="display:none;" role="alert"></p>
-      <div class="form-grid">
-        <label>Origin
-          <input type="text" id="rt-origin-search" list="airport-list" placeholder="DAY — Dayton" value="${defLabel}">
-          <input type="hidden" id="rt-origin-code" value="${defOrigin}">
-        </label>
-        <label>Destination
-          <input type="text" id="rt-dest-search" list="airport-list" placeholder="CVG — Cincinnati" value="${destLabel}">
-          <input type="hidden" id="rt-dest-code" value="${draft.dest || ''}">
-        </label>
-        <label>Aircraft
-          <select id="rt-aircraft">${fleetOptionsHtml(aircraftId, defOrigin, draft.dest || '')}</select>
-        </label>
-        <label>Freq/wk <input id="rt-freq" type="number" value="${freq}" min="1" max="28"></label>
-        <label>Fare $
-          <input id="rt-fare" type="number" value="${fare}" min="49" max="899">
-        </label>
+    return `<div class="route-studio-cta-card">
+        <div class="route-studio-cta-glow" aria-hidden="true"></div>
+        <p class="studio-kicker" style="margin:0 0 4px;">Route Studio</p>
+        <h3 style="margin:0 0 8px;font-size:1.05rem;color:#fff;">Open a new market</h3>
+        <p class="muted" style="font-size:0.78rem;line-height:1.45;margin:0 0 12px;">
+          Full-screen launch: market pick → product &amp; frequency → marketing → business case.
+          Not just fares — aircraft, seats, and demand engines live here.
+        </p>
+        <p class="route-origin-hint" style="font-size:0.74rem;margin:0 0 10px;">${gateNote}</p>
+        ${capBanner}
+        <p id="route-form-error" class="route-form-error" style="display:none;" role="alert"></p>
+        <button type="button" class="btn studio-primary" id="btn-open-studio" data-action="open-studio"
+          ${!fleetReady || !hasGateAt(defOrigin) ? '' : ''}>
+          Open Route Studio ✈
+        </button>
+        ${
+          !fleetReady
+            ? '<p class="muted" style="font-size:0.7rem;margin:8px 0 0;">Add a plane in <b>Fleet</b> first.</p>'
+            : !hasGateAt(defOrigin)
+              ? `<p class="muted" style="font-size:0.7rem;margin:8px 0 0;">Need a gate at ${defOrigin || 'your hub'} before launch.</p>`
+              : ''
+        }
       </div>
-      <div class="launch-route-sticky">
-        <button type="button" class="btn" id="btn-submit-route" data-action="submit-route">Plan &amp; launch route…</button>
+      <div class="route-panel-quick" style="margin-top:12px;">
+        <p class="ops-section-title" style="margin-bottom:6px;">Quick ideas from ${defOrigin || '…'}</p>
+        <div id="route-suggestions"></div>
+      </div>
+      <!-- Keep draft fields off-screen for form capture / keyboard flows -->
+      <div class="route-form-hidden" aria-hidden="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">
+        <datalist id="airport-list">${airportDatalistHtml()}</datalist>
+        <input type="text" id="rt-origin-search" list="airport-list" value="${defLabel}">
+        <input type="hidden" id="rt-origin-code" value="${defOrigin}">
+        <input type="text" id="rt-dest-search" list="airport-list" value="${destLabel}">
+        <input type="hidden" id="rt-dest-code" value="${draft.dest || ''}">
+        <select id="rt-aircraft">${fleetOptionsHtml(aircraftId, defOrigin, draft.dest || '')}</select>
+        <input id="rt-freq" type="number" value="${draft.freq || '7'}">
+        <input id="rt-fare" type="number" value="${draft.fare || '129'}">
+        <div id="route-availability-panel"></div>
+        <div id="route-preview"></div>
+        <button type="button" id="btn-submit-route" data-action="submit-route"></button>
       </div>`;
   }
 
@@ -10685,11 +11314,11 @@
       return;
     }
 
-    let html = '<h3>Routes</h3>';
+    let html = '<h3>Network</h3>';
     html += `<div id="route-network-snapshot">${networkSnapshotHtml()}</div>`;
-    html += '<p class="ops-section-title">Running now</p>';
-    html += `<div id="route-list-running">${runningRoutesHtml()}</div>`;
     html += `<div id="route-launch-form">${routeLaunchFormHtml(draft)}</div>`;
+    html += '<p class="ops-section-title">Flying now</p>';
+    html += `<div id="route-list-running">${runningRoutesHtml()}</div>`;
     el.innerHTML = html;
     bindRouteAirportInputs();
     bindGateCapacityActions(el);
@@ -10977,6 +11606,7 @@
   }
 
   function submitRoute() {
+    // Opens Route Studio (fullscreen). Prefer draft / form fields when present.
     dismissDecisionsForRouteLaunch();
     showRouteFormError('');
     syncRouteFormFields();
@@ -10988,46 +11618,40 @@
     const dAp = resolveAirportQuery(dIn && dIn.value) || airport(dHidden && dHidden.value);
     if (oAp && oHidden) oHidden.value = oAp.iata;
     if (dAp && dHidden) dHidden.value = dAp.iata;
-    if (!oAp) {
-      showRouteFormError('Pick a valid origin (e.g. DAY — Dayton).');
+
+    const origin = (oAp && oAp.iata) || defaultRouteOrigin();
+    if (!state.fleet.length) {
+      showRouteFormError('No aircraft — open Fleet and lease or buy a plane first.');
+      switchTab('fleet');
       return;
     }
-    if (!dAp) {
-      const typed = dIn && dIn.value.trim();
-      showRouteFormError(
-        typed
-          ? `Could not find "${typed}". Pick a destination from the list (e.g. CMH — Columbus).`
-          : 'Enter a destination — or click a suggested route above first.'
-      );
+    if (origin && !hasGateAt(origin)) {
+      showRouteFormError(`Lease a gate at ${origin} first (map → airport panel → Your position).`);
+      selectAirport(origin);
       return;
     }
-    if (oAp.iata === dAp.iata) {
-      showRouteFormError('Origin and destination must be different.');
-      return;
-    }
+
     const acEl = $('rt-aircraft');
     const freqEl = $('rt-freq');
     const fareEl = $('rt-fare');
-    if (!state.fleet.length) {
-      showRouteFormError('No aircraft — open Fleet and lease or buy a plane first.');
+    if (dAp && oAp && oAp.iata !== dAp.iata && acEl && acEl.value) {
+      openRouteLaunchModal(
+        oAp.iata,
+        dAp.iata,
+        acEl.value,
+        +(freqEl && freqEl.value) || 7,
+        +(fareEl && fareEl.value) || 129
+      );
       return;
     }
-    if (!acEl || !acEl.value) {
-      showRouteFormError('Select an aircraft from your fleet.');
-      return;
-    }
-    if (!hasGateAt(oAp.iata)) {
-      showRouteFormError(`Lease a gate at ${oAp.iata} first (map → airport panel → Your position).`);
-      selectAirport(oAp.iata);
-      return;
-    }
-    openRouteLaunchModal(
-      oAp.iata,
-      dAp.iata,
-      acEl.value,
-      +(freqEl && freqEl.value) || 7,
-      +(fareEl && fareEl.value) || 129
-    );
+    openRouteStudio({
+      origin,
+      dest: dAp && oAp && dAp.iata !== oAp.iata ? dAp.iata : '',
+      aircraftId: (acEl && acEl.value) || (state.fleet[0] && state.fleet[0].id) || '',
+      freq: +(freqEl && freqEl.value) || 7,
+      fare: +(fareEl && fareEl.value) || null,
+      step: 1,
+    });
   }
 
   function emptySaveIndex() {
@@ -11704,8 +12328,8 @@
     if (!panel || panel._routeDelegation) return;
     panel._routeDelegation = true;
     panel.addEventListener('click', (e) => {
-      const submitBtn = e.target.closest('[data-action="submit-route"]');
-      if (submitBtn) {
+      const studioBtn = e.target.closest('[data-action="open-studio"], [data-action="submit-route"]');
+      if (studioBtn) {
         e.preventDefault();
         submitRoute();
         return;
@@ -11854,8 +12478,14 @@
     confirmFleet: confirmFleetOffer,
     setFleetSeats: setFleetPendingSeats,
     submitRoute,
+    openRouteStudio,
     confirmRouteLaunch,
     cancelRouteLaunch,
+    setRouteStudioStep,
+    adjustRouteFrequency,
+    setRouteFrequency,
+    setRouteAircraft,
+    boostRouteMarketing,
     raiseSeed,
     raiseGrowthEquity,
     takeBankLoan,
