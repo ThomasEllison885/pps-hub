@@ -4765,7 +4765,20 @@
 
   function leagueAirlineNames(scopeKey) {
     const cfg = leagueScopeConfig(scopeKey);
-    return cfg.airlines || ['Delta', 'American', 'Southwest'];
+    // Prefer scope list; if thin/missing, fall back to every airline profile so
+    // national never shows fewer rivals than a regional scope.
+    let names = cfg.airlines && cfg.airlines.length ? cfg.airlines.slice() : [];
+    const profiles = bootstrap.airline_profiles || {};
+    const profileNames = Object.keys(profiles);
+    if (!names.length) {
+      names = profileNames.slice();
+    } else {
+      // Merge any profile missing from the scope list (e.g. stale bootstrap cache).
+      profileNames.forEach((n) => {
+        if (!names.includes(n)) names.push(n);
+      });
+    }
+    return names;
   }
 
   function scopeAirportSet(scopeKey) {

@@ -1639,29 +1639,62 @@ MIDWEST_REGION_IATA = sorted(set(OHIO_REGION_IATA + [
     'DSM', 'OMA', 'CID', 'DBQ',
 ]))
 
+# League tables list EVERY competitor profile (majors + small regionals/shuttles).
+# National used to omit Breeze/Contour/Southern/etc., so regional looked fuller than US.
+_LEAGUE_AIRLINE_ORDER = [
+    'Delta',
+    'American',
+    'United',
+    'Southwest',
+    'Alaska',
+    'JetBlue',
+    'Spirit',
+    'Frontier',
+    'Allegiant',
+    'Sun Country',
+    'Breeze',
+    'Contour Airlines',
+    'Southern Airways Express',
+    'Ultimate Air Shuttle',
+    'Charter / GA',
+]
+
+
+def _all_league_airlines():
+    """Stable order: known majors first, then any other AIRLINE_PROFILES keys."""
+    names = []
+    seen = set()
+    for n in _LEAGUE_AIRLINE_ORDER:
+        if n in AIRLINE_PROFILES and n not in seen:
+            names.append(n)
+            seen.add(n)
+    for n in sorted(AIRLINE_PROFILES.keys()):
+        if n not in seen:
+            names.append(n)
+            seen.add(n)
+    return names
+
+
+_LEAGUE_AIRLINES = _all_league_airlines()
+
 LEAGUE_SCOPES = {
     'ohio': {
         'label': 'Ohio & bordering states',
         'airports': OHIO_REGION_IATA,
-        'airlines': [
-            'Allegiant', 'Delta', 'American', 'Southwest', 'Frontier', 'United', 'Spirit',
-            'Breeze', 'Contour Airlines', 'Southern Airways Express',
-        ],
+        # Same full competitor set as national — scope only changes airport filter / overhead.
+        'airlines': list(_LEAGUE_AIRLINES),
         'overhead_weight': 0.05,
     },
     'midwest': {
         'label': 'Midwest (PA · OH · KY · IN · MI · TN · Great Lakes)',
         'airports': MIDWEST_REGION_IATA,
-        'airlines': [
-            'Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue',
-            'Sun Country', 'Southern Airways Express', 'Contour Airlines', 'Breeze',
-        ],
+        'airlines': list(_LEAGUE_AIRLINES),
         'overhead_weight': 0.15,
     },
     'national': {
         'label': 'United States',
         'airports': None,
-        'airlines': ['Delta', 'American', 'United', 'Southwest', 'Allegiant', 'Frontier', 'Spirit', 'JetBlue', 'Alaska'],
+        'airlines': list(_LEAGUE_AIRLINES),
         'overhead_weight': 1.0,
     },
 }
