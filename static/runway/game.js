@@ -1947,22 +1947,23 @@
     const prev = clampMoney(state.marketing_spend_monthly[ap]);
     const next = option.setAmount ? clampMoney(option.amount || amount) : clampMoney(prev + (option.amount || amount));
     state.marketing_spend_monthly[ap] = next;
-    if (option.competitorResponse || option.awarenessBoost) {
-      const awarenessDelta = option.setAmount ? Math.max(0, next - prev) : amount;
-      state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + awarenessDelta / 22000);
-      if (option.softenCompetitor && option.airline && state.competitor_markets[ap]) {
-        const m = state.competitor_markets[ap][option.airline];
-        if (m) {
-          if (m.fare_index < 1) m.fare_index = Math.min(1, m.fare_index + (1 - m.fare_index) * 0.3);
-          if (m.capacity_index > 1) m.capacity_index = Math.max(1, m.capacity_index - (m.capacity_index - 1) * 0.25);
-        }
-      }
-      pushPlayerEvent(
-        `holding fares at ${ap} — marketing ${fmtMoney(next)}/mo + awareness boost (builds demand over the next few weeks).`
-      );
-    } else {
-      pushPlayerEvent(`boosted marketing at ${ap} to ${fmtMoney(next)}/mo.`);
+    // Immediate brand bump when you change spend (was nearly invisible: /22000).
+    const awarenessDelta = option.setAmount ? Math.max(0, next - prev) : amount;
+    if (awarenessDelta > 0 || option.awarenessBoost || option.competitorResponse) {
+      const bump = Math.max(1.5, awarenessDelta / 3500);
+      state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + bump);
     }
+    if (option.softenCompetitor && option.airline && state.competitor_markets[ap]) {
+      const m = state.competitor_markets[ap][option.airline];
+      if (m) {
+        if (m.fare_index < 1) m.fare_index = Math.min(1, m.fare_index + (1 - m.fare_index) * 0.3);
+        if (m.capacity_index > 1) m.capacity_index = Math.max(1, m.capacity_index - (m.capacity_index - 1) * 0.25);
+      }
+    }
+    const impact = marketingImpactSummary(ap);
+    pushPlayerEvent(
+      `marketing at ${ap}: ${impact.line}. Watch <b>route load %</b> and brand on the airport card over the next days (load moves gradually).`
+    );
     saveGame();
     renderAll();
   }
@@ -6086,9 +6087,10 @@
         state.marketing_spend_monthly[ap] = spend;
         if (spend > 0) {
           const amp = otaEffects().marketingAmplify;
+          // ~$9k/mo → ~1.5 brand pts/mo (was ~0.2 — felt like marketing did nothing).
           state.brand_awareness[ap] = Math.min(
             100,
-            (state.brand_awareness[ap] || 0) + (spend / 50000) * amp
+            (state.brand_awareness[ap] || 0) + (spend / 6000) * amp
           );
         }
       });
@@ -7411,7 +7413,8 @@
     const gross = Math.max(airportGrossProxyMonthly(iata), 40_000);
     const spend = clampMoney(state.marketing_spend_monthly[iata]);
     if (spend <= 0) return 0;
-    return Math.min(0.28, (spend / gross) * 3.0);
+    // ~$5–12k/mo at a thin station should feel like +10–25% demand, not a rounding error.
+    return Math.min(0.35, (spend / gross) * 3.6);
   }
 
   function marketingDemandBonus(origin, dest) {
@@ -7421,10 +7424,35 @@
     const d = airport(dest);
     mult += airportMarketingDemandLift(origin);
     if (d) mult += airportMarketingDemandLift(dest) * 0.65;
-    if (o && o.state) mult += clampMoney(state.marketing_investments.state[o.state]) / 180000;
-    mult += clampMoney(state.marketing_investments.national) / 420000;
-    mult += clampMoney(state.marketing_investments.world) / 900000;
-    return Math.min(1.55, mult);
+    if (o && o.state) mult += clampMoney(state.marketing_investments.state[o.state]) / 140000;
+    mult += clampMoney(state.marketing_investments.national) / 320000;
+    mult += clampMoney(state.marketing_investments.world) / 700000;
+    return Math.min(1.65, mult);
+  }
+
+  /** Human-readable marketing effect for a city (for UI + coach messages). */
+  function marketingImpactSummary(iata) {
+    const spend = clampMoney(state.marketing_spend_monthly[iata]);
+    const lift = airportMarketingDemandLift(iata);
+    const aware = state.brand_awareness[iata] || 0;
+    const liftPct = Math.round(lift * 100);
+    return {
+      spend,
+      lift,
+      liftPct,
+      aware,
+      line:
+        spend > 0
+          ? `${fmtMoney(spend)}/mo at ${iata} → about <b>+${liftPct}%</b> local demand · brand ${aware.toFixed(0)}%`
+          : `No airport marketing at ${iata} — brand ${aware.toFixed(0)}%`,
+    };
+  }
+
+  function routeMarketingLiftPct(route) {
+    if (!route) return 0;
+    const before = 1;
+    const after = marketingDemandBonus(route.origin, route.dest);
+    return Math.round((after / before - 1) * 100);
   }
 
   function syncRouteFormFields() {
@@ -8570,6 +8598,10 @@
       })
       .join('');
 
+    const impact = marketingImpactSummary(iata);
+    const impactHtml = `<p class="mkt-impact-line" style="font-size:0.78rem;margin:0 0 10px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:rgba(0,200,150,0.06);line-height:1.4;">
+      <b>What this does:</b> ${impact.line}. Look for higher <b>load %</b> on routes touching ${iata} (moves over a few days, not instantly). Brand awareness also lifts monthly while you keep spending.
+    </p>`;
     const hubList = state.hub_ota_push[iata] || [];
     const otaRows = (bootstrap.ota_platforms || [])
       .map(
@@ -8598,7 +8630,8 @@
 
     return `<div class="mkt-panel">
       <p class="route-launch-section" style="margin-top:0;">Marketing &amp; distribution</p>
-      <p class="muted" style="font-size:0.68rem;margin:0 0 8px;">Same tiers as route launch — airport, region, national, world, and OTA placement.</p>
+      ${impactHtml}
+      <p class="muted" style="font-size:0.68rem;margin:0 0 8px;">Airport ads are the main lever for local load. State/national/world help brand across the network.</p>
       ${channelRows}
       <p class="route-launch-section">Distribution — OTAs</p>
       ${otaRows}
@@ -10259,14 +10292,25 @@
         const r = simulateRouteDay(route);
         const pnl = r.revenue - r.cost;
         const loadNum = r.grounded ? null : r.load;
-        const loadLabel = r.grounded ? 'AOG' : Number.isFinite(loadNum) ? `${(loadNum * 100).toFixed(0)}% load` : '—';
-        const loadClass = r.grounded
+        const loadLabel = r.grounded
+          ? 'AOG'
+          : r.canceled
+            ? `${Number.isFinite(loadNum) ? (loadNum * 100).toFixed(0) : '—'}% (canceled)`
+            : Number.isFinite(loadNum)
+              ? `${(loadNum * 100).toFixed(0)}% load`
+              : '—';
+        const loadClass = r.grounded || r.canceled
           ? 'chip-load-bad'
           : loadNum >= 0.7
             ? 'chip-load-good'
             : loadNum >= 0.45
               ? 'chip-load-warn'
               : 'chip-load-bad';
+        const mktLift = routeMarketingLiftPct(route);
+        const awareO = (state.brand_awareness[route.origin] || 0).toFixed(0);
+        const awareD = (state.brand_awareness[route.dest] || 0).toFixed(0);
+        const mktSpendO = clampMoney(state.marketing_spend_monthly[route.origin]);
+        const mktSpendD = clampMoney(state.marketing_spend_monthly[route.dest]);
         const market = marketFareForPair(route.origin, route.dest, route.aircraft_type);
         const mode = route.fare_mode === 'manual' ? 'manual' : 'auto';
         const modeLabel = mode === 'manual' ? 'fixed' : 'dynamic';
@@ -10326,9 +10370,14 @@
         const mktNote = mkt
           ? `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">${route.origin} market: <b>${formatMarketSharePct(mkt.originShare)}</b> of ~${mkt.originMarketDaily}/day (${mkt.playerOriginDeps}/${mkt.originMarketWeekly} deps/wk) · pair ${formatMarketSharePct(mkt.pairCapacityShare)}</p>`
           : '';
+        const mktImpactNote = `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">Marketing: <b>+${mktLift}%</b> demand from spend · brand ${route.origin} ${awareO}% / ${route.dest} ${awareD}%${
+          mktSpendO + mktSpendD > 0
+            ? ` · ${fmtMoney(mktSpendO + mktSpendD)}/mo airport ads`
+            : ' · <span class="danger">$0 ads</span>'
+        }</p>`;
         const gateNote = originUtil.gates
-          ? `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">${route.origin} gate: <b>${route.frequency_week}</b> of <b>${originUtil.max}</b>/wk (${gateSharePct.toFixed(0)}% of your gate) · <b>${originUtil.remaining}</b> open</p>${mktNote}${schedNote}${capActionHtml}`
-          : `${mktNote}${schedNote}`;
+          ? `<p class="muted" style="font-size:0.66rem;margin:4px 0 0;">${route.origin} gate: <b>${route.frequency_week}</b> of <b>${originUtil.max}</b>/wk (${gateSharePct.toFixed(0)}% of your gate) · <b>${originUtil.remaining}</b> open</p>${mktNote}${mktImpactNote}${schedNote}${capActionHtml}`
+          : `${mktNote}${mktImpactNote}${schedNote}`;
         html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
           <div class="route-card-head">
             <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
