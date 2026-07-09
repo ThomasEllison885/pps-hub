@@ -4289,36 +4289,115 @@
     return hit ? hit.glyph : '✈';
   }
 
-  /** Unique SVG player emblem marks (not generic emoji). */
+  let emblemSvgSeq = 0;
+
+  /** Unique SVG player emblem marks — visual only (no names in UI). */
   function emblemSvgMarkup(mark, colors, size) {
     const c = colors || ['#00c896', '#1e3a5f', '#ffd166'];
     const a = c[0] || '#00c896';
     const b = c[1] || '#1e3a5f';
     const d = c[2] || '#ffd166';
     const s = size || 36;
+    emblemSvgSeq += 1;
+    const uid = `em${emblemSvgSeq}`;
     const common = `xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="${s}" height="${s}" aria-hidden="true"`;
+    const bg = `<defs>
+      <linearGradient id="${uid}-bg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${b}"/>
+        <stop offset="100%" stop-color="${shadeHex(b, -18)}"/>
+      </linearGradient>
+      <linearGradient id="${uid}-fg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${a}"/>
+        <stop offset="100%" stop-color="${shadeHex(a, -12)}"/>
+      </linearGradient>
+      <radialGradient id="${uid}-glow" cx="30%" cy="25%" r="70%">
+        <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+        <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+      </radialGradient>
+    </defs>
+    <rect width="40" height="40" rx="10" fill="url(#${uid}-bg)"/>
+    <rect width="40" height="40" rx="10" fill="url(#${uid}-glow)"/>`;
     switch (mark) {
       case 'routes':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="10" cy="12" r="3.2" fill="${a}"/><circle cx="30" cy="10" r="2.6" fill="${d}"/><circle cx="28" cy="28" r="3.4" fill="${a}"/><circle cx="12" cy="30" r="2.4" fill="${d}"/><path d="M12 13.5 L27 11 M13 28 L26.5 26.5 M11.5 15 L12.5 27" stroke="${a}" stroke-width="1.6" fill="none" opacity="0.9"/></svg>`;
+        return `<svg ${common}>${bg}
+          <circle cx="11" cy="12" r="3.4" fill="${a}"/>
+          <circle cx="29" cy="11" r="2.8" fill="${d}"/>
+          <circle cx="27" cy="27" r="3.6" fill="url(#${uid}-fg)"/>
+          <circle cx="13" cy="28" r="2.6" fill="${d}"/>
+          <path d="M13.2 14.2 C18 12, 22 11.2, 26.5 12.2" stroke="${a}" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+          <path d="M14.2 25.8 C18.5 22, 22 20, 25.2 24.2" stroke="${d}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.9"/>
+          <path d="M12.5 15.5 L13.2 25" stroke="${a}" stroke-width="1.4" fill="none" opacity="0.75"/>
+        </svg>`;
       case 'wing':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M6 24 C14 10, 22 8, 34 12 L28 16 C22 14, 16 16, 12 22 Z" fill="${a}"/><path d="M10 26 L30 18" stroke="${d}" stroke-width="1.5" opacity="0.7"/><circle cx="30" cy="17" r="2" fill="${d}"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M5 25 C12 9, 22 6, 36 11 L29 16.5 C23 14, 16 16.5, 11 23.5 Z" fill="url(#${uid}-fg)"/>
+          <path d="M9 27 L31 17.5" stroke="${d}" stroke-width="1.6" opacity="0.75" stroke-linecap="round"/>
+          <circle cx="31" cy="16.5" r="2.3" fill="${d}"/>
+          <path d="M14 28 C20 24, 26 22, 33 21" stroke="rgba(255,255,255,0.25)" stroke-width="1.2" fill="none"/>
+        </svg>`;
       case 'compass':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="20" cy="20" r="12" fill="none" stroke="${a}" stroke-width="1.4"/><path d="M20 8 L23 20 L20 32 L17 20 Z" fill="${d}"/><path d="M8 20 L20 17 L32 20 L20 23 Z" fill="${a}" opacity="0.85"/><circle cx="20" cy="20" r="2.2" fill="#fff"/></svg>`;
+        return `<svg ${common}>${bg}
+          <circle cx="20" cy="20" r="12.5" fill="none" stroke="${a}" stroke-width="1.5" opacity="0.85"/>
+          <circle cx="20" cy="20" r="9.5" fill="none" stroke="${d}" stroke-width="0.9" opacity="0.45"/>
+          <path d="M20 7.5 L23.4 20 L20 32.5 L16.6 20 Z" fill="${d}"/>
+          <path d="M7.5 20 L20 16.6 L32.5 20 L20 23.4 Z" fill="url(#${uid}-fg)" opacity="0.92"/>
+          <circle cx="20" cy="20" r="2.4" fill="#fff"/>
+          <circle cx="20" cy="20" r="1.1" fill="${b}"/>
+        </svg>`;
       case 'star':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M20 6 L23.2 15.2 L33 15.5 L25.2 21.2 L28 30.5 L20 25.2 L12 30.5 L14.8 21.2 L7 15.5 L16.8 15.2 Z" fill="${a}"/><circle cx="20" cy="20" r="2" fill="${d}"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M20 5.5 L23.5 15.2 L33.5 15.6 L25.5 21.6 L28.4 31.4 L20 25.8 L11.6 31.4 L14.5 21.6 L6.5 15.6 L16.5 15.2 Z" fill="url(#${uid}-fg)"/>
+          <circle cx="20" cy="20" r="2.4" fill="${d}"/>
+          <circle cx="20" cy="7.2" r="1.1" fill="${d}" opacity="0.7"/>
+        </svg>`;
       case 'bolt':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M22 6 L12 22 H19 L16 34 L30 16 H23 Z" fill="${a}"/><path d="M8 28 Q20 24 32 30" stroke="${d}" stroke-width="1.4" fill="none" opacity="0.75"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M23 5.5 L11.5 21.5 H19 L15.5 34.5 L32 15.5 H24.5 Z" fill="url(#${uid}-fg)"/>
+          <path d="M7 29 Q20 24.5 33 31" stroke="${d}" stroke-width="1.5" fill="none" opacity="0.8" stroke-linecap="round"/>
+        </svg>`;
       case 'globe':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><circle cx="20" cy="20" r="12" fill="none" stroke="${a}" stroke-width="1.8"/><ellipse cx="20" cy="20" rx="6" ry="12" fill="none" stroke="${d}" stroke-width="1.2"/><path d="M8 20 H32 M12 13 H28 M12 27 H28" stroke="${a}" stroke-width="1" opacity="0.7"/></svg>`;
+        return `<svg ${common}>${bg}
+          <circle cx="20" cy="20" r="12.5" fill="none" stroke="url(#${uid}-fg)" stroke-width="2"/>
+          <ellipse cx="20" cy="20" rx="6.2" ry="12.5" fill="none" stroke="${d}" stroke-width="1.25"/>
+          <path d="M8 20 H32" stroke="${a}" stroke-width="1.1" opacity="0.8"/>
+          <path d="M11 13 H29 M11 27 H29" stroke="${a}" stroke-width="0.9" opacity="0.55"/>
+          <circle cx="20" cy="20" r="1.6" fill="${d}"/>
+        </svg>`;
       case 'stripe':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><rect x="6" y="10" width="28" height="5" rx="1" fill="${a}"/><rect x="6" y="17.5" width="28" height="5" rx="1" fill="${d}"/><rect x="6" y="25" width="28" height="5" rx="1" fill="${a}" opacity="0.7"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M7 11 H33" stroke="${a}" stroke-width="4.2" stroke-linecap="round"/>
+          <path d="M7 20 H33" stroke="${d}" stroke-width="4.2" stroke-linecap="round"/>
+          <path d="M7 29 H33" stroke="${a}" stroke-width="4.2" stroke-linecap="round" opacity="0.72"/>
+          <path d="M8 11 L32 29" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+        </svg>`;
       case 'talon':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M10 28 L20 8 L24 18 L30 10 L28 30 L18 24 Z" fill="${a}"/><path d="M14 30 L22 22" stroke="${d}" stroke-width="1.6"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M9 29 L20 6.5 L25 18 L32 9.5 L29.5 31.5 L17.5 24.5 Z" fill="url(#${uid}-fg)"/>
+          <path d="M13 31 L23 21.5" stroke="${d}" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M18 30 L26 24" stroke="${d}" stroke-width="1.2" opacity="0.65" stroke-linecap="round"/>
+        </svg>`;
       case 'contrail':
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><path d="M6 28 C14 26, 18 18, 22 14 L34 10" stroke="${a}" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M6 30 C16 28, 20 22, 26 16" stroke="${d}" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M28 12 L34 10 L30 16 Z" fill="${a}"/></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M5 29 C14 26.5, 18 18, 23 13.5 L35 9" stroke="url(#${uid}-fg)" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+          <path d="M5.5 31.5 C16 28.5, 20.5 22, 27 16" stroke="${d}" stroke-width="1.3" fill="none" opacity="0.65" stroke-linecap="round"/>
+          <path d="M28.5 11.5 L35.5 9 L31 16.5 Z" fill="${a}"/>
+          <circle cx="12" cy="27.5" r="1.2" fill="${d}" opacity="0.5"/>
+        </svg>`;
       default:
-        return `<svg ${common}><rect width="40" height="40" rx="9" fill="${b}"/><text x="20" y="25" text-anchor="middle" fill="${a}" font-size="14" font-weight="700" font-family="system-ui,sans-serif">✈</text></svg>`;
+        return `<svg ${common}>${bg}
+          <path d="M12 24 C16 12, 24 10, 30 14 L26 17 C22 15, 18 16, 15 22 Z" fill="url(#${uid}-fg)"/>
+          <circle cx="28" cy="16" r="2" fill="${d}"/>
+        </svg>`;
     }
+  }
+
+  /** Darken/lighten a #rrggbb hex by amount (-255..255). */
+  function shadeHex(hex, amount) {
+    const h = String(hex || '#1e3a5f').replace('#', '');
+    if (h.length !== 6) return hex || '#1e3a5f';
+    const n = (i) => Math.max(0, Math.min(255, parseInt(h.slice(i, i + 2), 16) + amount));
+    const to = (v) => v.toString(16).padStart(2, '0');
+    return `#${to(n(0))}${to(n(2))}${to(n(4))}`;
   }
 
   /** Stylized competitor brand marks (colors match real airline identities). */
@@ -5357,7 +5436,7 @@
     const brand = $('scoreboard-brand');
     if (brand) {
       brand.innerHTML = `
-        ${airlineLogoHtml(state.airline_name, state.airline_emblem, 40)}
+        ${airlineLogoHtml(state.airline_name, state.airline_emblem, 56)}
         <span class="scoreboard-brand-text">
           <strong>${state.airline_name || 'Airline'}</strong>
           <span class="muted">#${player.rank} of ${table.length} · ${region}</span>
@@ -12237,10 +12316,10 @@
     box.innerHTML = bootstrap.emblem_options
       .map((o) => {
         const mark = o.mark || o.id;
-        const svg = emblemSvgMarkup(mark, o.colors, 40);
-        return `<button type="button" class="emblem-opt${pendingEmblem === o.id ? ' active' : ''}" data-emblem="${o.id}" title="${o.label}" onclick="Runway.setEmblem('${o.id}')">
+        const svg = emblemSvgMarkup(mark, o.colors, 48);
+        // Visual marks only — no name labels under logos
+        return `<button type="button" class="emblem-opt${pendingEmblem === o.id ? ' active' : ''}" data-emblem="${o.id}" aria-label="Mark ${o.id}" onclick="Runway.setEmblem('${o.id}')">
             <span class="emblem-glyph emblem-glyph-svg">${svg}</span>
-            <span class="emblem-label">${o.label}</span>
           </button>`;
       })
       .join('');

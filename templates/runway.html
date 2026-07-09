@@ -72,7 +72,32 @@
     flex-shrink: 0;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   }
-  .routelab-brand-logo.sm { width: 40px; height: 40px; border-radius: 10px; }
+  .routelab-brand-logo.sm { width: 56px; height: 56px; border-radius: 12px; }
+  .routelab-brand-logo.lg { width: 64px; height: 64px; border-radius: 14px; }
+  .start-top-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .start-top-nav .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(15, 28, 46, 0.55);
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .start-top-nav .back-link:hover {
+    color: var(--accent);
+    border-color: rgba(0, 200, 150, 0.45);
+  }
   .start-wrap h1 {
     font-family: 'DM Serif Display', Georgia, serif;
     font-size: 2.4rem;
@@ -166,14 +191,19 @@
   .game-product-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 14px;
     flex: 0 1 auto;
-    min-width: 160px;
+    min-width: 180px;
+  }
+  .game-product-brand .routelab-brand-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
   }
   .game-product-brand-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.2; }
   .game-product-name {
     font-family: 'DM Serif Display', Georgia, serif;
-    font-size: 1.42rem;
+    font-size: 1.5rem;
     color: var(--gold);
     letter-spacing: 0.02em;
   }
@@ -200,20 +230,25 @@
   #scoreboard-brand {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 6px 10px;
+    border-radius: 12px;
+    padding: 8px 12px 8px 8px;
     color: var(--text);
     cursor: pointer;
     font: inherit;
     text-align: left;
   }
   #scoreboard-brand:hover { border-color: var(--accent); }
-  .scoreboard-brand-text { display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
-  .scoreboard-brand-text strong { font-size: 0.88rem; color: #fff; }
-  .scoreboard-brand-text .muted { font-size: 0.68rem; }
+  #scoreboard-brand .airline-logo {
+    width: 56px !important;
+    height: 56px !important;
+    border-radius: 12px;
+  }
+  .scoreboard-brand-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+  .scoreboard-brand-text strong { font-size: 1rem; color: #fff; }
+  .scoreboard-brand-text .muted { font-size: 0.72rem; }
   .airline-logo {
     display: inline-flex;
     align-items: center;
@@ -254,8 +289,6 @@
     color: rgba(255,255,255,0.85);
     letter-spacing: -0.02em;
   }
-  .emblem-glyph-svg { display: flex; line-height: 0; }
-  .emblem-glyph-svg svg { width: 40px; height: 40px; border-radius: 10px; }
   #name-step-brief b { color: var(--gold); font-weight: 700; }
   .scoreboard-pillars {
     display: flex;
@@ -404,17 +437,19 @@
   .emblem-picker {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
     margin: 12px 0 4px;
   }
   .emblem-opt {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    min-width: 72px;
-    padding: 10px 8px;
-    border-radius: 10px;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    min-width: 64px;
+    padding: 6px;
+    border-radius: 14px;
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);
@@ -422,10 +457,16 @@
     font: inherit;
     font-size: 0.72rem;
   }
-  .emblem-opt:hover { border-color: var(--accent); }
-  .emblem-opt.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(0,200,150,0.06); }
+  .emblem-opt:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .emblem-opt.active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(0, 200, 150, 0.35), 0 8px 18px rgba(0, 0, 0, 0.35);
+    background: rgba(0,200,150,0.08);
+  }
   .emblem-glyph { font-size: 1.35rem; line-height: 1; }
-  .emblem-label { color: var(--muted); }
+  .emblem-glyph-svg { display: flex; line-height: 0; }
+  .emblem-glyph-svg svg { width: 48px; height: 48px; border-radius: 11px; }
+  .emblem-label { display: none; }
   .hud-identity { flex: 1 1 140px; min-width: 120px; }
   .hud-primary {
     display: flex;
@@ -2591,6 +2632,9 @@
 
 <div id="screen-start" class="screen active">
   <div class="start-wrap">
+    <div class="start-top-nav">
+      <a href="/dashboard" class="back-link" id="btn-back-dashboard" title="Return to PPS Hub dashboard">← Dashboard</a>
+    </div>
     <div class="start-hero">
       <div class="start-brand" id="start-brand">
         <img class="routelab-brand-logo" id="start-brand-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="72" height="72">
@@ -2628,8 +2672,8 @@
         </label>
         <p class="muted" style="font-size:0.8rem;margin-top:14px;">Pricing strategy (company-wide)</p>
         <div class="emblem-picker" id="ancillary-strategy-picker"></div>
-        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Choose your emblem (logo mark)</p>
-        <div class="emblem-picker" id="emblem-picker"></div>
+        <p class="muted" style="font-size:0.8rem;margin-top:14px;">Choose your mark</p>
+        <div class="emblem-picker" id="emblem-picker" aria-label="Airline mark"></div>
         <div class="btn-row">
           <button type="button" class="btn" id="btn-start-game">Start airline</button>
           <button type="button" class="btn secondary" id="btn-back-scenarios">Back</button>
@@ -2657,7 +2701,7 @@
     </div>
     <div id="scoreboard-panel" class="scoreboard-panel"></div>
     <div class="game-product-brand" title="Route Lab — airline network simulation">
-      <img class="routelab-brand-logo sm" id="hud-product-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="40" height="40">
+      <img class="routelab-brand-logo lg" id="hud-product-logo" src="/static/routelab/routelab-app-logo.jpg" alt="" width="64" height="64">
       <div class="game-product-brand-text">
         <span class="game-product-name" id="hud-product-name">Route Lab</span>
         <span class="game-airline-line" id="hud-airline">Your airline</span>
