@@ -9827,7 +9827,7 @@
       const cap = planeWeeklyBlockHoursCapacity(plane);
       return (
         `Aircraft schedule limit: ${freq}/wk needs more block hours than this plane has left ` +
-        `(~${cap.toFixed(1)} hr/wk total — one aircraft, one place at a time). Max ~${aircraftMax}/wk on this route.`
+        `(~${fmtHours(cap)} hr/wk total — one aircraft, one place at a time). Max ~${aircraftMax}/wk on this route.`
       );
     }
     return null;
@@ -11780,7 +11780,7 @@
         html += `<button type="button" class="fleet-owned-card fleet-owned-card-btn" data-plane-detail="${f.id}" title="Open aircraft details">
           <strong>${ac.name}</strong>${aog}
           <span class="muted">${seats} seats · ${f.leased ? 'Leased' : 'Owned'} · ${life}</span>
-          <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'} · <b>${blockUsed.toFixed(1)}/${blockCap.toFixed(1)}</b> block-hr/wk scheduled</span>
+          <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'} · <b>${fmtHours(blockUsed)}/${fmtHours(blockCap)}</b> block-hr/wk scheduled</span>
           <span class="muted" style="font-size:0.7rem;">Seat load: ${seatLoadLabel} · Util ${utilToday.toFixed(0)}% today / ${util.toFixed(0)}% MTD · Reliability <b class="${relTone}">${rel}</b></span>
           <div class="util-bar ${utilBarClass}"><span style="width:${Math.min(100, util)}%"></span></div>
           <span class="fleet-card-hint muted">Tap for maintenance · reliability · life →</span>
@@ -12358,8 +12358,8 @@
     const schedNote =
       sched && plane
         ? sched.ok
-          ? ` · aircraft ${sched.after.toFixed(1)}/${sched.cap.toFixed(1)} block-hr/wk`
-          : ` · <span class="danger">over aircraft schedule ${sched.after.toFixed(1)}/${sched.cap.toFixed(1)} hr/wk</span>`
+          ? ` · aircraft ${fmtHours(sched.after)}/${fmtHours(sched.cap)} block-hr/wk`
+          : ` · <span class="danger">over aircraft schedule ${fmtHours(sched.after)}/${fmtHours(sched.cap)} hr/wk</span>`
         : '';
     const flyNote =
       via.schedScale < 0.98 ? ` · flies ~${Math.round(via.schedScale * 100)}% of ${freq}/wk` : '';
