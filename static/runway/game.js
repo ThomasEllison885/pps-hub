@@ -3484,8 +3484,16 @@
           </button>`
       )
       .join('');
+    const kindClass =
+      activeDecision.kind === 'opportunity'
+        ? ' decision-opportunity'
+        : activeDecision.kind === 'threat'
+          ? ' decision-threat'
+          : '';
     const cardClass =
-      activeDecision.onboarding || activeDecision.winningPlaybook ? 'decision-card onboarding' : 'decision-card';
+      activeDecision.onboarding || activeDecision.winningPlaybook
+        ? 'decision-card onboarding'
+        : `decision-card${kindClass}`;
     const progress =
       activeDecision.tutorial && activeDecision.tutorialTotal
         ? `<div class="tutorial-progress" aria-hidden="true">${Array.from({ length: activeDecision.tutorialTotal }, (_, i) =>
