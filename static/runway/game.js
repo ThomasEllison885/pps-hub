@@ -69,6 +69,39 @@
   const ROUTE_STATS_WINDOW_DAYS = 30;
   const ROUTE_HISTORY_MAX_DAYS = 90;
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
+  /** Mid-game ops campaigns after the 9-step regional build track. */
+  const OPS_MIDGAME_GOALS = [
+    {
+      id: 'ltm_25m',
+      label: 'Scale: $25M LTM revenue',
+      hint: 'Grow frequency and open markets — revenue is the PE/IPO ladder.',
+      tab: 'routes',
+    },
+    {
+      id: 'hub_presence',
+      label: 'Hub presence: 8%+ of departures at your main base',
+      hint: 'Add frequency from your busiest gate until you are a real share of the airport.',
+      tab: 'routes',
+    },
+    {
+      id: 'profit_month',
+      label: 'Sustain: profitable trailing month',
+      hint: 'Fix losing routes before adding more thin markets.',
+      tab: 'routes',
+    },
+    {
+      id: 'network_6',
+      label: 'Network: six active routes',
+      hint: 'A true regional web — six city pairs flying.',
+      tab: 'routes',
+    },
+    {
+      id: 'pressure_win',
+      label: 'Compete: profitable route under high pressure',
+      hint: 'Win on a contested pair with load and green P&L.',
+      tab: 'routes',
+    },
+  ];
 
   const $ = (id) => document.getElementById(id);
   const MOBILE_MQ = '(max-width: 900px)';
@@ -1546,11 +1579,28 @@
     }
   }
 
+  /** Rivals hit harder after PE / IPO / scale — markets notice capital. */
+  function competitorAggressionMult() {
+    if (!state) return 1;
+    let m = 1;
+    if (state.pe_done) m *= 1.28;
+    if (state.public || state.ipo_done) m *= 1.45;
+    if ((state.ltm_revenue || 0) >= 40_000_000) m *= 1.12;
+    if ((state.routes || []).length >= 6) m *= 1.08;
+    return m;
+  }
+
+  function reactiveCompetitorCooldownDays() {
+    const base = REACTIVE_COMPETITOR_COOLDOWN_DAYS;
+    const mult = competitorAggressionMult();
+    return Math.max(6, Math.round(base / mult));
+  }
+
   function processReactiveCompetitorThreats(trigger, origin, dest) {
     if (!state || !state.competitor_routes || !state.competitor_routes.length) return;
     state.last_reactive_competitor_day = state.last_reactive_competitor_day || 0;
     const skipCooldown = trigger === 'player_route';
-    if (!skipCooldown && state.day - state.last_reactive_competitor_day < REACTIVE_COMPETITOR_COOLDOWN_DAYS) return;
+    if (!skipCooldown && state.day - state.last_reactive_competitor_day < reactiveCompetitorCooldownDays()) return;
 
     let candidates = state.competitor_routes;
     if (trigger === 'player_route' && origin && dest) {
@@ -1568,14 +1618,19 @@
       candidates = candidates.filter((cr) => invested.has(cr.origin) || invested.has(cr.dest));
     }
 
+    const agg = competitorAggressionMult();
+    const scoreFloor = trigger === 'player_route' ? 30 / agg : 42 / agg;
     const scored = candidates
-      .map((cr) => ({ cr, score: competitorThreatScore(cr, trigger, origin, dest) }))
-      .filter((x) => x.score >= (trigger === 'player_route' ? 30 : 42))
+      .map((cr) => ({
+        cr,
+        score: competitorThreatScore(cr, trigger, origin, dest) * (0.85 + 0.15 * agg),
+      }))
+      .filter((x) => x.score >= scoreFloor)
       .sort((a, b) => b.score - a.score);
 
     if (!scored.length) return;
 
-    const maxActions = trigger === 'player_route' ? 2 : 1;
+    const maxActions = trigger === 'player_route' ? 2 : agg >= 1.3 ? 2 : 1;
     const logs = [];
     for (let i = 0; i < Math.min(maxActions, scored.length); i++) {
       const log = executeCompetitorReaction(scored[i].cr, scored[i].score, trigger);
@@ -2170,6 +2225,13 @@
       focusHubForRoutes(option.airport);
     } else if (option.effect === 'open_tab' && option.tab) {
       switchTab(option.tab);
+    } else if (option.effect === 'tab_routes') {
+      switchTab('routes');
+    } else if (option.effect === 'tab' && option.tab) {
+      switchTab(option.tab);
+    } else if (option.effect === 'route_review' && option.routeId) {
+      switchTab('routes');
+      openRouteReview(option.routeId);
     } else if (option.effect === 'goal_hangar') {
       setSpeed('pause');
       saveGame();
@@ -3794,8 +3856,12 @@
   function maybeCompetitorEvents() {
     if (!state || state.game_over || activeDecision || decisionQueue.length) return;
     const gap = state.day - (state.last_competitor_event_day || 0);
-    if (gap < 50) return;
-    if (Math.random() > 0.42) return;
+    const agg = competitorAggressionMult();
+    const minGap = Math.max(28, Math.round(50 / agg));
+    if (gap < minGap) return;
+    // Public / PE airlines face more board-visible competitive drama
+    const fireChance = Math.min(0.72, 0.42 * agg);
+    if (Math.random() > fireChance) return;
     const invested = investedAirports();
     if (!invested.length) return;
     const iata = invested[Math.floor(Math.random() * invested.length)];
@@ -6996,6 +7062,14 @@
       processMonthlyScoreboard();
       if (!decisionPending) processMonthlyGateEfficiency();
       maybeCapitalCoach();
+      if (!decisionPending) maybeMonthlyOpsReview();
+      if (!decisionPending) maybePublicOrPePressure();
+      // Mid-game ops goals tick (achievements fire inside activeMidgameOpsGoal)
+      try {
+        activeMidgameOpsGoal();
+      } catch (e) {
+        /* midgame goals optional */
+      }
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
         ensurePlaneTelemetry(f);
@@ -11570,44 +11644,416 @@
     });
   }
 
+
+  /**
+   * Structural health of a single route — why it loses money and what to do.
+   * Used by route cards, ops coach, and monthly ops review.
+   */
+  function diagnoseRouteHealth(route) {
+    if (!route || !state) return null;
+    const r = simulateRouteDay(route);
+    const pnl = (r.revenue || 0) - (r.cost || 0);
+    const pressure = routeCompetitivePressure(route);
+    const mkt = r.market || routeMarketContext(route);
+    const hasRet = !!hasReturnLeg(route);
+    const reasons = [];
+    const fixes = [];
+    let severity = 'ok';
+
+    if (r.grounded) {
+      return {
+        severity: 'critical',
+        title: 'Aircraft grounded (AOG)',
+        reasons: ['This metal is not flying — fix maintenance / AOG in Fleet.'],
+        fixes: [{ label: 'Open Fleet', effect: 'tab', tab: 'fleet' }],
+        pnl,
+        load: r.load,
+        pressure,
+        route,
+      };
+    }
+
+    if (pnl < -1200) {
+      severity = 'critical';
+      reasons.push(`Losing <b>${fmtMoney(Math.abs(pnl))}/day</b> on variable ops (before gate/lease overhead)`);
+    } else if (pnl < 0) {
+      severity = 'watch';
+      reasons.push(`Negative route P&L · <b>${fmtMoney(pnl)}/day</b>`);
+    } else if (pnl > 800) {
+      reasons.push(`Cash engine · <b>+${fmtMoney(pnl)}/day</b>`);
+    }
+
+    if (!r.canceled && r.load != null && r.load < 0.38) {
+      reasons.push(`Thin load <b>${(r.load * 100).toFixed(0)}%</b> — not enough passengers for this capacity`);
+      fixes.push({ label: `Review ${route.origin}–${route.dest}`, effect: 'route_review', routeId: route.id });
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    if (!r.canceled && r.load != null && r.load >= 0.72 && pnl < 0) {
+      reasons.push(
+        '<b>Structurally weak:</b> planes are full but still lose money — fare too low or aircraft too costly for this stage'
+      );
+      fixes.push({ label: 'Raise fare / change metal', effect: 'route_review', routeId: route.id });
+      severity = 'critical';
+    }
+
+    if (mkt && (mkt.captureFactor || 0) < 0.08) {
+      reasons.push(
+        `Tiny demand capture (<b>${formatMarketSharePct(mkt.captureFactor || 0)}</b>) — speck of airport traffic`
+      );
+      fixes.push({ label: 'Add frequency or ads', effect: 'route_review', routeId: route.id });
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    if (pressure && pressure.score >= 55) {
+      reasons.push(`High competitive pressure <b>${pressure.score}/100</b> — ${pressure.tip}`);
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    if (!hasRet) {
+      reasons.push('No return leg — empty ferry home burns fuel and block hours');
+      fixes.push({ label: 'Open Routes', effect: 'tab', tab: 'routes' });
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    if (r.schedScale != null && r.schedScale < 0.85) {
+      reasons.push(
+        `Aircraft overscheduled — only ~<b>${Math.round(r.schedScale * 100)}%</b> of planned flights can operate`
+      );
+      fixes.push({ label: 'Open Fleet', effect: 'tab', tab: 'fleet' });
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    if (r.canceled) {
+      reasons.push('Flights scrubbed for thin load — cash-safe but not building the market');
+      if (severity === 'ok') severity = 'watch';
+    }
+
+    let title = 'Healthy route';
+    if (severity === 'critical') title = 'Structurally weak';
+    else if (severity === 'watch') title = 'Needs attention';
+    else if (pnl > 800) title = 'Cash engine';
+
+    if (!fixes.length) {
+      fixes.push({ label: `Review ${route.origin}–${route.dest}`, effect: 'route_review', routeId: route.id });
+    }
+
+    return { severity, title, reasons, fixes, pnl, load: r.load, pressure, route };
+  }
+
+  function diagnoseNetworkRoutes() {
+    return (state.routes || [])
+      .map((route) => diagnoseRouteHealth(route))
+      .filter(Boolean)
+      .sort((a, b) => {
+        const rank = { critical: 0, watch: 1, ok: 2 };
+        return (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3) || a.pnl - b.pnl;
+      });
+  }
+
+  function mainHubIata() {
+    if (!state || !(state.gates || []).length) return null;
+    const counts = {};
+    (state.routes || []).forEach((r) => {
+      counts[r.origin] = (counts[r.origin] || 0) + (r.frequency_week || 0);
+    });
+    let best = state.gates[0].airport;
+    let bestN = -1;
+    state.gates.forEach((g) => {
+      const n = counts[g.airport] || 0;
+      if (n > bestN) {
+        bestN = n;
+        best = g.airport;
+      }
+    });
+    return best;
+  }
+
+  function playerHubDepartureShare(iata) {
+    if (!iata || !state) return 0;
+    let playerDeps = 0;
+    (state.routes || []).forEach((r) => {
+      if (r.origin === iata) playerDeps += r.frequency_week || 0;
+    });
+    const sample = (state.routes || []).find((r) => r.origin === iata);
+    if (sample) {
+      const ctx = routeMarketContext(sample);
+      if (ctx && ctx.originMarketWeekly > 0) return playerDeps / ctx.originMarketWeekly;
+    }
+    const util = gateUtilizationAt(iata);
+    if (util && util.max > 0) return Math.min(1, playerDeps / Math.max(util.max * 3, 28));
+    return 0;
+  }
+
+  function midgameGoalProgress(goal) {
+    if (!goal || !state) return { done: false, pct: 0, progress: '—' };
+    if (goal.id === 'ltm_25m') {
+      const cur = state.ltm_revenue || 0;
+      return {
+        done: cur >= 25_000_000,
+        pct: Math.min(100, (cur / 25_000_000) * 100),
+        progress: `${fmtMoney(cur)} of ${fmtMoney(25_000_000)}`,
+      };
+    }
+    if (goal.id === 'hub_presence') {
+      const hub = mainHubIata();
+      const share = playerHubDepartureShare(hub);
+      return {
+        done: share >= 0.08,
+        pct: Math.min(100, (share / 0.08) * 100),
+        progress: hub ? `${hub} · ${formatMarketSharePct(share)} of deps` : 'lease a hub first',
+      };
+    }
+    if (goal.id === 'profit_month') {
+      const trail = trailingMonthPnl();
+      return {
+        done: trail != null && trail > 0,
+        pct: trail != null && trail > 0 ? 100 : 0,
+        progress: trail == null ? 'collecting 30 days…' : `${fmtMoney(trail)} last 30 days`,
+      };
+    }
+    if (goal.id === 'network_6') {
+      const n = (state.routes || []).length;
+      return { done: n >= 6, pct: Math.min(100, (n / 6) * 100), progress: `${n} of 6 routes` };
+    }
+    if (goal.id === 'pressure_win') {
+      const win = (state.routes || []).some((route) => {
+        const h = diagnoseRouteHealth(route);
+        return h && h.severity === 'ok' && h.pnl > 200 && h.pressure && h.pressure.score >= 55;
+      });
+      return {
+        done: !!win,
+        pct: win ? 100 : 0,
+        progress: win ? 'holding a green contested route' : 'need green P&L under pressure ≥55',
+      };
+    }
+    return { done: false, pct: 0, progress: '—' };
+  }
+
+  function activeMidgameOpsGoal() {
+    if (!state) return null;
+    const build = regionalBuildSteps();
+    const buildProgress = build.filter((s) => s.done).length;
+    if (buildProgress < 6 && (state.routes || []).length < 3) return null;
+
+    state.ops_goals_done = state.ops_goals_done || [];
+    for (let i = 0; i < OPS_MIDGAME_GOALS.length; i++) {
+      const g = OPS_MIDGAME_GOALS[i];
+      if (state.ops_goals_done.includes(g.id)) continue;
+      const prog = midgameGoalProgress(g);
+      if (prog.done) {
+        state.ops_goals_done.push(g.id);
+        pushEvent(`Ops goal achieved: <b>${g.label}</b>`, 'milestone');
+        markMilestoneOnce(`ops_goal_${g.id}`, `${state.airline_name}: ${g.label}`);
+        continue;
+      }
+      return { ...g, ...prog };
+    }
+    return null;
+  }
+
+  function midgameOpsGoalHtml() {
+    const g = activeMidgameOpsGoal();
+    if (!g) return '';
+    return `<p class="ops-midgame-line">Next ops goal: <b>${g.label}</b> · ${g.progress} <span class="muted">(${Math.round(g.pct)}%)</span></p>`;
+  }
+
+  function maybeMonthlyOpsReview() {
+    if (!state || state.game_over) return;
+    if (activeDecision || decisionQueue.length) return;
+    if ((state.routes || []).length < 1) return;
+    if (state.last_ops_review_day && state.day - state.last_ops_review_day < 28) return;
+
+    const diagnoses = diagnoseNetworkRoutes();
+    const critical = diagnoses.filter((d) => d.severity === 'critical');
+    const watch = diagnoses.filter((d) => d.severity === 'watch');
+    if (!critical.length && watch.length < 2) return;
+
+    state.last_ops_review_day = state.day;
+    const worst = critical[0] || watch[0];
+    if (!worst || !worst.route) return;
+
+    const list = diagnoses
+      .filter((d) => d.severity !== 'ok')
+      .slice(0, 4)
+      .map((d) => `<li><b>${d.route.origin}–${d.route.dest}</b> — ${d.title}: ${d.reasons[0] || ''}</li>`)
+      .join('');
+
+    const pubNote =
+      state.public || state.ipo_done
+        ? `<p class="muted" style="font-size:0.82rem;">As a <b>public</b> carrier, soft routes show up in the narrative — reputation can slip if you ignore them.</p>`
+        : state.pe_done
+          ? `<p class="muted" style="font-size:0.82rem;">Your <b>PE partners</b> watch route economics — clean up red ink or expect board pressure.</p>`
+          : '';
+
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · Monthly ops review`,
+      title: critical.length
+        ? `${critical.length} route${critical.length === 1 ? '' : 's'} structurally weak`
+        : 'Network needs attention',
+      body:
+        `<p>Route-level diagnosis (variable P&L before gate/lease overhead):</p>` +
+        `<ul style="margin:8px 0;padding-left:18px;font-size:0.85rem;line-height:1.45;">${list}</ul>${pubNote}` +
+        `<p class="muted" style="font-size:0.82rem;">Fix fares, frequency, return legs, or metal — don't just open another thin market.</p>`,
+      teach: 'Full planes that still lose money = structural. Thin loads = demand/share. No return = ferry tax.',
+      logLine: `Ops review: ${critical.length} critical / ${watch.length} watch routes`,
+      options: [
+        {
+          id: 'ops_fix_worst',
+          label: `A — Fix ${worst.route.origin}–${worst.route.dest}`,
+          hint: worst.title,
+          effect: 'route_review',
+          routeId: worst.route.id,
+        },
+        {
+          id: 'ops_routes',
+          label: 'B — Open Routes tab',
+          hint: 'Review the whole network.',
+          effect: 'tab_routes',
+        },
+        {
+          id: 'ops_later',
+          label: 'C — Note it and continue',
+          hint: 'Coach will keep flagging red routes.',
+          effect: 'none',
+        },
+      ],
+    });
+  }
+
+  function maybePublicOrPePressure() {
+    if (!state || state.game_over) return;
+    if (!state.public && !state.pe_done) return;
+    if (state.day % 30 !== 0) return;
+    if (state.last_board_pressure_day === state.day) return;
+    state.last_board_pressure_day = state.day;
+
+    const trail = trailingMonthPnl();
+    const critical = diagnoseNetworkRoutes().filter((d) => d.severity === 'critical');
+    const burn = burnMonthly();
+    const runway = burn > 0 ? state.cash / burn : 99;
+
+    if (trail != null && trail < 0) {
+      const hit = state.public || state.ipo_done ? 3.2 : 1.8;
+      state.reputation = Math.max(0, (state.reputation || 0) - hit);
+      pushEvent(
+        state.public || state.ipo_done
+          ? `Markets punish a losing month — reputation <b>−${hit.toFixed(1)}</b> (now ${(state.reputation || 0).toFixed(0)}). Public regionals live under a microscope.`
+          : `PE board notes a soft month — reputation <b>−${hit.toFixed(1)}</b>. Clean up route losses.`,
+        'bad'
+      );
+    }
+
+    if (critical.length >= 2 && !(activeDecision || decisionQueue.length)) {
+      const w = critical[0];
+      queueDecision({
+        kicker: `${fmtDate(state.day)} · ${state.public || state.ipo_done ? 'Public markets' : 'PE board'}`,
+        title: state.public || state.ipo_done ? 'Analyst note: network quality' : 'Board letter: fix the red routes',
+        body:
+          `<p>${critical.length} routes look <b>structurally weak</b>. Worst: <b>${w.route.origin}–${w.route.dest}</b> — ${w.reasons[0] || w.title}.</p>` +
+          `<p class="muted" style="font-size:0.85rem;">Cash runway ~${runway.toFixed(1)} mo. Ignoring this invites fare wars you cannot win.</p>`,
+        teach: 'Growth capital attracts competitors. Defend with healthy routes, not vanity markets.',
+        logLine: 'Board pressure on weak routes',
+        options: [
+          {
+            id: 'board_fix',
+            label: `A — Repair ${w.route.origin}–${w.route.dest}`,
+            hint: 'Open route review.',
+            effect: 'route_review',
+            routeId: w.route.id,
+          },
+          {
+            id: 'board_routes',
+            label: 'B — Open Routes tab',
+            hint: 'Review the network.',
+            effect: 'tab_routes',
+          },
+          {
+            id: 'board_ack',
+            label: 'C — Acknowledge and continue',
+            hint: 'Reputation already reflects the month.',
+            effect: 'none',
+          },
+        ],
+      });
+    }
+
+    if ((state.public || state.pe_done) && trail != null && trail < 0 && Math.random() < 0.55) {
+      processReactiveCompetitorThreats('weekly');
+    }
+  }
+
+  function routeHealthBannerHtml(health) {
+    if (!health) return '';
+    if (health.severity === 'ok') {
+      if (health.pnl > 800) {
+        return `<p class="route-health route-health-good"><b>Cash engine</b> · ${fmtMoney(health.pnl)}/day variable</p>`;
+      }
+      return '';
+    }
+    const cls = health.severity === 'critical' ? 'route-health-critical' : 'route-health-watch';
+    const why = (health.reasons || []).slice(0, 2).join(' · ');
+    return `<p class="route-health ${cls}"><b>${health.title}</b> — ${why}</p>`;
+  }
+
   function profitCoachContext() {
     if (!state || !state.routes.length || state.day < 10) return null;
     const econ = simulateDayEconomics();
+    const diagnoses = diagnoseNetworkRoutes();
+    const worstH = diagnoses.find((d) => d.severity === 'critical') || diagnoses.find((d) => d.severity === 'watch');
+    const bestH = [...diagnoses].reverse().find((d) => d.pnl > 0 && d.severity === 'ok');
     const pnls = routeDailyPnls().sort((a, b) => b.pnl - a.pnl);
     const best = pnls.find((x) => x.pnl > 0);
-    const worst = [...pnls].reverse().find((x) => x.pnl <= 0 || x.load < 0.4);
     const thin = pnls.filter((x) => !x.grounded && x.load < 0.38);
     const routeMargin = econ.dayRev - econ.dayCost;
     const fixedDaily = econ.dailyFixed;
     const netDaily = econ.pnl;
+    const debtSvc = monthlyDebtService();
+
+    if (worstH && worstH.severity === 'critical') {
+      const r = worstH.route;
+      const why = worstH.reasons.slice(0, 2).join(' ');
+      const actions = (worstH.fixes || []).slice(0, 2);
+      if (bestH && bestH.route) {
+        actions.push({
+          label: `Grow ${bestH.route.origin}–${bestH.route.dest}`,
+          effect: 'route_review',
+          routeId: bestH.route.id,
+        });
+      }
+      return {
+        step: 0,
+        text:
+          `<b>Route health:</b> <b>${r.origin}–${r.dest}</b> is <b>${worstH.title.toLowerCase()}</b>. ${why} ` +
+          `Network variable margin <b>${fmtMoney(routeMargin)}/day</b> · overhead <b>−${fmtMoney(fixedDaily)}/day</b>` +
+          (debtSvc > 0 ? ` · debt service ~${fmtMoney(debtSvc)}/mo` : '') +
+          `.`,
+        actions,
+        profit: true,
+        tone: 'warn',
+      };
+    }
 
     if (netDaily < -200 || (fixedDaily > routeMargin && state.day > 21)) {
-      let text = `Losing <b>${fmtMoney(Math.abs(netDaily))}/day</b> after overhead. Routes earn <b>${fmtMoney(routeMargin)}/day</b> variable margin; gates, leases, and marketing cost <b>${fmtMoney(fixedDaily)}/day</b>. `;
-      if (worst) {
-        const fareHint = (() => {
-          const rec = recommendLaunchFare({
-            origin: worst.route.origin,
-            dest: worst.route.dest,
-            aircraftId: worst.route.aircraft_id,
-            freq: worst.route.frequency_week,
-            fare: worst.route.fare,
-            stationCost: 0,
-            investments: { airport: 0, state: 0, national: 0, world: 0 },
-          });
-          return rec ? ` Model starting fare hint: <b>$${rec.fare}</b> (market $${rec.market}).` : '';
-        })();
-        text += `Weakest: <b>${worst.route.origin}–${worst.route.dest}</b> (${fmtMoney(worst.pnl)}/day`;
-        if (worst.load < 0.4) text += `, ${(worst.load * 100).toFixed(0)}% load — try a lower fare or less frequency`;
-        text += `).${fareHint} `;
+      let text = `Losing <b>${fmtMoney(Math.abs(netDaily))}/day</b> after overhead. Routes earn <b>${fmtMoney(routeMargin)}/day</b> variable; gates/leases/marketing cost <b>${fmtMoney(fixedDaily)}/day</b>`;
+      if (debtSvc > 0) text += ` · debt ~${fmtMoney(debtSvc)}/mo on the month tick`;
+      text += '. ';
+      if (worstH && worstH.route) {
+        text += `Weakest: <b>${worstH.route.origin}–${worstH.route.dest}</b> — ${worstH.reasons[0] || worstH.title}. `;
       }
       if (best) {
-        text += `Winner: <b>${best.route.origin}–${best.route.dest}</b> (+${fmtMoney(best.pnl)}/day) — add frequency if gate and aircraft hours allow.`;
-      } else if (thin.length) {
-        text += `${thin.length} route${thin.length === 1 ? '' : 's'} under 38% load — thin markets need smaller planes or fewer weekly departures.`;
+        text += `Winner: <b>${best.route.origin}–${best.route.dest}</b> (+${fmtMoney(best.pnl)}/day) — grow what works.`;
       } else {
-        text += 'Cover fixed costs with more frequency on your best route before opening a second thin market.';
+        text += 'Cover fixed costs on one strong route before opening another thin market.';
       }
       const actions = [];
+      if (worstH && worstH.route) {
+        actions.push({
+          label: `Fix ${worstH.route.origin}–${worstH.route.dest}`,
+          effect: 'route_review',
+          routeId: worstH.route.id,
+        });
+      }
       if (best) {
         actions.push({
           label: `Review ${best.route.origin}–${best.route.dest}`,
@@ -11615,21 +12061,18 @@
           routeId: best.route.id,
         });
       }
-      if (worst && worst.route.id !== best?.route.id) {
-        actions.push({
-          label: `Fix ${worst.route.origin}–${worst.route.dest}`,
-          effect: 'route_review',
-          routeId: worst.route.id,
-        });
-      }
       actions.push({ label: 'Open Routes', effect: 'tab', tab: 'routes' });
       return { step: 0, text, actions, profit: true, tone: 'warn' };
     }
 
     if (netDaily > 500 && best) {
+      const mid = activeMidgameOpsGoal();
+      const midNote = mid ? ` Next ops goal: <b>${mid.label}</b> (${mid.progress}).` : '';
       return {
         step: 0,
-        text: `Profitable: <b>+${fmtMoney(netDaily)}/day</b> net (routes +${fmtMoney(routeMargin)}/day · overhead −${fmtMoney(fixedDaily)}/day). Double down on <b>${best.route.origin}–${best.route.dest}</b> before chasing a second hub.`,
+        text:
+          `Profitable: <b>+${fmtMoney(netDaily)}/day</b> net (routes +${fmtMoney(routeMargin)} · overhead −${fmtMoney(fixedDaily)}). ` +
+          `Double down on <b>${best.route.origin}–${best.route.dest}</b> before vanity expansion.${midNote}`,
         actions: [
           { label: `Grow ${best.route.origin}–${best.route.dest}`, effect: 'route_review', routeId: best.route.id },
           { label: 'Open Routes', effect: 'tab', tab: 'routes' },
@@ -11641,6 +12084,8 @@
 
     if (thin.length && state.routes.length >= 1) {
       const r = thin[0].route;
+      const health = diagnoseRouteHealth(r);
+      const extra = health && health.reasons[1] ? ` ${health.reasons[1]}` : '';
       const rec = recommendLaunchFare({
         origin: r.origin,
         dest: r.dest,
@@ -11650,10 +12095,10 @@
         stationCost: 0,
         investments: { airport: 0, state: 0, national: 0, world: 0 },
       });
-      const fareHint = rec ? ` Try fare near <b>$${rec.fare}</b> (market $${rec.market}) — hint only.` : '';
+      const fareHint = rec ? ` Try fare near <b>$${rec.fare}</b> (market $${rec.market}).` : '';
       return {
         step: 0,
-        text: `<b>${r.origin}–${r.dest}</b> is only <b>${(thin[0].load * 100).toFixed(0)}%</b> full — at your airport share, loads stay thin until frequency or fleet grows.${fareHint}`,
+        text: `<b>${r.origin}–${r.dest}</b> is only <b>${(thin[0].load * 100).toFixed(0)}%</b> full — demand capture or fare may be wrong.${extra}${fareHint}`,
         actions: [
           { label: `Review ${r.origin}–${r.dest}`, effect: 'route_review', routeId: r.id },
           { label: 'Open Fleet', effect: 'tab', tab: 'fleet' },
@@ -11781,9 +12226,22 @@
       };
     }
     const done = build.filter((s) => s.done).length;
+    const mid = activeMidgameOpsGoal();
+    if (mid) {
+      return {
+        step: 0,
+        text:
+          `<b>Mid-game ops:</b> ${mid.label} · ${mid.progress} (${Math.round(mid.pct)}%). ` +
+          `${mid.hint || ''} Regional track ${done}/${build.length}.`,
+        actions: [
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
+        ],
+      };
+    }
     return {
       step: 0,
-      text: `<b>Regional track ${done}/${build.length}</b> · Map · Routes · Fleet · <b>Capital</b> (debt I+P, PE, IPO). Profit coach appears when daily P&L turns red.`,
+      text: `<b>Regional track ${done}/${build.length}</b> · Map · Routes · Fleet · <b>Capital</b> (debt I+P, PE, IPO). Route health banners flag weak markets. Profit coach appears when daily P&L turns red.`,
       actions: [
         { label: 'Open Capital', effect: 'tab', tab: 'finance' },
         ...(state.routes.length ? [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }] : []),
@@ -11884,6 +12342,7 @@
         <button type="button" class="ops-guide-toggle" data-ops-collapse>${opsGuideCollapsed ? 'Show' : 'Hide'}</button>
       </div>
       ${goalProgressLineHtml()}
+      ${midgameOpsGoalHtml()}
       <div class="ops-guide-body">
         <p>${stepLabel}${ctx.text}</p>
         ${actions}
@@ -12599,6 +13058,7 @@
             <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
           </div>
           ${forecastHtml}
+          ${routeHealthBannerHtml(diagnoseRouteHealth(route))}
           <div class="route-card-meta">
             <span>${route.frequency_week}/wk · ${acName}</span>
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>

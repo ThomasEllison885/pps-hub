@@ -263,6 +263,34 @@
     color: var(--muted);
   }
   .build-track-list li.done { color: var(--accent); }
+  .ops-midgame-line {
+    margin: 4px 10px 6px 14px;
+    font-size: 0.72rem;
+    color: #9ecbff;
+    line-height: 1.45;
+  }
+  .route-health {
+    margin: 4px 0 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 0.68rem;
+    line-height: 1.4;
+  }
+  .route-health-critical {
+    background: rgba(255, 90, 70, 0.12);
+    border: 1px solid rgba(255, 120, 90, 0.4);
+    color: #ffb4a0;
+  }
+  .route-health-watch {
+    background: rgba(255, 209, 102, 0.1);
+    border: 1px solid rgba(255, 209, 102, 0.35);
+    color: var(--gold);
+  }
+  .route-health-good {
+    background: rgba(0, 200, 150, 0.1);
+    border: 1px solid rgba(0, 200, 150, 0.3);
+    color: var(--accent);
+  }
   .scenario-chip {
     font-size: 0.68rem;
     padding: 3px 8px;
@@ -3104,7 +3132,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=72"></script>
-<script src="/static/runway/game.js?v=72"></script>
+<script src="/static/runway/economics.js?v=73"></script>
+<script src="/static/runway/game.js?v=73"></script>
 </body>
 </html>
