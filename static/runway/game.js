@@ -234,16 +234,38 @@
     return Math.round(x * f) / f;
   }
 
-  function routeWeeklyBlockHours(route) {
+  /**
+   * Weekly block hours a route consumes on its assigned aircraft.
+   * One-way only counts once if a return leg exists on the same metal; otherwise
+   * ferry-home is charged (plane can't vanish at destination).
+   */
+  function routeWeeklyBlockHours(route, opts) {
+    opts = opts || {};
     const ac = aircraftType(route.aircraft_type);
     if (!ac) return 0;
     const dist = routeDistance(route);
     if (!Number.isFinite(dist)) return 0;
-    return cleanHours(blockHours(dist, ac) * (route.frequency_week || 0));
+    const oneWay = blockHours(dist, ac) * (route.frequency_week || 0);
+    // Same aircraft flying the reverse route = real RT product; don't double-count ferry.
+    const reverse =
+      !opts.ignoreReturn &&
+      (state.routes || []).find(
+        (r) =>
+          r.id !== route.id &&
+          r.aircraft_id &&
+          route.aircraft_id &&
+          r.aircraft_id === route.aircraft_id &&
+          r.origin === route.dest &&
+          r.dest === route.origin
+      );
+    if (reverse) return cleanHours(oneWay);
+    // No paired return on this metal → empty ferry home (or assume RT block).
+    return cleanHours(oneWay * 2);
   }
 
   function planeWeeklyBlockHoursCapacity(plane) {
     const ac = aircraftType(plane.type);
+    // 6 operating days × target block hours/day — one plane, one timeline.
     const daily = ac?.target_block_hours_day || 8;
     return cleanHours(daily * 6, 1);
   }
@@ -263,14 +285,19 @@
     let scheduledDaily = 0;
     (state.routes || []).forEach((r) => {
       if (r.aircraft_id !== planeId || r.id === excludeRouteId) return;
-      const ac = aircraftType(r.aircraft_type);
-      if (!ac) return;
-      scheduledDaily += blockHours(routeDistance(r), ac) * (r.frequency_week / 7);
+      // Convert weekly block (incl. ferry when unpaired) to average daily
+      scheduledDaily += routeWeeklyBlockHours(r) / 7;
     });
     if (mockRoute) {
       const ac = aircraftType(mockRoute.aircraft_type);
       if (ac && Number.isFinite(routeDistance(mockRoute))) {
-        scheduledDaily += blockHours(routeDistance(mockRoute), ac) * ((mockRoute.frequency_week || 0) / 7);
+        const mock = {
+          ...mockRoute,
+          aircraft_id: planeId,
+          aircraft_type: mockRoute.aircraft_type || (plane && plane.type),
+        };
+        // Tentative: if mock creates a pair with existing reverse, no ferry
+        scheduledDaily += routeWeeklyBlockHours(mock) / 7;
       }
     }
     const target = planeTargetBlockHoursDay(plane);
@@ -289,7 +316,16 @@
     const dAp = airport(dest);
     if (freq > 0 && ac && oAp && dAp) {
       const dist = haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon);
-      after = cleanHours(baseUsed + blockHours(dist, ac) * freq);
+      const perOneWay = blockHours(dist, ac);
+      const hasPairOnMetal = (state.routes || []).some(
+        (r) =>
+          r.aircraft_id === planeId &&
+          r.id !== excludeRouteId &&
+          r.origin === dest &&
+          r.dest === origin
+      );
+      // Unpaired = ferry home (2× one-way); paired return product = 1× per weekly dep
+      after = cleanHours(baseUsed + perOneWay * freq * (hasPairOnMetal ? 1 : 2));
     }
     const remaining = cleanHours(Math.max(0, cap - after));
     return {
@@ -299,6 +335,7 @@
       ok: after <= cap + 0.05,
       remaining,
       routesOn: (state.routes || []).filter((r) => r.aircraft_id === planeId && r.id !== excludeRouteId).length,
+      ferryIfUnpaired: true,
     };
   }
 
@@ -308,10 +345,22 @@
     const oAp = airport(origin);
     const dAp = airport(dest);
     if (!plane || !ac || !oAp || !dAp) return 0;
-    const perTrip = blockHours(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon), ac);
-    if (perTrip <= 0) return 28;
-    const remaining = Math.max(0, planeWeeklyBlockHoursCapacity(plane) - planeWeeklyBlockHoursUsed(planeId, excludeRouteId));
-    return Math.max(0, Math.floor(remaining / perTrip));
+    const perOneWay = blockHours(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon), ac);
+    if (perOneWay <= 0) return 28;
+    // If reverse already on this metal, adding freq only costs one-way; else ferry = 2×
+    const hasPairOnMetal = (state.routes || []).some(
+      (r) =>
+        r.aircraft_id === planeId &&
+        r.id !== excludeRouteId &&
+        r.origin === dest &&
+        r.dest === origin
+    );
+    const hoursPerWeeklyDep = hasPairOnMetal ? perOneWay : perOneWay * 2;
+    const remaining = Math.max(
+      0,
+      planeWeeklyBlockHoursCapacity(plane) - planeWeeklyBlockHoursUsed(planeId, excludeRouteId)
+    );
+    return Math.max(0, Math.floor(remaining / Math.max(0.01, hoursPerWeeklyDep)));
   }
 
   function launchFrequencyCap(draft, excludeRouteId) {
@@ -1771,9 +1820,101 @@
     return scored[0] ? scored[0].d : pool[0];
   }
 
+  /** Soft fleet/gate budget for rivals — same physics, abstracted (no full sim fleet). */
+  function competitorAirlineBlockHoursCap(airline) {
+    const prof = airlineProfile(airline);
+    const scale = prof && prof.national_scale != null ? prof.national_scale : 0.4;
+    return 48 + scale * 220;
+  }
+
+  function competitorAirlineBlockHoursUsed(airline, excludeId) {
+    return (state.competitor_routes || []).reduce((sum, r) => {
+      if (r.airline !== airline || r.id === excludeId) return sum;
+      const o = airport(r.origin);
+      const d = airport(r.dest);
+      if (!o || !d) return sum + (r.frequency_week || 0) * 2.2;
+      const bh = blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), { cruise_kts: 420 });
+      return sum + bh * (r.frequency_week || 0) * 1.7;
+    }, 0);
+  }
+
+  function competitorOriginDepCap(iata) {
+    const ap = airport(iata);
+    const weekly = airportMarketDeparturesWeekly(ap) || 80;
+    return Math.max(40, Math.round(weekly * 0.9));
+  }
+
+  function competitorOriginDepsUsed(iata, excludeId) {
+    return (state.competitor_routes || []).reduce((sum, r) => {
+      if (r.origin !== iata || r.id === excludeId) return sum;
+      return sum + (r.frequency_week || 0);
+    }, 0);
+  }
+
+  function canCompetitorAddRoute(airline, origin, dest, freq) {
+    const usedH = competitorAirlineBlockHoursUsed(airline);
+    const capH = competitorAirlineBlockHoursCap(airline);
+    const o = airport(origin);
+    const d = airport(dest);
+    const bh = o && d ? blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), { cruise_kts: 420 }) : 2;
+    const addH = bh * freq * 1.7;
+    if (usedH + addH > capH * 1.05) return { ok: false, reason: 'fleet' };
+    if (competitorOriginDepsUsed(origin) + freq > competitorOriginDepCap(origin)) {
+      return { ok: false, reason: 'gate' };
+    }
+    return { ok: true };
+  }
+
+  function clampCompetitorCapacityBump(cr, delta) {
+    if (!cr || !(delta > 0)) return 0;
+    let add = delta;
+    const usedH = competitorAirlineBlockHoursUsed(cr.airline, cr.id);
+    const capH = competitorAirlineBlockHoursCap(cr.airline);
+    const o = airport(cr.origin);
+    const d = airport(cr.dest);
+    const bh = o && d ? blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), { cruise_kts: 420 }) : 2;
+    const curH = bh * (cr.frequency_week || 0) * 1.7;
+    const headroomH = Math.max(0, capH - (usedH - curH));
+    const maxByFleet = Math.floor(headroomH / Math.max(0.01, bh * 1.7)) - (cr.frequency_week || 0);
+    const oUsed = competitorOriginDepsUsed(cr.origin, cr.id);
+    const maxByGate = competitorOriginDepCap(cr.origin) - oUsed - (cr.frequency_week || 0);
+    add = Math.min(add, Math.max(0, maxByFleet), Math.max(0, maxByGate));
+    return add;
+  }
+
+  function processCompetitorAogWeek() {
+    if (!state || !(state.competitor_routes || []).length) return;
+    if (Math.random() > 0.12) return;
+    const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
+    if (!cr || cr.frequency_week <= 3) return;
+    const cut = 2 + Math.floor(Math.random() * 4);
+    const old = cr.frequency_week;
+    cr.frequency_week = Math.max(2, cr.frequency_week - cut);
+    cr.aog_until_day = (state.day || 0) + 3 + Math.floor(Math.random() * 5);
+    const invested = new Set(investedAirports());
+    if (invested.has(cr.origin) || invested.has(cr.dest)) {
+      pushEvent(
+        `${cr.airline} grounded metal on ${cr.origin}–${cr.dest} (${old}→${cr.frequency_week}/wk) — their cancellations free a little demand.`,
+        'good'
+      );
+    }
+  }
+
+  function restoreCompetitorAog() {
+    if (!state || !state.competitor_routes) return;
+    state.competitor_routes.forEach((cr) => {
+      if (cr.aog_until_day != null && state.day >= cr.aog_until_day) {
+        cr.frequency_week = Math.min(28, (cr.frequency_week || 7) + 2);
+        delete cr.aog_until_day;
+      }
+    });
+  }
+
   function processCompetitorAI() {
     if (!state || !state.competitor_routes) return;
+    restoreCompetitorAog();
     processReactiveCompetitorThreats('periodic');
+    if (state.day > 0 && state.day % 7 === 0) processCompetitorAogWeek();
     const airports = competitorAirportPool(true);
     if (!airports.length) return;
     const invested = new Set(investedAirports());
@@ -1788,7 +1929,11 @@
         const inc = ap.incumbents[Math.floor(Math.random() * ap.incumbents.length)];
         const dest = pickCompetitorDest(ap.iata);
         if (!dest || hasCompetitorRoute(inc.airline, ap.iata, dest.iata)) continue;
-        const freq = inc.tier === 'lcc' ? 3 + Math.floor(Math.random() * 4) : 7 + Math.floor(Math.random() * 14);
+        let freq = inc.tier === 'lcc' ? 3 + Math.floor(Math.random() * 4) : 7 + Math.floor(Math.random() * 14);
+        if (!canCompetitorAddRoute(inc.airline, ap.iata, dest.iata, freq).ok) {
+          freq = Math.max(3, Math.floor(freq / 2));
+          if (!canCompetitorAddRoute(inc.airline, ap.iata, dest.iata, freq).ok) continue;
+        }
         const fare = Math.round(marketFareForPair(ap.iata, dest.iata, 'e175') * (inc.tier === 'lcc' ? 0.78 : 1.05));
         state.competitor_routes.push({
           id: uid('cr'),
@@ -1817,10 +1962,12 @@
       } else if (roll < 0.68) {
         const cr = state.competitor_routes[Math.floor(Math.random() * state.competitor_routes.length)];
         if (!cr) continue;
-        const delta = cr.tier === 'lcc' ? 2 + Math.floor(Math.random() * 3) : 4 + Math.floor(Math.random() * 7);
+        let delta = cr.tier === 'lcc' ? 2 + Math.floor(Math.random() * 3) : 4 + Math.floor(Math.random() * 7);
+        delta = clampCompetitorCapacityBump(cr, delta);
+        if (delta < 1) continue;
         const old = cr.frequency_week;
         cr.frequency_week = Math.min(28, cr.frequency_week + delta);
-        if (cr.frequency_week - old >= 4) {
+        if (cr.frequency_week - old >= 2) {
           bumpCompetitorMarket(cr.origin, cr.airline, { capacity_index: 1 + (cr.frequency_week - old) / 28 });
           logs.push(
             enrichCompetitorLog(
@@ -2108,7 +2255,17 @@
         plane.aog_days_left -= 1;
         if (plane.aog_days_left === 0) {
           const ac = aircraftType(plane.type);
-          pushEvent(`${ac ? ac.name : plane.id} returned to service after maintenance.`, 'good');
+          // Partial reputation recovery when service resumes (rest via marketing / clean ops).
+          const recover = Math.min(2.8, (state.aog_rep_debt || 0) * 0.35 + 0.8);
+          if (recover > 0.2) {
+            state.reputation = Math.min(100, (state.reputation || 0) + recover);
+            state.aog_rep_debt = Math.max(0, (state.aog_rep_debt || 0) - recover);
+          }
+          pushEvent(
+            `${ac ? ac.name : plane.id} returned to service after maintenance.` +
+              (recover > 0.2 ? ` Reputation +${recover.toFixed(1)} as flights resume.` : ''),
+            'good'
+          );
         }
       }
     });
@@ -2127,9 +2284,19 @@
           recordPlaneAog(plane, plane.aog_days_left, util);
           const ac = aircraftType(plane.type);
           const affected = (state.routes || []).filter((r) => r.aircraft_id === plane.id).length;
+          // Cancellations hurt trust immediately — loads (demand capture) use reputation.
+          const repHit = Math.min(
+            6.5,
+            1.2 + affected * 0.85 + plane.aog_days_left * 0.35
+          );
+          const before = state.reputation || 0;
+          state.reputation = Math.max(0, before - repHit);
+          state.aog_rep_debt = (state.aog_rep_debt || 0) + repHit * 0.55; // recover later when metal returns
           pushEvent(
             `AOG: ${ac ? ac.name : plane.type} (${plane.id}) — ${plane.aog_days_left}d out.` +
-              (affected ? ` ${affected} route(s) grounded.` : ' Aircraft idle — lease still due.'),
+              (affected
+                ? ` <b>${affected}</b> route(s) cancel until return — reputation <b>−${repHit.toFixed(1)}</b> (now ${state.reputation.toFixed(0)}). Soft loads until trust recovers.`
+                : ' Aircraft idle — lease still due. Reputation soft hit.'),
             'bad'
           );
         }
@@ -2270,6 +2437,12 @@
     if (awarenessDelta > 0 || option.awarenessBoost || option.competitorResponse) {
       const bump = Math.max(1.5, awarenessDelta / 3500);
       state.brand_awareness[ap] = Math.min(100, (state.brand_awareness[ap] || 0) + bump);
+      // Marketing also rebuilds system-wide reputation (bookings + trust).
+      const repBump = Math.min(1.4, 0.2 + awarenessDelta / 12000);
+      state.reputation = Math.min(100, (state.reputation || 0) + repBump);
+      if ((state.aog_rep_debt || 0) > 0) {
+        state.aog_rep_debt = Math.max(0, state.aog_rep_debt - repBump * 0.5);
+      }
     }
     if (option.softenCompetitor && option.airline && state.competitor_markets[ap]) {
       const m = state.competitor_markets[ap][option.airline];
@@ -7153,6 +7326,18 @@
           );
         }
       });
+      // System reputation: sustained airport ads rebuild trust after AOG / soft service
+      const totalAirportAds = Object.values(state.marketing_spend_monthly || {}).reduce(
+        (a, b) => a + clampMoney(b),
+        0
+      );
+      if (totalAirportAds >= 6000) {
+        const repLift = Math.min(1.2, 0.15 + totalAirportAds / 50000);
+        state.reputation = Math.min(100, (state.reputation || 0) + repLift);
+        if ((state.aog_rep_debt || 0) > 0) {
+          state.aog_rep_debt = Math.max(0, state.aog_rep_debt - repLift * 0.4);
+        }
+      }
       const otaCost = otaListingMonthly();
       if (otaCost > 0) state.cash -= otaCost;
       applyMonthlyDebtService();
@@ -7240,19 +7425,40 @@
     if ((state.positive_day_streak || 0) === 0 && dayRev < dayCost * 0.85 && (state.routes || []).length > 0) {
       delta -= 0.15;
     }
-    if (delta < 0) {
-      const before = state.reputation || 0;
-      state.reputation = Math.max(0, before + delta);
-      if (before - state.reputation >= 0.4) {
-        pushEvent(
-          `Reputation softens to ${state.reputation.toFixed(0)} (${notes.join('; ') || 'ops pressure'}).`,
-          'bad'
-        );
-      }
-      return;
+
+    // Marketing rebuilds trust (brand ads + national/world), not only bookings.
+    const mktMo =
+      Object.values(state.marketing_spend_monthly || {}).reduce((a, b) => a + clampMoney(b), 0) +
+      scopedMarketingMonthly();
+    if (mktMo >= 8000) {
+      const lift = Math.min(1.8, 0.25 + mktMo / 45000);
+      delta += lift;
+      notes.push(`marketing trust +${lift.toFixed(1)}`);
     }
-    if (state.reputation < 50 && state.routes.length > 0 && dayRev > dayCost) {
-      state.reputation = Math.min(100, state.reputation + 0.3);
+
+    // Clean ops recovery: no AOG, profitable month trail, pay down AOG debt
+    if (aogPlanes === 0 && (state.routes || []).length > 0 && dayRev > dayCost) {
+      const clean = 0.35 + Math.min(0.5, (state.positive_day_streak || 0) * 0.02);
+      delta += clean;
+      if ((state.aog_rep_debt || 0) > 0) {
+        const pay = Math.min(state.aog_rep_debt, clean * 0.6);
+        state.aog_rep_debt = Math.max(0, state.aog_rep_debt - pay);
+      }
+    }
+
+    if (Math.abs(delta) < 0.05) return;
+    const before = state.reputation || 0;
+    state.reputation = Math.max(0, Math.min(100, before + delta));
+    if (delta < 0 && before - state.reputation >= 0.4) {
+      pushEvent(
+        `Reputation softens to ${state.reputation.toFixed(0)} (${notes.join('; ') || 'ops pressure'}). Lower trust trims demand capture until you recover.`,
+        'bad'
+      );
+    } else if (delta > 0 && state.reputation - before >= 0.35) {
+      pushEvent(
+        `Reputation recovers to ${state.reputation.toFixed(0)} (${notes.filter((n) => n.includes('+')).join('; ') || 'steady ops'}).`,
+        'good'
+      );
     }
   }
 
@@ -7889,10 +8095,43 @@
     const cap = gateCapacityLabel(iata, freq, excludeRouteId);
     if (cap.ok) return null;
     const gates = gateCountAt(iata);
+    const per = airportGateWeeklyCapacity(airport(iata));
     return (
-      `Your gates at ${iata} are full — lease another gate, lower frequency, or spread departures out. ` +
-      `(${cap.after}/${cap.max} weekly departures across ${gates} gate${gates !== 1 ? 's' : ''} × ${airportGateWeeklyCapacity(airport(iata))}/wk max.)`
+      `Your gates at ${iata} are full — lease another gate, lower frequency, or move departures. ` +
+      `(${cap.after}/${cap.max} weekly departures = ${gates} gate${gates !== 1 ? 's' : ''} × ~${per}/wk each. ` +
+      `Not “one route per gate” — it's total departures/week from this airport.)`
     );
+  }
+
+  /**
+   * Human-readable gate math: capacity is departures/week, not “number of routes”.
+   * Station build-out (Route Studio) is separate from leasing a gate.
+   */
+  function gateCapacityExplainHtml(iata) {
+    if (!hasGateAt(iata)) {
+      return `<p class="gate-math muted"><b>Gate vs station:</b> You need a <b>leased gate</b> at ${iata} to schedule departures. ` +
+        `Route Studio’s <b>station build-out</b> is a one-time counters/signage cost when you open a market — it is <em>not</em> another gate.</p>`;
+    }
+    const util = gateUtilizationAt(iata);
+    const per = util.perGate || airportGateWeeklyCapacity(airport(iata));
+    const needAnother =
+      util.remaining <= 0
+        ? `At capacity — lease another gate at ${iata} (or cut frequency) before adding flights.`
+        : util.remaining <= 3
+          ? `Only <b>${util.remaining}</b> deps/wk free — next frequency bump may require another gate.`
+          : `<b>${util.remaining}</b> departures/wk still open on your gate(s).`;
+    return `<div class="gate-math">
+      <p><b>${iata} gate capacity</b></p>
+      <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:4px 0 0;">
+        <b>${util.gates}</b> gate${util.gates !== 1 ? 's' : ''} × ~<b>${per}</b> deps/wk each =
+        <b>${util.max}</b>/wk max · using <b>${util.used}</b> · ${needAnother}<br>
+        Math is <b>total weekly departures from ${iata}</b>, not “one route = one gate”.
+        A single busy route can fill a gate; many thin routes can share one if total freq fits.
+      </p>
+      <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">
+        <b>Station build-out</b> (in Route Studio) ≠ leasing a gate. Build-out is paid once when you launch a new city-pair from here; gate lease is the ongoing slot that lets you fly.
+      </p>
+    </div>`;
   }
 
   function gateUtilizationAt(iata) {
@@ -8640,11 +8879,26 @@
     const o = airport(origin);
     const d = airport(dest);
     if (!o || !d) return 25000;
+    // First city-pair launched FROM this origin pays full station build-out;
+    // additional markets from the same station are cheaper (already set up).
     const routesAtOrigin = state.routes.filter((r) => r.origin === origin).length;
     const base = 16000 + (o.annual_pax_m || 1) * 2400;
     const destPremium = (d.annual_pax_m || 1) * 900;
     const firstStation = routesAtOrigin === 0 ? 14000 : 4000;
     return Math.round(base + destPremium + firstStation);
+  }
+
+  function stationSetupExplainHtml(origin, dest) {
+    const cost = stationSetupCost(origin, dest);
+    const first = !(state.routes || []).some((r) => r.origin === origin);
+    const hasGate = hasGateAt(origin);
+    return `<p class="station-math muted" style="font-size:0.72rem;line-height:1.45;">
+      <b>Station build-out ${fmtMoney(cost)}</b> — one-time counters/signage/ground ops for this market
+      ${first ? '(first launch from ' + origin + ' is pricier)' : '(you already have a station footprint at ' + origin + ')'}.
+      ${hasGate
+        ? `You <b>already lease a gate</b> at ${origin}; build-out is <em>not</em> a second gate.`
+        : `You still need a <b>gate lease</b> at ${origin} before departures can schedule.`}
+    </p>`;
   }
 
   function hubOtaMonthlyCost() {
@@ -9398,7 +9652,9 @@
       </header>
       <div class="studio-station-card">
         <p class="route-launch-section" style="margin-top:0;">Station build-out (one-time)</p>
-        <p style="font-size:0.84rem;line-height:1.45;margin:0;">Counters, signage, ground ops at <b>${d.origin}</b> — <b class="studio-money">${fmtMoney(d.stationCost)}</b> due at launch. Extra gates unlock more departures/week.</p>
+        <p style="font-size:0.84rem;line-height:1.45;margin:0;">Counters, signage, ground ops at <b>${d.origin}</b> — <b class="studio-money">${fmtMoney(d.stationCost)}</b> due at launch.</p>
+        ${stationSetupExplainHtml(d.origin, d.dest)}
+        ${d.origin ? gateCapacityExplainHtml(d.origin) : ''}
       </div>
       <p class="route-launch-section">Marketing investments</p>
       ${channelRows}
@@ -11707,6 +11963,7 @@
           routesFromList ? '' : ''
         }</p>
         ${routesFromList || ''}
+        ${gateCapacityExplainHtml(iata)}
       </div>
       ${
         canLeaseMore
