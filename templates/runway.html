@@ -814,6 +814,86 @@
   .stat-pill.stat-pill-warn { border-color: rgba(255, 209, 102, 0.45); background: rgba(255, 209, 102, 0.06); }
   .stat-pill.stat-pill-danger { border-color: rgba(255, 107, 107, 0.5); background: rgba(255, 107, 107, 0.08); }
   .stat-pill.stat-pill-good { border-color: rgba(0, 200, 150, 0.45); background: rgba(0, 200, 150, 0.06); }
+  .stat-pill.hud-tippable { cursor: help; }
+  .stat-pill.hud-tippable:hover { border-color: var(--accent); }
+  .hud-tip-banner {
+    display: none;
+    width: 100%;
+    flex: 1 1 100%;
+    order: 20;
+    margin: 6px 0 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(90, 140, 180, 0.4);
+    background: rgba(8, 18, 32, 0.95);
+    font-size: 0.78rem;
+    line-height: 1.4;
+    color: #c8dff0;
+    position: relative;
+  }
+  .hud-tip-banner.open { display: block; }
+  .hud-tip-banner strong { color: var(--gold); display: block; margin-bottom: 4px; }
+  .hud-tip-banner p { margin: 0; }
+  .hud-tip-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .hud-tip-diag {
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 6px;
+    background: rgba(255, 107, 90, 0.12);
+    border: 1px solid rgba(255, 107, 90, 0.35);
+    color: #ffc8b8;
+    font-size: 0.74rem;
+  }
+  .hud-pnl-diag {
+    display: none;
+    width: 100%;
+    flex: 1 1 100%;
+    order: 15;
+    margin: 4px 0 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 107, 90, 0.4);
+    background: rgba(40, 12, 12, 0.55);
+    font-size: 0.74rem;
+    line-height: 1.4;
+    color: #ffc8b8;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .hud-pnl-diag.open { display: flex; }
+  .hud-pnl-diag .btn { font-size: 0.68rem; padding: 4px 8px; margin-left: auto; }
+  .pnl-diagnosis {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 155, 122, 0.4);
+    background: rgba(40, 18, 12, 0.45);
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+  .pnl-diagnosis-fix { display: block; margin-top: 4px; color: #ffd8c8; }
+  .studio-return-box.studio-return-forced {
+    border-color: rgba(255, 209, 102, 0.45);
+    background: rgba(255, 209, 102, 0.08);
+  }
+  .studio-return-force-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.72rem;
+    color: var(--gold);
+    font-style: normal;
+  }
 
   #event-toast-stack {
     position: fixed;
@@ -3287,23 +3367,23 @@
       </div>
     </div>
     <div class="hud-primary">
-      <div class="stat-pill" id="hud-pill-cash">
+      <div class="stat-pill" id="hud-pill-cash" title="Click for tip: company cash on hand">
         <span class="stat-pill-label">Cash</span>
         <b id="hud-cash">$0</b>
       </div>
-      <div class="stat-pill" id="hud-pill-runway">
+      <div class="stat-pill" id="hud-pill-runway" title="Click for tip: months of cash at current burn">
         <span class="stat-pill-label">Cash runway</span>
         <b id="hud-runway">—</b>
       </div>
-      <div class="stat-pill">
+      <div class="stat-pill" id="hud-pill-date" title="Click for tip: simulated date and speed">
         <span class="stat-pill-label">Date</span>
         <b id="hud-date">—</b>
       </div>
-      <div class="stat-pill" id="hud-pill-pnl">
+      <div class="stat-pill" id="hud-pill-pnl" title="Click for tip: today's profit or loss">
         <span class="stat-pill-label">Daily P&L</span>
         <b id="hud-pnl">$0</b>
       </div>
-      <div class="stat-pill" id="hud-pill-load" title="Average seats sold today across active routes">
+      <div class="stat-pill" id="hud-pill-load" title="Click for tip: average seats filled today">
         <span class="stat-pill-label">Avg load</span>
         <b id="hud-load">—</b>
       </div>
@@ -3401,6 +3481,6 @@
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
 <script src="/static/runway/economics.js?v=76"></script>
-<script src="/static/runway/game.js?v=80"></script>
+<script src="/static/runway/game.js?v=81"></script>
 </body>
 </html>

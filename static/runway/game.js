@@ -2699,6 +2699,14 @@
       switchTab('fleet');
     } else if (option.effect === 'tab' && option.tab) {
       switchTab(option.tab);
+    } else if (option.effect === 'focus_map_routes') {
+      scrollToMap({ expand: true });
+      if (state && state.routes && state.routes[0]) {
+        selectedRouteId = state.routes[0].id;
+        drawMap();
+      }
+    } else if (option.effect === 'open_financials') {
+      if (!hudPanels.financials) toggleHudPanel('financials');
     } else if (option.effect === 'route_review' && option.routeId) {
       switchTab('routes');
       openRouteReview(option.routeId);
@@ -3792,6 +3800,9 @@
 
   function checkWinningPlaybookDayTriggers() {
     if (!state || state.game_over || !state.onboarding_done || !isWinningTrackScenario()) return;
+    // Don't stack playbook modals on top of the single "Do this next" path
+    // until the player has a round-trip and has pressed play at least once.
+    if (isLearningMode() && countRoundTripPairs() < 1 && (state.day || 0) < 3) return;
     if (activeDecision || decisionQueue.length) return;
     ensureWinningPlaybook();
     winningPlaybookPhases().forEach((phase) => {
@@ -6853,6 +6864,10 @@
     if (state.ff_year_confirmed == null) state.ff_year_confirmed = false;
     if (state.chapter11 == null) state.chapter11 = { active: false };
     if (!Array.isArray(state.pnl_history)) state.pnl_history = [];
+    if (state.learn_path_done == null) state.learn_path_done = false;
+    if (state.learn_map_routes_done == null) state.learn_map_routes_done = false;
+    if (state.learn_return_taught == null) state.learn_return_taught = false;
+    if (state.learn_map_routes_pending == null) state.learn_map_routes_pending = false;
   }
 
   function mergeAirportsFromBootstrap() {
@@ -8014,6 +8029,19 @@
     });
 
     if (!decisionPending && state.onboarding_done) checkWinningPlaybookDayTriggers();
+
+    if (!decisionPending) {
+      try {
+        maybeQueueMapHealthCallout();
+      } catch (e) {
+        /* learn tips optional */
+      }
+      try {
+        maybeQueueReturnLegTeach();
+      } catch (e) {
+        /* learn tips optional */
+      }
+    }
 
     processAirportDemandSurges();
     // Lock today's smoothed loads as baseline for tomorrow (prevents overnight free-falls).
@@ -9679,6 +9707,7 @@
     const returnExists =
       !!(dest && origin) &&
       (state.routes || []).some((r) => r.origin === dest && r.dest === origin);
+    const forceRt = !returnExists && shouldForceReturnLeg();
     const draft = {
       origin: origin || '',
       dest: dest || '',
@@ -9686,7 +9715,8 @@
       freq: freq || 7,
       fare: f,
       fareMode: 'manual',
-      withReturn: !returnExists,
+      withReturn: returnExists ? false : forceRt || !returnExists,
+      forceReturn: forceRt,
       product: 'standard',
       tag_dest: '',
       stationCost: stationSetupCost(origin || dest, dest || origin),
@@ -10207,18 +10237,22 @@
           </div>
         </label>
       </div>
-      <div class="studio-return-box">
+      <div class="studio-return-box${d.forceReturn ? ' studio-return-forced' : ''}">
         <label>
           <input type="checkbox" id="rl-with-return" ${
-            returnExists ? '' : d.withReturn !== false ? 'checked' : ''
-          } ${returnExists ? 'disabled' : ''}>
+            returnExists ? '' : d.withReturn !== false || d.forceReturn ? 'checked' : ''
+          } ${returnExists || d.forceReturn ? 'disabled' : ''}>
           <span>
             <strong>Launch with return leg</strong> (${d.dest || '…'} → ${d.origin || '…'})
-            <em class="muted">Same aircraft, fare &amp; frequency. One-way only = empty ferry home.${
-              d.dest && !hasGateAt(d.dest)
-                ? ` Needs a gate at <b>${d.dest}</b>.`
-                : ''
-            }${returnExists ? ' Return already flying.' : ''}</em>
+            ${
+              d.forceReturn
+                ? `<em class="studio-return-force-note">Required on early markets — planes must sell seats home (empty ferry wastes cash).</em>`
+                : `<em class="muted">Same aircraft, fare &amp; frequency. One-way only = empty ferry home.${
+                    d.dest && !hasGateAt(d.dest)
+                      ? ` Needs a gate at <b>${d.dest}</b>.`
+                      : ''
+                  }${returnExists ? ' Return already flying.' : ''}</em>`
+            }
           </span>
         </label>
       </div>
@@ -10887,9 +10921,19 @@
       if (o && o.list && !state.macro.ota_listed[p.id]) upfront += p.listing_monthly;
     });
 
-    const wantReturn =
+    let wantReturn =
       d.withReturn !== false &&
       !(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
+    // Early-game teaching: force RT when the player still needs round-trip experience
+    if (
+      !wantReturn &&
+      shouldForceReturnLeg() &&
+      !(state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin) &&
+      d.product !== 'tag'
+    ) {
+      wantReturn = true;
+      d.withReturn = true;
+    }
 
     const routeErr = validateOpenRoute(d.origin, d.dest, d.aircraftId, d.freq);
     if (routeErr) {
@@ -11266,6 +11310,17 @@
         fare: String(finalFare),
       };
       switchTab('routes');
+      // First solid line on the map — teach color + click once (after modal stack clears)
+      if (routeCount === 1 && !state.learn_map_routes_done) {
+        setTimeout(() => {
+          try {
+            maybeQueueMapHealthCallout();
+            if (activeDecision) renderDecisionModal();
+          } catch (e) {
+            /* optional */
+          }
+        }, 400);
+      }
     }
     saveGame();
     renderAll();
@@ -13427,10 +13482,388 @@
   }
 
   function midgameOpsGoalHtml() {
-    const obj = nextObjectiveSnapshot();
-    if (!obj) return '';
-    const hint = obj.hint ? ` <span class="muted">— ${obj.hint}</span>` : '';
-    return `<p class="ops-midgame-line"><span class="ops-phase">${obj.phase}</span> · <b>${obj.label}</b> · ${obj.progress} <span class="muted">(${Math.round(obj.pct || 0)}%)</span>${hint}</p>`;
+    // Collapsed into single "Do this next" path — keep helper for saves/meta only.
+    return '';
+  }
+
+  /** True while the player is still on the first-flight / early network path. */
+  function isLearningMode() {
+    if (!state || state.game_over) return false;
+    if (state.learn_path_done) return false;
+    if (!firstFlightPathComplete()) return true;
+    if ((state.day || 0) < 40 && (state.routes || []).length < 4) return true;
+    return false;
+  }
+
+  function countRoundTripPairs() {
+    if (!state) return 0;
+    const pairs = new Set();
+    (state.routes || []).forEach((r) => {
+      if (hasReturnLeg(r)) pairs.add([r.origin, r.dest].sort().join('-'));
+    });
+    return pairs.size;
+  }
+
+  function firstFlightPathComplete() {
+    if (!state) return false;
+    if (!(state.gates || []).length || !(state.fleet || []).length) return false;
+    if (!(state.routes || []).length) return false;
+    if (countRoundTripPairs() < 1 && (state.routes || []).length < 2) return false;
+    // Green day or enough runway time to have watched the network
+    if ((state.positive_day_streak || 0) >= 1) return true;
+    if ((state.day || 0) >= 10 && (state.routes || []).length >= 1) return true;
+    return false;
+  }
+
+  /** Force RT on early launches so new players don't ferry empty by default. */
+  function shouldForceReturnLeg() {
+    if (!state) return true;
+    if (state.learn_path_done && (state.routes || []).length >= 4) return false;
+    return countRoundTripPairs() < 2;
+  }
+
+  /**
+   * Plain-language diagnosis when Daily P&L is red (or a route is structurally weak).
+   */
+  function pnlDiagnosis() {
+    if (!state || !(state.routes || []).length) return null;
+    const econ = simulateDayEconomics();
+    const net = econ.pnl || 0;
+    const diagnoses = diagnoseNetworkRoutes();
+    const worst = diagnoses.find((d) => d.severity === 'critical') || diagnoses.find((d) => d.severity === 'watch');
+    const thin = (diagnoses || []).find((d) => d.load != null && d.load < 0.38);
+    const fullLose = (diagnoses || []).find((d) => d.load != null && d.load >= 0.72 && d.pnl < 0);
+    const noRet = (state.routes || []).find((r) => !hasReturnLeg(r) && routeProductId(r) !== 'tag');
+    const routeMargin = (econ.dayRev || 0) - (econ.dayCost || 0);
+    const fixed = econ.dailyFixed || 0;
+
+    if (net >= 0 && !worst) return null;
+
+    let summary = '';
+    let fix = '';
+    let routeId = worst && worst.route ? worst.route.id : null;
+
+    if (noRet && isLearningMode()) {
+      summary = `${noRet.origin}–${noRet.dest} has no return — the plane ferries empty and still burns fuel/hours.`;
+      fix = `Open ${noRet.dest}→${noRet.origin} (sell seats home) or check “Launch with return” in Studio.`;
+      routeId = noRet.id;
+    } else if (fullLose) {
+      summary = `${fullLose.route.origin}–${fullLose.route.dest} is full but still loses money — fare too low or aircraft too costly for this stage.`;
+      fix = 'Raise fare, switch to smaller metal, or cut frequency.';
+      routeId = fullLose.route.id;
+    } else if (thin) {
+      summary = `${thin.route.origin}–${thin.route.dest} is only ~${Math.round((thin.load || 0) * 100)}% full — not enough passengers for this capacity.`;
+      fix = 'Lower fare slightly, add airport ads, or fly fewer times per week.';
+      routeId = thin.route.id;
+    } else if (net < 0 && routeMargin > 0 && fixed > routeMargin) {
+      summary = `Routes earn ${fmtMoney(routeMargin)}/day but overhead (gates, leases, ads) is ${fmtMoney(fixed)}/day — fixed costs are bigger than flying profit.`;
+      fix = 'Fill idle gates, park spare planes, or grow frequency on the best route before opening a new city.';
+    } else if (worst) {
+      summary = `${worst.route.origin}–${worst.route.dest}: ${worst.reasons[0] || worst.title}`;
+      fix = (worst.fixes && worst.fixes[0] && worst.fixes[0].label) || 'Open Routes and fix the weakest market first.';
+      routeId = worst.route.id;
+    } else if (net < 0) {
+      summary = `Losing ${fmtMoney(Math.abs(net))}/day after overhead.`;
+      fix = 'Grow the best route or cut idle leases — don’t open another thin market yet.';
+    } else {
+      return null;
+    }
+
+    return {
+      summary,
+      fix,
+      routeId,
+      net,
+      tone: net < -200 || (worst && worst.severity === 'critical') ? 'warn' : 'warn',
+    };
+  }
+
+  function pnlDiagnosisBannerHtml() {
+    const d = pnlDiagnosis();
+    if (!d) return '';
+    const red = (state.daily_pnl || 0) < 0;
+    const ferryLearn = isLearningMode() && /return|ferry/i.test(d.summary || '');
+    if (!red && !ferryLearn) return '';
+    const fixBtn = d.routeId
+      ? `<button type="button" class="btn secondary" data-ops-route-review="${d.routeId}">Fix route</button>`
+      : `<button type="button" class="btn secondary" data-ops-tab="routes">Open Routes</button>`;
+    return `<div class="pnl-diagnosis ${d.tone || 'warn'}" id="pnl-diagnosis">
+      <strong>Why red / weak?</strong> ${d.summary}
+      <span class="pnl-diagnosis-fix"><b>Try:</b> ${d.fix}</span>
+      <div class="ops-guide-actions" style="margin-top:8px;">${fixBtn}</div>
+    </div>`;
+  }
+
+  /**
+   * Single “Do this next” coach — collapses build track, midgame, and profit coach
+   * into one prioritized step so new players are never pulled three ways.
+   */
+  function doThisNextContext() {
+    if (!state) return null;
+    const firstGate = state.gates[0] && state.gates[0].airport;
+    const build = regionalBuildSteps();
+    const nextBuild = build.find((s) => !s.done);
+    const diag = pnlDiagnosis();
+    const learning = isLearningMode();
+
+    // --- First-flight path (always wins while incomplete) ---
+    if (!(state.gates || []).length) {
+      return {
+        step: 1,
+        total: 5,
+        phase: 'First flight',
+        text: '<b>Do this next:</b> Click an airport on the map and <b>lease a gate</b>. You cannot launch flights without one.',
+        actions: [{ label: 'Show map', effect: 'focus_map' }],
+        tone: null,
+      };
+    }
+    if (!(state.fleet || []).length) {
+      return {
+        step: 2,
+        total: 5,
+        phase: 'First flight',
+        text: `<b>Do this next:</b> Open <b>Fleet</b> and lease an aircraft (use the recommended plane if shown). Gate at <b>${firstGate}</b> is ready.`,
+        actions: [{ label: 'Open Fleet', effect: 'tab', tab: 'fleet' }],
+        tone: null,
+      };
+    }
+    if (!(state.routes || []).length) {
+      return {
+        step: 3,
+        total: 5,
+        phase: 'First flight',
+        text: `<b>Do this next:</b> Launch your first route from <b>${firstGate}</b>. Keep <b>Launch with return leg</b> checked so the plane sells seats both ways.`,
+        actions: [
+          { label: `Plan route from ${firstGate}`, effect: 'hub_routes', airport: firstGate },
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+        ],
+        tone: null,
+      };
+    }
+    if (countRoundTripPairs() < 1) {
+      const unpaired = (state.routes || []).find((r) => !hasReturnLeg(r));
+      const o = unpaired ? unpaired.origin : firstGate;
+      const d = unpaired ? unpaired.dest : '…';
+      return {
+        step: 4,
+        total: 5,
+        phase: 'First flight',
+        text: `<b>Do this next:</b> Open the <b>return leg</b> <b>${d}→${o}</b>. One-way only = empty ferry home (you still pay fuel and hours).`,
+        actions: unpaired
+          ? [
+              { label: `Review ${unpaired.origin}–${unpaired.dest}`, effect: 'route_review', routeId: unpaired.id },
+              { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+            ]
+          : [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+        tone: 'warn',
+      };
+    }
+    if (state.speed === 'pause' && (state.day || 0) < 5 && (state.positive_day_streak || 0) < 1) {
+      return {
+        step: 5,
+        total: 5,
+        phase: 'First flight',
+        text: '<b>Do this next:</b> Press <b>Slow (▷)</b> in the speed bar. Watch <b>Daily P&L</b> and <b>Avg load</b> for a few days before fast-forwarding.',
+        actions: [
+          { label: 'Open Financials', effect: 'open_financials' },
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+        ],
+        tone: null,
+      };
+    }
+    if ((state.positive_day_streak || 0) < 1 && (state.day || 0) < 14) {
+      const pnl = state.daily_pnl || 0;
+      return {
+        step: 5,
+        total: 5,
+        phase: 'First flight',
+        text:
+          pnl >= 0
+            ? `<b>Do this next:</b> Stay on Slow/Day until you bank a <b>green Daily P&L</b> day. Today: <b class="via-good">${fmtMoney(pnl)}</b>. Don’t open a second thin market yet.`
+            : `<b>Do this next:</b> Daily P&L is red (<b class="danger">${fmtMoney(pnl)}</b>). ${diag ? diag.summary + ' ' + diag.fix : 'Fix load or fare on your main route first.'}`,
+        actions: diag && diag.routeId
+          ? [
+              { label: 'Fix weakest route', effect: 'route_review', routeId: diag.routeId },
+              { label: 'Open Financials', effect: 'open_financials' },
+            ]
+          : [
+              { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+              { label: 'Open Financials', effect: 'open_financials' },
+            ],
+        tone: pnl < 0 ? 'warn' : 'good',
+      };
+    }
+
+    // Mark first-flight path complete once
+    if (!state.learn_path_done && firstFlightPathComplete()) {
+      state.learn_path_done = true;
+      markMilestoneOnce(
+        'first_flight_path',
+        `${state.airline_name} finished the first-flight path — round-trip flying and a green day.`
+      );
+    }
+
+    // Red P&L / structural issues always surface as the single next step
+    if (diag && ((state.daily_pnl || 0) < 0 || (learning && diag.summary.indexOf('return') >= 0))) {
+      return {
+        step: 0,
+        phase: 'Fix money',
+        text: `<b>Do this next:</b> ${diag.summary} <b>Try:</b> ${diag.fix}`,
+        actions: diag.routeId
+          ? [
+              { label: 'Fix route', effect: 'route_review', routeId: diag.routeId },
+              { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+            ]
+          : [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+        tone: 'warn',
+        profit: true,
+      };
+    }
+
+    // Map lesson nudge (once) lives in queue; coach just reminds if pending
+    if (state.learn_map_routes_pending) {
+      return {
+        step: 0,
+        phase: 'Map',
+        text: '<b>Do this next:</b> On the map, your <b>solid line</b> is a flight. <b>Color = health</b> (green good, red losing). <b>Click the line</b> to open that route.',
+        actions: [{ label: 'Show map', effect: 'focus_map' }],
+        tone: null,
+      };
+    }
+
+    // Midgame single goal
+    const mid = activeMidgameOpsGoal();
+    if (mid) {
+      return {
+        step: 0,
+        phase: mid.phaseLabel || 'Grow',
+        text: `<b>Do this next:</b> ${mid.label} — ${mid.progress}. ${mid.hint || ''}`,
+        actions: [
+          { label: mid.tab === 'finance' ? 'Open Capital' : 'Open Routes', effect: 'tab', tab: mid.tab || 'routes' },
+        ],
+        tone: null,
+      };
+    }
+
+    // Remaining regional build steps (one at a time)
+    if (nextBuild) {
+      const tab = nextBuild.tab === 'map' ? null : nextBuild.tab;
+      return {
+        step: 0,
+        phase: 'Build regional',
+        text: `<b>Do this next:</b> ${nextBuild.label} (${build.filter((s) => s.done).length}/${build.length} on the regional track).`,
+        actions: tab
+          ? [{ label: tab === 'finance' ? 'Open Capital' : tab === 'fleet' ? 'Open Fleet' : 'Open Routes', effect: 'tab', tab }]
+          : [{ label: 'Show map', effect: 'focus_map' }],
+        tone: null,
+      };
+    }
+
+    // Healthy free play
+    if ((state.daily_pnl || 0) > 500) {
+      return {
+        step: 0,
+        phase: 'Free play',
+        text: `<b>Do this next:</b> Network is in the black (+${fmtMoney(state.daily_pnl)}/day). Grow frequency on winners, or open Capital when you want PE/IPO.`,
+        actions: [
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
+        ],
+        tone: 'good',
+      };
+    }
+
+    return {
+      step: 0,
+      phase: 'Free play',
+      text: '<b>Do this next:</b> Watch Daily P&L and route line colors on the map. Fix red lines before expanding.',
+      actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+      tone: null,
+    };
+  }
+
+  function maybeQueueMapHealthCallout() {
+    if (!state || state.game_over) return;
+    if (state.learn_map_routes_done) return;
+    if (!(state.routes || []).length) return;
+    if (activeDecision || decisionQueue.length) return;
+    // After first route exists and player has seen at least a pause/play beat
+    if ((state.day || 0) < 0) return;
+    state.learn_map_routes_done = true;
+    state.learn_map_routes_pending = false;
+    queueDecision({
+      kind: 'opportunity',
+      kicker: `${fmtDate(state.day)} · Map tip`,
+      title: 'Your routes are the solid lines',
+      body:
+        `<p>On the map, <b>solid colored lines</b> are <b>your flights</b>.</p>` +
+        `<ul style="margin:8px 0;padding-left:18px;font-size:0.88rem;line-height:1.45;">` +
+        `<li><b style="color:#5dffa8">Green</b> — cash engine / healthy</li>` +
+        `<li><b style="color:#ffb020">Amber</b> — needs attention</li>` +
+        `<li><b style="color:#ff5c4a">Red</b> — losing money</li>` +
+        `</ul>` +
+        `<p><b>Click a line</b> to open that route and fix fares, frequency, or the return leg.</p>` +
+        `<p class="muted" style="font-size:0.82rem;">Airport <b>dots</b> show market opportunity (size + color). Lines show how <i>your</i> airline is doing.</p>`,
+      teach: 'If a line turns red, fix that market before opening a new city.',
+      logLine: 'Map tip: click route lines for health',
+      options: [
+        {
+          id: 'map_show',
+          label: 'A — Show me the map',
+          hint: 'Scroll to map and try clicking a route line.',
+          effect: 'focus_map_routes',
+        },
+        {
+          id: 'map_got_it',
+          label: 'B — Got it',
+          hint: 'Continue playing.',
+          effect: 'none',
+        },
+      ],
+    });
+  }
+
+  function maybeQueueReturnLegTeach() {
+    if (!state || state.game_over) return;
+    if (state.learn_return_taught) return;
+    if (activeDecision || decisionQueue.length) return;
+    const unpaired = (state.routes || []).find((r) => !hasReturnLeg(r) && routeProductId(r) !== 'tag');
+    if (!unpaired) return;
+    // Teach after they've had a day to notice ferry, or immediately if forced-return was skipped
+    if ((state.day || 0) < 1 && (state.routes || []).length < 1) return;
+    state.learn_return_taught = true;
+    queueDecision({
+      kind: 'alert',
+      kicker: `${fmtDate(state.day)} · Return legs`,
+      title: 'Planes have to come home',
+      body:
+        `<p>You fly <b>${unpaired.origin}→${unpaired.dest}</b> but not the other way.</p>` +
+        `<p>Without a return, the aircraft still burns <b>fuel and block hours</b> empty (ferry). Real airlines sell seats both directions — even if the return is only ~50% full, it often beats flying empty.</p>` +
+        `<p class="muted" style="font-size:0.85rem;">In Route Studio, keep <b>Launch with return leg</b> checked (required on your first markets).</p>`,
+      teach: 'One strong outbound + soft return can still be profitable. Empty ferry almost never is.',
+      logLine: `Return-leg tip for ${unpaired.origin}–${unpaired.dest}`,
+      options: [
+        {
+          id: 'ret_open',
+          label: `A — Open Routes (add ${unpaired.dest}→${unpaired.origin})`,
+          hint: 'Launch the return from Routes / Studio.',
+          effect: 'tab_routes',
+        },
+        {
+          id: 'ret_review',
+          label: `B — Review ${unpaired.origin}–${unpaired.dest}`,
+          hint: 'See ferry cost on this market.',
+          effect: 'route_review',
+          routeId: unpaired.id,
+        },
+        {
+          id: 'ret_later',
+          label: 'C — Remind me in the coach',
+          hint: 'Do this next will keep flagging it.',
+          effect: 'none',
+        },
+      ],
+    });
   }
 
   function maybeMonthlyOpsReview() {
@@ -13687,141 +14120,8 @@
   }
 
   function opsGuideContext() {
-    if (!state) return null;
-    const profitCoach = profitCoachContext();
-    if (profitCoach) return profitCoach;
-    const firstGate = state.gates[0] && state.gates[0].airport;
-    const build = regionalBuildSteps();
-    const nextBuild = build.find((s) => !s.done);
-
-    if (!state.gates.length) {
-      return {
-        step: 1,
-        text: '<b>Build a regional · 1/9</b> — Click an airport on the map, then lease a gate before you can launch flights.',
-        actions: [{ label: 'Show map', effect: 'focus_map' }],
-      };
-    }
-    if (!state.fleet.length) {
-      return {
-        step: 2,
-        text: `<b>Build a regional · 2/9</b> — Gate at <b>${firstGate}</b>. Open <b>Fleet</b> and lease an aircraft.`,
-        actions: [{ label: 'Open Fleet', effect: 'tab', tab: 'fleet' }],
-      };
-    }
-    if (!state.routes.length) {
-      const idle = firstGate ? gateUtilizationAt(firstGate) : null;
-      const idleNote =
-        idle && idle.gates
-          ? ` Your gate allows <b>${idle.max}</b> departures/wk — none scheduled yet.`
-          : '';
-      return {
-        step: 3,
-        text: `<b>Build a regional · 3/9</b> — Launch your first route from <b>${firstGate}</b>.${idleNote}`,
-        actions: [
-          { label: `Plan route from ${firstGate}`, effect: 'hub_routes', airport: firstGate },
-          { label: `Scout ${firstGate}`, effect: 'airport', airport: firstGate },
-        ],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'return') {
-      return {
-        step: 4,
-        text: '<b>Build a regional · 4/9</b> — Launch the <b>return leg</b> (or a second city pair). Empty ferries waste aircraft hours.',
-        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'week') {
-      return {
-        step: 5,
-        text: '<b>Build a regional · 5/9</b> — Run time until you post a <b>profitable week</b>. Watch Daily P&L and debt service on Capital.',
-        actions: [
-          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
-          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
-        ],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'city2') {
-      return {
-        step: 6,
-        text: '<b>Build a regional · 6/9</b> — Lease a gate in a <b>second city</b> to expand the network.',
-        actions: [{ label: 'Show map', effect: 'focus_map' }],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'capital') {
-      return {
-        step: 7,
-        text: '<b>Build a regional · 7/9</b> — Visit <b>Capital</b>: seed/Series A, bank loan (interest + principal), or PE. Financing is part of building the airline.',
-        actions: [{ label: 'Open Capital', effect: 'tab', tab: 'finance' }],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'scale') {
-      return {
-        step: 8,
-        text: '<b>Build a regional · 8/9</b> — Scale to <b>four routes</b>. Match frequency to gates and aircraft hours.',
-        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
-      };
-    }
-    if (nextBuild && nextBuild.id === 'exit') {
-      return {
-        step: 9,
-        text: '<b>Build a regional · 9/9</b> — Optional exit path: <b>PE</b>, sell part of your stake, or unlock an <b>IPO</b> when revenue and profits allow.',
-        actions: [{ label: 'Open Capital', effect: 'tab', tab: 'finance' }],
-      };
-    }
-    const underHub = primaryUnderutilizedHub();
-    if (underHub) {
-      const sug = gateUtilizationSuggestions(underHub)[0];
-      return {
-        step: 0,
-        text: sug ? sug.text : `Gate at <b>${underHub.iata}</b> is only <b>${underHub.pct.toFixed(0)}%</b> used (${underHub.remaining} departures/wk open).`,
-        actions: [
-          { label: `Use ${underHub.iata} capacity`, effect: 'hub_routes', airport: underHub.iata },
-          ...(underHub.routesFrom.length === 1 &&
-          gateUtilizationSuggestions(underHub).find((s) => s.action === 'bump_freq')
-            ? [
-                {
-                  label: `+freq ${underHub.routesFrom[0].origin}–${underHub.routesFrom[0].dest}`,
-                  effect: 'bump_freq',
-                  routeId: underHub.routesFrom[0].id,
-                  delta: gateUtilizationSuggestions(underHub).find((s) => s.action === 'bump_freq').delta,
-                },
-              ]
-            : []),
-        ],
-      };
-    }
-    if (state.speed === 'pause' && state.day < 120) {
-      return {
-        step: 4,
-        text: 'Routes are live. Press <b>▶</b> for day speed. Check <b>Capital</b> for debt interest/principal and raises.',
-        actions: [
-          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
-          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
-        ],
-      };
-    }
-    const done = build.filter((s) => s.done).length;
-    const mid = activeMidgameOpsGoal();
-    if (mid) {
-      return {
-        step: 0,
-        text:
-          `<b>Mid-game ops:</b> ${mid.label} · ${mid.progress} (${Math.round(mid.pct)}%). ` +
-          `${mid.hint || ''} Regional track ${done}/${build.length}.`,
-        actions: [
-          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
-          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
-        ],
-      };
-    }
-    return {
-      step: 0,
-      text: `<b>Regional track ${done}/${build.length}</b> · Map · Routes · Fleet · <b>Capital</b> (debt I+P, PE, IPO). Route health banners flag weak markets. Profit coach appears when daily P&L turns red.`,
-      actions: [
-        { label: 'Open Capital', effect: 'tab', tab: 'finance' },
-        ...(state.routes.length ? [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }] : []),
-      ],
-    };
+    // Single coach path — doThisNext collapses build / midgame / profit coaches.
+    return doThisNextContext();
   }
 
   function goalProgressLineHtml() {
@@ -13857,6 +14157,57 @@
     };
   }
 
+  function bindOpsGuideActions(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-ops-tab]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => {
+        switchTab(btn.dataset.opsTab);
+        if (isMobileLayout()) scrollToSidePanel();
+      });
+    });
+    root.querySelectorAll('[data-ops-airport]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => selectAirport(btn.dataset.opsAirport));
+    });
+    root.querySelectorAll('[data-ops-map]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => {
+        scrollToMap({ expand: true });
+      });
+    });
+    root.querySelectorAll('[data-ops-hub-routes]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => focusHubForRoutes(btn.dataset.opsHubRoutes));
+    });
+    root.querySelectorAll('[data-ops-bump-freq]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () =>
+        bumpRouteFrequency(btn.dataset.opsBumpFreq, +btn.dataset.opsBumpDelta || 1)
+      );
+    });
+    root.querySelectorAll('[data-ops-route-review]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => {
+        switchTab('routes');
+        openRouteReview(btn.dataset.opsRouteReview);
+      });
+    });
+    root.querySelectorAll('[data-ops-financials]').forEach((btn) => {
+      if (btn._opsBound) return;
+      btn._opsBound = true;
+      btn.addEventListener('click', () => {
+        if (!hudPanels.financials) toggleHudPanel('financials');
+      });
+    });
+  }
+
   function renderOpsGuide() {
     const el = $('ops-guide');
     if (!el || !state) {
@@ -13866,21 +14217,26 @@
     const ctx = opsGuideContext();
     if (!ctx) return;
     if (opsGuideCollapsed === null) {
-      // First render this session: stay open while genuinely onboarding or something needs
-      // attention; once the player is past setup and nothing is urgent, start collapsed to
-      // one line instead of permanently occupying sidebar space.
-      const onboarding = ctx.step >= 1 && ctx.step <= 4;
-      opsGuideCollapsed = !(onboarding || ctx.tone === 'warn' || ctx.profit);
+      const early = ctx.step >= 1 && ctx.step <= 5;
+      opsGuideCollapsed = !(early || ctx.tone === 'warn' || ctx.profit || isLearningMode());
     }
     const collapsedClass = opsGuideCollapsed ? ' collapsed' : '';
     const toneClass = ctx.tone === 'good' ? ' ops-guide-good' : ctx.tone === 'warn' ? ' ops-guide-warn' : '';
-    const stepLabel = ctx.step > 0 ? `<span class="ops-guide-step">Step ${ctx.step}</span>` : ctx.profit ? `<span class="ops-guide-step">Playbook</span>` : '';
+    const stepLabel =
+      ctx.step > 0
+        ? `<span class="ops-guide-step">${ctx.phase || 'Next'} · ${ctx.step}${ctx.total ? '/' + ctx.total : ''}</span>`
+        : ctx.phase
+          ? `<span class="ops-guide-step">${ctx.phase}</span>`
+          : '';
     const actions =
       ctx.actions && ctx.actions.length
         ? `<div class="ops-guide-actions">${ctx.actions
             .map((a) => {
               if (a.effect === 'tab') {
                 return `<button type="button" class="btn secondary" data-ops-tab="${a.tab}">${a.label}</button>`;
+              }
+              if (a.effect === 'open_financials') {
+                return `<button type="button" class="btn secondary" data-ops-financials="1">${a.label}</button>`;
               }
               if (a.effect === 'airport' && a.airport) {
                 return `<button type="button" class="btn secondary" data-ops-airport="${a.airport}">${a.label}</button>`;
@@ -13904,23 +14260,22 @@
     const profitHow = `<details class="ops-profit-how">
         <summary>How profit works</summary>
         <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:6px 0 0;">
-          <b>Route margin</b> = ticket + ancillary revenue minus fuel, crew, and airport fees.
-          <b>Net</b> subtracts gate lease, aircraft lease, marketing, OTA, and HQ overhead split across your network.
-          Thin loads often mean low <b>market share</b> at the origin — not a broken route.
-          Grow frequency or fleet before opening a second thin market.
+          <b>Route margin</b> = tickets − fuel/crew/fees.
+          <b>Daily P&amp;L</b> also subtracts gate + aircraft leases.
+          <b>Thin load</b> → fare/ads/frequency. <b>Full but red</b> → fare too low or plane too big.
+          <b>No return</b> → empty ferry tax. Grow one green market before a second city.
         </p>
       </details>`;
     el.className = `ops-guide${collapsedClass}${toneClass}`;
-    // Goal line stays outside collapsed body so progress never disappears when coach is hidden.
     el.innerHTML = `<div class="ops-guide-head">
-        <strong>${ctx.profit ? 'Profit playbook' : 'What to do next'}</strong>
+        <strong>Do this next</strong>
         <button type="button" class="ops-guide-toggle" data-ops-collapse>${opsGuideCollapsed ? 'Show' : 'Hide'}</button>
       </div>
       ${goalProgressLineHtml()}
-      ${midgameOpsGoalHtml()}
       <div class="ops-guide-body">
         <p>${stepLabel}${ctx.text}</p>
         ${actions}
+        ${pnlDiagnosisBannerHtml()}
         ${profitHow}
       </div>`;
     const collapseBtn = el.querySelector('[data-ops-collapse]');
@@ -13930,34 +14285,7 @@
         renderOpsGuide();
       });
     }
-    el.querySelectorAll('[data-ops-tab]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        switchTab(btn.dataset.opsTab);
-        if (isMobileLayout()) scrollToSidePanel();
-      });
-    });
-    el.querySelectorAll('[data-ops-airport]').forEach((btn) => {
-      btn.addEventListener('click', () => selectAirport(btn.dataset.opsAirport));
-    });
-    const mapBtn = el.querySelector('[data-ops-map]');
-    if (mapBtn) {
-      mapBtn.addEventListener('click', () => {
-        const map = $('runway-map');
-        if (map) map.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      });
-    }
-    el.querySelectorAll('[data-ops-hub-routes]').forEach((btn) => {
-      btn.addEventListener('click', () => focusHubForRoutes(btn.dataset.opsHubRoutes));
-    });
-    el.querySelectorAll('[data-ops-bump-freq]').forEach((btn) => {
-      btn.addEventListener('click', () => bumpRouteFrequency(btn.dataset.opsBumpFreq, +btn.dataset.opsBumpDelta || 1));
-    });
-    el.querySelectorAll('[data-ops-route-review]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        switchTab('routes');
-        openRouteReview(btn.dataset.opsRouteReview);
-      });
-    });
+    bindOpsGuideActions(el);
   }
 
   function setHudFinancialsView(view) {
@@ -14014,8 +14342,106 @@
     });
   }
 
+  function hudTipText(key) {
+    const tips = {
+      cash: 'Company cash on hand. Pays leases, fuel, gates, and debt. Personal wealth is separate (Capital → secondary/IPO).',
+      runway:
+        'Months of cash left at today’s monthly burn (leases + marketing + debt service). Under ~3 mo = raise capital or cut costs.',
+      date: 'Simulated calendar. Slow = 4-hour steps (best while learning). Day = 1 day per tick.',
+      pnl:
+        'Today’s net: route ticket profit minus fuel/crew minus a daily slice of gate & aircraft leases. Red does not always mean the route is broken — overhead may be heavy.',
+      load:
+        'Average seats filled across flights today. Thin (&lt;45%) → fare/ads/frequency. High load but red P&amp;L → fare too low or plane too big. “Ferry” = empty return legs.',
+      goal: 'Scenario win condition progress (if any). Free play continues after you hit it.',
+    };
+    return tips[key] || '';
+  }
+
+  function setupHudTooltips() {
+    const map = {
+      'hud-pill-cash': 'cash',
+      'hud-pill-runway': 'runway',
+      'hud-pill-pnl': 'pnl',
+      'hud-pill-load': 'load',
+      'hud-pill-goal': 'goal',
+      'hud-pill-date': 'date',
+    };
+    Object.keys(map).forEach((id) => {
+      const el = $(id);
+      if (!el || el._hudTipBound) return;
+      el._hudTipBound = true;
+      el.classList.add('hud-tippable');
+      el.setAttribute('tabindex', '0');
+      el.setAttribute('role', 'button');
+      const key = map[id];
+      const tip = hudTipText(key);
+      el.title = tip.replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+      el.setAttribute('aria-label', el.title);
+      const show = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        showHudTip(key, el);
+      };
+      el.addEventListener('click', show);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') show(e);
+      });
+    });
+  }
+
+  function showHudTip(key, anchor) {
+    let banner = $('hud-tip-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'hud-tip-banner';
+      banner.className = 'hud-tip-banner';
+      const header = document.querySelector('.game-header');
+      if (header) header.appendChild(banner);
+      else document.body.appendChild(banner);
+    }
+    const labels = {
+      cash: 'Cash',
+      runway: 'Cash runway',
+      date: 'Date',
+      pnl: 'Daily P&L',
+      load: 'Avg load',
+      goal: 'Goal',
+    };
+    let extra = '';
+    if (key === 'pnl' && state && (state.daily_pnl || 0) < 0) {
+      const d = pnlDiagnosis();
+      if (d) {
+        extra = `<div class="hud-tip-diag"><b>Why red?</b> ${d.summary}<br><b>Try:</b> ${d.fix}</div>`;
+      }
+    }
+    if (key === 'load' && state) {
+      const net = networkRouteStats();
+      if (net.ferry) {
+        extra =
+          '<div class="hud-tip-diag"><b>Ferry:</b> at least one route has no return leg — empty metal is flying home.</div>';
+      }
+    }
+    banner.innerHTML = `<button type="button" class="hud-tip-close" aria-label="Close">×</button>
+      <strong>${labels[key] || 'Tip'}</strong>
+      <p>${hudTipText(key)}</p>
+      ${extra}`;
+    banner.classList.add('open');
+    const close = () => banner.classList.remove('open');
+    banner.querySelector('.hud-tip-close')?.addEventListener('click', close);
+    clearTimeout(banner._hideTimer);
+    banner._hideTimer = setTimeout(close, 12000);
+    if (anchor) {
+      try {
+        anchor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
   function renderHud() {
     if (!state) return;
+    setupHudTooltips();
     setText('hud-cash', fmtMoney(state.cash));
     const runwayText = state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`;
     setText('hud-runway', runwayText);
@@ -14073,6 +14499,37 @@
     if (pnl > 0) setStatPillTone('hud-pill-pnl', 'good');
     else if (pnl < 0) setStatPillTone('hud-pill-pnl', 'danger');
     else setStatPillTone('hud-pill-pnl', null);
+
+    // Red P&L strip under HUD when losing
+    let diagStrip = $('hud-pnl-diag');
+    if (!diagStrip) {
+      diagStrip = document.createElement('div');
+      diagStrip.id = 'hud-pnl-diag';
+      diagStrip.className = 'hud-pnl-diag';
+      const primary = document.querySelector('.hud-primary');
+      if (primary && primary.parentNode) {
+        primary.parentNode.insertBefore(diagStrip, primary.nextSibling);
+      }
+    }
+    if (pnl < 0 && (state.routes || []).length) {
+      const d = pnlDiagnosis();
+      if (d) {
+        diagStrip.classList.add('open');
+        diagStrip.innerHTML = `<strong>Why red?</strong> ${d.summary} <span class="muted">· Try: ${d.fix}</span>
+          ${
+            d.routeId
+              ? `<button type="button" class="btn secondary" data-ops-route-review="${d.routeId}">Fix route</button>`
+              : ''
+          }`;
+        bindOpsGuideActions(diagStrip);
+      } else {
+        diagStrip.classList.remove('open');
+        diagStrip.innerHTML = '';
+      }
+    } else {
+      diagStrip.classList.remove('open');
+      diagStrip.innerHTML = '';
+    }
 
     const macroEl = $('hud-macro');
     if (macroEl && state.macro) {
