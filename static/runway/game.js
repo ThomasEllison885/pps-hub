@@ -46,6 +46,9 @@
   let tickTimer = null;
   let selectedAirport = null;
   let selectedRouteId = null;
+  /** Map chrome: legend collapsed by default on mobile (CSS); filter + focus network. */
+  let mapLegendOpen = false;
+  let mapRouteHealthFilter = 'all'; // all | good | watch | bad
   let mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
   let fleetPending = null;
   let pendingScenarioId = null;
@@ -12229,15 +12232,141 @@
         health.load != null ? Math.round(health.load * 100) + '%' : '—'
       } · click to review`;
     }
+    let opacity = selected ? 1 : 0.92;
+    let width = selected ? 5.2 : 3.1;
+    // Dim routes that don't match the map health filter
+    if (mapRouteHealthFilter !== 'all' && !selected) {
+      const match =
+        (mapRouteHealthFilter === 'good' && (color === '#5dffa8' || color === '#00c896')) ||
+        (mapRouteHealthFilter === 'watch' && color === '#ffb020') ||
+        (mapRouteHealthFilter === 'bad' && color === '#ff5c4a');
+      if (!match) {
+        opacity = 0.12;
+        width = 1.6;
+      } else {
+        width = Math.max(width, 3.8);
+        opacity = 1;
+      }
+    }
     return {
       color,
-      width: selected ? 5.2 : 3.1,
-      opacity: selected ? 1 : 0.92,
+      width,
+      opacity,
       selected,
       label,
       tip,
       routeId: route.id,
     };
+  }
+
+  function focusPlayerNetworkOnMap() {
+    if (!state || !(state.routes || []).length) {
+      fitMapToManagedArea();
+      return;
+    }
+    const lons = [];
+    const lats = [];
+    (state.routes || []).forEach((r) => {
+      const o = airport(r.origin);
+      const d = airport(r.dest);
+      if (o) {
+        lons.push(o.lon);
+        lats.push(o.lat);
+      }
+      if (d) {
+        lons.push(d.lon);
+        lats.push(d.lat);
+      }
+    });
+    (state.gates || []).forEach((g) => {
+      const a = airport(g.airport);
+      if (a) {
+        lons.push(a.lon);
+        lats.push(a.lat);
+      }
+    });
+    if (!lons.length) {
+      fitMapToManagedArea();
+      return;
+    }
+    if (useMapbox() && mapboxMap && mapboxReady) {
+      try {
+        const sw = [Math.min(...lons) - 0.8, Math.min(...lats) - 0.6];
+        const ne = [Math.max(...lons) + 0.8, Math.max(...lats) + 0.6];
+        mapboxMap.fitBounds([sw, ne], { padding: 56, maxZoom: 7.5, duration: 600 });
+      } catch (e) {
+        fitMapToManagedArea();
+      }
+      return;
+    }
+    // SVG fallback: zoom mapView to bbox
+    const b = mapBounds();
+    const pad = mapPadding();
+    const left = pad.left || 0;
+    const top = pad.top || 0;
+    const right = pad.right || 0;
+    const bottom = pad.bottom || 0;
+    const uw = MAP_W - left - right;
+    const uh = MAP_H - top - bottom;
+    const lonMin = Math.min(...lons);
+    const lonMax = Math.max(...lons);
+    const latMin = Math.min(...lats);
+    const latMax = Math.max(...lats);
+    const spanLon = Math.max(1.5, lonMax - lonMin) * 1.35;
+    const spanLat = Math.max(1.2, latMax - latMin) * 1.35;
+    const midLon = (lonMin + lonMax) / 2;
+    const midLat = (latMin + latMax) / 2;
+    const w = Math.min(MAP_ZOOM_MAX_W, Math.max(MAP_ZOOM_MIN_W, (spanLon / (b.lonMax - b.lonMin)) * MAP_W));
+    const h = w * (MAP_H / MAP_W);
+    mapView.w = w;
+    mapView.h = h;
+    mapView.x = left + ((midLon - spanLon / 2 - b.lonMin) / (b.lonMax - b.lonMin)) * uw - 0;
+    // project center into view
+    const cx = left + ((midLon - b.lonMin) / (b.lonMax - b.lonMin)) * uw;
+    const cy = top + ((b.latMax - midLat) / (b.latMax - b.latMin)) * uh;
+    mapView.x = Math.max(0, Math.min(MAP_W - mapView.w, cx - mapView.w / 2));
+    mapView.y = Math.max(0, Math.min(MAP_H - mapView.h, cy - mapView.h / 2));
+    clampMapView();
+    applyMapView();
+  }
+
+  function setupMapChromeUi() {
+    const legend = $('map-legend');
+    const toggle = $('map-legend-toggle');
+    const filter = $('map-route-filter');
+    const focusBtn = $('map-focus-network');
+    if (legend) {
+      legend.classList.toggle('map-legend-open', mapLegendOpen);
+      legend.classList.toggle('map-legend-collapsed', !mapLegendOpen);
+    }
+    if (toggle && !toggle._bound) {
+      toggle._bound = true;
+      toggle.addEventListener('click', () => {
+        mapLegendOpen = !mapLegendOpen;
+        if (legend) {
+          legend.classList.toggle('map-legend-open', mapLegendOpen);
+          legend.classList.toggle('map-legend-collapsed', !mapLegendOpen);
+        }
+        toggle.setAttribute('aria-expanded', mapLegendOpen ? 'true' : 'false');
+        toggle.textContent = mapLegendOpen ? 'Hide legend' : 'Legend';
+      });
+    }
+    if (filter && !filter._bound) {
+      filter._bound = true;
+      filter.value = mapRouteHealthFilter;
+      filter.addEventListener('change', () => {
+        mapRouteHealthFilter = filter.value || 'all';
+        drawMap();
+      });
+    }
+    if (focusBtn && !focusBtn._bound) {
+      focusBtn._bound = true;
+      focusBtn.addEventListener('click', () => {
+        if (isMobileLayout()) setMapCollapsed(false);
+        focusPlayerNetworkOnMap();
+        scrollToMap({ expand: true });
+      });
+    }
   }
 
   function buildRoutesGeoJSON(routes, isPlayer) {
@@ -12518,6 +12647,7 @@
   }
 
   function setupMapControls() {
+    setupMapChromeUi();
     const wrap = document.querySelector('.map-wrap');
     if (!wrap || wrap.dataset.mapControlsInit) return;
     wrap.dataset.mapControlsInit = '1';
@@ -12762,6 +12892,7 @@
   }
 
   function drawMap() {
+    setupMapChromeUi();
     if (useMapbox()) {
       drawMapbox();
       return;
@@ -14982,23 +15113,49 @@
     return gateBlock + routeBlock;
   }
 
+  function routeHealthSortKey(route) {
+    const h = diagnoseRouteHealth(route);
+    if (!h) return 50;
+    if (h.severity === 'critical') return 0;
+    if (h.severity === 'watch') return 20;
+    if ((h.pnl || 0) > 800) return 90;
+    return 60;
+  }
+
+  function routeMatchesMapFilter(route) {
+    if (mapRouteHealthFilter === 'all') return true;
+    const style = routeMapStyle(route);
+    const c = style.color || '';
+    if (mapRouteHealthFilter === 'good') return c === '#5dffa8' || c === '#00c896';
+    if (mapRouteHealthFilter === 'watch') return c === '#ffb020';
+    if (mapRouteHealthFilter === 'bad') return c === '#ff5c4a';
+    return true;
+  }
+
   function runningRoutesHtml() {
     if (!state.routes.length) {
-      return '<p class="muted" style="font-size:0.78rem;">No routes yet — open <b>Route Studio</b> to launch your first market.</p>';
+      return `<div class="empty-state-card">
+        <p class="empty-state-title">No routes yet</p>
+        <p class="muted" style="font-size:0.78rem;margin:0 0 10px;">Open <b>Route Studio</b> to launch your first market (keep return checked).</p>
+      </div>`;
     }
     const ranked = sortPlayerRoutesByPillar(scoreboardSortBy);
     const rankById = {};
     ranked.forEach((e) => {
       rankById[e.route.id] = e;
     });
-    const routes =
+    let routes =
       ranked.length && ['profit', 'riders', 'csat'].includes(scoreboardSortBy)
         ? ranked.map((e) => e.route)
-        : state.routes;
+        : state.routes.slice();
+    // Default: worst health first so red markets jump out
+    if (!['profit', 'riders', 'csat'].includes(scoreboardSortBy)) {
+      routes = routes.slice().sort((a, b) => routeHealthSortKey(a) - routeHealthSortKey(b));
+    }
     const sortNote =
       ranked.length && ['profit', 'riders', 'csat'].includes(scoreboardSortBy)
-        ? `<p class="muted" style="font-size:0.7rem;margin:0 0 8px;">Sorted by <b>${pillarSortLabel(scoreboardSortBy)}</b> (click scoreboard pillars to change).</p>`
-        : '';
+        ? `<p class="muted" style="font-size:0.7rem;margin:0 0 8px;">Sorted by <b>${pillarSortLabel(scoreboardSortBy)}</b> (scoreboard pillars).</p>`
+        : `<p class="muted" style="font-size:0.7rem;margin:0 0 8px;">Sorted by <b>health</b> (red first). Color bar matches the map line.</p>`;
     let html = sortNote + '<div class="route-list">';
     routes.forEach((route) => {
         const rankEntry = rankById[route.id];
@@ -15007,14 +15164,17 @@
             ? `<span class="route-rank-badge" title="${pillarSortLabel(scoreboardSortBy)} #${rankEntry.rank}">#${rankEntry.rank}</span> `
             : '';
         const r = simulateRouteDay(route);
+        const health = diagnoseRouteHealth(route);
+        const mapStyle = routeMapStyle(route);
         const pnl = r.revenue - r.cost;
         const loadNum = r.grounded ? null : r.load;
+        const loadPct = Number.isFinite(loadNum) ? Math.round(loadNum * 100) : null;
         const loadLabel = r.grounded
           ? 'AOG'
           : r.canceled
-            ? `${Number.isFinite(loadNum) ? (loadNum * 100).toFixed(0) : '—'}% (canceled)`
-            : Number.isFinite(loadNum)
-              ? `${(loadNum * 100).toFixed(0)}% load`
+            ? `${loadPct != null ? loadPct : '—'}% cx`
+            : loadPct != null
+              ? `${loadPct}%`
               : '—';
         const loadClass = r.grounded || r.canceled
           ? 'chip-load-bad'
@@ -15102,24 +15262,67 @@
           ? (aircraftType(plane.type) || {}).name || plane.type
           : route.aircraft_type || '—';
         const seatN = plane ? fleetSeatCount(plane) : '—';
-        html += `<div class="route-card" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}">
+        // Return leg load (directional)
+        const reverse = findReverseRoute(route);
+        let retLoadPct = null;
+        if (reverse) {
+          const rr = simulateRouteDay(reverse);
+          if (!rr.grounded && Number.isFinite(rr.load)) retLoadPct = Math.round(rr.load * 100);
+        }
+        const hasRet = !!reverse;
+        const ferryBadge = !hasRet && routeProductId(route) !== 'tag'
+          ? '<span class="route-badge route-badge-ferry" title="No return — empty ferry home">Ferry</span>'
+          : '';
+        const healthLabel = mapStyle.label || (health && health.title) || 'Route';
+        const selectedCls = selectedRouteId === route.id ? ' route-card-selected' : '';
+        const primaryCta =
+          health && health.severity === 'critical'
+            ? `<button type="button" class="btn route-primary-cta" data-route-review="${route.id}">Fix route</button>`
+            : !hasRet && routeProductId(route) !== 'tag'
+              ? `<button type="button" class="btn route-primary-cta" data-route-review="${route.id}">Add return</button>`
+              : freqHeadroom >= 2
+                ? `<button type="button" class="btn secondary route-primary-cta" data-bump-freq="${route.id}" data-bump-delta="${Math.min(3, freqHeadroom)}">+freq</button>`
+                : `<button type="button" class="btn secondary route-primary-cta" data-route-review="${route.id}">Review</button>`;
+        html += `<div class="route-card${selectedCls}" data-route-id="${route.id}" data-origin="${route.origin}" data-dest="${route.dest}" data-health="${health ? health.severity : 'ok'}">
+          <div class="route-health-bar" style="background:${mapStyle.color}" title="${healthLabel}"></div>
+          <div class="route-card-body">
           <div class="route-card-head">
-            <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance over time">
+            <button type="button" class="route-card-title" data-route-review="${route.id}" title="Review performance">
               ${rankBadge}<strong>${route.origin}–${route.dest}</strong>
             </button>
-            <span class="${loadClass}" style="font-size:0.72rem;font-weight:600;">${loadLabel}</span>
+            <span class="route-health-chip" style="color:${mapStyle.color}">${healthLabel}</span>
+          </div>
+          <div class="route-instrument">
+            <div class="route-inst" title="Outbound load">
+              <span class="route-inst-label">${route.origin}→${route.dest}</span>
+              <b class="${loadClass}">${loadLabel}${loadPct != null && !r.grounded && !r.canceled ? '%' : ''}</b>
+            </div>
+            <div class="route-inst" title="Return load">
+              <span class="route-inst-label">${route.dest}→${route.origin}</span>
+              <b class="${hasRet ? (retLoadPct >= 70 ? 'chip-load-good' : retLoadPct >= 45 ? 'chip-load-warn' : 'chip-load-bad') : 'chip-load-bad'}">${
+                hasRet ? (retLoadPct != null ? retLoadPct + '%' : '—') : '—'
+              }</b>
+            </div>
+            <div class="route-inst" title="Variable daily P&L">
+              <span class="route-inst-label">$/day</span>
+              <b class="${pnlClass}">${fmtMoney(pnl)}</b>
+            </div>
+            <div class="route-inst" title="Weekly frequency">
+              <span class="route-inst-label">Freq</span>
+              <b>${route.frequency_week}<span class="muted">/wk</span></b>
+            </div>
+          </div>
+          <div class="route-card-meta">
+            <span>${acName}</span>
+            ${productChipHtml(route)}
+            ${ferryBadge}
+            <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
           </div>
           ${forecastHtml}
-          ${routeHealthBannerHtml(diagnoseRouteHealth(route))}
-          <div class="route-card-meta">
-            <span>${route.frequency_week}/wk · ${acName}</span>
-            ${productChipHtml(route)}
-            <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
-            <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
-            ${competitivePressureHtml(routeCompetitivePressure(route), { compact: true })}
-          </div>
+          ${routeHealthBannerHtml(health)}
           <div class="route-card-footer-actions">
-            <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Review trends →</button>
+            ${primaryCta}
+            <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Trends</button>
           </div>
           <details class="ap-more route-card-tune">
             <summary class="muted" style="cursor:pointer;font-size:0.75rem;">Tune this route</summary>
@@ -15166,6 +15369,7 @@
             ${fareRmNote}
             <p class="route-card-hint muted">Buckets: ${bucketHint} · levers: freq · metal · marketing · fare</p>
           </details>
+          </div>
         </div>`;
     });
     html += '</div>';

@@ -11,11 +11,12 @@
 {% endif %}
 <style>
   :root {
-    --bg: #060d18;
-    --panel: #0f1c2e;
-    --border: #1e3a5f;
-    --text: #d4e4f4;
-    --muted: #6a8fb0;
+    --bg: #050b14;
+    --panel: #0c1828;
+    --panel-elevated: #0f1e30;
+    --border: #2a4d72;
+    --text: #e8f2fc;
+    --muted: #8eabbf;
     --accent: #00c896;
     --gold: #ffd166;
     --danger: #ff6b6b;
@@ -1219,29 +1220,92 @@
       grid-template-columns: 1fr;
       min-height: 0;
     }
-    #screen-game { padding-bottom: calc(58px + env(safe-area-inset-bottom)); }
-    .game-header { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
-    .game-header .btn.secondary,
-    .hud-actions .btn { font-size: 0.68rem; padding: 6px 10px; }
-    .hud-actions { flex: 1 1 100%; justify-content: flex-end; }
-    .game-product-brand { min-width: 0; flex: 1 1 120px; }
-    .game-product-name { font-size: 1.1rem; }
-    .scoreboard-bar { padding-bottom: 8px; margin-bottom: 2px; }
-    .hud-primary { flex: 1 1 100%; }
-    .stat-pill { min-width: 64px; padding: 5px 8px; }
-    .speed-bar {
-      flex-wrap: wrap;
-      justify-content: center;
-      padding: 6px 10px;
+    #screen-game { padding-bottom: calc(58px + 72px + env(safe-area-inset-bottom)); }
+    .game-header {
+      padding: 8px 10px;
+      padding-top: max(8px, env(safe-area-inset-top));
       gap: 6px;
     }
+    .game-header .btn.secondary,
+    .hud-actions .btn { font-size: 0.66rem; padding: 5px 8px; }
+    .hud-actions { flex: 0 0 auto; }
+    .hud-drawers { display: none; }
+    .game-product-brand { min-width: 0; flex: 1 1 auto; max-width: 48%; }
+    .game-product-name { font-size: 0.95rem; }
+    .game-airline-line { font-size: 0.68rem; }
+    .scoreboard-bar { padding-bottom: 4px; margin-bottom: 0; }
+    .scoreboard-pillars,
+    .scoreboard-rivals { display: none; }
+    .scoreboard-panel.open { max-height: 55vh; }
+    /* Compact 2×2 instrument HUD */
+    .hud-primary {
+      flex: 1 1 100%;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      order: 5;
+    }
+    .stat-pill { min-width: 0; padding: 6px 6px; }
+    .stat-pill-label { font-size: 0.55rem; }
+    .stat-pill b { font-size: 0.74rem; }
+    #hud-pill-date,
+    #hud-pill-goal { display: none !important; }
+    /* Speed as floating FAB above dock */
+    .speed-bar {
+      position: fixed;
+      right: 10px;
+      bottom: calc(60px + env(safe-area-inset-bottom));
+      left: auto;
+      z-index: 165;
+      flex-direction: column;
+      align-items: stretch;
+      width: auto;
+      padding: 6px;
+      gap: 4px;
+      border-radius: 14px;
+      border: 1px solid rgba(90, 140, 180, 0.45);
+      background: #0c1828;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+    }
     .speed-hint { display: none; }
-    .speed-toolbar { flex: 1 1 auto; justify-content: center; }
+    .speed-toolbar {
+      flex-direction: column;
+      gap: 4px;
+    }
     .speed-bar button.speed-btn {
       min-width: 44px;
-      min-height: 44px;
-      padding: 10px 12px;
+      min-height: 40px;
+      padding: 8px;
+      border-radius: 10px;
     }
+    /* Coach as bottom sheet above dock */
+    #ops-guide.ops-guide {
+      position: sticky;
+      bottom: 0;
+      z-index: 8;
+      margin: 0;
+      border-radius: 14px 14px 0 0;
+      border: 1px solid rgba(90, 140, 180, 0.4);
+      border-bottom: none;
+      background: #0c1828;
+      box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.45);
+      max-height: 38vh;
+      overflow-y: auto;
+    }
+    .side-panel #ops-guide { order: 99; }
+    .route-instrument { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .map-chrome-bar {
+      top: auto;
+      bottom: 10px;
+      left: 10px;
+      right: 56px;
+      max-width: none;
+    }
+    .map-legend {
+      bottom: 52px;
+      max-width: min(260px, 85%);
+    }
+    .map-controls { top: 10px; right: 10px; }
     .map-wrap { padding: 8px 10px 6px; }
     .map-wrap.map-collapsed { padding-bottom: 4px; }
     .map-wrap.map-collapsed #runway-map {
@@ -1437,6 +1501,45 @@
   @media (max-width: 900px) {
     .map-collapse-only { display: block; }
   }
+  .map-chrome-bar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 6;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: min(420px, 70%);
+    pointer-events: auto;
+  }
+  .map-chrome-btn,
+  .map-chrome-select {
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 6px 10px;
+    min-height: 32px;
+    border-radius: 8px;
+    border: 1px solid rgba(90, 140, 180, 0.45);
+    background: #0c1828;
+    color: #e8f4ff;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  .map-chrome-btn:hover,
+  .map-chrome-select:hover { border-color: var(--accent); color: var(--accent); }
+  .map-filter-label { display: inline-flex; margin: 0; }
+  .map-chrome-select { max-width: 132px; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
   .map-legend {
     position: absolute;
     bottom: 12px;
@@ -1445,14 +1548,16 @@
     max-width: min(280px, 72%);
     padding: 8px 10px;
     border-radius: 8px;
-    border: 1px solid rgba(90, 140, 180, 0.35);
-    background: rgba(8, 18, 32, 0.9);
-    backdrop-filter: blur(6px);
+    border: 1px solid rgba(90, 140, 180, 0.45);
+    background: #0c1828;
     font-size: 0.64rem;
     line-height: 1.35;
-    color: var(--muted);
+    color: #a8c4e0;
     pointer-events: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   }
+  .map-legend.map-legend-collapsed { display: none; }
+  .map-legend.map-legend-open { display: block; }
   .map-legend strong {
     display: block;
     color: #e8f4ff;
@@ -1481,7 +1586,8 @@
     margin-top: 4px;
     opacity: 0.85;
   }
-  .map-wrap.map-collapsed .map-legend { display: none; }
+  .map-wrap.map-collapsed .map-legend,
+  .map-wrap.map-collapsed .map-chrome-bar { display: none; }
   .mapboxgl-popup.map-ap-popup .mapboxgl-popup-content {
     background: rgba(8, 18, 32, 0.95);
     color: #e8f4ff;
@@ -2563,7 +2669,7 @@
 
   .side-panel {
     border-left: 1px solid var(--border);
-    background: var(--panel);
+    background: #0a1522;
     display: flex;
     flex-direction: column;
     min-width: 0; /* prevent grid bleed / right-edge clip */
@@ -2715,6 +2821,33 @@
   .ops-guide-warn .ops-guide-head strong { color: #ff9b7a; }
   .ops-guide-good { border-color: rgba(0, 200, 150, 0.35); }
   .ops-guide-good .ops-guide-head strong { color: var(--accent); }
+  .ops-guide {
+    background: #0c1828;
+    border: 1px solid rgba(90, 140, 180, 0.35);
+  }
+  #airport-panel {
+    background: #0a1522;
+  }
+  .panel-card,
+  .ap-gate-hero,
+  .decision-card,
+  .route-review-card,
+  .save-modal-card,
+  .name-step-card {
+    background: #0f1e30 !important;
+    border-color: rgba(90, 140, 180, 0.4);
+  }
+  .game-header {
+    background: #0a1522;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-panel {
+    background: transparent;
+  }
+  .fleet-card {
+    background: #0f1e30;
+    border: 1px solid rgba(90, 140, 180, 0.35);
+  }
   .tabs button .tab-hint { display: block; font-size: 0.58rem; opacity: 0.75; margin-top: 2px; }
   #airport-panel { padding: 12px 14px; border-bottom: 1px solid var(--border); max-height: 38vh; overflow-y: auto; }
   #airport-panel h3 { font-size: 0.95rem; color: var(--gold); margin-bottom: 2px; }
@@ -2846,23 +2979,84 @@
   }
   .back-link:hover { color: var(--accent); }
 
-  .route-list { display: grid; gap: 8px; margin: 10px 0 14px; }
+  .route-list { display: grid; gap: 10px; margin: 10px 0 14px; }
   .route-card {
-    padding: 10px 11px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--bg);
+    position: relative;
+    padding: 0;
+    border-radius: 12px;
+    border: 1px solid rgba(90, 140, 180, 0.35);
+    background: #0f1e30;
     font-size: 0.76rem;
     line-height: 1.4;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
   }
+  .route-card-selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(0, 200, 150, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+  .route-health-bar { height: 4px; width: 100%; background: var(--gold); }
+  .route-card-body { padding: 12px 12px 10px; }
   .route-card-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
-  .route-card-head strong { font-size: 0.88rem; color: #fff; }
+  .route-card-head strong { font-size: 0.9rem; color: #fff; }
+  .route-health-chip { font-size: 0.66rem; font-weight: 700; white-space: nowrap; }
+  .route-instrument {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .route-inst {
+    background: #0a1522;
+    border: 1px solid rgba(90, 140, 180, 0.25);
+    border-radius: 8px;
+    padding: 6px 6px 5px;
+    min-width: 0;
+  }
+  .route-inst-label {
+    display: block;
+    font-size: 0.58rem;
+    color: #8eabbf;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .route-inst b { font-size: 0.82rem; color: #fff; }
+  .route-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+  }
+  .route-badge-ferry {
+    color: #ff9b7a;
+    background: rgba(255, 107, 90, 0.15);
+    border: 1px solid rgba(255, 107, 90, 0.4);
+  }
+  .route-card-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .route-primary-cta { font-size: 0.72rem; padding: 6px 10px; min-height: 36px; }
+  .empty-state-card {
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px dashed rgba(90, 140, 180, 0.4);
+    background: #0f1e30;
+  }
+  .empty-state-title { margin: 0 0 6px; color: var(--gold); font-size: 0.92rem; }
   .route-rank-badge {
     display: inline-block;
     font-size: 0.62rem;
@@ -3429,16 +3623,29 @@
         <button type="button" id="map-zoom-reset" title="Reset view">Reset</button>
         <button type="button" id="map-collapse-btn" class="map-collapse-only" title="Hide map to save space">Hide</button>
       </div>
-      <div class="map-legend" aria-hidden="true">
+      <div class="map-chrome-bar" aria-label="Map tools">
+        <button type="button" id="map-legend-toggle" class="map-chrome-btn" aria-expanded="false">Legend</button>
+        <button type="button" id="map-focus-network" class="map-chrome-btn" title="Zoom to your gates and routes">My network</button>
+        <label class="map-filter-label">
+          <span class="sr-only">Route health filter</span>
+          <select id="map-route-filter" class="map-chrome-select" title="Filter routes by health">
+            <option value="all">Routes: all</option>
+            <option value="good">Routes: healthy</option>
+            <option value="watch">Routes: watch</option>
+            <option value="bad">Routes: losing</option>
+          </select>
+        </label>
+      </div>
+      <div class="map-legend map-legend-collapsed" id="map-legend" aria-hidden="true">
         <strong>Airport dots</strong>
         <div class="map-legend-row">
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#00c896"></span>Your gate</span>
-          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5dffa8"></span>Yours · capacity open</span>
-          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ffd166"></span>High opportunity</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5dffa8"></span>Yours · open</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ffd166"></span>High opp</span>
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#7dd3fc"></span>Underserved</span>
-          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#c4b5fd"></span>Premium fares</span>
-          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ff6b5a"></span>Fortress / contested</span>
-          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5eb8ff"></span>Open market</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#c4b5fd"></span>Premium</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ff6b5a"></span>Fortress</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5eb8ff"></span>Open</span>
         </div>
         <strong style="margin-top:6px">Your routes (click line)</strong>
         <div class="map-legend-row">
@@ -3447,7 +3654,7 @@
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ffb020;border-radius:2px;width:12px;height:3px"></span>Watch</span>
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ff5c4a;border-radius:2px;width:12px;height:3px"></span>Losing</span>
         </div>
-        <div class="map-legend-note">Dots: size = market · Lines: health — click a route to open review</div>
+        <div class="map-legend-note">Dots = opportunity · Lines = your health · Click a line to review</div>
       </div>
       <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
@@ -3481,6 +3688,6 @@
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
 <script src="/static/runway/economics.js?v=76"></script>
-<script src="/static/runway/game.js?v=81"></script>
+<script src="/static/runway/game.js?v=82"></script>
 </body>
 </html>
