@@ -939,36 +939,192 @@ AIRLINE_PROFILES = {
         'tier': 'regional', 'financial_health': 0.52, 'route_sensitivity': 0.88, 'cash_runway_years': 0.8,
         'brand': {'code': 'LF', 'primary': '#0A2F4A', 'secondary': '#2BB0ED', 'accent': '#FFFFFF', 'mark': 'southern'},
     },
+    'Cape Air': {
+        'tier': 'regional', 'financial_health': 0.54, 'route_sensitivity': 0.86, 'cash_runway_years': 0.9,
+        'brand': {'code': '9K', 'primary': '#003366', 'secondary': '#6EC1E4', 'accent': '#FFFFFF', 'mark': 'cape'},
+    },
+    'Boutique Air': {
+        'tier': 'regional', 'financial_health': 0.48, 'route_sensitivity': 0.90, 'cash_runway_years': 0.7,
+        'brand': {'code': '4B', 'primary': '#1B4F72', 'secondary': '#F4D03F', 'accent': '#FFFFFF', 'mark': 'boutique'},
+    },
+    'Silver Airways': {
+        'tier': 'regional', 'financial_health': 0.46, 'route_sensitivity': 0.88, 'cash_runway_years': 0.6,
+        'brand': {'code': '3M', 'primary': '#0E4D92', 'secondary': '#C0C0C0', 'accent': '#FFFFFF', 'mark': 'silver'},
+    },
+    'JSX': {
+        'tier': 'shuttle', 'financial_health': 0.58, 'route_sensitivity': 0.82, 'cash_runway_years': 1.0,
+        'brand': {'code': 'XE', 'primary': '#111111', 'secondary': '#E8FF47', 'accent': '#FFFFFF', 'mark': 'jsx'},
+    },
+    'Avelo': {
+        'tier': 'lcc', 'financial_health': 0.50, 'route_sensitivity': 0.86, 'cash_runway_years': 0.8,
+        'brand': {'code': 'XP', 'primary': '#6B2D8B', 'secondary': '#F5A623', 'accent': '#FFFFFF', 'mark': 'avelo'},
+    },
+    'Hawaiian': {
+        'tier': 'legacy', 'financial_health': 0.60, 'route_sensitivity': 0.55, 'cash_runway_years': 1.1,
+        'brand': {'code': 'HA', 'primary': '#522398', 'secondary': '#E31C79', 'accent': '#FFFFFF', 'mark': 'hawaiian'},
+    },
+    'SkyWest': {
+        'tier': 'regional', 'financial_health': 0.66, 'route_sensitivity': 0.70, 'cash_runway_years': 1.3,
+        'brand': {'code': 'OO', 'primary': '#003366', 'secondary': '#7BAFD4', 'accent': '#FFFFFF', 'mark': 'skywest'},
+    },
+    'Republic Airways': {
+        'tier': 'regional', 'financial_health': 0.62, 'route_sensitivity': 0.72, 'cash_runway_years': 1.2,
+        'brand': {'code': 'YX', 'primary': '#0B3D5C', 'secondary': '#4A90A4', 'accent': '#FFFFFF', 'mark': 'republic'},
+    },
+    'Envoy Air': {
+        'tier': 'regional', 'financial_health': 0.60, 'route_sensitivity': 0.74, 'cash_runway_years': 1.1,
+        'brand': {'code': 'MQ', 'primary': '#0078D2', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'envoy'},
+    },
+    'PSA Airlines': {
+        'tier': 'regional', 'financial_health': 0.58, 'route_sensitivity': 0.75, 'cash_runway_years': 1.0,
+        'brand': {'code': 'OH', 'primary': '#0078D2', 'secondary': '#5B9BD5', 'accent': '#FFFFFF', 'mark': 'psa'},
+    },
+    'Endeavor Air': {
+        'tier': 'regional', 'financial_health': 0.64, 'route_sensitivity': 0.72, 'cash_runway_years': 1.2,
+        'brand': {'code': '9E', 'primary': '#003268', 'secondary': '#C8102E', 'accent': '#FFFFFF', 'mark': 'endeavor'},
+    },
+    'Air Wisconsin': {
+        'tier': 'regional', 'financial_health': 0.52, 'route_sensitivity': 0.80, 'cash_runway_years': 0.9,
+        'brand': {'code': 'ZW', 'primary': '#1A3A5C', 'secondary': '#E87722', 'accent': '#FFFFFF', 'mark': 'airwis'},
+    },
+    'Porter': {
+        'tier': 'lcc', 'financial_health': 0.62, 'route_sensitivity': 0.70, 'cash_runway_years': 1.2,
+        'brand': {'code': 'PD', 'primary': '#00205B', 'secondary': '#6EC4E8', 'accent': '#FFFFFF', 'mark': 'porter'},
+    },
+    'Air Canada': {
+        'tier': 'legacy', 'financial_health': 0.68, 'route_sensitivity': 0.48, 'cash_runway_years': 1.4,
+        'brand': {'code': 'AC', 'primary': '#C8102E', 'secondary': '#FFFFFF', 'accent': '#000000', 'mark': 'aircanada'},
+    },
+    'WestJet': {
+        'tier': 'lcc', 'financial_health': 0.64, 'route_sensitivity': 0.62, 'cash_runway_years': 1.3,
+        'brand': {'code': 'WS', 'primary': '#00AADF', 'secondary': '#0C2340', 'accent': '#FFFFFF', 'mark': 'westjet'},
+    },
     'Charter / GA': {
         'tier': 'charter', 'financial_health': 0.35, 'route_sensitivity': 0.30, 'cash_runway_years': 0.4,
         'brand': {'code': 'GA', 'primary': '#3D3D3D', 'secondary': '#A0A0A0', 'accent': '#FFFFFF', 'mark': 'charter'},
     },
+    # World majors — dominate global league; thin US presence unless noted.
+    'Lufthansa': {
+        'tier': 'legacy', 'financial_health': 0.74, 'route_sensitivity': 0.35, 'cash_runway_years': 1.6,
+        'brand': {'code': 'LH', 'primary': '#05164D', 'secondary': '#F9BA00', 'accent': '#FFFFFF', 'mark': 'lufthansa'},
+    },
+    'British Airways': {
+        'tier': 'legacy', 'financial_health': 0.70, 'route_sensitivity': 0.38, 'cash_runway_years': 1.4,
+        'brand': {'code': 'BA', 'primary': '#075AAA', 'secondary': '#E40D2C', 'accent': '#FFFFFF', 'mark': 'ba'},
+    },
+    'Air France': {
+        'tier': 'legacy', 'financial_health': 0.68, 'route_sensitivity': 0.40, 'cash_runway_years': 1.3,
+        'brand': {'code': 'AF', 'primary': '#002157', 'secondary': '#E3002B', 'accent': '#FFFFFF', 'mark': 'af'},
+    },
+    'Emirates': {
+        'tier': 'legacy', 'financial_health': 0.88, 'route_sensitivity': 0.28, 'cash_runway_years': 2.2,
+        'brand': {'code': 'EK', 'primary': '#D71921', 'secondary': '#FFD100', 'accent': '#FFFFFF', 'mark': 'emirates'},
+    },
+    'Qatar Airways': {
+        'tier': 'legacy', 'financial_health': 0.86, 'route_sensitivity': 0.30, 'cash_runway_years': 2.0,
+        'brand': {'code': 'QR', 'primary': '#5C0632', 'secondary': '#8A1538', 'accent': '#FFFFFF', 'mark': 'qatar'},
+    },
+    'Singapore Airlines': {
+        'tier': 'legacy', 'financial_health': 0.84, 'route_sensitivity': 0.32, 'cash_runway_years': 1.9,
+        'brand': {'code': 'SQ', 'primary': '#1D4886', 'secondary': '#F8B61A', 'accent': '#FFFFFF', 'mark': 'sia'},
+    },
+    'ANA': {
+        'tier': 'legacy', 'financial_health': 0.76, 'route_sensitivity': 0.36, 'cash_runway_years': 1.5,
+        'brand': {'code': 'NH', 'primary': '#003366', 'secondary': '#0B5CAB', 'accent': '#FFFFFF', 'mark': 'ana'},
+    },
+    'Cathay Pacific': {
+        'tier': 'legacy', 'financial_health': 0.72, 'route_sensitivity': 0.38, 'cash_runway_years': 1.4,
+        'brand': {'code': 'CX', 'primary': '#006564', 'secondary': '#FFFFFF', 'accent': '#006564', 'mark': 'cathay'},
+    },
+    'Qantas': {
+        'tier': 'legacy', 'financial_health': 0.74, 'route_sensitivity': 0.36, 'cash_runway_years': 1.5,
+        'brand': {'code': 'QF', 'primary': '#E0001B', 'secondary': '#FFFFFF', 'accent': '#E0001B', 'mark': 'qantas'},
+    },
+    'LATAM': {
+        'tier': 'legacy', 'financial_health': 0.58, 'route_sensitivity': 0.48, 'cash_runway_years': 1.0,
+        'brand': {'code': 'LA', 'primary': '#1B0088', 'secondary': '#E4002B', 'accent': '#FFFFFF', 'mark': 'latam'},
+    },
+    'Turkish Airlines': {
+        'tier': 'legacy', 'financial_health': 0.78, 'route_sensitivity': 0.34, 'cash_runway_years': 1.7,
+        'brand': {'code': 'TK', 'primary': '#C70A0C', 'secondary': '#FFFFFF', 'accent': '#C70A0C', 'mark': 'turkish'},
+    },
+    'Ryanair': {
+        'tier': 'lcc', 'financial_health': 0.80, 'route_sensitivity': 0.55, 'cash_runway_years': 2.0,
+        'brand': {'code': 'FR', 'primary': '#073590', 'secondary': '#F1A821', 'accent': '#FFFFFF', 'mark': 'ryanair'},
+    },
+    'easyJet': {
+        'tier': 'lcc', 'financial_health': 0.66, 'route_sensitivity': 0.60, 'cash_runway_years': 1.3,
+        'brand': {'code': 'U2', 'primary': '#FF6600', 'secondary': '#FFFFFF', 'accent': '#FF6600', 'mark': 'easyjet'},
+    },
 }
 
-# National scale (0–1) and est. monthly brand/marketing + corporate overhead for league economics.
+# National scale (0–1), monthly brand/corp overhead, and which league scopes they join.
+# presence: relative strength inside each scope (1.0 = fully "at home", tiny = almost invisible).
 _AIRLINE_SCALE_DEFAULTS = {
-    'Delta': (0.98, 390_000_000),
-    'American': (0.96, 360_000_000),
-    'United': (0.95, 340_000_000),
-    'Southwest': (0.82, 175_000_000),
-    'Allegiant': (0.34, 11_000_000),
-    'Frontier': (0.38, 14_000_000),
-    'Spirit': (0.36, 13_000_000),
-    'JetBlue': (0.52, 42_000_000),
-    'Alaska': (0.44, 26_000_000),
-    'Sun Country': (0.22, 4_500_000),
-    'Breeze': (0.18, 3_200_000),
-    'Ultimate Air Shuttle': (0.06, 180_000),
-    'Southern Airways Express': (0.08, 420_000),
-    'Charter / GA': (0.02, 50_000),
+    # US majors
+    'Delta': (0.98, 390_000_000, {'ohio': 0.92, 'midwest': 0.96, 'national': 1.0, 'world': 0.55}),
+    'American': (0.96, 360_000_000, {'ohio': 0.90, 'midwest': 0.94, 'national': 1.0, 'world': 0.50}),
+    'United': (0.95, 340_000_000, {'ohio': 0.88, 'midwest': 0.95, 'national': 1.0, 'world': 0.52}),
+    'Southwest': (0.82, 175_000_000, {'ohio': 0.70, 'midwest': 0.85, 'national': 0.95, 'world': 0.12}),
+    'Alaska': (0.44, 26_000_000, {'ohio': 0.08, 'midwest': 0.18, 'national': 0.70, 'world': 0.18}),
+    'JetBlue': (0.52, 42_000_000, {'ohio': 0.12, 'midwest': 0.22, 'national': 0.72, 'world': 0.20}),
+    'Hawaiian': (0.28, 8_000_000, {'ohio': 0.02, 'midwest': 0.04, 'national': 0.35, 'world': 0.22}),
+    # US LCC
+    'Allegiant': (0.34, 11_000_000, {'ohio': 0.85, 'midwest': 0.70, 'national': 0.65, 'world': 0.04}),
+    'Frontier': (0.38, 14_000_000, {'ohio': 0.75, 'midwest': 0.72, 'national': 0.70, 'world': 0.05}),
+    'Spirit': (0.36, 13_000_000, {'ohio': 0.55, 'midwest': 0.50, 'national': 0.68, 'world': 0.06}),
+    'Sun Country': (0.22, 4_500_000, {'ohio': 0.15, 'midwest': 0.55, 'national': 0.40, 'world': 0.04}),
+    'Breeze': (0.18, 3_200_000, {'ohio': 0.45, 'midwest': 0.40, 'national': 0.38, 'world': 0.03}),
+    'Avelo': (0.14, 2_400_000, {'ohio': 0.10, 'midwest': 0.18, 'national': 0.32, 'world': 0.02}),
+    # US regionals / shuttles (strong locally, weak nationally)
+    'SkyWest': (0.40, 9_000_000, {'ohio': 0.55, 'midwest': 0.75, 'national': 0.80, 'world': 0.06}),
+    'Republic Airways': (0.32, 6_500_000, {'ohio': 0.70, 'midwest': 0.72, 'national': 0.65, 'world': 0.04}),
+    'Envoy Air': (0.30, 5_800_000, {'ohio': 0.60, 'midwest': 0.65, 'national': 0.62, 'world': 0.03}),
+    'PSA Airlines': (0.28, 5_200_000, {'ohio': 0.65, 'midwest': 0.55, 'national': 0.55, 'world': 0.03}),
+    'Endeavor Air': (0.34, 7_000_000, {'ohio': 0.50, 'midwest': 0.70, 'national': 0.68, 'world': 0.04}),
+    'Air Wisconsin': (0.16, 1_800_000, {'ohio': 0.25, 'midwest': 0.55, 'national': 0.30, 'world': 0.02}),
+    'Southern Airways Express': (0.08, 420_000, {'ohio': 0.70, 'midwest': 0.45, 'national': 0.18, 'world': 0.01}),
+    'Contour Airlines': (0.07, 380_000, {'ohio': 0.75, 'midwest': 0.40, 'national': 0.16, 'world': 0.01}),
+    'Cape Air': (0.10, 520_000, {'ohio': 0.08, 'midwest': 0.12, 'national': 0.28, 'world': 0.02}),
+    'Boutique Air': (0.06, 280_000, {'ohio': 0.05, 'midwest': 0.15, 'national': 0.22, 'world': 0.01}),
+    'Silver Airways': (0.09, 480_000, {'ohio': 0.04, 'midwest': 0.06, 'national': 0.26, 'world': 0.02}),
+    'Ultimate Air Shuttle': (0.04, 180_000, {'ohio': 0.80, 'midwest': 0.25, 'national': 0.06, 'world': 0.005}),
+    'JSX': (0.12, 1_600_000, {'ohio': 0.12, 'midwest': 0.20, 'national': 0.35, 'world': 0.03}),
+    'Charter / GA': (0.02, 50_000, {'ohio': 0.55, 'midwest': 0.40, 'national': 0.35, 'world': 0.08}),
+    # Canada / cross-border (Great Lakes + national + world)
+    'Porter': (0.16, 3_000_000, {'ohio': 0.15, 'midwest': 0.35, 'national': 0.18, 'world': 0.12}),
+    'Air Canada': (0.48, 38_000_000, {'ohio': 0.20, 'midwest': 0.40, 'national': 0.22, 'world': 0.45}),
+    'WestJet': (0.30, 12_000_000, {'ohio': 0.08, 'midwest': 0.22, 'national': 0.14, 'world': 0.28}),
+    # Global giants — world league (tiny US ops presence if any)
+    'Lufthansa': (0.72, 120_000_000, {'ohio': 0.01, 'midwest': 0.03, 'national': 0.12, 'world': 0.90}),
+    'British Airways': (0.68, 95_000_000, {'ohio': 0.01, 'midwest': 0.02, 'national': 0.14, 'world': 0.85}),
+    'Air France': (0.65, 90_000_000, {'ohio': 0.01, 'midwest': 0.02, 'national': 0.10, 'world': 0.82}),
+    'Emirates': (0.90, 160_000_000, {'ohio': 0.005, 'midwest': 0.01, 'national': 0.08, 'world': 0.98}),
+    'Qatar Airways': (0.82, 140_000_000, {'ohio': 0.005, 'midwest': 0.01, 'national': 0.07, 'world': 0.95}),
+    'Singapore Airlines': (0.70, 85_000_000, {'ohio': 0.002, 'midwest': 0.005, 'national': 0.05, 'world': 0.88}),
+    'ANA': (0.58, 70_000_000, {'ohio': 0.002, 'midwest': 0.005, 'national': 0.06, 'world': 0.78}),
+    'Cathay Pacific': (0.55, 62_000_000, {'ohio': 0.002, 'midwest': 0.004, 'national': 0.05, 'world': 0.75}),
+    'Qantas': (0.52, 55_000_000, {'ohio': 0.001, 'midwest': 0.003, 'national': 0.04, 'world': 0.72}),
+    'LATAM': (0.48, 42_000_000, {'ohio': 0.001, 'midwest': 0.003, 'national': 0.05, 'world': 0.70}),
+    'Turkish Airlines': (0.75, 100_000_000, {'ohio': 0.005, 'midwest': 0.01, 'national': 0.08, 'world': 0.92}),
+    'Ryanair': (0.78, 55_000_000, {'ohio': 0.0, 'midwest': 0.0, 'national': 0.01, 'world': 0.85}),
+    'easyJet': (0.50, 28_000_000, {'ohio': 0.0, 'midwest': 0.0, 'national': 0.01, 'world': 0.70}),
 }
+
+# Fix accidental space in ANA color if any — set clean brand colors after loop
 for _name, _prof in AIRLINE_PROFILES.items():
-    _scale, _overhead = _AIRLINE_SCALE_DEFAULTS.get(
-        _name,
-        (_prof['financial_health'] * 0.45, _prof['financial_health'] * 8_000_000),
-    )
+    _row = _AIRLINE_SCALE_DEFAULTS.get(_name)
+    if _row:
+        _scale, _overhead, _presence = _row
+    else:
+        _scale = _prof['financial_health'] * 0.45
+        _overhead = _prof['financial_health'] * 8_000_000
+        _presence = {'ohio': 0.3, 'midwest': 0.4, 'national': 0.5, 'world': 0.1}
     _prof['national_scale'] = _scale
     _prof['marketing_overhead_mo'] = _overhead
+    _prof['scope_presence'] = _presence
+    # Appear in a scope if presence is meaningful (or majors always in US scopes)
+    _prof['league_scopes'] = [k for k, v in _presence.items() if v >= 0.04]
 
 
 def _normalize_gate_counts(gates_total, gates_available):
@@ -1639,63 +1795,85 @@ MIDWEST_REGION_IATA = sorted(set(OHIO_REGION_IATA + [
     'DSM', 'OMA', 'CID', 'DBQ',
 ]))
 
-# League tables list EVERY competitor profile (majors + small regionals/shuttles).
-# National used to omit Breeze/Contour/Southern/etc., so regional looked fuller than US.
+# Display order for league tables (majors → US regionals → Canada → world).
 _LEAGUE_AIRLINE_ORDER = [
-    'Delta',
-    'American',
-    'United',
-    'Southwest',
-    'Alaska',
-    'JetBlue',
-    'Spirit',
-    'Frontier',
-    'Allegiant',
-    'Sun Country',
-    'Breeze',
-    'Contour Airlines',
-    'Southern Airways Express',
-    'Ultimate Air Shuttle',
-    'Charter / GA',
+    'Delta', 'American', 'United', 'Southwest', 'Alaska', 'JetBlue', 'Hawaiian',
+    'Spirit', 'Frontier', 'Allegiant', 'Sun Country', 'Breeze', 'Avelo',
+    'SkyWest', 'Republic Airways', 'Envoy Air', 'PSA Airlines', 'Endeavor Air',
+    'Air Wisconsin', 'Southern Airways Express', 'Contour Airlines', 'Cape Air',
+    'Boutique Air', 'Silver Airways', 'Ultimate Air Shuttle', 'JSX', 'Charter / GA',
+    'Porter', 'Air Canada', 'WestJet',
+    'Emirates', 'Qatar Airways', 'Turkish Airlines', 'Lufthansa', 'British Airways',
+    'Air France', 'Singapore Airlines', 'ANA', 'Cathay Pacific', 'Qantas', 'LATAM',
+    'Ryanair', 'easyJet',
 ]
 
 
-def _all_league_airlines():
-    """Stable order: known majors first, then any other AIRLINE_PROFILES keys."""
-    names = []
-    seen = set()
+def _ordered_airlines(names):
+    """Stable order: known order first, then alphabetical leftovers."""
+    out, seen = [], set()
     for n in _LEAGUE_AIRLINE_ORDER:
-        if n in AIRLINE_PROFILES and n not in seen:
-            names.append(n)
+        if n in names and n not in seen:
+            out.append(n)
             seen.add(n)
-    for n in sorted(AIRLINE_PROFILES.keys()):
+    for n in sorted(names):
         if n not in seen:
-            names.append(n)
+            out.append(n)
             seen.add(n)
-    return names
+    return out
 
 
-_LEAGUE_AIRLINES = _all_league_airlines()
+def _airlines_for_scope(scope_key, min_presence=0.04):
+    """Airlines with meaningful presence in this league scope."""
+    names = []
+    for name, prof in AIRLINE_PROFILES.items():
+        presence = (prof.get('scope_presence') or {}).get(scope_key, 0)
+        scopes = prof.get('league_scopes') or []
+        if presence >= min_presence or scope_key in scopes:
+            names.append(name)
+    return _ordered_airlines(names)
+
+
+_LEAGUE_AIRLINES = _ordered_airlines(list(AIRLINE_PROFILES.keys()))
 
 LEAGUE_SCOPES = {
     'ohio': {
         'label': 'Ohio & bordering states',
         'airports': OHIO_REGION_IATA,
-        # Same full competitor set as national — scope only changes airport filter / overhead.
-        'airlines': list(_LEAGUE_AIRLINES),
-        'overhead_weight': 0.05,
+        # Local pond: majors + regionals that actually fight for Ohio traffic.
+        'airlines': _airlines_for_scope('ohio', 0.08),
+        'overhead_weight': 0.08,
+        'field_size_hint': 'local',
+        'recognition_floor': 0.12,
     },
     'midwest': {
-        'label': 'Midwest (PA · OH · KY · IN · MI · TN · Great Lakes)',
+        'label': 'Midwest · Great Lakes',
         'airports': MIDWEST_REGION_IATA,
-        'airlines': list(_LEAGUE_AIRLINES),
-        'overhead_weight': 0.15,
+        'airlines': _airlines_for_scope('midwest', 0.06),
+        'overhead_weight': 0.22,
+        'field_size_hint': 'regional',
+        'recognition_floor': 0.05,
     },
     'national': {
         'label': 'United States',
+        # Full US airport set (None = all bootstrap airports).
         'airports': None,
-        'airlines': list(_LEAGUE_AIRLINES),
+        'airlines': _airlines_for_scope('national', 0.04),
         'overhead_weight': 1.0,
+        'field_size_hint': 'national',
+        'recognition_floor': 0.015,
+    },
+    'world': {
+        'label': 'World',
+        # Full carrier set: US regionals + global majors. Player should sit near the bottom
+        # until world airports and long-haul network exist.
+        'airports': None,
+        'airlines': _ordered_airlines(list(AIRLINE_PROFILES.keys())),
+        'overhead_weight': 1.35,
+        'field_size_hint': 'world',
+        'recognition_floor': 0.002,
+        'global_multiplier': 14.0,
+        'note': 'Global league — large world hubs coming later. Known in Ohio ≠ known on Earth.',
     },
 }
 
@@ -1704,6 +1882,7 @@ LEAGUE_BY_REGION = {
     'ohio': LEAGUE_SCOPES['ohio']['airlines'],
     'midwest': LEAGUE_SCOPES['midwest']['airlines'],
     'national': LEAGUE_SCOPES['national']['airlines'],
+    'world': LEAGUE_SCOPES['world']['airlines'],
 }
 
 # Player emblem marks — unique SVG shapes (rendered in game.js). Labels are internal only; UI shows marks without names.

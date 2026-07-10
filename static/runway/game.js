@@ -5365,17 +5365,15 @@
 
   function leagueAirlineNames(scopeKey) {
     const cfg = leagueScopeConfig(scopeKey);
-    // Prefer scope list; if thin/missing, fall back to every airline profile so
-    // national never shows fewer rivals than a regional scope.
+    // Scope lists are curated (Ohio ≠ World). Do NOT merge every profile in —
+    // that used to make national look like the same 15 names as Ohio.
     let names = cfg.airlines && cfg.airlines.length ? cfg.airlines.slice() : [];
-    const profiles = bootstrap.airline_profiles || {};
-    const profileNames = Object.keys(profiles);
     if (!names.length) {
-      names = profileNames.slice();
-    } else {
-      // Merge any profile missing from the scope list (e.g. stale bootstrap cache).
-      profileNames.forEach((n) => {
-        if (!names.includes(n)) names.push(n);
+      const profiles = bootstrap.airline_profiles || {};
+      names = Object.keys(profiles).filter((n) => {
+        const p = profiles[n] || {};
+        const presence = (p.scope_presence || {})[scopeKey || 'national'];
+        return presence == null || presence >= 0.04;
       });
     }
     return names;
@@ -5402,6 +5400,94 @@
   function scopeOverheadWeight(scopeKey) {
     const cfg = leagueScopeConfig(scopeKey);
     return cfg.overhead_weight != null ? cfg.overhead_weight : 1;
+  }
+
+  function airlineScopePresence(name, scopeKey) {
+    const prof = airlineProfile(name) || {};
+    const map = prof.scope_presence || {};
+    if (map[scopeKey] != null) return Math.max(0, Math.min(1.2, map[scopeKey]));
+    // Fallback from national_scale
+    const scale = prof.national_scale != null ? prof.national_scale : 0.3;
+    if (scopeKey === 'world') return scale * 0.45;
+    if (scopeKey === 'national') return scale;
+    if (scopeKey === 'midwest') return scale * 0.55;
+    if (scopeKey === 'ohio') return scale * 0.4;
+    return scale;
+  }
+
+  /**
+   * How well the player is known / present inside a league scope.
+   * Intensity where you operate (DAY/CMH) can be high; coverage dilution across the
+   * whole arena makes national/world recognition collapse.
+   */
+  function playerScopeRecognition(scopeKey) {
+    const aps = airportsInLeagueScope(scopeKey);
+    // Prefer commercial airports for dilution so tiny GA strips don't dominate.
+    const commercial = aps.filter((a) => (a.annual_pax_m || 0) >= 0.05 || (a.metro_pop_m || 0) >= 0.15);
+    const pool = commercial.length >= 8 ? commercial : aps;
+    const n = Math.max(1, pool.length);
+    let brandSumAll = 0;
+    let brandKnown = 0;
+    let intensitySum = 0;
+    let intensityN = 0;
+    let opsAirports = 0;
+    const opsSet = new Set();
+    (state.routes || []).forEach((r) => {
+      if (!routeTouchesScope(r, scopeKey)) return;
+      opsSet.add(r.origin);
+      opsSet.add(r.dest);
+    });
+    (state.gates || []).forEach((g) => {
+      const allowed = scopeAirportSet(scopeKey);
+      if (!allowed || allowed.has(g.airport)) opsSet.add(g.airport);
+    });
+    pool.forEach((ap) => {
+      const b = (state.brand_awareness && state.brand_awareness[ap.iata]) || 0;
+      brandSumAll += b;
+      if (b >= 8) {
+        brandKnown += 1;
+        intensitySum += b;
+        intensityN += 1;
+      }
+      if (opsSet.has(ap.iata)) opsAirports += 1;
+    });
+    // Also count ops airports even if brand is still low
+    opsSet.forEach((iata) => {
+      if (!pool.find((a) => a.iata === iata)) return;
+      const b = (state.brand_awareness && state.brand_awareness[iata]) || 0;
+      if (b < 8) {
+        intensitySum += Math.max(b, 12);
+        intensityN += 1;
+      }
+    });
+    const avgBrand = brandSumAll / n;
+    const intensity = intensityN ? intensitySum / intensityN : 0;
+    const brandCoverage = brandKnown / n;
+    const opsCoverage = opsAirports / n;
+    const brandStock = Object.values(state.brand_awareness || {}).reduce((s, v) => s + (v || 0), 0);
+    const cfg = leagueScopeConfig(scopeKey);
+    const floor = cfg.recognition_floor != null ? cfg.recognition_floor : 0.02;
+    // Local: high intensity + modest coverage → mid recognition.
+    // National: same intensity, tiny coverage → near-floor recognition.
+    const coverageFactor = 0.28 + brandCoverage * 0.55 + opsCoverage * 0.35;
+    let recognition = intensity * coverageFactor + brandCoverage * 40 + opsCoverage * 28 + Math.sqrt(brandStock) * 0.45;
+    // Arena size penalty beyond Ohio home pond
+    if (scopeKey === 'midwest') recognition *= 0.72;
+    else if (scopeKey === 'national') recognition *= 0.42;
+    else if (scopeKey === 'world') recognition *= 0.12;
+    recognition = Math.max(0, Math.min(100, recognition));
+    const presenceShare = Math.max(floor * 0.2, (recognition / 100) * (0.4 + opsCoverage * 0.8));
+    return {
+      avgBrand,
+      intensity,
+      brandCoverage,
+      opsCoverage,
+      brandStock,
+      recognition: Math.round(recognition * 10) / 10,
+      presenceShare,
+      airportsInScope: n,
+      opsAirports,
+    };
   }
 
   function setLeagueScope(scopeKey) {
@@ -5502,6 +5588,9 @@
       tier: 'lcc',
     };
     const aps = airportsInLeagueScope(scopeKey);
+    const presence = airlineScopePresence(name, scopeKey);
+    const cfg = leagueScopeConfig(scopeKey);
+    const globalMult = cfg.global_multiplier != null ? cfg.global_multiplier : 1;
     let dailyPax = 0;
     let dailyGross = 0;
     const airportPresence = [];
@@ -5527,6 +5616,19 @@
       routesInScope.push(r);
     });
 
+    // Network floor: scale-heavy so majors stay on top; tiny regionals stay small
+    // even with high local presence (Contour ≠ Delta in absolute riders).
+    const scale = prof.national_scale != null ? prof.national_scale : 0.3;
+    const apCount = Math.max(8, aps.length);
+    const floorDaily =
+      Math.pow(Math.max(0.015, scale), 1.45) * Math.pow(Math.max(0.05, presence), 0.85) * apCount * 70 * globalMult;
+    if (dailyPax < floorDaily) {
+      const fare = prof.tier === 'lcc' ? 95 : prof.tier === 'regional' || prof.tier === 'shuttle' ? 120 : 165;
+      const add = floorDaily - dailyPax;
+      dailyPax = floorDaily;
+      dailyGross += add * fare;
+    }
+
     const playerSteal = Object.keys(state.brand_awareness || {}).reduce((s, iata) => {
       const ap = airport(iata);
       if (!ap || !aps.find((x) => x.iata === iata)) return s;
@@ -5534,16 +5636,22 @@
       if (!inc) return s;
       return s + (state.brand_awareness[iata] || 0) * inc.share * 0.35;
     }, 0);
-    dailyPax = Math.max(0, dailyPax - playerSteal * 14);
+    dailyPax = Math.max(floorDaily * 0.35, dailyPax - playerSteal * 14);
     dailyGross = Math.max(0, dailyGross - playerSteal * 14 * 125);
 
     const riders = Math.round(dailyPax * 30);
     const gross = dailyGross * 30;
     const margin = 0.06 + prof.financial_health * 0.11;
-    const overhead =
-      (prof.marketing_overhead_mo || prof.national_scale * 50_000_000) *
-      scopeOverheadWeight(scopeKey);
-    const profit = Math.round(gross * margin - overhead);
+    // Overhead scales with scope, but never erase presence for ranking —
+    // use soft overhead so tiny regionals don't go −$50M and lose to a startup.
+    const rawOverhead =
+      (prof.marketing_overhead_mo || scale * 50_000_000) * scopeOverheadWeight(scopeKey) * presence;
+    const opProfit = gross * margin;
+    // Rankable profit: can't fall below −15% of gross (giants stay huge; minnows stay small)
+    const profit = Math.round(Math.max(opProfit * -0.15, opProfit - rawOverhead * 0.55));
+    const recognition = Math.round(
+      Math.min(98, presence * 88 + scale * 10 + Math.min(8, routesInScope.length))
+    );
 
     const csat = Math.max(
       22,
@@ -5561,9 +5669,11 @@
       riders,
       csat: Math.round(csat),
       gross: Math.round(gross),
-      overhead: Math.round(overhead),
+      overhead: Math.round(rawOverhead),
       routesInScope,
       airportPresence,
+      recognition,
+      presence,
       prof,
     };
   }
@@ -5579,6 +5689,8 @@
       csat: stats.csat,
       gross: stats.gross,
       overhead: stats.overhead,
+      recognition: stats.recognition,
+      presence: stats.presence,
       emblem: null,
       overall: 0,
     };
@@ -5586,46 +5698,75 @@
 
   function playerLeagueEntry(scopeKey) {
     ensureMetrics();
-    const riders = estimateMonthlyRiders(scopeKey);
-    const profit = playerScopedMonthlyProfit(scopeKey);
+    const rec = playerScopeRecognition(scopeKey);
+    const ridersRaw = estimateMonthlyRiders(scopeKey);
+    // Dilute effective riders as arena grows — you're a big fish only where you fly.
+    // National/world: same absolute pax count as a smaller share of the market.
+    const scopeN = Math.max(1, rec.airportsInScope);
+    const homeN = Math.max(
+      1,
+      (bootstrap.ohio_region_iata || []).length || 50
+    );
+    const arenaDilution = Math.min(1, Math.sqrt(homeN / scopeN) * (0.55 + rec.opsCoverage * 0.9));
+    const riders = Math.round(ridersRaw * Math.max(0.04, arenaDilution));
+    const profitRaw = playerScopedMonthlyProfit(scopeKey);
+    // Profit also "feels" smaller vs giants when recognition is tiny (brand can't convert nationally)
+    const profit = Math.round(profitRaw * (0.35 + rec.presenceShare * 1.4));
     const csat = Math.round(computeCsat());
     return {
       id: 'player',
       name: state.airline_name || 'You',
       isPlayer: true,
       profit,
-      riders: riders || estimateMonthlyRiders(scopeKey),
+      riders: Math.max(0, riders),
+      ridersRaw,
       csat,
+      recognition: rec.recognition,
+      presence: rec.presenceShare,
+      brandAvg: rec.avgBrand,
+      opsCoverage: rec.opsCoverage,
       overall: 0,
       emblem: state.airline_emblem || 'wing',
     };
   }
 
   function leaguePillarPercentile(entries, key, entry) {
-    const sorted = [...entries].sort((a, b) => b[key] - a[key]);
+    const sorted = [...entries].sort((a, b) => (b[key] || 0) - (a[key] || 0));
     const idx = sorted.findIndex((e) => e.id === entry.id);
     if (idx < 0) return 0;
     return Math.round((1 - idx / Math.max(1, entries.length - 1)) * 100);
   }
 
-  function leagueRiderPercentile(entries, entry) {
-    const sorted = [...entries].sort((a, b) => b.riders - a.riders);
-    const idx = sorted.findIndex((e) => e.id === entry.id);
-    let pct = Math.round((1 - idx / Math.max(1, entries.length - 1)) * 100);
-    if (entry.isPlayer) {
-      pct = Math.round(pct * 0.82);
-    } else {
-      const scale = airlineProfile(entry.name)?.national_scale || 0.4;
-      pct = Math.round(Math.min(100, pct * (0.9 + scale * 0.12)));
-    }
-    return pct;
+  function leagueLogPercentile(entries, key, entry) {
+    // Log-scale ranks so Delta (millions) doesn't make every small carrier look identical.
+    const vals = entries.map((e) => Math.log10(Math.max(1, e[key] || 0)));
+    const mine = Math.log10(Math.max(1, entry[key] || 0));
+    const max = Math.max(...vals, 1e-6);
+    const min = Math.min(...vals);
+    if (max <= min) return 50;
+    return Math.round(((mine - min) / (max - min)) * 100);
   }
 
-  function applyLeagueOverallScores(entries) {
+  function applyLeagueOverallScores(entries, scopeKey) {
+    // Presence-first: riders + brand recognition dominate. Profit is secondary so
+    // overhead accounting never ranks a startup above Delta nationally.
     entries.forEach((e) => {
+      const riderPct = leagueLogPercentile(entries, 'riders', e);
+      const recPct = leagueLogPercentile(entries, 'recognition', e);
       const profitPct = leaguePillarPercentile(entries, 'profit', e);
-      const riderPct = leagueRiderPercentile(entries, e);
-      e.overall = Math.round(profitPct * 0.45 + riderPct * 0.35 + e.csat * 0.2);
+      const csatPct = Math.max(0, Math.min(100, e.csat || 0));
+      let overall = riderPct * 0.42 + recPct * 0.28 + profitPct * 0.15 + csatPct * 0.15;
+      // Extra penalty for the player outside their home pond
+      if (e.isPlayer) {
+        const rec = playerScopeRecognition(scopeKey);
+        // Home pond can be competitive; leave Ohio and standing collapses.
+        const homeBoost =
+          scopeKey === 'ohio' ? 1.12 : scopeKey === 'midwest' ? 0.82 : scopeKey === 'national' ? 0.58 : 0.28;
+        overall *= homeBoost * (0.62 + Math.min(0.55, rec.presenceShare * 2.8));
+      }
+      e.overall = Math.round(Math.max(1, Math.min(99, overall)));
+      e.riderPct = riderPct;
+      e.recPct = recPct;
     });
   }
 
@@ -5636,8 +5777,8 @@
       playerLeagueEntry(scope),
       ...leagueAirlineNames(scope).map((n) => competitorLeagueEntry(n, scope)),
     ];
-    applyLeagueOverallScores(entries);
-    entries.sort((a, b) => b.overall - a.overall);
+    applyLeagueOverallScores(entries, scope);
+    entries.sort((a, b) => b.overall - a.overall || b.riders - a.riders);
     return entries.map((e, i) => ({ ...e, rank: i + 1, scope }));
   }
 
@@ -5648,10 +5789,11 @@
 
   function metricLeverTip(pillar) {
     const tips = {
-      profit: 'Scoped monthly operating profit — click to rank league by profit',
-      riders: 'Estimated monthly passengers in scope — click to rank league',
-      csat: 'Passenger satisfaction — reputation, load factor, reliability — click to rank',
-      overall: 'Your rank vs rivals. #1 is best. Standing column is a blended index — not the same as rank.',
+      profit: 'Scoped operating profit — click to sort. Giants look weaker in tiny ponds (heavy brand cost).',
+      riders: 'Estimated monthly passengers in this arena — diluted when you leave your home markets',
+      csat: 'Passenger satisfaction — reputation, load factor, reliability',
+      overall:
+        'Rank vs rivals in this arena. #1 is best. Expanding scope (Ohio → Midwest → US → World) should make your rank worse until you grow brand and routes.',
     };
     return tips[pillar] || '';
   }
@@ -6387,13 +6529,15 @@
         <dl class="stat-dl rival-stats">
           <dt>Est. monthly profit</dt><dd class="${stats.profit >= 0 ? '' : 'danger'}">${fmtMoney(stats.profit)}</dd>
           <dt>Est. monthly riders</dt><dd>${stats.riders.toLocaleString()}</dd>
+          <dt>Brand / mindshare</dt><dd>${stats.recognition != null ? Math.round(stats.recognition) : '—'}/100</dd>
+          <dt>Scope presence</dt><dd>${Math.round((stats.presence || 0) * 100)}%</dd>
           <dt>Satisfaction (est.)</dt><dd>${stats.csat}</dd>
           <dt>Gross revenue (scope)</dt><dd>${fmtMoney(stats.gross)}</dd>
           <dt>Brand & overhead</dt><dd>${fmtMoney(stats.overhead)}/mo</dd>
           <dt>Financial health</dt><dd>${health}%</dd>
         </dl>
         <p class="muted" style="font-size:0.72rem;margin:10px 0 6px;">
-          Giants carry heavy marketing and corporate overhead — strong brand, thin scoped profit. Your startup avoids most of that… for now.
+          Presence is scoped — a shuttle can matter in Ohio and vanish nationally. Your rank follows where passengers actually know you.
         </p>
         <h4 class="rival-section-title">Routes in scope</h4>
         ${routesHtml}
@@ -6490,7 +6634,10 @@
       if (back) back.addEventListener('click', closeRivalDetail);
       return;
     }
-    const scope = leagueScopeLabel(getLeagueScope());
+    const scopeKey = getLeagueScope();
+    const scope = leagueScopeLabel(scopeKey);
+    const scopeCfg = leagueScopeConfig(scopeKey);
+    const player = data.find((e) => e.isPlayer);
     const sorted = sortLeagueByMetric(data, scoreboardSortBy);
     const sortCol = (key, label) =>
       `<th class="${scoreboardSortBy === key ? 'sort-active' : ''}">${label}</th>`;
@@ -6501,12 +6648,14 @@
         const rowClass = e.isPlayer ? 'you' : 'rival-row';
         const dataAttr = e.isPlayer ? '' : ` data-rival-name="${e.name}"`;
         const hl = (key) => (scoreboardSortBy === key ? ' sort-col' : '');
+        const rec = e.recognition != null ? Math.round(e.recognition) : '—';
         return `<tr class="${rowClass}"${dataAttr}>
           <td>${e.rank}</td>
           <td>${airlineLogoHtml(e.name, e.emblem, 26)} <span>${e.name}</span></td>
           <td class="${e.profit < 0 ? 'danger' : ''}${hl('profit')}">${fmtMoney(e.profit)}</td>
           <td class="${hl('riders')}">${e.riders.toLocaleString()}</td>
           <td class="${hl('csat')}">${e.csat}</td>
+          <td title="Brand / mindshare in this arena">${rec}</td>
           <td class="${hl('overall')}"><b>${e.overall}</b></td>
           <td>${trend}</td>
         </tr>`;
@@ -6517,18 +6666,27 @@
         ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>Satisfaction</b> blends reputation, average load factor, and penalties when aircraft are out of service (AOG).</p>'
         : '';
     const standingNote =
-      scoreboardSortBy === 'overall'
-        ? '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>#1 is best.</b> <b>Standing</b> (0–100) blends profit, riders, and satisfaction — a rough index, not your rank. You might be <b>#4</b> with standing 47 while Delta is <b>#1</b> at 94.</p>'
+      '<p class="muted" style="font-size:0.72rem;margin-top:8px;"><b>#1 is best.</b> Rank is presence-first (riders + brand in this arena). ' +
+      'You can be mid-pack in Ohio and near the bottom nationally — same airline, bigger pond. ' +
+      'World ranks you against global giants (large foreign airports come later).</p>';
+    const recLine =
+      player && player.recognition != null
+        ? `<p class="muted" style="font-size:0.72rem;margin:0 0 8px;">Your brand in <b>${scope}</b>: recognition <b>${Math.round(player.recognition)}</b>/100 · ops coverage ${((player.opsCoverage || 0) * 100).toFixed(0)}% of airports · field <b>${data.length}</b> carriers</p>`
         : '';
+    const worldNote = scopeCfg.note
+      ? `<p class="muted" style="font-size:0.72rem;margin:0 0 8px;color:var(--gold);">${scopeCfg.note}</p>`
+      : '';
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
         <h3>League — ${scope} · by ${pillarSortLabel(scoreboardSortBy)}</h3>
-        <p class="muted" style="font-size:0.75rem;margin-bottom:10px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. <b>#1 is best.</b> Click Profit, Riders, or Satisfaction above to re-sort. Click a rival for intel.</p>
+        <p class="muted" style="font-size:0.75rem;margin-bottom:6px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. <b>#1 is best.</b> Switch Ohio → Midwest → US → World — your rank should fall until you grow beyond your home markets.</p>
+        ${recLine}
+        ${worldNote}
         <table class="scoreboard-table">
-          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'Satisfaction')}${sortCol('overall', 'Standing')}<th>Trend</th></tr></thead>
+          <thead><tr><th>#</th><th>Airline</th>${sortCol('profit', 'Profit/mo')}${sortCol('riders', 'Riders/mo')}${sortCol('csat', 'Sat.')}<th>Brand</th>${sortCol('overall', 'Standing')}<th>Trend</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
-        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> Profit — route margin minus overhead. Riders — frequency &amp; marketing. Satisfaction — reliability, load, fair fares.</p>
+        <p class="muted" style="font-size:0.72rem;margin-top:10px;"><b>Levers:</b> fly + market where you want to be known. Brand dilutes outside airports you serve.</p>
         ${standingNote}
         ${satNote}
         ${yourRoutesRankHtml(scoreboardSortBy)}
