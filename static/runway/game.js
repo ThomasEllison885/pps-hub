@@ -35,6 +35,8 @@
   let routeLaunchDraft = null;
   let routeLaunchActive = false;
   let routeLaunchStep = 1; // 1 Market · 2 Product · 3 Growth · 4 Launch
+  /** Soft-closed studio draft so map/backdrop mis-taps don't lose work. */
+  let routeStudioResume = null;
   let routeFormDraft = null;
   let routeReviewRouteId = null;
   let planeDetailId = null;
@@ -152,19 +154,27 @@
   function scrollSidePanelTo(el, opts) {
     if (!el) return;
     opts = opts || {};
-    if (isMobileLayout()) {
-      el.scrollIntoView({ behavior: opts.behavior || 'smooth', block: opts.block || 'nearest' });
-      return;
+    const behavior = opts.behavior || 'smooth';
+    const block = opts.block || 'nearest';
+    // Prefer native scrollIntoView so sticky footers / tall fleet shop always reach the CTA.
+    try {
+      el.scrollIntoView({ behavior, block: block === 'nearest' ? 'center' : block, inline: 'nearest' });
+    } catch (e) {
+      el.scrollIntoView(true);
     }
+    if (isMobileLayout()) return;
     const panel = document.querySelector('.side-panel');
-    if (!panel) {
-      el.scrollIntoView({ behavior: opts.behavior || 'smooth', block: 'nearest' });
-      return;
-    }
-    const pRect = panel.getBoundingClientRect();
-    const eRect = el.getBoundingClientRect();
-    const delta = eRect.top - pRect.top - (panel.clientHeight * 0.08);
-    panel.scrollBy({ top: delta, behavior: opts.behavior || 'smooth' });
+    if (!panel) return;
+    // Nudge the side panel itself if the element is still clipped (sticky header/footer).
+    requestAnimationFrame(() => {
+      const pRect = panel.getBoundingClientRect();
+      const eRect = el.getBoundingClientRect();
+      if (eRect.bottom > pRect.bottom - 12) {
+        panel.scrollBy({ top: eRect.bottom - pRect.bottom + 48, behavior });
+      } else if (eRect.top < pRect.top + 8) {
+        panel.scrollBy({ top: eRect.top - pRect.top - 24, behavior });
+      }
+    });
   }
 
   function setMapCollapsed(collapsed) {
@@ -1010,12 +1020,79 @@
   function aircraftSeats(acType, configured) {
     const ac = aircraftType(acType);
     if (!ac) return configured || 0;
-    const s = configured || ac.seats;
+    const s = configured != null ? configured : ac.seats;
     return Math.min(ac.seats_max || ac.seats, Math.max(ac.seats_min || ac.seats, s));
   }
 
   function fleetSeatCount(plane) {
     return aircraftSeats(plane.type, plane.seats);
+  }
+
+  /**
+   * Cabin density: more seats = more capacity + slightly higher lease/buy,
+   * but less legroom (comfort / satisfaction). Fewer seats = premium cabin feel.
+   */
+  function seatDensityInfo(acType, seats) {
+    const ac = aircraftType(acType);
+    if (!ac) return { seats: seats || 0, t: 0.5, costMult: 1, comfortAdj: 0, comfort: 3 };
+    const min = ac.seats_min != null ? ac.seats_min : ac.seats;
+    const max = ac.seats_max != null ? ac.seats_max : ac.seats;
+    const s = aircraftSeats(acType, seats);
+    const t = max > min ? (s - min) / (max - min) : 0.5; // 0 = roomiest, 1 = densest
+    // Denser cabins cost a bit more to equip/maintain; roomier = slightly cheaper metal bill
+    const costMult = 0.9 + t * 0.2; // 0.90 … 1.10
+    // Comfort: roomier (+legroom / fewer pax per exit) vs dense
+    const baseComfort = ac.comfort_rating != null ? ac.comfort_rating : 3;
+    const comfortAdj = (0.5 - t) * 1.4; // about ±0.7 stars
+    const comfort = Math.max(1, Math.min(5, baseComfort + comfortAdj));
+    return { seats: s, min, max, t, costMult, comfortAdj, comfort, baseComfort };
+  }
+
+  function planeLeaseMonthly(typeOrPlane, seatsOpt) {
+    const type = typeof typeOrPlane === 'string' ? typeOrPlane : typeOrPlane && typeOrPlane.type;
+    const seats =
+      seatsOpt != null
+        ? seatsOpt
+        : typeof typeOrPlane === 'object' && typeOrPlane
+          ? typeOrPlane.seats
+          : null;
+    const ac = aircraftType(type);
+    if (!ac) return 0;
+    const dens = seatDensityInfo(type, seats != null ? seats : ac.seats);
+    return Math.round((ac.lease_monthly || 0) * dens.costMult);
+  }
+
+  function planePurchasePrice(typeOrPlane, seatsOpt) {
+    const type = typeof typeOrPlane === 'string' ? typeOrPlane : typeOrPlane && typeOrPlane.type;
+    const seats =
+      seatsOpt != null
+        ? seatsOpt
+        : typeof typeOrPlane === 'object' && typeOrPlane
+          ? typeOrPlane.seats
+          : null;
+    const ac = aircraftType(type);
+    if (!ac) return 0;
+    const dens = seatDensityInfo(type, seats != null ? seats : ac.seats);
+    return Math.round((ac.purchase || 0) * dens.costMult);
+  }
+
+  function planeMaintMonthly(typeOrPlane, seatsOpt) {
+    const type = typeof typeOrPlane === 'string' ? typeOrPlane : typeOrPlane && typeOrPlane.type;
+    const seats =
+      seatsOpt != null
+        ? seatsOpt
+        : typeof typeOrPlane === 'object' && typeOrPlane
+          ? typeOrPlane.seats
+          : null;
+    const ac = aircraftType(type);
+    if (!ac) return 0;
+    const dens = seatDensityInfo(type, seats != null ? seats : ac.seats);
+    return Math.round((ac.maintenance_monthly || 0) * dens.costMult);
+  }
+
+  function planeComfortRating(plane) {
+    if (!plane) return 3;
+    return seatDensityInfo(plane.type, plane.seats).comfort;
   }
 
   function isSmallAircraft(acType) {
@@ -1026,8 +1103,8 @@
   }
 
   function comfortStars(rating) {
-    const r = rating || 3;
-    return '★'.repeat(Math.round(r)) + '☆'.repeat(5 - Math.round(r));
+    const r = Math.max(0, Math.min(5, Math.round(rating || 3)));
+    return '★'.repeat(r) + '☆'.repeat(5 - r);
   }
 
   function airportLabel(ap) {
@@ -3331,7 +3408,9 @@
   function leaseAircraftGuided(type) {
     const ac = aircraftType(type);
     if (!ac) return null;
-    const deposit = ac.lease_monthly * 2;
+    const seats = ac.seats != null ? ac.seats : ac.seats_max || ac.seats_min || 50;
+    const leaseMo = planeLeaseMonthly(type, seats);
+    const deposit = leaseMo * 2;
     if (state.cash < deposit) {
       pushPlayerEvent(`coach lease skipped — need ${fmtMoney(deposit)} deposit for ${ac.name}`);
       return null;
@@ -3340,7 +3419,7 @@
     const plane = {
       id: uid('ac'),
       type,
-      seats: ac.seats,
+      seats,
       leased: true,
       lease_months_left: 60,
       aog_days_left: 0,
@@ -3351,7 +3430,7 @@
       acquired_day: state.day || 0,
     };
     state.fleet.push(plane);
-    pushPlayerEvent(`coach: leased ${ac.name} (${ac.seats} seats) — ${fmtMoney(deposit)} deposit`);
+    pushPlayerEvent(`coach: leased ${ac.name} (${seats} seats) — ${fmtMoney(deposit)} deposit`);
     saveGame();
     renderAll();
     return plane.id;
@@ -4410,6 +4489,7 @@
       public: false,
       raises: [],
       debt_month: null,
+      ops_goals_done: [],
     };
     sanitizeMarketingSpend();
     normalizeGameState();
@@ -4953,7 +5033,17 @@
     const net = networkRouteStats();
     const rep = state.reputation || 0;
     const aogN = (state.fleet || []).filter((f) => f.aog_days_left > 0).length;
-    return Math.max(0, Math.min(100, rep * 0.45 + net.avgLoad * 28 + 18 - aogN * 6));
+    // Cabin density: roomier fleet configs lift satisfaction (legroom / less packed)
+    let comfortBoost = 0;
+    if ((state.fleet || []).length) {
+      const avgC =
+        state.fleet.reduce((s, f) => s + planeComfortRating(f), 0) / state.fleet.length;
+      comfortBoost = (avgC - 3) * 4; // ±~8 pts vs mid comfort
+    }
+    return Math.max(
+      0,
+      Math.min(100, rep * 0.4 + net.avgLoad * 26 + 16 - aogN * 6 + comfortBoost)
+    );
   }
 
   function playerNaturalOverheadMonthly() {
@@ -5186,7 +5276,12 @@
     const plane = state.fleet.find((f) => f.id === route.aircraft_id);
     const aog = plane && plane.aog_days_left > 0 ? 6 : 0;
     const repShare = (state.reputation || 0) * 0.15;
-    const csat = Math.max(0, Math.min(100, Math.round(repShare + load * 28 + 18 - aog)));
+    const comfort = plane ? planeComfortRating(plane) : 3;
+    const comfortPts = (comfort - 3) * 5;
+    const csat = Math.max(
+      0,
+      Math.min(100, Math.round(repShare + load * 26 + 16 - aog + comfortPts))
+    );
     return {
       profit: dailyPnl * 30,
       riders: Math.round(dailyPax * 30),
@@ -6049,6 +6144,7 @@
     state.events = Array.isArray(state.events) ? state.events : [];
     state.milestones = Array.isArray(state.milestones) ? state.milestones : [];
     state.raises = Array.isArray(state.raises) ? state.raises : [];
+    state.ops_goals_done = Array.isArray(state.ops_goals_done) ? state.ops_goals_done : [];
     if (state.personal_cash == null || !Number.isFinite(state.personal_cash)) state.personal_cash = 0;
     if (state.seed_done == null) state.seed_done = false;
     if (state.series_a_done == null) state.series_a_done = false;
@@ -6388,8 +6484,8 @@
     return state.fleet.reduce((s, f) => {
       const ac = aircraftType(f.type);
       if (!ac) return s;
-      if (f.leased) return s + (ac.lease_monthly || 0);
-      return s + (ac.maintenance_monthly || 0);
+      if (f.leased) return s + planeLeaseMonthly(f);
+      return s + planeMaintMonthly(f);
     }, 0);
   }
 
@@ -6794,7 +6890,9 @@
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
     const ota = otaEffects(opts);
-    const comfortFactor = 0.82 + ((ac.comfort_rating || 3) / 5) * 0.38;
+    // Cabin density: roomier configs (fewer seats) lift comfort / willingness-to-fly
+    const comfortRating = plane ? planeComfortRating(plane) : ac.comfort_rating || 3;
+    const comfortFactor = 0.82 + (comfortRating / 5) * 0.38;
     const marketCapture = routeMarketCaptureFactor(route, opts);
 
     const surge = Math.max(airportDemandSurgeMult(route.origin), airportDemandSurgeMult(route.dest));
@@ -9724,13 +9822,20 @@
     }
     const confirm = $('rl-confirm');
     if (confirm) confirm.addEventListener('click', confirmRouteLaunch);
-    const cancel = () => cancelRouteLaunch();
+    const cancel = () => softCloseRouteStudio();
     const c1 = $('rl-cancel');
     const c2 = $('rl-cancel-2');
-    if (c1) c1.addEventListener('click', cancel);
-    if (c2) c2.addEventListener('click', cancel);
+    if (c1) {
+      c1.title = 'Close — draft is saved so you can Resume from Routes';
+      c1.addEventListener('click', cancel);
+    }
+    if (c2) {
+      c2.textContent = 'Close (save draft)';
+      c2.addEventListener('click', cancel);
+    }
+    // Backdrop tap soft-closes and keeps draft — hard to recover if we wiped it.
     overlay.onclick = (e) => {
-      if (e.target === overlay) cancelRouteLaunch();
+      if (e.target === overlay) softCloseRouteStudio();
     };
   }
 
@@ -9788,10 +9893,61 @@
     });
   }
 
-  function cancelRouteLaunch() {
+  function softCloseRouteStudio(opts) {
+    opts = opts || {};
+    // Preserve in-progress work so a map tap / backdrop mis-click isn't fatal.
+    if (routeLaunchDraft) {
+      try {
+        syncRouteStudioDraftFromDom();
+      } catch (e) {
+        /* draft may be partial */
+      }
+      try {
+        routeStudioResume = {
+          draft: JSON.parse(JSON.stringify(routeLaunchDraft)),
+          step: routeLaunchStep || 1,
+        };
+      } catch (e) {
+        routeStudioResume = { draft: { ...routeLaunchDraft }, step: routeLaunchStep || 1 };
+      }
+    }
     routeLaunchDraft = null;
     routeLaunchStep = 1;
     renderRouteLaunchModal();
+    if (!opts.skipRoutesRender) {
+      try {
+        renderRoutes();
+      } catch (e) {
+        /* ignore */
+      }
+    }
+  }
+
+  function resumeRouteStudio() {
+    if (!routeStudioResume || !routeStudioResume.draft) {
+      alert('No saved Route Studio draft to resume.');
+      return;
+    }
+    routeLaunchDraft = routeStudioResume.draft;
+    routeLaunchStep = routeStudioResume.step || 1;
+    routeStudioResume = null;
+    renderRouteLaunchModal();
+  }
+
+  function discardRouteStudioDraft() {
+    routeStudioResume = null;
+    routeLaunchDraft = null;
+    routeLaunchStep = 1;
+    renderRouteLaunchModal();
+    try {
+      renderRoutes();
+    } catch (e) {
+      /* ignore */
+    }
+  }
+
+  function cancelRouteLaunch() {
+    softCloseRouteStudio();
   }
 
   function confirmRouteLaunch() {
@@ -9866,6 +10022,7 @@
 
     routeLaunchDraft = null;
     routeLaunchStep = 1;
+    routeStudioResume = null;
     renderRouteLaunchModal();
 
     const launched = openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, {
@@ -9912,10 +10069,18 @@
       seats: ac.seats != null ? ac.seats : ac.seats_max || ac.seats_min || 50,
     };
     renderFleet();
-    // Confirm card is below the shop — scroll it into view so Lease feels responsive.
+    // Sticky confirm sits at the bottom — scroll so Confirm is always reachable.
     requestAnimationFrame(() => {
       const box = $('fleet-confirm-box');
-      if (box) scrollSidePanelTo(box, { block: 'nearest' });
+      if (box) scrollSidePanelTo(box, { block: 'end' });
+      const btn = box && box.querySelector('[data-fleet-action="confirm"]');
+      if (btn) {
+        try {
+          btn.focus({ preventScroll: true });
+        } catch (e) {
+          /* ignore */
+        }
+      }
     });
   }
 
@@ -9929,7 +10094,22 @@
     const ac = aircraftType(fleetPending.type);
     if (!ac) return;
     fleetPending.seats = aircraftSeats(fleetPending.type, +val);
+    const active = document.activeElement;
+    const keepFocus = active && active.id === 'fleet-seats-input';
+    const selStart = keepFocus ? active.selectionStart : null;
+    const selEnd = keepFocus ? active.selectionEnd : null;
     renderFleet();
+    if (keepFocus) {
+      const inp = $('fleet-seats-input');
+      if (inp) {
+        inp.focus();
+        try {
+          if (selStart != null) inp.setSelectionRange(selStart, selEnd);
+        } catch (e) {
+          /* ignore */
+        }
+      }
+    }
   }
 
   function confirmFleetOffer() {
@@ -9946,16 +10126,31 @@
       return;
     }
     const seatCount = aircraftSeats(type, seats);
+    const dens = seatDensityInfo(type, seatCount);
+    const leaseMo = planeLeaseMonthly(type, seatCount);
+    const deposit = leaseMo * 2;
+    const purchase = planePurchasePrice(type, seatCount);
+    const maint = planeMaintMonthly(type, seatCount);
+    const comfortLabel = comfortStars(dens.comfort);
+    const densNote =
+      dens.t < 0.35
+        ? 'roomier cabin (more legroom)'
+        : dens.t > 0.65
+          ? 'dense cabin (more seats, less legroom)'
+          : 'standard cabin density';
 
     if (mode === 'lease') {
-      const deposit = (ac.lease_monthly || 0) * 2;
       if (state.cash < deposit) {
-        alert(`Insufficient cash — need ${fmtMoney(deposit)} deposit for lease.`);
+        alert(`Insufficient cash — need ${fmtMoney(deposit)} deposit for this seat config.`);
         return;
       }
       if (
         !window.confirm(
-          `Lease ${ac.name} (${seatCount} seats)?\n\nDeposit: ${fmtMoney(deposit)}\nMonthly: ${fmtMoney(ac.lease_monthly)}\nComfort: ${comfortStars(ac.comfort_rating)}`
+          `Lease ${ac.name} (${seatCount} seats · ${densNote})?\n\n` +
+            `Deposit: ${fmtMoney(deposit)}\nMonthly: ${fmtMoney(leaseMo)}\n` +
+            `Comfort: ${comfortLabel}\n\n` +
+            `Fewer seats → cheaper monthly + higher satisfaction.\n` +
+            `More seats → higher capacity & monthly cost + tighter cabin.`
         )
       ) {
         return;
@@ -9974,20 +10169,24 @@
         aog_log: [],
         acquired_day: state.day || 0,
       });
-      pushPlayerEvent(`leased ${ac.name} (${seatCount} seats).`);
+      pushPlayerEvent(
+        `leased ${ac.name} (${seatCount} seats · ${densNote} · ${fmtMoney(leaseMo)}/mo · comfort ${comfortLabel}).`
+      );
     } else {
-      if (state.cash < (ac.purchase || 0)) {
-        alert(`Insufficient cash — need ${fmtMoney(ac.purchase)} to purchase.`);
+      if (state.cash < purchase) {
+        alert(`Insufficient cash — need ${fmtMoney(purchase)} for this seat config.`);
         return;
       }
       if (
         !window.confirm(
-          `Purchase ${ac.name} (${seatCount} seats)?\n\nPrice: ${fmtMoney(ac.purchase)}\nMaintenance: ${fmtMoney(ac.maintenance_monthly)}/mo\nUseful life: ${ac.lifespan_years} years\nComfort: ${comfortStars(ac.comfort_rating)}`
+          `Purchase ${ac.name} (${seatCount} seats · ${densNote})?\n\n` +
+            `Price: ${fmtMoney(purchase)}\nMaintenance: ${fmtMoney(maint)}/mo\n` +
+            `Useful life: ${ac.lifespan_years} years\nComfort: ${comfortLabel}`
         )
       ) {
         return;
       }
-      state.cash -= ac.purchase;
+      state.cash -= purchase;
       state.fleet.push({
         id: uid('ac'),
         type,
@@ -10001,7 +10200,9 @@
         aog_log: [],
         acquired_day: state.day || 0,
       });
-      pushPlayerEvent(`purchased ${ac.name} (${seatCount} seats).`);
+      pushPlayerEvent(
+        `purchased ${ac.name} (${seatCount} seats · ${densNote} · comfort ${comfortLabel}).`
+      );
     }
     fleetPending = null;
     fleetShopOpen = false;
@@ -12847,18 +13048,38 @@
     if (fleetPending) {
       const ac = aircraftType(fleetPending.type);
       if (ac) {
-        const deposit = (ac.lease_monthly || 0) * 2;
+        const dens = seatDensityInfo(fleetPending.type, fleetPending.seats);
+        const leaseMo = planeLeaseMonthly(fleetPending.type, dens.seats);
+        const deposit = leaseMo * 2;
+        const purchase = planePurchasePrice(fleetPending.type, dens.seats);
+        const maint = planeMaintMonthly(fleetPending.type, dens.seats);
+        const densLabel =
+          dens.t < 0.35 ? 'Roomier · more legroom' : dens.t > 0.65 ? 'Dense · max capacity' : 'Standard density';
         const costLine =
           fleetPending.mode === 'lease'
-            ? `Deposit due now: <b>${fmtMoney(deposit)}</b> · then ${fmtMoney(ac.lease_monthly)}/mo`
-            : `Purchase due now: <b>${fmtMoney(ac.purchase)}</b> · maint ${fmtMoney(ac.maintenance_monthly)}/mo`;
-        html += `<div class="fleet-confirm" id="fleet-confirm-box">
+            ? `Deposit due now: <b>${fmtMoney(deposit)}</b> · then <b>${fmtMoney(leaseMo)}/mo</b>`
+            : `Purchase due now: <b>${fmtMoney(purchase)}</b> · maint <b>${fmtMoney(maint)}/mo</b>`;
+        const baseLease = ac.lease_monthly || 0;
+        const baseBuy = ac.purchase || 0;
+        const deltaNote =
+          fleetPending.mode === 'lease'
+            ? leaseMo !== baseLease
+              ? ` <span class="muted">(${leaseMo > baseLease ? '+' : ''}${fmtMoney(leaseMo - baseLease)} vs standard config)</span>`
+              : ''
+            : purchase !== baseBuy
+              ? ` <span class="muted">(${purchase > baseBuy ? '+' : ''}${fmtMoney(purchase - baseBuy)} vs standard)</span>`
+              : '';
+        html += `<div class="fleet-confirm fleet-confirm-sticky" id="fleet-confirm-box">
           <h4>Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}: ${ac.name}</h4>
-          <p class="muted" style="font-size:0.78rem;margin:0 0 8px;">${costLine}</p>
-          <label>Seats (${ac.seats_min}–${ac.seats_max})
-            <input type="number" id="fleet-seats-input" min="${ac.seats_min}" max="${ac.seats_max}" value="${fleetPending.seats}">
+          <p class="muted" style="font-size:0.78rem;margin:0 0 8px;">${costLine}${deltaNote}</p>
+          <label class="fleet-seats-label">Cabin seats (${ac.seats_min}–${ac.seats_max})
+            <input type="number" id="fleet-seats-input" min="${ac.seats_min}" max="${ac.seats_max}" value="${dens.seats}" step="1">
           </label>
-          <div class="btn-row">
+          <p class="fleet-seats-hint muted">
+            <b>${dens.seats} seats</b> · ${densLabel} · Comfort <b>${comfortStars(dens.comfort)}</b><br>
+            Fewer seats → lower cost + happier pax (legroom). More seats → more capacity + higher lease/buy + tighter cabin.
+          </p>
+          <div class="btn-row fleet-confirm-actions">
             <button type="button" class="btn" data-fleet-action="confirm">Confirm ${fleetPending.mode === 'lease' ? 'lease' : 'purchase'}</button>
             <button type="button" class="btn secondary" data-fleet-action="cancel">Cancel</button>
           </div>
@@ -13238,6 +13459,39 @@
     bindAvailabilityActions($('route-availability-panel'));
   }
 
+  function routeStudioResumeBannerHtml() {
+    if (!routeStudioResume || !routeStudioResume.draft) return '';
+    const d = routeStudioResume.draft;
+    const o = d.origin || '…';
+    const dest = d.dest || '…';
+    const step = routeStudioResume.step || 1;
+    return `<div class="studio-resume-banner" id="studio-resume-banner">
+      <div>
+        <strong>Route Studio draft saved</strong>
+        <span class="muted">${o} → ${dest} · step ${step}/4</span>
+        <p class="muted" style="margin:4px 0 0;font-size:0.72rem;">Closed by accident? Resume — map taps no longer wipe your work.</p>
+      </div>
+      <div class="btn-row" style="margin:0;gap:8px;">
+        <button type="button" class="btn" id="btn-resume-studio">Resume →</button>
+        <button type="button" class="btn secondary" id="btn-discard-studio">Discard</button>
+      </div>
+    </div>`;
+  }
+
+  function bindRouteStudioResumeBanner(root) {
+    const scope = root || document;
+    const resume = scope.querySelector('#btn-resume-studio');
+    const discard = scope.querySelector('#btn-discard-studio');
+    if (resume && !resume._bound) {
+      resume._bound = true;
+      resume.addEventListener('click', () => resumeRouteStudio());
+    }
+    if (discard && !discard._bound) {
+      discard._bound = true;
+      discard.addEventListener('click', () => discardRouteStudioDraft());
+    }
+  }
+
   function renderRoutes(opts) {
     const el = $('tab-routes');
     if (!el) return;
@@ -13255,8 +13509,21 @@
     const snapshotEl = $('route-network-snapshot');
     const runningEl = $('route-list-running');
     const formEl = $('route-launch-form');
+    const resumeEl = $('studio-resume-banner');
 
     if (snapshotEl && runningEl && formEl && !forceForm) {
+      // Keep resume banner in sync without full rebuild
+      if (routeStudioResume && routeStudioResume.draft) {
+        if (!resumeEl) {
+          const ban = document.createElement('div');
+          ban.innerHTML = routeStudioResumeBannerHtml();
+          const node = ban.firstElementChild;
+          if (node) el.insertBefore(node, el.firstChild);
+          bindRouteStudioResumeBanner(el);
+        }
+      } else if (resumeEl) {
+        resumeEl.remove();
+      }
       snapshotEl.innerHTML = networkSnapshotHtml();
       runningEl.innerHTML = runningRoutesHtml();
       bindRunningRouteActions();
@@ -13268,11 +13535,13 @@
     }
 
     let html = '<h3>Network</h3>';
+    html += routeStudioResumeBannerHtml();
     html += `<div id="route-network-snapshot">${networkSnapshotHtml()}</div>`;
     html += `<div id="route-launch-form">${routeLaunchFormHtml(draft)}</div>`;
     html += '<p class="ops-section-title">Flying now</p>';
     html += `<div id="route-list-running">${runningRoutesHtml()}</div>`;
     el.innerHTML = html;
+    bindRouteStudioResumeBanner(el);
     bindRouteAirportInputs();
     bindGateCapacityActions(el);
     bindAvailabilityActions(el);
@@ -14447,6 +14716,9 @@
     openRouteStudio,
     confirmRouteLaunch,
     cancelRouteLaunch,
+    resumeRouteStudio,
+    discardRouteStudioDraft,
+    softCloseRouteStudio,
     setRouteStudioStep,
     adjustRouteFrequency,
     setRouteFrequency,

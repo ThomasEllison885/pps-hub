@@ -291,6 +291,67 @@
     border: 1px solid rgba(0, 200, 150, 0.3);
     color: var(--accent);
   }
+  .fleet-confirm-sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 8;
+    margin: 14px -14px -8px;
+    padding: 14px 14px 16px;
+    background: linear-gradient(180deg, rgba(8, 16, 28, 0.92), var(--panel, #0b1524) 28%);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.4);
+  }
+  .fleet-seats-label {
+    display: block;
+    font-size: 0.78rem;
+    margin: 0 0 6px;
+  }
+  .fleet-seats-label input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 10px 12px;
+    font-size: 1rem; /* no iOS zoom */
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+  }
+  .fleet-seats-hint {
+    font-size: 0.7rem;
+    line-height: 1.4;
+    margin: 0 0 10px;
+  }
+  .fleet-confirm-actions {
+    margin-top: 4px;
+  }
+  .fleet-confirm-actions .btn {
+    min-height: 44px;
+    flex: 1;
+  }
+  .studio-resume-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 0 12px;
+    padding: 12px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(93, 200, 255, 0.35);
+    background: rgba(40, 120, 200, 0.12);
+  }
+  .studio-resume-banner strong {
+    display: block;
+    font-size: 0.85rem;
+    color: #9ecbff;
+  }
+  .studio-resume-banner .btn {
+    min-height: 40px;
+  }
+  #panel-fleet,
+  #tab-fleet {
+    padding-bottom: 12px;
+  }
   .scenario-chip {
     font-size: 0.68rem;
     padding: 3px 8px;
@@ -3132,7 +3193,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=73"></script>
-<script src="/static/runway/game.js?v=73"></script>
+<script src="/static/runway/economics.js?v=74"></script>
+<script src="/static/runway/game.js?v=74"></script>
 </body>
 </html>
