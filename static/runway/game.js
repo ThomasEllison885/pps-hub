@@ -11508,7 +11508,7 @@
         `Cash runway ~<b>${runway.toFixed(1)} mo</b>${debtSvc > 0 ? ` · debt service ${fmtMoney(debtSvc)}/mo` : ''}.` +
           idleNote +
           ` Fix loads, cut idle metal/gates, or raise capital before Chapter 11 is the only door left.`,
-        runway < 2.5 ? 'bad' : 'warn'
+        runway < 2.5 ? 'bad' : 'neutral'
       );
     }
   }
