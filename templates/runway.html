@@ -357,6 +357,27 @@
   }
   .gate-math p { margin: 0; }
   .station-math { margin-top: 6px; }
+  .product-chip {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 999px;
+    border: 1px solid rgba(158, 203, 255, 0.35);
+    color: #9ecbff;
+    background: rgba(40, 100, 180, 0.15);
+    white-space: nowrap;
+  }
+  .product-chip.product-essential { color: #9dffb0; border-color: rgba(100, 220, 140, 0.4); }
+  .product-chip.product-leisure { color: #ffd166; border-color: rgba(255, 209, 102, 0.4); }
+  .product-chip.product-business_bank { color: #c4b5fd; border-color: rgba(180, 160, 255, 0.4); }
+  .product-chip.product-feeder { color: #7dd3fc; border-color: rgba(56, 189, 248, 0.4); }
+  .product-chip.product-redeye { color: #a5b4fc; border-color: rgba(129, 140, 248, 0.4); }
+  .product-chip.product-cargo_lite { color: #fcd34d; border-color: rgba(251, 191, 36, 0.4); }
+  .product-chip.product-event { color: #f9a8d4; border-color: rgba(244, 114, 182, 0.4); }
+  .product-chip.product-tag { color: #86efac; border-color: rgba(74, 222, 128, 0.4); }
+  .studio-field-hint { display: block; margin-top: 4px; font-size: 0.7rem; line-height: 1.35; }
+
 
   #panel-fleet,
   #tab-fleet {
@@ -3203,7 +3224,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=75"></script>
-<script src="/static/runway/game.js?v=75"></script>
+<script src="/static/runway/economics.js?v=76"></script>
+<script src="/static/runway/game.js?v=76"></script>
 </body>
 </html>

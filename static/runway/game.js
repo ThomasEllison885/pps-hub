@@ -245,7 +245,21 @@
     if (!ac) return 0;
     const dist = routeDistance(route);
     if (!Number.isFinite(dist)) return 0;
-    const oneWay = blockHours(dist, ac) * (route.frequency_week || 0);
+    const freq = route.frequency_week || 0;
+    const prod = routeProduct(routeProductId(route));
+    // Tag A–B–C: both revenue segments on the same trip (no separate ferry if C is end)
+    if (prod.isTag && route.tag_dest) {
+      const mid = airport(route.dest);
+      const end = airport(route.tag_dest);
+      let hours = blockHours(dist, ac) * freq;
+      if (mid && end) {
+        hours += blockHours(haversineNm(mid.lat, mid.lon, end.lat, end.lon), ac) * freq;
+      }
+      // Optional deadhead C→A if no reverse tag — charge half ferry home
+      hours += blockHours(dist, ac) * freq * 0.45;
+      return cleanHours(hours);
+    }
+    const oneWay = blockHours(dist, ac) * freq;
     // Same aircraft flying the reverse route = real RT product; don't double-count ferry.
     const reverse =
       !opts.ignoreReturn &&
@@ -1149,6 +1163,155 @@
     if (!ac) return false;
     const max = ac.seats_max || ac.seats;
     return max < 76;
+  }
+
+
+  /** Flight product specialties — flavor + economics without minute-level banks. */
+  const ROUTE_PRODUCTS = {
+    standard: {
+      id: 'standard',
+      label: 'Scheduled',
+      blurb: 'Normal year-round service',
+      demandMult: 1,
+      yieldMult: 1,
+      costMult: 1,
+      repOnAog: 1,
+    },
+    essential: {
+      id: 'essential',
+      label: 'Essential / PSO',
+      blurb: 'Thin community market — demand floor, fare cap, rep for serving',
+      demandMult: 0.78,
+      yieldMult: 0.88,
+      costMult: 0.96,
+      subsidyPerDep: 380,
+      loadFloor: 0.28,
+      fareMax: 199,
+      repOnAog: 1.65,
+      repMonthly: 0.12,
+      hardToCancel: true,
+    },
+    leisure: {
+      id: 'leisure',
+      label: 'Leisure / sun',
+      blurb: 'VFR leisure — strong peaks, soft shoulders',
+      demandMult: 1.06,
+      yieldMult: 0.94,
+      costMult: 1,
+      seasonal: 'leisure',
+      repOnAog: 0.95,
+    },
+    business_bank: {
+      id: 'business_bank',
+      label: 'Business bank',
+      blurb: 'Premium timing brand — higher yield; AOG hurts more',
+      demandMult: 0.94,
+      yieldMult: 1.2,
+      costMult: 1.07,
+      fareMin: 99,
+      repOnAog: 2.05,
+    },
+    redeye: {
+      id: 'redeye',
+      label: 'Red-eye',
+      blurb: 'Overnight cheap seats — lower cost & yield, softer CSAT',
+      demandMult: 0.8,
+      yieldMult: 0.74,
+      costMult: 0.84,
+      csatAdj: -7,
+      repOnAog: 0.9,
+    },
+    feeder: {
+      id: 'feeder',
+      label: 'Codeshare / feeder',
+      blurb: 'Contract feed to a major — steadier loads, lower yield, cancel risk',
+      demandMult: 1.2,
+      yieldMult: 0.8,
+      costMult: 0.97,
+      loadFloor: 0.42,
+      fareCapVsMarket: 0.95,
+      repOnAog: 2.35,
+      hardToCancel: true,
+      forceFlySoft: true,
+    },
+    cargo_lite: {
+      id: 'cargo_lite',
+      label: 'Cargo-in-bin',
+      blurb: 'Belly cargo on empty seats — cushion when loads soft',
+      demandMult: 0.97,
+      yieldMult: 1,
+      costMult: 1.05,
+      cargoPerEmptySeat: 32,
+      repOnAog: 1.05,
+    },
+    event: {
+      id: 'event',
+      label: 'Event / charter season',
+      blurb: 'College, sports, events — burst weekends & pulse weeks',
+      demandMult: 1.02,
+      yieldMult: 1.14,
+      costMult: 1.08,
+      seasonal: 'event',
+      repOnAog: 1.35,
+    },
+    tag: {
+      id: 'tag',
+      label: 'Tag flight A–B–C',
+      blurb: 'Multi-stop on one plane — efficient hours, fragile if late/AOG',
+      demandMult: 0.9,
+      yieldMult: 0.92,
+      costMult: 1.06,
+      repOnAog: 1.55,
+      isTag: true,
+    },
+  };
+
+  function routeProduct(id) {
+    return ROUTE_PRODUCTS[id] || ROUTE_PRODUCTS.standard;
+  }
+
+  function routeProductId(routeOrDraft) {
+    if (!routeOrDraft) return 'standard';
+    return routeOrDraft.product || routeOrDraft.productId || 'standard';
+  }
+
+  function productSeasonalMult(product, day) {
+    if (!product || !product.seasonal) return 1;
+    const d = day != null ? day : (state && state.day) || 0;
+    const dow = ((d % 7) + 7) % 7;
+    const month = Math.floor((((d % 365) + 365) % 365) / 30.42); // 0–11
+    if (product.seasonal === 'leisure') {
+      if (month >= 5 && month <= 7) return 1.42; // summer
+      if (month === 11 || month === 0) return 1.28; // holidays
+      if (month >= 1 && month <= 3) return 0.74; // soft winter/spring shoulder
+      return 0.92;
+    }
+    if (product.seasonal === 'event') {
+      const pulse = d % 42 < 5 ? 1.75 : 1; // multi-day event every ~6 weeks
+      const weekend = dow === 5 || dow === 6 || dow === 0 ? 1.28 : 0.82;
+      return pulse * weekend;
+    }
+    return 1;
+  }
+
+  function productOptionsHtml(selected) {
+    const sel = selected || 'standard';
+    return Object.values(ROUTE_PRODUCTS)
+      .map((p) => {
+        const s = p.id === sel ? ' selected' : '';
+        return `<option value="${p.id}"${s}>${p.label}</option>`;
+      })
+      .join('');
+  }
+
+  function productChipHtml(route) {
+    const p = routeProduct(routeProductId(route));
+    if (p.id === 'standard') return '';
+    const tag =
+      p.isTag && route.tag_dest
+        ? ` · via ${route.dest}→${route.tag_dest}`
+        : '';
+    return `<span class="product-chip product-${p.id}" title="${p.blurb}">${p.label}${tag}</span>`;
   }
 
   function comfortStars(rating) {
@@ -2283,11 +2446,18 @@
           plane.aog_days_left = 1 + Math.floor(Math.random() * 4);
           recordPlaneAog(plane, plane.aog_days_left, util);
           const ac = aircraftType(plane.type);
-          const affected = (state.routes || []).filter((r) => r.aircraft_id === plane.id).length;
+          const affectedRoutes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+          const affected = affectedRoutes.length;
+          // Product specialties: feeder / business bank / essential punish cancellations harder.
+          let prodMult = 1;
+          affectedRoutes.forEach((r) => {
+            const p = routeProduct(routeProductId(r));
+            prodMult = Math.max(prodMult, p.repOnAog != null ? p.repOnAog : 1);
+          });
           // Cancellations hurt trust immediately — loads (demand capture) use reputation.
           const repHit = Math.min(
-            6.5,
-            1.2 + affected * 0.85 + plane.aog_days_left * 0.35
+            8.5,
+            (1.2 + affected * 0.85 + plane.aog_days_left * 0.35) * prodMult
           );
           const before = state.reputation || 0;
           state.reputation = Math.max(0, before - repHit);
@@ -4105,6 +4275,57 @@
     }
   }
 
+  /**
+   * College / sports / event charter opportunity — temporary demand pulse on a market.
+   */
+  function maybeEventCharterOffer() {
+    if (!state || state.game_over || activeDecision || decisionQueue.length) return;
+    if (!(state.gates || []).length || !(state.fleet || []).length) return;
+    if (Math.random() > 0.55) return;
+    const gate = state.gates[Math.floor(Math.random() * state.gates.length)];
+    const iata = gate.airport;
+    const ap = airport(iata);
+    if (!ap) return;
+    const destPool = (bootstrap.airports || []).filter(
+      (a) => a.iata !== iata && ((a.regional && ap.regional) || Math.random() > 0.4)
+    );
+    if (!destPool.length) return;
+    const dest = destPool[Math.floor(Math.random() * destPool.length)];
+    const events = [
+      'college football weekend',
+      'conference / convention surge',
+      'playoff travel',
+      'graduation weekend',
+      'festival charter demand',
+    ];
+    const label = events[Math.floor(Math.random() * events.length)];
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · Event charter`,
+      title: `${label} out of ${iata}`,
+      body:
+        `<p>Local organizers want lift toward <b>${dest.iata} (${dest.city})</b> for a <b>${label}</b>.</p>` +
+        `<p class="muted" style="font-size:0.85rem;">You can stand up an <b>Event / charter season</b> product (burst demand, higher yield) or ignore. Uses gate + aircraft like any route.</p>`,
+      teach: 'Event product spikes on weekends and every few weeks — great filler metal if you have hours.',
+      logLine: `Event charter offer ${iata}–${dest.iata}`,
+      options: [
+        {
+          id: 'event_open',
+          label: `A — Open ${iata}–${dest.iata} as Event product`,
+          hint: 'Route Studio with Event / charter season pre-selected.',
+          effect: 'open_event_route',
+          origin: iata,
+          dest: dest.iata,
+        },
+        {
+          id: 'event_skip',
+          label: 'B — Pass',
+          hint: 'Keep metal on core markets.',
+          effect: 'none',
+        },
+      ],
+    });
+  }
+
   function maybeCompetitorEvents() {
     if (!state || state.game_over || activeDecision || decisionQueue.length) return;
     const gap = state.day - (state.last_competitor_event_day || 0);
@@ -5451,9 +5672,13 @@
     const repShare = (state.reputation || 0) * 0.15;
     const comfort = plane ? planeComfortRating(plane) : 3;
     const comfortPts = (comfort - 3) * 5;
+    const prod = routeProduct(routeProductId(route));
     const csat = Math.max(
       0,
-      Math.min(100, Math.round(repShare + load * 26 + 16 - aog + comfortPts))
+      Math.min(
+        100,
+        Math.round(repShare + load * 26 + 16 - aog + comfortPts + (prod.csatAdj || 0))
+      )
     );
     return {
       profit: dailyPnl * 30,
@@ -7063,6 +7288,7 @@
     const reliability = (o.seasonal_reliability + d.seasonal_reliability) / 2;
     const macro = macroDemandMultiplier();
     const ota = otaEffects(opts);
+    const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
     // Cabin density: roomier configs (fewer seats) lift comfort / willingness-to-fly
     const comfortRating = plane ? planeComfortRating(plane) : ac.comfort_rating || 3;
     const comfortFactor = 0.82 + (comfortRating / 5) * 0.38;
@@ -7104,7 +7330,24 @@
       const p = (bootstrap.ota_platforms || []).find((x) => x.id === pid);
       if (p) demand *= 1 + (p.demand_reach || 0.08) * 0.35;
     });
+
+    // Flight product specialty (feeder, leisure, essential, etc.)
+    const prod = routeProduct(routeProductId(route));
+    demand *= prod.demandMult != null ? prod.demandMult : 1;
+    demand *= productSeasonalMult(prod, state.day);
+    if (prod.loadFloor && demand < prod.loadFloor * Math.max(dailySeatsHint(route, opts), 1)) {
+      // soft floor applied later via load; here boost thin essential/feeder demand slightly
+      demand = Math.max(demand, prod.loadFloor * 12);
+    }
     return demand;
+  }
+
+  function dailySeatsHint(route, opts) {
+    const ac = aircraftType(route.aircraft_type);
+    const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+    const seats = plane ? fleetSeatCount(plane) : (ac && ac.seats) || 50;
+    const freq = route.frequency_week || 7;
+    return seats * (freq / 7);
   }
 
   /** Depth guard: demand path must never re-enter full route simulation. */
@@ -7206,24 +7449,30 @@
       simulatingDemandDepth -= 1;
     }
     let rawLoad = Math.min(0.92, demand / Math.max(dailySeats, 1));
-    // Established / starter routes keep a floor so tutorial doesn't free-fall to empty.
-    if (route.established || route.force_fly) {
+    const prod = routeProduct(routeProductId(route));
+    // Established / starter / contract products keep a floor so tutorial & feeder don't free-fall.
+    if (route.established || route.force_fly || prod.forceFlySoft) {
       rawLoad = Math.max(0.4, rawLoad);
+    }
+    if (prod.loadFloor) {
+      rawLoad = Math.max(prod.loadFloor * 0.85, rawLoad);
     }
 
     // Day-to-day stability: never jump more than ~12 pts overnight (checks & balances).
     let load = stabilizeRouteLoad(route, rawLoad, { commit });
 
     const reverse = findReverseRoute(route);
-    const ferryReturn = !reverse;
-    const cancelThreshold = (routeEconomics().cancel_load_threshold != null
+    const ferryReturn = !reverse && routeProductId(route) !== 'tag';
+    let cancelThreshold = (routeEconomics().cancel_load_threshold != null
       ? routeEconomics().cancel_load_threshold
       : 0.1);
+    if (prod.hardToCancel) cancelThreshold = Math.min(cancelThreshold, 0.06);
 
     // Cancel only truly hopeless non-established services (and never on day 0–21).
     const canCancel =
       !route.established &&
       !route.force_fly &&
+      !prod.hardToCancel &&
       (state.day || 0) > 21 &&
       load < cancelThreshold &&
       flightsToday > 0;
@@ -7247,25 +7496,47 @@
 
     const pax = Math.floor(dailySeats * load);
     const ota = otaEffects(opts);
-    const ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult;
-    const ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult;
-    const revenue = ticketRev + ancillaryRev;
+    const yieldM = prod.yieldMult != null ? prod.yieldMult : 1;
+    let ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult * yieldM;
+    let ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult * yieldM;
+    // Cargo-in-bin: sell empty seats as belly freight
+    let cargoRev = 0;
+    if (prod.cargoPerEmptySeat && flightsToday > 0) {
+      const emptySeats = Math.max(0, dailySeats - pax);
+      cargoRev = emptySeats * prod.cargoPerEmptySeat;
+    }
+    // Essential PSO-style subsidy per operated departure
+    let subsidy = 0;
+    if (prod.subsidyPerDep && flightsToday > 0) {
+      subsidy = prod.subsidyPerDep * flightsToday;
+    }
+    const revenue = ticketRev + ancillaryRev + cargoRev + subsidy;
 
-    // One-way block for revenue leg; empty ferry home if no reverse service.
+    // Block hours: tag A–B–C uses both segments; unpaired one-way ferries home.
     let block = blockHours(dist, ac) * flightsToday;
-    if (ferryReturn) {
+    if (prod.isTag && route.tag_dest) {
+      const mid = airport(route.dest);
+      const end = airport(route.tag_dest);
+      if (mid && end) {
+        const leg2 = haversineNm(mid.lat, mid.lon, end.lat, end.lon);
+        block += blockHours(leg2, ac) * flightsToday;
+      }
+    } else if (ferryReturn) {
       block += blockHours(dist, ac) * flightsToday * 0.92;
     }
     // Only authoritative day ticks accumulate utilization / AOG risk.
     if (commit && plane) {
       plane.block_hours_month = (plane.block_hours_month || 0) + block;
     }
+    const costM = prod.costMult != null ? prod.costMult : 1;
     const fuel = block * ac.fuel_gal_hr * state.fuel_price;
     const crew = block * bootstrap.crew_cost_per_block_hour;
-    // Airport fees: once per landing. Ferry return still lands at origin.
-    const landings = ferryReturn ? flightsToday * 2 : flightsToday;
+    // Airport fees: once per landing. Ferry return still lands at origin. Tag = 2 landings.
+    let landings = flightsToday;
+    if (prod.isTag && route.tag_dest) landings = flightsToday * 2;
+    else if (ferryReturn) landings = flightsToday * 2;
     const fees = landings * bootstrap.airport_fee_per_departure;
-    const variable = fuel + crew + fees;
+    const variable = (fuel + crew + fees) * costM;
 
     return {
       revenue,
@@ -7274,6 +7545,9 @@
       load,
       ticketRev,
       ancillaryRev,
+      cargoRev,
+      subsidy,
+      product: prod.id,
       grounded: false,
       canceled: false,
       ferryReturn,
@@ -7392,6 +7666,8 @@
 
     if (!decisionPending && state.day > 0 && state.day % 7 === 0) processReactiveCompetitorThreats('weekly');
 
+    if (!decisionPending && state.day > 0 && state.day % 50 === 0) maybeEventCharterOffer();
+
     if (!decisionPending && state.day > 0 && state.day % 90 === 0) processCompetitorAI();
 
     if (state.day > 0 && state.day % 365 === 0) advanceMacroYear();
@@ -7445,6 +7721,11 @@
         state.aog_rep_debt = Math.max(0, state.aog_rep_debt - pay);
       }
     }
+    // Essential / community products quietly build goodwill each month they fly
+    (state.routes || []).forEach((r) => {
+      const p = routeProduct(routeProductId(r));
+      if (p.repMonthly) delta += p.repMonthly;
+    });
 
     if (Math.abs(delta) < 0.05) return;
     const before = state.reputation || 0;
@@ -9064,6 +9345,8 @@
       fare: f,
       fareMode: 'manual',
       withReturn: !returnExists,
+      product: 'standard',
+      tag_dest: '',
       stationCost: stationSetupCost(origin || dest, dest || origin),
       investments: {
         airport: clampMoney(state.marketing_spend_monthly[origin] || 0),
@@ -9555,6 +9838,16 @@
           <span>Aircraft</span>
           <select id="rl-aircraft">${fleetOptionsHtml(d.aircraftId, d.origin, d.dest)}</select>
         </label>
+        <label class="studio-field studio-field-wide">
+          <span>Flight product</span>
+          <select id="rl-product">${productOptionsHtml(d.product || 'standard')}</select>
+          <em class="muted studio-field-hint" id="rl-product-hint">${(routeProduct(d.product || 'standard').blurb) || ''}</em>
+        </label>
+        <label class="studio-field studio-field-wide" id="rl-tag-wrap" style="${(d.product || 'standard') === 'tag' ? '' : 'display:none'}">
+          <span>Tag third city (A→B→C)</span>
+          <input type="text" id="rl-tag-dest" list="studio-airport-list" placeholder="e.g. CLE" value="${d.tag_dest || ''}">
+          <em class="muted studio-field-hint">Same plane continues ${d.dest || 'B'} → third city. Uses more block hours; efficient when loads on both legs work.</em>
+        </label>
         <label class="studio-field">
           <span>Frequency / week <em class="muted">(max ${freqCap})</em></span>
           <div class="studio-stepper-input">
@@ -9715,12 +10008,23 @@
     }
     const acEl = $('rl-aircraft');
     if (acEl && acEl.value) routeLaunchDraft.aircraftId = acEl.value;
+    const prodEl = $('rl-product');
+    if (prodEl && prodEl.value) routeLaunchDraft.product = prodEl.value;
+    const tagEl = $('rl-tag-dest');
+    if (tagEl) {
+      const tAp = resolveAirportQuery(tagEl.value) || airport((tagEl.value || '').trim().toUpperCase());
+      routeLaunchDraft.tag_dest = tAp ? tAp.iata : (tagEl.value || '').trim().toUpperCase();
+    }
     const fareEl = $('rl-fare');
     const freqEl = $('rl-freq');
     if (fareEl) routeLaunchDraft.fare = +fareEl.value || routeLaunchDraft.fare;
     if (freqEl) routeLaunchDraft.freq = +freqEl.value || routeLaunchDraft.freq;
     const withRet = $('rl-with-return');
     if (withRet && !withRet.disabled) routeLaunchDraft.withReturn = !!withRet.checked;
+    // Tag products usually don't launch a separate reverse the same way
+    if (routeLaunchDraft.product === 'tag' && withRet) {
+      routeLaunchDraft.withReturn = false;
+    }
     document.querySelectorAll('#route-launch-modal [data-inv-amount]').forEach((inp) => {
       const key = inp.dataset.invAmount;
       const toggle = document.querySelector(`#route-launch-modal [data-inv-toggle="${key}"]`);
@@ -10038,6 +10342,26 @@
     bindAirportField('rl-origin-search', 'rl-origin-code');
     bindAirportField('rl-dest-search', 'rl-dest-code');
 
+    const prodSel = $('rl-product');
+    if (prodSel) {
+      prodSel.addEventListener('change', () => {
+        syncRouteStudioDraftFromDom();
+        const hint = $('rl-product-hint');
+        const p = routeProduct(prodSel.value);
+        if (hint) hint.textContent = p.blurb || '';
+        const tagWrap = $('rl-tag-wrap');
+        if (tagWrap) tagWrap.style.display = p.isTag ? '' : 'none';
+        const withRet = $('rl-with-return');
+        if (withRet && p.isTag) {
+          withRet.checked = false;
+          withRet.disabled = true;
+        } else if (withRet && !withRet.dataset.forceDisabled) {
+          withRet.disabled = false;
+        }
+        syncAndRefresh();
+      });
+    }
+
     overlay.querySelectorAll('[data-studio-pick]').forEach((btn) => {
       btn.addEventListener('click', () => applyStudioMarketPick(btn));
     });
@@ -10264,8 +10588,20 @@
       aircraftId: d.aircraftId,
       freq: d.freq,
       fare: d.fare,
-      wantReturn,
+      wantReturn: d.product === 'tag' ? false : wantReturn,
+      product: d.product || 'standard',
+      tag_dest: d.tag_dest || '',
     };
+    if (copy.product === 'tag') {
+      if (!copy.tag_dest || copy.tag_dest === copy.origin || copy.tag_dest === copy.dest) {
+        alert('Tag flights need a third city different from origin and destination.');
+        return;
+      }
+      if (!airport(copy.tag_dest)) {
+        alert(`Unknown tag city ${copy.tag_dest}. Pick a valid airport code.`);
+        return;
+      }
+    }
 
     state.cash -= upfront;
     state.marketing_spend_monthly[d.origin] = clampMoney(d.investments.airport);
@@ -10284,6 +10620,8 @@
     const launched = openRoute(copy.origin, copy.dest, copy.aircraftId, copy.freq, copy.fare, {
       featured_ota: featured,
       expectReturn: copy.wantReturn,
+      product: copy.product,
+      tag_dest: copy.tag_dest,
     });
     if (!launched) {
       state.cash += upfront;
@@ -10296,6 +10634,7 @@
       const ret = openRoute(copy.dest, copy.origin, copy.aircraftId, copy.freq, copy.fare, {
         featured_ota: featured,
         quiet: true,
+        product: copy.product === 'standard' ? 'standard' : copy.product,
       });
       if (ret) {
         pushPlayerEvent(
@@ -10523,19 +10862,30 @@
     const marketFare = marketFareForPair(origin, dest, plane.type);
     const finalFare = fare || marketFare;
     const via = estimateRouteViability(origin, dest, plane.type, freq, finalFare, aircraftId);
+    let product = extras.product || 'standard';
+    if (!ROUTE_PRODUCTS[product]) product = 'standard';
+    const prodDef = routeProduct(product);
+    let fareUse = finalFare;
+    if (prodDef.fareMax) fareUse = Math.min(fareUse, prodDef.fareMax);
+    if (prodDef.fareMin) fareUse = Math.max(fareUse, prodDef.fareMin);
+    if (prodDef.fareCapVsMarket) {
+      fareUse = Math.min(fareUse, Math.round(marketFare * prodDef.fareCapVsMarket));
+    }
     const route = {
       id: uid('rt'),
       origin,
       dest,
       aircraft_type: plane.type,
       frequency_week: freq,
-      fare: finalFare,
+      fare: fareUse,
       market_fare: marketFare,
       fare_mode: extras.fare_mode || 'manual',
       ancillary_mode: state.ancillary_strategy || 'auto',
       aircraft_id: aircraftId,
       featured_ota: extras.featured_ota || [],
-      established: !!extras.established,
+      established: !!extras.established || product === 'feeder' || product === 'essential',
+      product,
+      tag_dest: prodDef.isTag && extras.tag_dest ? extras.tag_dest : null,
       launch_forecast_load: via.load,
       launch_forecast_pax_day: via.dailyPax,
       stats: { days: 0, pax_sum: 0, load_sum: 0 },
@@ -10552,9 +10902,13 @@
       }
       const otaNote = (extras.featured_ota || []).length ? ` · OTA featured: ${extras.featured_ota.join(', ')}` : '';
       const ferryNote =
-        extras.expectReturn || hasReturnLeg(route) ? '' : ' · ⚠ no return — empty ferry home';
+        extras.expectReturn || hasReturnLeg(route) || product === 'tag'
+          ? ''
+          : ' · ⚠ no return — empty ferry home';
+      const prodNote = product !== 'standard' ? ` · ${prodDef.label}` : '';
+      const tagNote = route.tag_dest ? ` → ${route.tag_dest}` : '';
       pushPlayerEvent(
-        `opened ${origin}–${dest} (${freq}x/wk @ $${finalFare}) · planned ~${via.dailyPax} pax/day (${(via.load * 100).toFixed(0)}% load)${otaNote}${ferryNote}`
+        `opened ${origin}–${dest}${tagNote} (${freq}x/wk @ $${fareUse}${prodNote}) · planned ~${via.dailyPax} pax/day (${(via.load * 100).toFixed(0)}% load)${otaNote}${ferryNote}`
       );
       processReactiveCompetitorThreats('player_route', origin, dest);
       selectAirport(origin);
@@ -13539,6 +13893,7 @@
           ${routeHealthBannerHtml(diagnoseRouteHealth(route))}
           <div class="route-card-meta">
             <span>${route.frequency_week}/wk · ${acName}</span>
+            ${productChipHtml(route)}
             <span class="${pnlClass}">${fmtMoney(pnl)}/day</span>
             <span class="muted">$${revPerPax}/pax · mkt $${market}</span>
             ${competitivePressureHtml(routeCompetitivePressure(route), { compact: true })}
