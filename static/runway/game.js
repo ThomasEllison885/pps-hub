@@ -45,6 +45,7 @@
   let state = null;
   let tickTimer = null;
   let selectedAirport = null;
+  let selectedRouteId = null;
   let mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
   let fleetPending = null;
   let pendingScenarioId = null;
@@ -61,6 +62,7 @@
     viewX: 0,
     viewY: 0,
     clickIata: null,
+    clickRouteId: null,
     pointerId: null,
   };
   let mapboxMap = null;
@@ -4117,17 +4119,43 @@
     if (!activeDecision) return;
     const option = activeDecision.options.find((o) => o.id === choiceId) || { effect: 'none' };
     if (activeDecision.winningPlaybook) {
+      // Speed-setting coach options must stick — do not force pause after them.
+      const startSpeed =
+        option.effect === 'playbook_slow_finance'
+          ? 'slow'
+          : option.effect === 'playbook_day_routes'
+            ? 'day'
+            : null;
       applyPlaybookEffect(option);
       markWinningPlaybookDone(activeDecision.playbookId);
       pushPlayerEvent(`winning path: ${activeDecision.title} — ${option.label}`);
       activeDecision = null;
-      state.paused_reason = 'Winning path coach — review your choice, then press ▶';
       coalescedDecisionCount = 0;
       renderDecisionModal();
-      setSpeed('pause');
+      if (startSpeed) {
+        setSpeed(startSpeed);
+        state.paused_reason =
+          startSpeed === 'slow'
+            ? 'Coach: Slow speed — watch Daily P&L, then speed up when green'
+            : 'Coach: Day speed — check route loads, press pause anytime';
+        setTimeout(() => {
+          if (
+            state &&
+            state.paused_reason &&
+            String(state.paused_reason).indexOf('Coach:') === 0 &&
+            state.speed !== 'pause'
+          ) {
+            state.paused_reason = null;
+            renderPauseBanner();
+          }
+        }, 6000);
+      } else {
+        setSpeed('pause');
+        state.paused_reason = 'Winning path coach — review your choice, then press ▶';
+      }
       saveGame();
       renderAll();
-      if (decisionQueue.length) showNextDecision();
+      if (decisionQueue.length && !startSpeed) showNextDecision();
       return;
     }
     const onboarding = !!activeDecision.onboarding;
@@ -11847,14 +11875,37 @@
         'line-dasharray': [2, 2],
       },
     });
+    // Wide invisible hit target for easier route taps
+    mapboxMap.addLayer({
+      id: 'player-routes-hit-layer',
+      type: 'line',
+      source: 'player-routes',
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': 14,
+        'line-opacity': 0.01,
+      },
+    });
+    mapboxMap.addLayer({
+      id: 'player-routes-glow-layer',
+      type: 'line',
+      source: 'player-routes',
+      filter: ['==', ['get', 'selected'], true],
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': 10,
+        'line-opacity': 0.28,
+        'line-blur': 2,
+      },
+    });
     mapboxMap.addLayer({
       id: 'player-routes-layer',
       type: 'line',
       source: 'player-routes',
       paint: {
-        'line-color': '#ffd166',
-        'line-width': 2,
-        'line-opacity': 0.7,
+        'line-color': ['get', 'color'],
+        'line-width': ['get', 'width'],
+        'line-opacity': ['get', 'opacity'],
       },
     });
     mapboxMap.addLayer({
@@ -12020,9 +12071,21 @@
 
       mapboxMap.on('click', 'airports-layer', (ev) => {
         if (ev.features && ev.features[0] && ev.features[0].properties) {
+          selectedRouteId = null;
           selectAirport(ev.features[0].properties.iata);
         }
       });
+      const clickRoute = (ev) => {
+        if (ev.features && ev.features[0] && ev.features[0].properties) {
+          const rid = ev.features[0].properties.routeId;
+          if (rid) {
+            ev.originalEvent && ev.originalEvent.stopPropagation && ev.originalEvent.stopPropagation();
+            selectMapRoute(rid);
+          }
+        }
+      };
+      mapboxMap.on('click', 'player-routes-hit-layer', clickRoute);
+      mapboxMap.on('click', 'player-routes-layer', clickRoute);
       const apPopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -12051,15 +12114,84 @@
         if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
         apPopup.remove();
       });
+      const routePopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 10,
+        className: 'map-ap-popup',
+        maxWidth: '280px',
+      });
+      mapboxMap.on('mouseenter', 'player-routes-hit-layer', () => {
+        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
+      });
+      mapboxMap.on('mousemove', 'player-routes-hit-layer', (ev) => {
+        if (!ev.features || !ev.features[0]) return;
+        const p = ev.features[0].properties || {};
+        routePopup
+          .setLngLat(ev.lngLat)
+          .setHTML(
+            `<div class="map-ap-popup-inner"><strong>${p.origin}–${p.dest}</strong> · ${p.label || 'Route'}` +
+              `<br><span class="muted">${p.tip || 'Click to review'}</span></div>`
+          )
+          .addTo(mapboxMap);
+      });
+      mapboxMap.on('mouseleave', 'player-routes-hit-layer', () => {
+        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+        routePopup.remove();
+      });
     });
   }
 
-  function buildRoutesGeoJSON(routes) {
+  /**
+   * Map line style for an active player route — color = health / profitability.
+   * Green cash engines, gold ok, amber watch, red structural loss; thicker when selected.
+   */
+  function routeMapStyle(route) {
+    if (!route) {
+      return { color: '#ffd166', width: 2.6, opacity: 0.85, selected: false, label: 'Route', tip: '' };
+    }
+    const health = diagnoseRouteHealth(route);
+    const selected = selectedRouteId === route.id;
+    let color = '#ffd166';
+    let label = 'Active route';
+    let tip = `${route.origin}–${route.dest}`;
+    if (health) {
+      const pnl = health.pnl || 0;
+      if (health.severity === 'critical' || pnl < -400) {
+        color = '#ff5c4a';
+        label = 'Losing / weak';
+      } else if (health.severity === 'watch' || pnl < 0) {
+        color = '#ffb020';
+        label = 'Needs attention';
+      } else if (pnl > 800) {
+        color = '#5dffa8';
+        label = 'Cash engine';
+      } else {
+        color = '#00c896';
+        label = 'Healthy';
+      }
+      tip = `${route.origin}–${route.dest} · ${label} · ${fmtMoney(pnl)}/day var · load ${
+        health.load != null ? Math.round(health.load * 100) + '%' : '—'
+      } · click to review`;
+    }
+    return {
+      color,
+      width: selected ? 5.2 : 3.1,
+      opacity: selected ? 1 : 0.92,
+      selected,
+      label,
+      tip,
+      routeId: route.id,
+    };
+  }
+
+  function buildRoutesGeoJSON(routes, isPlayer) {
     const features = [];
     (routes || []).forEach((route) => {
       const o = airport(route.origin);
       const d = airport(route.dest);
       if (!o || !d) return;
+      const style = isPlayer ? routeMapStyle(route) : null;
       features.push({
         type: 'Feature',
         geometry: {
@@ -12069,10 +12201,40 @@
             [d.lon, d.lat],
           ],
         },
-        properties: { origin: route.origin, dest: route.dest },
+        properties: isPlayer
+          ? {
+              origin: route.origin,
+              dest: route.dest,
+              routeId: route.id,
+              color: style.color,
+              width: style.width,
+              opacity: style.opacity,
+              selected: style.selected,
+              tip: style.tip,
+              label: style.label,
+            }
+          : {
+              origin: route.origin,
+              dest: route.dest,
+              color: '#ff7b5a',
+              width: 1.4,
+              opacity: 0.4,
+            },
       });
     });
     return { type: 'FeatureCollection', features };
+  }
+
+  function selectMapRoute(routeId) {
+    if (!routeId || !state) return;
+    const route = (state.routes || []).find((r) => r.id === routeId);
+    if (!route) return;
+    selectedRouteId = routeId;
+    selectedAirport = null;
+    drawMap();
+    switchTab('routes');
+    openRouteReview(routeId);
+    if (isMobileLayout()) scrollToSidePanel();
   }
 
   /**
@@ -12254,10 +12416,10 @@
     });
 
     if (state) {
-      mapboxMap.getSource('player-routes').setData(buildRoutesGeoJSON(state.routes));
+      mapboxMap.getSource('player-routes').setData(buildRoutesGeoJSON(state.routes, true));
       mapboxMap
         .getSource('competitor-routes')
-        .setData(buildRoutesGeoJSON(state.competitor_routes));
+        .setData(buildRoutesGeoJSON(state.competitor_routes, false));
     }
   }
 
@@ -12354,9 +12516,13 @@
       if (mapDrag.pointerId != null && wrap.hasPointerCapture(mapDrag.pointerId)) {
         wrap.releasePointerCapture(mapDrag.pointerId);
       }
-      if (!mapDrag.moved && mapDrag.clickIata) selectAirport(mapDrag.clickIata);
+      if (!mapDrag.moved) {
+        if (mapDrag.clickRouteId) selectMapRoute(mapDrag.clickRouteId);
+        else if (mapDrag.clickIata) selectAirport(mapDrag.clickIata);
+      }
       mapDrag.active = false;
       mapDrag.pointerId = null;
+      mapDrag.clickRouteId = null;
       wrap.classList.remove('dragging');
     };
 
@@ -12370,9 +12536,14 @@
       mapDrag.viewX = mapView.x;
       mapDrag.viewY = mapView.y;
       mapDrag.pointerId = e.pointerId;
+      const routeEl =
+        (e.target.closest &&
+          (e.target.closest('.map-route-hit') || e.target.closest('.map-route-line'))) ||
+        null;
       const dot =
         (e.target.closest && (e.target.closest('.ap-dot-hit') || e.target.closest('.ap-dot'))) || null;
-      mapDrag.clickIata = dot ? dot.dataset.iata : null;
+      mapDrag.clickRouteId = routeEl ? routeEl.getAttribute('data-route-id') : null;
+      mapDrag.clickIata = !mapDrag.clickRouteId && dot ? dot.dataset.iata : null;
       wrap.setPointerCapture(e.pointerId);
       wrap.classList.add('dragging');
       e.preventDefault();
@@ -12483,7 +12654,13 @@
         if (!o || !d) return;
         const p1 = projectMap(o.lat, o.lon);
         const p2 = projectMap(d.lat, d.lon);
-        html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="#ffd166" stroke-width="2" opacity="0.7" stroke-linecap="round"/>`;
+        const style = routeMapStyle(route);
+        // Invisible fat stroke for easier clicks
+        html += `<line class="map-route-hit" data-route-id="${route.id}" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="transparent" stroke-width="14" stroke-linecap="round" style="cursor:pointer"/>`;
+        if (style.selected) {
+          html += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${style.color}" stroke-width="9" opacity="0.3" stroke-linecap="round"/>`;
+        }
+        html += `<line class="map-route-line" data-route-id="${route.id}" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${style.color}" stroke-width="${style.width}" opacity="${style.opacity}" stroke-linecap="round" style="cursor:pointer"><title>${String(style.tip).replace(/"/g, "'")}</title></line>`;
       });
       html += '</g>';
     }
