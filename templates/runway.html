@@ -210,9 +210,59 @@
     border-bottom: 1px solid var(--border);
     font-size: 0.82rem;
   }
+  .debt-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .debt-title { line-height: 1.35; }
+  .debt-split { font-size: 0.72rem; }
   .debt-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   .debt-pay-btn { font-size: 0.68rem; padding: 4px 10px; }
   .debt-pay-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .capital-stack {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin: 10px 0 12px;
+  }
+  .capital-card {
+    background: rgba(6, 13, 24, 0.55);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .capital-card b { font-size: 0.95rem; color: var(--text, #e8eef7); }
+  .capital-card em { font-style: normal; font-size: 0.68rem; }
+  .capital-note { font-size: 0.74rem; line-height: 1.45; margin: 0 0 10px; }
+  .capital-last-debt { font-size: 0.78rem; color: var(--gold); margin: 0 0 10px; }
+  .capital-actions { flex-wrap: wrap; gap: 8px; }
+  .capital-raises { margin: 6px 0 0; padding-left: 18px; font-size: 0.75rem; color: var(--muted); }
+  .build-track {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 209, 102, 0.25);
+    background: rgba(255, 209, 102, 0.06);
+  }
+  .build-track-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-size: 0.82rem;
+  }
+  .build-track-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 4px 10px;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  .build-track-list li.done { color: var(--accent); }
   .scenario-chip {
     font-size: 0.68rem;
     padding: 3px 8px;
@@ -3054,7 +3104,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=71"></script>
-<script src="/static/runway/game.js?v=71"></script>
+<script src="/static/runway/economics.js?v=72"></script>
+<script src="/static/runway/game.js?v=72"></script>
 </body>
 </html>

@@ -2765,7 +2765,7 @@
       const winning = isWinningTrackScenario(scenarioId);
       const freq = route ? route.frequency_week : 10;
       const fare = route ? route.fare : 139;
-      const total = 7;
+      const total = 8;
       return [
         tutorialStep(
           scenarioId,
@@ -2861,10 +2861,24 @@
           scenarioId,
           7,
           total,
+          'Capital — debt, equity, exits',
+          'Open the <b>Capital</b> tab anytime. Loans charge <b>interest + principal</b> each month (not just a vague fee). ' +
+            'Seed / Series A / PE dilute ownership for company cash; <b>secondary sale</b> and <b>IPO</b> can put money in your personal pocket.',
+          'Building a regional is ops + financing. Debt service hits cash on the month tick — watch runway after debt service.',
+          'Open Capital tab →',
+          'tab_finance',
+          null,
+          false,
+          { selector: '[data-tab="finance"]', label: 'Capital — loans, PE, IPO' }
+        ),
+        tutorialStep(
+          scenarioId,
+          8,
+          total,
           'You\'re ready to fly',
           'Tutorial complete. Keep the clock paused while you plan, then press <b>▶</b> (or Space) to advance time. ' +
             'Competitor alerts pause the clock — finish the alert, then run at day speed again.',
-          'Watch cash runway and Daily P&L in the HUD. If load stays healthy, consider more frequency or modest marketing at your origin.',
+          'Watch cash runway and Daily P&L in the HUD. Follow the <b>Build a regional</b> steps in Capital / coach when unsure what\'s next.',
           'Got it — let me play →',
           'tutorial_finish',
           null,
@@ -4321,6 +4335,15 @@
       onboarding_done: false,
       airline_emblem: pendingEmblem || 'wing',
       ancillary_strategy: pendingAncillaryStrategy || 'auto',
+      personal_cash: 0,
+      seed_done: false,
+      series_a_done: false,
+      growth_equity_done: false,
+      pe_done: false,
+      ipo_done: false,
+      public: false,
+      raises: [],
+      debt_month: null,
     };
     sanitizeMarketingSpend();
     normalizeGameState();
@@ -5959,6 +5982,14 @@
     state.bonds = Array.isArray(state.bonds) ? state.bonds : [];
     state.events = Array.isArray(state.events) ? state.events : [];
     state.milestones = Array.isArray(state.milestones) ? state.milestones : [];
+    state.raises = Array.isArray(state.raises) ? state.raises : [];
+    if (state.personal_cash == null || !Number.isFinite(state.personal_cash)) state.personal_cash = 0;
+    if (state.seed_done == null) state.seed_done = false;
+    if (state.series_a_done == null) state.series_a_done = false;
+    if (state.growth_equity_done == null) state.growth_equity_done = false;
+    if (state.pe_done == null) state.pe_done = false;
+    if (state.ipo_done == null) state.ipo_done = !!state.public;
+    if (state.public == null) state.public = !!state.ipo_done;
     if (state.starter_route_count == null) {
       state.starter_route_count = state.milestones.includes('first_route') ? 0 : state.routes.length;
     }
@@ -5967,6 +5998,10 @@
     state.revenue_history = Array.isArray(state.revenue_history) ? state.revenue_history : [];
     state.marketing_spend_monthly = state.marketing_spend_monthly || {};
     state.brand_awareness = state.brand_awareness || {};
+    // Infer raises already taken from equity below 100 on older saves
+    if (!state.seed_done && (state.equity_pct || 100) < 95 && state.financing_tier === 'startup') {
+      state.seed_done = true;
+    }
     ensureMarketingInvestments();
     if (!Number.isFinite(state.fuel_price)) {
       state.fuel_price = bootstrap.fuel_base || 2.85;
@@ -6177,12 +6212,110 @@
     while (stack.children.length > 3) stack.removeChild(stack.firstChild);
   }
 
+  /** Monthly interest accrual on a loan (balance-sheet / P&L). */
+  function debtMonthInterest(d) {
+    if (!d || !(d.principal > 0)) return 0;
+    return (d.principal || 0) * (d.rate || 0) / 12;
+  }
+
+  /**
+   * Split this month's scheduled payment into interest vs principal.
+   * Amortizing loans: payment covers interest first, remainder pays principal down.
+   */
+  function debtMonthPaymentSplit(d) {
+    const principal = Math.max(0, d && d.principal ? d.principal : 0);
+    if (principal <= 0) return { interest: 0, principal: 0, total: 0 };
+    const interest = debtMonthInterest(d);
+    const scheduled =
+      d.monthly_payment != null && d.monthly_payment > 0
+        ? d.monthly_payment
+        : interest; // interest-only if no schedule
+    // Cap total at interest + remaining principal (final month)
+    let total = Math.min(scheduled, interest + principal);
+    // Always recognize full interest expense even if schedule is oddly low
+    if (total < interest) total = interest;
+    let prinPay = Math.max(0, total - interest);
+    if (prinPay > principal) {
+      prinPay = principal;
+      total = interest + prinPay;
+    }
+    return { interest, principal: prinPay, total };
+  }
+
   function monthlyDebtService() {
-    return state.debt.reduce((s, d) => s + (d.monthly_payment || 0), 0);
+    return (state.debt || []).reduce((s, d) => s + debtMonthPaymentSplit(d).total, 0);
+  }
+
+  function monthlyDebtInterestOnly() {
+    return (state.debt || []).reduce((s, d) => s + debtMonthInterest(d), 0);
+  }
+
+  /** Month-end: cash out for debt service; principal declines; log I+P split. */
+  function applyMonthlyDebtService() {
+    if (!state || !(state.debt || []).length) {
+      state.debt_month = { interest: 0, principal: 0, total: 0, day: state.day };
+      return;
+    }
+    let totalInt = 0;
+    let totalPrin = 0;
+    let totalPay = 0;
+    (state.debt || []).forEach((d) => {
+      if (!(d.principal > 0)) return;
+      const split = debtMonthPaymentSplit(d);
+      state.cash -= split.total;
+      d.principal = Math.max(0, (d.principal || 0) - split.principal);
+      d.last_interest = split.interest;
+      d.last_principal = split.principal;
+      d.last_payment = split.total;
+      if (d.months_left != null) d.months_left = Math.max(0, d.months_left - 1);
+      totalInt += split.interest;
+      totalPrin += split.principal;
+      totalPay += split.total;
+    });
+    const before = state.debt.length;
+    state.debt = state.debt.filter((d) => (d.principal || 0) > 1);
+    state.debt_month = {
+      interest: totalInt,
+      principal: totalPrin,
+      total: totalPay,
+      day: state.day,
+    };
+    if (totalPay > 0) {
+      pushEvent(
+        `Debt service paid: <b>${fmtMoney(totalPay)}</b> (` +
+          `<b>${fmtMoney(totalInt)}</b> interest · <b>${fmtMoney(totalPrin)}</b> principal).`,
+        totalPrin > 0 ? 'good' : 'bad'
+      );
+    }
+    if (state.debt.length < before) {
+      pushEvent('A loan was fully amortized — principal retired.', 'milestone');
+    }
+    checkScenarioGoal();
   }
 
   function quarterlyBondCoupons() {
     return state.bonds.reduce((s, b) => s + (b.principal * b.coupon) / 4, 0);
+  }
+
+  /** Enterprise valuation for PE / IPO term sheets. */
+  function companyEnterpriseValue() {
+    const nw = computeNetWorthBreakdown() || { total: 0 };
+    const ltm = state.ltm_revenue || 0;
+    const mult =
+      state.public || state.ipo_done
+        ? 1.35
+        : state.financing_tier === 'serial'
+          ? 1.9
+          : state.pe_done
+            ? 1.6
+            : 1.25;
+    const fromLtm = ltm * mult;
+    const fromNw = (nw.total || 0) * 1.08;
+    return Math.max(fromLtm, fromNw, (state.cash || 0) * 1.05, 1_000_000);
+  }
+
+  function founderStakeValue() {
+    return companyEnterpriseValue() * ((state.equity_pct || 0) / 100);
   }
 
   function fleetMonthlyCosts() {
@@ -6822,9 +6955,11 @@
       dayRev += r.revenue;
       dayCost += r.cost;
     });
+    // Debt service hits cash on the month tick (interest + principal), not daily —
+    // so principal actually declines. Daily fixed = ops overhead only.
+    // Interest is still reflected in burn/runway via monthlyDebtService().
     const dailyFixed =
-      (fleetMonthlyCosts() + gateLeaseMonthly() + monthlyDebtService()) / 30 +
-      marketingMonthly() / 30;
+      (fleetMonthlyCosts() + gateLeaseMonthly()) / 30 + marketingMonthly() / 30;
     const pnl = dayRev - dayCost - dailyFixed;
     return { dayRev, dayCost, dailyFixed, pnl };
   }
@@ -6856,9 +6991,11 @@
       });
       const otaCost = otaListingMonthly();
       if (otaCost > 0) state.cash -= otaCost;
+      applyMonthlyDebtService();
       applyMonthlyReputation(dayRev, dayCost);
       processMonthlyScoreboard();
       if (!decisionPending) processMonthlyGateEfficiency();
+      maybeCapitalCoach();
       const retired = [];
       state.fleet = state.fleet.filter((f) => {
         ensurePlaneTelemetry(f);
@@ -9907,26 +10044,247 @@
   }
 
   function raiseSeed() {
-    const opt = bootstrap.financing_options.seed_equity;
-    if (!opt.tiers.includes(state.financing_tier)) return;
+    const opt = bootstrap.financing_options && bootstrap.financing_options.seed_equity;
+    if (opt && opt.tiers && !opt.tiers.includes(state.financing_tier)) {
+      alert('Seed equity is for startup-tier scenarios.');
+      return;
+    }
+    if (state.seed_done) {
+      alert('Seed round already closed. Look at Series A, PE, or debt.');
+      return;
+    }
     const amount = 4_500_000;
     const dilution = 0.22;
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
-    pushEvent(`Seed round closed: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`, 'good');
+    state.seed_done = true;
+    state.raises = state.raises || [];
+    state.raises.push({ type: 'seed', amount, dilution, day: state.day, ev: companyEnterpriseValue() });
+    pushEvent(
+      `Seed round closed: <b>${fmtMoney(amount)}</b> for <b>${(dilution * 100).toFixed(0)}%</b> of the company. You now own <b>${state.equity_pct.toFixed(1)}%</b>.`,
+      'milestone'
+    );
+    markMilestoneOnce('raise_seed', `${state.airline_name} closed a seed round.`);
+    saveGame();
+    renderAll();
+  }
+
+  function raiseSeriesA() {
+    if (state.series_a_done) {
+      alert('Series A already closed.');
+      return;
+    }
+    if ((state.day || 0) < 180) {
+      alert('Series A opens after ~6 months of operations (day 180).');
+      return;
+    }
+    if ((state.routes || []).length < 2) {
+      alert('Series A needs at least 2 active routes.');
+      return;
+    }
+    if ((state.ltm_revenue || 0) < 8_000_000) {
+      alert(`Series A needs ~${fmtMoney(8_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
+      return;
+    }
+    const amount = 30_000_000;
+    const dilution = 0.24;
+    const ev = companyEnterpriseValue();
+    state.cash += amount;
+    state.equity_pct *= 1 - dilution;
+    state.series_a_done = true;
+    state.raises = state.raises || [];
+    state.raises.push({ type: 'series_a', amount, dilution, day: state.day, ev });
+    pushEvent(
+      `Series A closed: <b>${fmtMoney(amount)}</b> at ~${fmtMoney(ev)} enterprise value ` +
+        `(${(dilution * 100).toFixed(0)}% new shares). You retain <b>${state.equity_pct.toFixed(1)}%</b>.`,
+      'milestone'
+    );
+    markMilestoneOnce('raise_series_a', `${state.airline_name} closed Series A.`);
     saveGame();
     renderAll();
   }
 
   function raiseGrowthEquity() {
-    if (state.financing_tier !== 'serial') return;
+    if (state.financing_tier !== 'serial') {
+      alert('Growth equity via your CEO network is for the Exit CEO scenario (or after you unlock serial tier).');
+      return;
+    }
+    if (state.growth_equity_done) {
+      alert('Growth equity round already taken.');
+      return;
+    }
     const amount = 40_000_000;
     const dilution = 0.15;
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
-    pushEvent(`Growth equity: ${fmtMoney(amount)} (${(dilution * 100).toFixed(0)}% dilution).`, 'good');
+    state.growth_equity_done = true;
+    state.raises = state.raises || [];
+    state.raises.push({ type: 'growth', amount, dilution, day: state.day, ev: companyEnterpriseValue() });
+    pushEvent(
+      `Growth equity: <b>${fmtMoney(amount)}</b> (${(dilution * 100).toFixed(0)}% dilution). Ownership now <b>${state.equity_pct.toFixed(1)}%</b>.`,
+      'milestone'
+    );
     saveGame();
     renderAll();
+  }
+
+  /** PE / growth buyout of primary shares (company raise). */
+  function raisePrivateEquity() {
+    if (state.pe_done) {
+      alert('A PE round is already on the books. Use secondary sale or IPO next.');
+      return;
+    }
+    if ((state.routes || []).length < 3) {
+      alert('PE wants a real network — open at least 3 routes first.');
+      return;
+    }
+    if ((state.ltm_revenue || 0) < 15_000_000) {
+      alert(`PE minimum ~${fmtMoney(15_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
+      return;
+    }
+    if ((state.day || 0) < 270 && !state.series_a_done && state.financing_tier !== 'serial') {
+      alert('PE usually arrives after ~9 months or a Series A. Keep flying or raise Series A first.');
+      return;
+    }
+    const ev = companyEnterpriseValue();
+    const amount = Math.round(Math.min(80_000_000, Math.max(20_000_000, ev * 0.28)));
+    const dilution = Math.min(0.32, Math.max(0.14, amount / (ev + amount)));
+    state.cash += amount;
+    state.equity_pct *= 1 - dilution;
+    state.pe_done = true;
+    state.financing_tier = state.financing_tier === 'distressed' ? 'distressed' : 'serial';
+    state.raises = state.raises || [];
+    state.raises.push({ type: 'pe', amount, dilution, day: state.day, ev });
+    pushEvent(
+      `Private equity closed: <b>${fmtMoney(amount)}</b> into the airline at ~${fmtMoney(ev)} EV ` +
+        `(${(dilution * 100).toFixed(0)}% dilution). You own <b>${state.equity_pct.toFixed(1)}%</b>. ` +
+        `Capital tab → Secondary sale if you want personal liquidity.`,
+      'milestone'
+    );
+    markMilestoneOnce('raise_pe', `${state.airline_name} took private equity capital.`);
+    checkScenarioGoal();
+    saveGame();
+    renderAll();
+  }
+
+  /**
+   * Sell part of YOUR stake (secondary) — cash goes to personal wealth, not company.
+   * pctPoints = percentage points of the company (e.g. 10 = sell 10% of company).
+   */
+  function sellPersonalStake(pctPoints) {
+    const pts = Math.round(pctPoints);
+    if (!state || pts < 5 || pts > 40) {
+      alert('Secondary sales are 5–40 percentage points of the company.');
+      return;
+    }
+    const own = state.equity_pct || 0;
+    if (pts >= own - 1) {
+      alert(`You only own ${own.toFixed(1)}% — keep at least ~1% or do a full exit via IPO.`);
+      return;
+    }
+    if (!state.seed_done && !state.series_a_done && !state.pe_done && state.financing_tier === 'startup') {
+      alert('Find a PE buyer or close a round first — no liquid market for your shares yet.');
+      return;
+    }
+    const ev = companyEnterpriseValue();
+    const proceeds = Math.round(ev * (pts / 100));
+    state.equity_pct = Math.max(1, own - pts);
+    state.personal_cash = (state.personal_cash || 0) + proceeds;
+    state.raises = state.raises || [];
+    state.raises.push({ type: 'secondary', amount: proceeds, dilution: pts / 100, day: state.day, ev });
+    pushEvent(
+      `Secondary sale: you sold <b>${pts}pp</b> of the company for <b>${fmtMoney(proceeds)}</b> personal cash ` +
+        `(EV ~${fmtMoney(ev)}). Company cash unchanged. You still own <b>${state.equity_pct.toFixed(1)}%</b>.`,
+      'milestone'
+    );
+    markMilestoneOnce('secondary_sale', `${state.player_name} took chips off the table.`);
+    saveGame();
+    renderAll();
+  }
+
+  function canLaunchIPO() {
+    if (!state || state.ipo_done || state.public) return { ok: false, reason: 'IPO already done or not applicable.' };
+    const reasons = [];
+    if ((state.ltm_revenue || 0) < 80_000_000) {
+      reasons.push(`LTM revenue ${fmtMoney(state.ltm_revenue || 0)} (need ${fmtMoney(80_000_000)})`);
+    }
+    if ((state.routes || []).length < 6) reasons.push(`${state.routes.length}/6 routes`);
+    if ((state.reputation || 0) < 35) reasons.push(`reputation ${(state.reputation || 0).toFixed(0)}/35`);
+    const trail = trailingMonthPnl();
+    if (trail == null || trail <= 0) reasons.push('need a profitable trailing month');
+    if (reasons.length) return { ok: false, reason: reasons.join(' · ') };
+    return { ok: true, reason: '' };
+  }
+
+  function launchIPO() {
+    const gate = canLaunchIPO();
+    if (!gate.ok) {
+      alert(`IPO not ready: ${gate.reason}`);
+      return;
+    }
+    const evPre = companyEnterpriseValue();
+    // Primary: company raises; Secondary: founder sells a slice into the IPO
+    const primary = Math.round(Math.min(120_000_000, Math.max(40_000_000, evPre * 0.35)));
+    const primaryDilution = Math.min(0.28, primary / (evPre + primary));
+    state.cash += primary;
+    state.equity_pct *= 1 - primaryDilution;
+    const secondaryPts = Math.min(12, Math.max(5, Math.floor((state.equity_pct || 0) * 0.15)));
+    const evPost = evPre + primary;
+    const secondaryProceeds = Math.round(evPost * (secondaryPts / 100));
+    state.equity_pct = Math.max(5, (state.equity_pct || 0) - secondaryPts);
+    state.personal_cash = (state.personal_cash || 0) + secondaryProceeds;
+    state.ipo_done = true;
+    state.public = true;
+    state.financing_tier = 'serial';
+    state.bond_rating = 'BB';
+    state.raises = state.raises || [];
+    state.raises.push({
+      type: 'ipo',
+      amount: primary,
+      dilution: primaryDilution,
+      secondary: secondaryProceeds,
+      day: state.day,
+      ev: evPost,
+    });
+    pushEvent(
+      `IPO priced: company raised <b>${fmtMoney(primary)}</b> · you sold <b>${secondaryPts}pp</b> for ` +
+        `<b>${fmtMoney(secondaryProceeds)}</b> personal cash · EV ~${fmtMoney(evPost)}. ` +
+        `You retain <b>${state.equity_pct.toFixed(1)}%</b> of a public regional.`,
+      'milestone'
+    );
+    markMilestoneOnce('ipo', `${state.airline_name} went public.`);
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · IPO`,
+      title: 'You took the airline public',
+      body:
+        `<p><b>${state.airline_name}</b> is now a public company.</p>` +
+        `<p>Primary raise <b>${fmtMoney(primary)}</b> (company cash). Your secondary <b>${fmtMoney(secondaryProceeds)}</b> is personal wealth. ` +
+        `Ownership now <b>${state.equity_pct.toFixed(1)}%</b>.</p>` +
+        `<p class="muted" style="font-size:0.85rem;">Keep scaling routes — or sell more on the secondary market from Capital.</p>`,
+      logLine: `IPO on day ${state.day}`,
+      options: [
+        { id: 'ipo_continue', label: 'A — Keep building', hint: 'Stay CEO of a public regional.', effect: 'none' },
+        { id: 'ipo_hangar', label: 'B — Back to hangar', hint: 'Save and pick a new scenario.', effect: 'goal_hangar' },
+      ],
+    });
+    checkScenarioGoal();
+    saveGame();
+    renderAll();
+  }
+
+  function maybeCapitalCoach() {
+    if (!state || state.game_over) return;
+    const burn = burnMonthly();
+    const runway = burn > 0 ? state.cash / burn : 99;
+    const debtSvc = monthlyDebtService();
+    if (runway < 3 && debtSvc > 0 && !(state.capital_coach_day > state.day - 45)) {
+      state.capital_coach_day = state.day;
+      pushEvent(
+        `Capital coach: cash runway ~<b>${runway.toFixed(1)} mo</b> after ~${fmtMoney(debtSvc)}/mo debt service. ` +
+          `Open <b>Capital</b> — raise equity, restructure, or cut costs.`,
+        'bad'
+      );
+    }
   }
 
   function payDownDebt(debtId, amount) {
@@ -9975,9 +10333,15 @@
   }
 
   function takeBankLoan() {
-    const amount = state.financing_tier === 'serial' ? 20_000_000 : 8_000_000;
+    if ((state.routes || []).length < 1 && state.financing_tier !== 'distressed') {
+      alert('Banks want at least one flying route before a term loan (except distressed rescues).');
+      return;
+    }
+    const termMonths = 60;
+    const amount = state.financing_tier === 'serial' || state.pe_done || state.public ? 20_000_000 : 8_000_000;
     const rate = state.financing_tier === 'distressed' ? 0.11 : 0.085;
-    const monthly = (amount * (rate / 12)) / (1 - Math.pow(1 + rate / 12, -60));
+    const r = rate / 12;
+    const monthly = (amount * r) / (1 - Math.pow(1 + r, -termMonths));
     state.cash += amount;
     state.debt.push({
       id: uid('debt'),
@@ -9985,9 +10349,16 @@
       principal: amount,
       rate,
       monthly_payment: monthly,
+      months_left: termMonths,
+      term_months: termMonths,
       secured: false,
     });
-    pushEvent(`Bank loan: ${fmtMoney(amount)} @ ${(rate * 100).toFixed(1)}%.`, 'good');
+    const split = debtMonthPaymentSplit(state.debt[state.debt.length - 1]);
+    pushEvent(
+      `Bank loan: <b>${fmtMoney(amount)}</b> @ ${(rate * 100).toFixed(1)}% · ${termMonths} mo · ` +
+        `~${fmtMoney(monthly)}/mo (<b>${fmtMoney(split.interest)}</b> interest / <b>${fmtMoney(split.principal)}</b> principal first month).`,
+      'good'
+    );
     saveGame();
     renderAll();
   }
@@ -11300,17 +11671,20 @@
     const profitCoach = profitCoachContext();
     if (profitCoach) return profitCoach;
     const firstGate = state.gates[0] && state.gates[0].airport;
+    const build = regionalBuildSteps();
+    const nextBuild = build.find((s) => !s.done);
+
     if (!state.gates.length) {
       return {
         step: 1,
-        text: 'Click an airport on the map, then lease a gate before you can launch flights.',
+        text: '<b>Build a regional · 1/9</b> — Click an airport on the map, then lease a gate before you can launch flights.',
         actions: [{ label: 'Show map', effect: 'focus_map' }],
       };
     }
     if (!state.fleet.length) {
       return {
         step: 2,
-        text: `You have a gate at <b>${firstGate}</b>. Open <b>Fleet</b> and lease an aircraft.`,
+        text: `<b>Build a regional · 2/9</b> — Gate at <b>${firstGate}</b>. Open <b>Fleet</b> and lease an aircraft.`,
         actions: [{ label: 'Open Fleet', effect: 'tab', tab: 'fleet' }],
       };
     }
@@ -11322,11 +11696,56 @@
           : '';
       return {
         step: 3,
-        text: `Launch your first route from <b>${firstGate}</b> — use suggestions in the Routes tab.${idleNote}`,
+        text: `<b>Build a regional · 3/9</b> — Launch your first route from <b>${firstGate}</b>.${idleNote}`,
         actions: [
           { label: `Plan route from ${firstGate}`, effect: 'hub_routes', airport: firstGate },
           { label: `Scout ${firstGate}`, effect: 'airport', airport: firstGate },
         ],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'return') {
+      return {
+        step: 4,
+        text: '<b>Build a regional · 4/9</b> — Launch the <b>return leg</b> (or a second city pair). Empty ferries waste aircraft hours.',
+        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'week') {
+      return {
+        step: 5,
+        text: '<b>Build a regional · 5/9</b> — Run time until you post a <b>profitable week</b>. Watch Daily P&L and debt service on Capital.',
+        actions: [
+          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+        ],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'city2') {
+      return {
+        step: 6,
+        text: '<b>Build a regional · 6/9</b> — Lease a gate in a <b>second city</b> to expand the network.',
+        actions: [{ label: 'Show map', effect: 'focus_map' }],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'capital') {
+      return {
+        step: 7,
+        text: '<b>Build a regional · 7/9</b> — Visit <b>Capital</b>: seed/Series A, bank loan (interest + principal), or PE. Financing is part of building the airline.',
+        actions: [{ label: 'Open Capital', effect: 'tab', tab: 'finance' }],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'scale') {
+      return {
+        step: 8,
+        text: '<b>Build a regional · 8/9</b> — Scale to <b>four routes</b>. Match frequency to gates and aircraft hours.',
+        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+      };
+    }
+    if (nextBuild && nextBuild.id === 'exit') {
+      return {
+        step: 9,
+        text: '<b>Build a regional · 9/9</b> — Optional exit path: <b>PE</b>, sell part of your stake, or unlock an <b>IPO</b> when revenue and profits allow.',
+        actions: [{ label: 'Open Capital', effect: 'tab', tab: 'finance' }],
       };
     }
     const underHub = primaryUnderutilizedHub();
@@ -11354,14 +11773,21 @@
     if (state.speed === 'pause' && state.day < 120) {
       return {
         step: 4,
-        text: 'Routes are live. Press <b>▶</b> for normal day speed (or ▷ for slow). Alerts auto-slow you so pop-ups are readable.',
-        actions: [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }],
+        text: 'Routes are live. Press <b>▶</b> for day speed. Check <b>Capital</b> for debt interest/principal and raises.',
+        actions: [
+          { label: 'Open Capital', effect: 'tab', tab: 'finance' },
+          { label: 'Open Routes', effect: 'tab', tab: 'routes' },
+        ],
       };
     }
+    const done = build.filter((s) => s.done).length;
     return {
       step: 0,
-      text: '<b>Map</b> airports · <b>Routes</b> flights & fares · <b>Fleet</b> planes · <b>Capital</b> cash. Check the profit coach here when daily P&L turns red.',
-      actions: state.routes.length ? [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }] : [],
+      text: `<b>Regional track ${done}/${build.length}</b> · Map · Routes · Fleet · <b>Capital</b> (debt I+P, PE, IPO). Profit coach appears when daily P&L turns red.`,
+      actions: [
+        { label: 'Open Capital', effect: 'tab', tab: 'finance' },
+        ...(state.routes.length ? [{ label: 'Open Routes', effect: 'tab', tab: 'routes' }] : []),
+      ],
     };
   }
 
@@ -11523,22 +11949,26 @@
     </div>`;
     let pills = '';
     if (hudFinancialsView === 'personal') {
+      const stakeEv = founderStakeValue();
       pills = `
-        <div class="stat-pill"><span class="stat-pill-label">Your stake value</span><b>${fmtMoney(b.equity_value)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Your stake (EV)</span><b>${fmtMoney(stakeEv)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Ownership</span><b>${pct.toFixed(1)}%</b></div>
-        <div class="stat-pill"><span class="stat-pill-label">Your share of cash</span><b>${fmtMoney(personalCash)}</b></div>
-        <p class="hud-fin-note muted">Personal view is your equity slice of company net worth — not separate cash you can spend. Company cash pays the bills.</p>`;
+        <div class="stat-pill"><span class="stat-pill-label">Personal cash</span><b>${fmtMoney(state.personal_cash || 0)}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Your share of co. cash</span><b>${fmtMoney(personalCash)}</b></div>
+        <p class="hud-fin-note muted">Personal cash comes from secondary sales / IPO. Company cash pays debt, leases, and routes. Stake value uses enterprise valuation (Capital tab).</p>`;
     } else {
       const econ = state.routes.length ? simulateDayEconomics() : null;
       const routeMargin = econ ? econ.dayRev - econ.dayCost : 0;
       const fixedDaily = econ ? econ.dailyFixed : burnMonthly() / 30;
+      const debtSvc = monthlyDebtService();
       const pnlBreakdown = econ
-        ? `<p class="hud-fin-note muted">Today: routes <b class="${routeMargin >= 0 ? '' : 'danger'}">${fmtMoney(routeMargin)}</b> variable margin · overhead <b>−${fmtMoney(fixedDaily)}</b> · net <b class="${econ.pnl >= 0 ? '' : 'danger'}">${fmtMoney(econ.pnl)}</b>/day</p>`
+        ? `<p class="hud-fin-note muted">Today: routes <b class="${routeMargin >= 0 ? '' : 'danger'}">${fmtMoney(routeMargin)}</b> variable margin · overhead <b>−${fmtMoney(fixedDaily)}</b> · net <b class="${econ.pnl >= 0 ? '' : 'danger'}">${fmtMoney(econ.pnl)}</b>/day · debt service ~${fmtMoney(debtSvc)}/mo (month tick)</p>`
         : '';
       pills = `
         <div class="stat-pill"><span class="stat-pill-label">Company net worth</span><b>${fmtMoney(b.total)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Cash</span><b>${fmtMoney(b.cash)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Monthly burn</span><b>${fmtMoney(burnMonthly())}</b></div>
+        <div class="stat-pill"><span class="stat-pill-label">Debt service</span><b>${fmtMoney(debtSvc)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">LTM revenue</span><b>${fmtMoney(state.ltm_revenue)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Reputation</span><b>${(state.reputation || 0).toFixed(0)}</b></div>
         <div class="stat-pill"><span class="stat-pill-label">Fuel</span><b>$${(state.fuel_price || 0).toFixed(2)}/gal</b></div>
@@ -11663,6 +12093,52 @@
     el.innerHTML = html;
   }
 
+  function regionalBuildSteps() {
+    if (!state) return [];
+    const hubs = new Set((state.gates || []).map((g) => g.airport));
+    const hasReturn = (state.routes || []).some((r) => hasReturnLeg(r));
+    const trail7 = (state.pnl_history || []).slice(-7);
+    const weekProfit = trail7.length >= 7 && trail7.reduce((a, b) => a + b, 0) > 0;
+    const raised =
+      !!state.seed_done ||
+      !!state.series_a_done ||
+      !!state.pe_done ||
+      !!state.growth_equity_done ||
+      ((state.debt || []).length > 0 && (state.scenario_id !== 'inheritance' || state.day > 30));
+    return [
+      { id: 'hub', label: 'Lease a hub gate', done: hubs.size >= 1, tab: 'map' },
+      { id: 'fleet', label: 'Add first aircraft', done: (state.fleet || []).length >= 1, tab: 'fleet' },
+      { id: 'route', label: 'Open first route', done: (state.routes || []).length >= 1, tab: 'routes' },
+      { id: 'return', label: 'Fly a return leg', done: hasReturn || (state.routes || []).length >= 2, tab: 'routes' },
+      { id: 'week', label: 'Profitable week', done: weekProfit, tab: 'routes' },
+      { id: 'city2', label: 'Second city gate', done: hubs.size >= 2, tab: 'map' },
+      { id: 'capital', label: 'Close capital (equity or loan)', done: raised, tab: 'finance' },
+      { id: 'scale', label: 'Four routes flying', done: (state.routes || []).length >= 4, tab: 'routes' },
+      { id: 'exit', label: 'PE round, secondary, or IPO', done: !!(state.pe_done || state.ipo_done || (state.personal_cash || 0) > 0), tab: 'finance' },
+    ];
+  }
+
+  function regionalBuildTrackHtml() {
+    const steps = regionalBuildSteps();
+    if (!steps.length) return '';
+    const done = steps.filter((s) => s.done).length;
+    const next = steps.find((s) => !s.done);
+    return `<div class="build-track">
+      <div class="build-track-head">
+        <strong>Build a regional</strong>
+        <span class="muted">${done}/${steps.length}${next ? ` · next: ${next.label}` : ' · track complete'}</span>
+      </div>
+      <ol class="build-track-list">
+        ${steps
+          .map(
+            (s) =>
+              `<li class="${s.done ? 'done' : ''}">${s.done ? '✓' : '○'} ${s.label}</li>`
+          )
+          .join('')}
+      </ol>
+    </div>`;
+  }
+
   function renderFinance() {
     const el = $('tab-finance');
     if (!el) return;
@@ -11671,14 +12147,27 @@
       total: 0, equity_value: 0, cash: 0, fleet: 0, gates: 0, brand: 0, routes: 0, debt: 0, bonds: 0, lease_liabilities: 0,
     };
     const totalOblig = totalDebtAndBondPrincipal();
+    const debtSvc = monthlyDebtService();
+    const debtInt = monthlyDebtInterestOnly();
+    const debtPrinMo = Math.max(0, debtSvc - debtInt);
+    const dm = state.debt_month || null;
+    const ev = companyEnterpriseValue();
+    const stake = founderStakeValue();
+    const burn = burnMonthly();
+    const runwayAfterDebt = burn > 0 ? state.cash / burn : 99;
     const goal = scenarioGoal();
+    const ipoGate = canLaunchIPO();
+
     const debtGoalNote =
       goal && goal.max_debt != null
-        ? `<p class="muted" style="font-size:0.75rem;margin:0 0 10px;">Scenario goal counts <b>loans + bonds</b> (now <b>${fmtMoney(totalOblig)}</b> · target below ${fmtMoney(goal.max_debt)}). Restructure lowers monthly payments only — use <b>Pay down</b> / bond buyback to cut principal.</p>`
-        : `<p class="muted" style="font-size:0.72rem;margin:0 0 10px;">Total loans + bonds outstanding: <b>${fmtMoney(totalOblig)}</b>. Restructure eases monthly cash, not principal.</p>`;
+        ? `<p class="muted capital-note">Scenario goal counts <b>loans + bonds</b> (now <b>${fmtMoney(totalOblig)}</b> · target below ${fmtMoney(goal.max_debt)}). Restructure lowers monthly payments only — use <b>Pay down</b> to cut principal.</p>`
+        : `<p class="muted capital-note">Loans + bonds: <b>${fmtMoney(totalOblig)}</b> · scheduled debt service ~<b>${fmtMoney(debtSvc)}</b>/mo (` +
+          `<b>${fmtMoney(debtInt)}</b> interest · <b>${fmtMoney(debtPrinMo)}</b> principal). Cash runway ~<b>${runwayAfterDebt.toFixed(1)} mo</b> at current burn.</p>`;
+
     const debtRows = state.debt.length
       ? state.debt
           .map((d) => {
+            const split = debtMonthPaymentSplit(d);
             const canPayOff = state.cash >= d.principal && d.principal > 0;
             const btns = [1_000_000, 5_000_000]
               .filter((amt) => d.principal > amt)
@@ -11688,17 +12177,32 @@
               )
               .join('');
             const payoffBtn = `<button type="button" class="btn secondary debt-pay-btn" ${canPayOff ? '' : 'disabled'} onclick="Runway.payDownDebt('${d.id}', ${d.principal})">Pay off ${fmtMoney(d.principal)}</button>`;
-            return `<div class="debt-row">
-              <span>${d.name} <b>${fmtMoney(d.principal)}</b> @ ${(d.rate * 100).toFixed(1)}% · ${fmtMoney(d.monthly_payment || 0)}/mo${d.restructured ? ' · <span class="muted">restructured</span>' : ''}</span>
+            const last =
+              d.last_payment != null
+                ? `Last paid ${fmtMoney(d.last_payment)} (${fmtMoney(d.last_interest || 0)} int / ${fmtMoney(d.last_principal || 0)} prin)`
+                : `Next ~${fmtMoney(split.total)} (${fmtMoney(split.interest)} int / ${fmtMoney(split.principal)} prin)`;
+            const term =
+              d.months_left != null
+                ? ` · ${d.months_left} mo left`
+                : d.term_months
+                  ? ` · ${d.term_months} mo term`
+                  : '';
+            return `<div class="debt-row capital-loan">
+              <div class="debt-row-main">
+                <span class="debt-title">${d.name} <b>${fmtMoney(d.principal)}</b> @ ${(d.rate * 100).toFixed(1)}%${term}${d.restructured ? ' · restructured' : ''}</span>
+                <span class="debt-split muted">${last}</span>
+              </div>
               <span class="debt-row-actions">${btns}${payoffBtn}</span>
             </div>`;
           })
           .join('')
-      : '<p class="muted">No bank loans.</p>';
+      : '<p class="muted">No bank loans. Term loans add cash now; each month pays <b>interest + principal</b>.</p>';
+
     const bondRows = (state.bonds || []).length
       ? state.bonds
           .map((b) => {
             const canPayOff = state.cash >= b.principal && b.principal > 0;
+            const qCoupon = ((b.principal || 0) * (b.coupon || 0)) / 4;
             const btns = [1_000_000, 5_000_000]
               .filter((amt) => b.principal > amt)
               .map(
@@ -11708,48 +12212,97 @@
               .join('');
             const payoffBtn = `<button type="button" class="btn secondary debt-pay-btn" ${canPayOff ? '' : 'disabled'} onclick="Runway.payDownBond('${b.id}', ${b.principal})">Redeem ${fmtMoney(b.principal)}</button>`;
             return `<div class="debt-row">
-              <span>${b.name} <b>${fmtMoney(b.principal)}</b> · ${(b.coupon * 100).toFixed(1)}% coupon${b.months_left != null ? ` · ${b.months_left} mo left` : ''}</span>
+              <div class="debt-row-main">
+                <span class="debt-title">${b.name} <b>${fmtMoney(b.principal)}</b> · ${(b.coupon * 100).toFixed(1)}% coupon${b.months_left != null ? ` · ${b.months_left} mo` : ''}</span>
+                <span class="debt-split muted">Interest-only ~${fmtMoney(qCoupon)}/quarter until buyback or maturity</span>
+              </div>
               <span class="debt-row-actions">${btns}${payoffBtn}</span>
             </div>`;
           })
           .join('')
-      : '<p class="muted">No bonds outstanding.</p>';
+      : '<p class="muted">No bonds. Coupons are interest; principal stays until you buy back or mature.</p>';
+
+    const lastDebtLine = dm && dm.total
+      ? `<p class="capital-last-debt">Last month debt service: <b>${fmtMoney(dm.total)}</b> = ${fmtMoney(dm.interest)} interest + ${fmtMoney(dm.principal)} principal</p>`
+      : '';
+
     let html = `<h3>Capital</h3>
+      ${regionalBuildTrackHtml()}
+      <div class="capital-stack">
+        <div class="capital-card"><span class="muted">Company cash</span><b>${fmtMoney(state.cash)}</b></div>
+        <div class="capital-card"><span class="muted">Debt service / mo</span><b>${fmtMoney(debtSvc)}</b><em class="muted">${fmtMoney(debtInt)} int · ${fmtMoney(debtPrinMo)} prin</em></div>
+        <div class="capital-card"><span class="muted">Your ownership</span><b>${(state.equity_pct || 0).toFixed(1)}%</b><em class="muted">stake ~${fmtMoney(stake)}</em></div>
+        <div class="capital-card"><span class="muted">Enterprise value</span><b>${fmtMoney(ev)}</b><em class="muted">PE / IPO basis</em></div>
+        <div class="capital-card"><span class="muted">Personal cash</span><b>${fmtMoney(state.personal_cash || 0)}</b><em class="muted">from secondaries / IPO</em></div>
+        <div class="capital-card"><span class="muted">Runway</span><b>${runwayAfterDebt.toFixed(1)} mo</b><em class="muted">incl. debt service</em></div>
+      </div>
       ${debtGoalNote}
-      <h4>Loans</h4>
+      ${lastDebtLine}
+      <h4>Loans <span class="muted" style="font-weight:400;font-size:0.78rem;">(interest expense + principal paydown each month)</span></h4>
       ${debtRows}
-      <h4 style="margin-top:12px;">Bonds</h4>
+      <h4 style="margin-top:14px;">Bonds</h4>
       ${bondRows}
-      <p class="muted" style="margin-top:8px;">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burnMonthly())}</p>
-      <p class="muted">Idle cash yield: <b>${(cashInterestAnnualRate() * 100).toFixed(2)}%</b>/yr (nominal, inflation-linked, never negative)</p>
-      <h4>Net worth</h4>
+      <p class="muted" style="margin-top:8px;">Bond rating: ${state.bond_rating || 'N/A'} · Monthly burn ~${fmtMoney(burn)} · Idle cash yield ${(cashInterestAnnualRate() * 100).toFixed(2)}%/yr</p>
+
+      <h4 style="margin-top:16px;">Equity &amp; exit</h4>
+      <p class="muted capital-note">Raising equity dilutes ownership but funds growth. <b>Secondary</b> sells part of <em>your</em> stake for personal cash. <b>IPO</b> raises company cash and can cash you out partially.</p>
+      <div class="btn-row capital-actions">`;
+
+    if (tier === 'startup' && !state.seed_done) {
+      html += `<button type="button" class="btn" onclick="Runway.raiseSeed()">Seed round (~$4.5M · ~22%)</button>`;
+    } else if (state.seed_done) {
+      html += `<button type="button" class="btn secondary" disabled>Seed closed</button>`;
+    }
+    html += `<button type="button" class="btn" onclick="Runway.raiseSeriesA()" title="Day 180+, 2 routes, $8M LTM">Series A (~$30M)</button>`;
+    if (tier === 'serial') {
+      html += `<button type="button" class="btn" onclick="Runway.raiseGrowthEquity()">Growth equity (~$40M)</button>`;
+    }
+    html += `<button type="button" class="btn" onclick="Runway.raisePrivateEquity()" title="3 routes, ~$15M LTM">Private equity</button>`;
+    html += `<button type="button" class="btn secondary" onclick="Runway.sellPersonalStake(10)">Sell 10% (secondary)</button>`;
+    html += `<button type="button" class="btn secondary" onclick="Runway.sellPersonalStake(20)">Sell 20% (secondary)</button>`;
+    if (state.ipo_done) {
+      html += `<button type="button" class="btn secondary" disabled>IPO complete</button>`;
+    } else {
+      html += `<button type="button" class="btn ${ipoGate.ok ? '' : 'secondary'}" onclick="Runway.launchIPO()" title="${ipoGate.ok ? 'Ready' : ipoGate.reason}">IPO ${ipoGate.ok ? '· ready' : '· locked'}</button>`;
+    }
+
+    html += `</div>
+      <h4 style="margin-top:16px;">Debt markets</h4>
+      <div class="btn-row capital-actions">
+        <button type="button" class="btn secondary" onclick="Runway.takeBankLoan()">Bank term loan</button>`;
+    if (tier === 'distressed') {
+      html += `<button type="button" class="btn secondary" onclick="Runway.issueAssetBackedBonds()">Asset-backed bonds</button>`;
+      html += `<button type="button" class="btn secondary" onclick="Runway.restructureDebt()" title="Lowers monthly payment — principal stays">Restructure payments</button>`;
+    }
+    html += `<button type="button" class="btn secondary" onclick="Runway.issueCorporateBonds()">Corporate bonds</button>
+      </div>`;
+
+    if (!ipoGate.ok && !state.ipo_done) {
+      html += `<p class="muted capital-note">IPO unlock: ${ipoGate.reason}</p>`;
+    }
+
+    html += `<h4 style="margin-top:16px;">Balance sheet</h4>
       <dl class="stat-dl">
         <dt>Total net worth</dt><dd><b>${fmtMoney(nw.total)}</b></dd>
-        <dt>Your equity (${(state.equity_pct || 0).toFixed(1)}%)</dt><dd>${fmtMoney(nw.equity_value)}</dd>
+        <dt>Your equity (${(state.equity_pct || 0).toFixed(1)}%)</dt><dd>${fmtMoney(stake)} <span class="muted">(EV-based)</span></dd>
+        <dt>Book equity slice</dt><dd>${fmtMoney(nw.equity_value)}</dd>
         <dt>Cash</dt><dd>${fmtMoney(nw.cash)}</dd>
-        <dt>Fleet value</dt><dd>${fmtMoney(nw.fleet)}</dd>
-        <dt>Gate rights</dt><dd>${fmtMoney(nw.gates)}</dd>
-        <dt>Brand</dt><dd>${fmtMoney(nw.brand)}</dd>
-        <dt>Route network</dt><dd>${fmtMoney(nw.routes)}</dd>
-        <dt>Debt</dt><dd>-${fmtMoney(nw.debt)}</dd>
-        <dt>Bonds</dt><dd>-${fmtMoney(nw.bonds)}</dd>
-        <dt>Lease liabilities</dt><dd>-${fmtMoney(nw.lease_liabilities)}</dd>
-      </dl>
-      <p class="muted" style="font-size:0.75rem;">Valuation is approximate — partial stake sales and full exit coming later.</p>
-      <div class="btn-row">`;
-    if (tier === 'startup') {
-      html += `<button class="btn" onclick="Runway.raiseSeed()">Close seed round (~$4.5M)</button>`;
+        <dt>Personal cash</dt><dd>${fmtMoney(state.personal_cash || 0)}</dd>
+        <dt>Fleet / gates / brand / routes</dt><dd>${fmtMoney(nw.fleet)} · ${fmtMoney(nw.gates)} · ${fmtMoney(nw.brand)} · ${fmtMoney(nw.routes)}</dd>
+        <dt>Debt / bonds / leases</dt><dd>−${fmtMoney(nw.debt)} · −${fmtMoney(nw.bonds)} · −${fmtMoney(nw.lease_liabilities)}</dd>
+      </dl>`;
+
+    if ((state.raises || []).length) {
+      html += `<h4 style="margin-top:12px;">Raise history</h4><ul class="capital-raises">`;
+      state.raises
+        .slice()
+        .reverse()
+        .forEach((r) => {
+          html += `<li>Day ${r.day}: <b>${r.type}</b> · ${fmtMoney(r.amount || 0)}${r.secondary ? ` + secondary ${fmtMoney(r.secondary)}` : ''} · dil ${(100 * (r.dilution || 0)).toFixed(0)}%</li>`;
+        });
+      html += `</ul>`;
     }
-    if (tier === 'serial') {
-      html += `<button class="btn" onclick="Runway.raiseGrowthEquity()">Growth equity (~$40M)</button>`;
-    }
-    html += `<button class="btn secondary" onclick="Runway.takeBankLoan()">Bank term loan</button>`;
-    if (tier === 'distressed') {
-      html += `<button class="btn secondary" onclick="Runway.issueAssetBackedBonds()">Asset-backed bonds</button>`;
-      html += `<button class="btn secondary" onclick="Runway.restructureDebt()" title="Lowers monthly payment only — principal stays until you pay it down">Restructure loan payments</button>`;
-    }
-    html += `<button class="btn secondary" onclick="Runway.issueCorporateBonds()">Corporate bonds (needs revenue)</button>`;
-    html += `</div>`;
+
     el.innerHTML = html;
   }
 
@@ -13440,7 +13993,11 @@
     setRouteAircraft,
     boostRouteMarketing,
     raiseSeed,
+    raiseSeriesA,
     raiseGrowthEquity,
+    raisePrivateEquity,
+    sellPersonalStake,
+    launchIPO,
     takeBankLoan,
     payDownDebt,
     payDownBond,
