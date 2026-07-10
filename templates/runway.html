@@ -1317,6 +1317,121 @@
   @media (max-width: 900px) {
     .map-collapse-only { display: block; }
   }
+  .map-legend {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    z-index: 5;
+    max-width: min(280px, 72%);
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(90, 140, 180, 0.35);
+    background: rgba(8, 18, 32, 0.9);
+    backdrop-filter: blur(6px);
+    font-size: 0.64rem;
+    line-height: 1.35;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .map-legend strong {
+    display: block;
+    color: #e8f4ff;
+    font-size: 0.7rem;
+    margin-bottom: 4px;
+  }
+  .map-legend-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+  .map-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .map-legend-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.35);
+    flex-shrink: 0;
+  }
+  .map-legend-note {
+    margin-top: 4px;
+    opacity: 0.85;
+  }
+  .map-wrap.map-collapsed .map-legend { display: none; }
+  .mapboxgl-popup.map-ap-popup .mapboxgl-popup-content {
+    background: rgba(8, 18, 32, 0.95);
+    color: #e8f4ff;
+    border: 1px solid rgba(90, 140, 180, 0.4);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 0.72rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  }
+  .mapboxgl-popup.map-ap-popup .mapboxgl-popup-tip {
+    border-top-color: rgba(8, 18, 32, 0.95);
+  }
+  .map-ap-popup-inner .muted { color: #9bb4cc; font-size: 0.66rem; }
+  .ap-opp-banner {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 8px 10px;
+    margin: 0 0 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(90, 140, 180, 0.3);
+    background: rgba(12, 28, 48, 0.55);
+  }
+  .ap-opp-banner .ap-opp-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-top: 3px;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+  }
+  .ap-opp-banner.tier-gold { border-color: rgba(255, 209, 102, 0.45); }
+  .ap-opp-banner.tier-underserved { border-color: rgba(125, 211, 252, 0.4); }
+  .ap-opp-banner.tier-premium { border-color: rgba(196, 181, 253, 0.4); }
+  .ap-opp-banner.tier-fortress { border-color: rgba(255, 107, 90, 0.4); }
+  .ap-opp-banner.tier-yours,
+  .ap-opp-banner.tier-yours_open { border-color: rgba(0, 200, 150, 0.4); }
+  .dir-loads {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    margin-top: 3px;
+  }
+  .dir-chip {
+    display: inline-block;
+    font-size: 0.66rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.2);
+  }
+  .dir-chip.via-good { color: #5dffa8; border-color: rgba(93,255,168,0.35); }
+  .dir-chip.via-ok { color: #ffd166; border-color: rgba(255,209,102,0.35); }
+  .dir-chip.via-warn { color: #ff9b7a; border-color: rgba(255,155,122,0.35); }
+  .dir-flag {
+    font-size: 0.62rem;
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .dir-flag.worth { color: #5dffa8; background: rgba(93,255,168,0.12); }
+  .dir-flag.thin { color: #ff9b7a; background: rgba(255,155,122,0.12); }
+  .route-suggest-btn .rs-prompt {
+    display: block;
+    font-size: 0.66rem;
+    color: #a8c4e0;
+    margin-top: 2px;
+    line-height: 1.3;
+  }
   #runway-map {
     width: 100%;
     flex: 1 1 auto;
@@ -3193,6 +3308,19 @@
         <button type="button" id="map-zoom-reset" title="Reset view">Reset</button>
         <button type="button" id="map-collapse-btn" class="map-collapse-only" title="Hide map to save space">Hide</button>
       </div>
+      <div class="map-legend" aria-hidden="true">
+        <strong>Airport dots</strong>
+        <div class="map-legend-row">
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#00c896"></span>Your gate</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5dffa8"></span>Yours · capacity open</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ffd166"></span>High opportunity</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#7dd3fc"></span>Underserved</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#c4b5fd"></span>Premium fares</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ff6b5a"></span>Fortress / contested</span>
+          <span class="map-legend-item"><span class="map-legend-swatch" style="background:#5eb8ff"></span>Open market</span>
+        </div>
+        <div class="map-legend-note">Size = market scale · Gold = underserved + fare potential</div>
+      </div>
       <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
     <aside class="side-panel">
@@ -3225,6 +3353,6 @@
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
 <script src="/static/runway/economics.js?v=76"></script>
-<script src="/static/runway/game.js?v=76"></script>
+<script src="/static/runway/game.js?v=77"></script>
 </body>
 </html>

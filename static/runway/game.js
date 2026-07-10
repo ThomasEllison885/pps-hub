@@ -2652,6 +2652,17 @@
     } else if (option.effect === 'route_review' && option.routeId) {
       switchTab('routes');
       openRouteReview(option.routeId);
+    } else if (option.effect === 'open_event_route' && option.origin && option.dest) {
+      openRouteStudio({
+        origin: option.origin,
+        dest: option.dest,
+        step: 2,
+      });
+      if (routeLaunchDraft) {
+        routeLaunchDraft.product = 'event';
+        routeLaunchDraft.withReturn = true;
+        renderRouteLaunchModal();
+      }
     } else if (option.effect === 'goal_hangar') {
       setSpeed('pause');
       saveGame();
@@ -7009,6 +7020,92 @@
     };
   }
 
+  /**
+   * Directional demand for a city pair: outbound may fill hard while the return
+   * is thinner (or vice versa). Planes still need to get home — RT economics
+   * matter more than a single leg's load factor.
+   */
+  function estimateDirectionalPair(originIata, destIata, aircraftTypeId, freq, fare, aircraftId) {
+    const out = estimateRouteViability(originIata, destIata, aircraftTypeId, freq, fare, aircraftId);
+    const retFare = suggestFareForPair(destIata, originIata, aircraftTypeId);
+    const ret = estimateRouteViability(
+      destIata,
+      originIata,
+      aircraftTypeId,
+      freq,
+      retFare,
+      aircraftId
+    );
+    const outLoad = out.load || 0;
+    const retLoad = ret.load || 0;
+    const rtAvgLoad = (outLoad + retLoad) / 2;
+    // Empty ferry: full cost of the reverse leg, zero revenue
+    const ferryAvgLoad = outLoad * 0.5;
+    const stronger = outLoad >= retLoad ? 'out' : 'ret';
+    const strongerLoad = Math.max(outLoad, retLoad);
+    const weakerLoad = Math.min(outLoad, retLoad);
+    // Worth flying RT even if one side is soft, if average clears ~42% or the
+    // strong leg is excellent and the weak leg is not a disaster.
+    const worthRt =
+      rtAvgLoad >= 0.42 || (strongerLoad >= 0.7 && weakerLoad >= 0.3) || (strongerLoad >= 0.85 && weakerLoad >= 0.22);
+    const imbalanced = Math.abs(outLoad - retLoad) >= 0.18;
+    let directionNote = '';
+    let prompt = '';
+    if (imbalanced && stronger === 'out') {
+      directionNote = `Out ${Math.round(outLoad * 100)}% · return ${Math.round(retLoad * 100)}%`;
+      prompt = worthRt
+        ? `Strong ${originIata}→${destIata}; thinner return is still worth selling seats home (don't ferry empty).`
+        : `Demand is one-way heavy ${originIata}→${destIata}. Soften fare on the return or fly fewer RT days.`;
+    } else if (imbalanced && stronger === 'ret') {
+      directionNote = `Out ${Math.round(outLoad * 100)}% · return ${Math.round(retLoad * 100)}%`;
+      prompt = worthRt
+        ? `Stronger demand ${destIata}→${originIata}. Launch both ways — outbound may be softer but RT still works.`
+        : `Return demand (${destIata}→${originIata}) is better. Consider starting service from ${destIata} if you have a gate.`;
+    } else {
+      directionNote = `Both ways ~${Math.round(rtAvgLoad * 100)}%`;
+      prompt = worthRt
+        ? `Balanced pair — sell seats both directions (avoids empty ferry).`
+        : `Thin both ways — smaller metal, lower fare, or skip for now.`;
+    }
+    // Score favors RT-average load, with a bonus for balanced pairs and common routes
+    const balanceBonus = imbalanced ? 0.92 : 1.05;
+    const rtScore = rtAvgLoad * balanceBonus * (worthRt ? 1.12 : 0.85);
+
+    return {
+      out,
+      ret,
+      outLoad,
+      retLoad,
+      outDailyPax: out.dailyPax || 0,
+      retDailyPax: ret.dailyPax || 0,
+      retFare,
+      rtAvgLoad,
+      ferryAvgLoad,
+      stronger,
+      worthRt,
+      imbalanced,
+      directionNote,
+      prompt,
+      rtScore,
+    };
+  }
+
+  function directionalLoadChipsHtml(origin, dest, dir) {
+    if (!dir) return '';
+    const outPct = Math.round((dir.outLoad || 0) * 100);
+    const retPct = Math.round((dir.retLoad || 0) * 100);
+    const outCls = outPct >= 72 ? 'good' : outPct >= 45 ? 'ok' : 'warn';
+    const retCls = retPct >= 72 ? 'good' : retPct >= 45 ? 'ok' : 'warn';
+    const flag = dir.worthRt
+      ? '<span class="dir-flag worth">RT worth it</span>'
+      : '<span class="dir-flag thin">RT thin</span>';
+    return `<span class="dir-loads" title="${(dir.prompt || '').replace(/"/g, "'")}">
+      <span class="dir-chip via-${outCls}">${origin}→${dest} ${outPct}%</span>
+      <span class="dir-chip via-${retCls}">${dest}→${origin} ${retPct}%</span>
+      ${flag}
+    </span>`;
+  }
+
   function routeSuggestionsFrom(originIata) {
     if (!originIata || !state) return [];
     const o = airport(originIata);
@@ -7025,16 +7122,15 @@
       const assignPlane =
         state.fleet.find((f) => maxFrequencyForAircraft(f.id, originIata, dest.iata, acType) >= freq) ||
         state.fleet[0];
-      const via = estimateRouteViability(
-        originIata,
-        dest.iata,
-        acType,
-        freq,
-        fare,
-        assignPlane ? assignPlane.id : null
-      );
+      const planeId = assignPlane ? assignPlane.id : null;
+      const via = estimateRouteViability(originIata, dest.iata, acType, freq, fare, planeId);
+      const dir = estimateDirectionalPair(originIata, dest.iata, acType, freq, fare, planeId);
       const common = isCommonRoutePair(originIata, dest.iata);
-      const score = via.load * (common ? 1.15 : 1) * (dest.annual_pax_m + 1);
+      // Prefer RT-profitable pairs (not just one hot outbound)
+      const cap =
+        (dir.out && dir.out.market && dir.out.market.captureFactor) || 0;
+      const score =
+        dir.rtScore * (common ? 1.15 : 1) * ((dest.annual_pax_m || 0) + 1) * (1 + cap * 0.3);
       suggestions.push({
         dest: dest.iata,
         destCity: dest.city,
@@ -7045,6 +7141,13 @@
         fare,
         common,
         score,
+        dir,
+        directionNote: dir.directionNote,
+        directionPrompt: dir.prompt,
+        outLoad: dir.outLoad,
+        retLoad: dir.retLoad,
+        rtAvgLoad: dir.rtAvgLoad,
+        worthRt: dir.worthRt,
         ...via,
       });
     });
@@ -10159,18 +10262,20 @@
       box.innerHTML = '<p class="muted">No ready destinations in range — add fleet hours or gates.</p>';
       return;
     }
-    box.innerHTML = `<p class="studio-suggest-label">Ready markets from ${origin}</p>
+    box.innerHTML = `<p class="studio-suggest-label">Ready markets from ${origin} <span class="muted" style="font-weight:400;">· out vs return loads</span></p>
       <div class="studio-suggest-grid">
         ${ideas
           .map((s) => {
             const freq = s.status === 'limited' && s.maxFreq > 0 ? s.maxFreq : s.freq;
+            const outPct = Math.round((s.outLoad != null ? s.outLoad : s.load) * 100);
+            const retPct = Math.round((s.retLoad != null ? s.retLoad : s.load) * 100);
             return `<button type="button" class="studio-suggest-card" data-studio-pick="${s.dest}"
               data-ac-type="${s.acType}" data-aircraft-id="${s.bestPlaneId || ''}"
-              data-fare="${s.fare}" data-freq="${freq}">
-              <strong>${origin} → ${s.dest}</strong>
+              data-fare="${s.fare}" data-freq="${freq}" title="${(s.directionPrompt || '').replace(/"/g, "'")}">
+              <strong>${origin} ⇄ ${s.dest}</strong>
               <span class="muted">${s.destCity}</span>
-              <span class="studio-suggest-meta">${s.dist} nm · ${freq}/wk · ~${s.dailyPax} pax · ${(s.load * 100).toFixed(0)}% load</span>
-              <span class="studio-suggest-via via-${s.tier}">${s.label}</span>
+              <span class="studio-suggest-meta">${s.dist} nm · ${freq}/wk · out ${outPct}% · ret ${retPct}%</span>
+              <span class="studio-suggest-via via-${s.tier}">${s.label}${s.worthRt ? ' · RT ✓' : ''}</span>
             </button>`;
           })
           .join('')}
@@ -11682,11 +11787,33 @@
           selectAirport(ev.features[0].properties.iata);
         }
       });
+      const apPopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 14,
+        className: 'map-ap-popup',
+        maxWidth: '260px',
+      });
       mapboxMap.on('mouseenter', 'airports-layer', () => {
         if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
       });
+      mapboxMap.on('mousemove', 'airports-layer', (ev) => {
+        if (!ev.features || !ev.features[0]) return;
+        const p = ev.features[0].properties || {};
+        const coords = ev.features[0].geometry.coordinates.slice();
+        const tip = p.tip || `${p.iata} · ${p.oppLabel || ''}`;
+        apPopup
+          .setLngLat(coords)
+          .setHTML(
+            `<div class="map-ap-popup-inner"><strong>${p.iata}</strong> · ${p.oppLabel || 'Market'}` +
+              (p.oppScore != null ? ` · ${p.oppScore}/100` : '') +
+              `<br><span class="muted">${String(tip).replace(/^[^—]*—\s*/, '')}</span></div>`
+          )
+          .addTo(mapboxMap);
+      });
       mapboxMap.on('mouseleave', 'airports-layer', () => {
         if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+        apPopup.remove();
       });
     });
   }
@@ -11712,6 +11839,115 @@
     return { type: 'FeatureCollection', features };
   }
 
+  /**
+   * Map opportunity scoring for airport dots.
+   * Size ≈ market scale; color ≈ opportunity type for the player.
+   */
+  function airportOpportunityScore(ap) {
+    if (!ap) {
+      return {
+        score: 0,
+        size: 4,
+        fill: '#5eb8ff',
+        tier: 'open',
+        label: 'Market',
+        tip: '',
+        underserved: 0,
+        fareOpp: 0,
+        scale: 0,
+      };
+    }
+    const pax = ap.annual_pax_m || 1;
+    const pop = ap.metro_pop_m || 0.5;
+    const hub = ap.hub_strength != null ? ap.hub_strength : 0.35;
+    const wealth = airportWealth(ap);
+    const comps = (ap.incumbents || []).length;
+    const rivalDeps = competitorDeparturesWeeklyFrom(ap.iata);
+    const marketDeps = airportMarketDeparturesWeekly(ap) || 80;
+    // Underserved: population/pax pressure not fully absorbed by hub share + rivals
+    const serviceRatio = Math.min(1.4, (marketDeps + rivalDeps * 0.5) / Math.max(40, pop * 90));
+    const underserved = Math.max(0, Math.min(1, 1 - serviceRatio * (0.55 + hub * 0.45)));
+    // Fare opportunity: wealthier / longer-haul style hubs with soft competition
+    const fareOpp = Math.max(0, Math.min(1, wealth * 0.65 + (1 - hub) * 0.25 + (comps <= 2 ? 0.15 : 0)));
+    // Scale for dot size
+    const scale = Math.max(0, Math.min(1, Math.log10(1 + pax * 3) / 2.2));
+
+    const owned = state && hasGateAt(ap.iata);
+    const util = owned ? gateUtilizationAt(ap.iata) : null;
+    const underCap = util && (util.underutilized || util.idle);
+
+    let tier = 'open';
+    let fill = '#5eb8ff';
+    let label = 'Open market';
+    let tip = 'Scout competitors and demand before leasing.';
+
+    if (owned) {
+      tier = underCap ? 'yours_open' : 'yours';
+      fill = underCap ? '#5dffa8' : '#00c896';
+      label = underCap ? 'Your gate · capacity open' : 'Your gate';
+      tip = underCap
+        ? `${util.remaining} deps/wk open — add frequency or a new market from here.`
+        : 'Your operation. Expand carefully if gate is tight.';
+    } else if (underserved >= 0.55 && fareOpp >= 0.4) {
+      tier = 'gold';
+      fill = '#ffd166';
+      label = 'High opportunity';
+      tip = 'Underserved demand + solid fare potential — strong candidate to lease and launch.';
+    } else if (underserved >= 0.48) {
+      tier = 'underserved';
+      fill = '#7dd3fc';
+      label = 'Underserved';
+      tip = 'Population wants more lift than the market fully serves — good growth city if you can win share.';
+    } else if (fareOpp >= 0.58 && hub < 0.55) {
+      tier = 'premium';
+      fill = '#c4b5fd';
+      label = 'Premium fares';
+      tip = 'Wealthier market — higher average fares if you can compete on schedule/product.';
+    } else if (hub >= 0.62 || comps >= 4) {
+      tier = 'fortress';
+      fill = '#ff6b5a';
+      label = 'Fortress / contested';
+      tip = 'Strong incumbents — hard but high traffic. Expect fare and capacity fights.';
+    } else {
+      tier = 'open';
+      fill = '#5eb8ff';
+      label = 'Open market';
+      tip = 'Balanced market — scout pair ideas from a nearby gate you control.';
+    }
+
+    const score = Math.round((underserved * 0.45 + fareOpp * 0.35 + scale * 0.2) * 100);
+    // Size: market scale primary; opportunity bumps radius slightly
+    let size = 3.6 + scale * 5.2 + underserved * 1.4 + fareOpp * 0.8;
+    if (owned) size = Math.max(size, 6.2);
+    if (selectedAirport === ap.iata) size = Math.max(size, 7);
+
+    return {
+      score,
+      size,
+      fill,
+      tier,
+      label,
+      tip,
+      underserved,
+      fareOpp,
+      scale,
+      owned: !!owned,
+      underCap: !!underCap,
+    };
+  }
+
+  function mapAirportDotStyle(ap) {
+    const opp = airportOpportunityScore(ap);
+    const selected = selectedAirport === ap.iata;
+    return {
+      ...opp,
+      radius: mapDotRadius(opp.size),
+      stroke: selected ? '#fff' : opp.owned ? '#042018' : 'rgba(255,255,255,0.5)',
+      strokeWidth: selected ? 2.2 : 1.2,
+      title: `${ap.iata} · ${opp.label} · score ${opp.score}/100 — ${opp.tip}`,
+    };
+  }
+
   function buildAirportsGeoJSON() {
     const labelAll = isRegionalMapKey(activeMapKey);
     const airportFeatures = [];
@@ -11722,9 +11958,8 @@
       const selected = selectedAirport === ap.iata;
       const share = playerShareAtAirport(ap.iata);
       const util = owned && state ? gateUtilizationAt(ap.iata) : null;
-      const underCap = util && (util.underutilized || util.idle);
-      const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
-      const r = mapDotRadius(owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25));
+      const style = mapAirportDotStyle(ap);
+      const r = style.radius;
       const capLabel = util ? `${Math.round(util.pct)}%` : '';
       const capSub = util && util.remaining > 0 ? `${util.remaining}o` : '';
 
@@ -11745,15 +11980,19 @@
         properties: {
           iata: ap.iata,
           radius: r,
-          fill,
-          stroke: selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)',
-          strokeWidth: selected ? 2 : 1.2,
-          showLabel: owned || selected || labelAll,
+          fill: style.fill,
+          stroke: style.stroke,
+          strokeWidth: style.strokeWidth,
+          showLabel: owned || selected || labelAll || style.tier === 'gold',
           showCapBadge: !!owned && !!util,
           capLabel,
           capSub,
           gateUtilPct: util ? util.pct : 0,
           gateRemaining: util ? util.remaining : 0,
+          oppScore: style.score,
+          oppTier: style.tier,
+          oppLabel: style.label,
+          tip: style.title,
         },
       });
     });
@@ -12021,10 +12260,10 @@
       const selected = selectedAirport === ap.iata;
       const share = playerShareAtAirport(ap.iata);
       const util = owned && state ? gateUtilizationAt(ap.iata) : null;
-      const underCap = util && (util.underutilized || util.idle);
-      const fill = owned ? (underCap ? '#5dffa8' : '#00e4a8') : ap.hub_strength > 0.7 ? '#ff6b5a' : '#5eb8ff';
-      const r = mapDotRadius(owned || selected ? 6 : 4 + Math.min(3, ap.annual_pax_m / 25));
-      const stroke = selected ? '#fff' : owned ? '#042' : 'rgba(255,255,255,0.45)';
+      const style = mapAirportDotStyle(ap);
+      const r = style.radius;
+      const fill = style.fill;
+      const stroke = style.stroke;
       if (share > 0.08) {
         const halo = r + 3 + share * 8;
         html += `<circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="none" stroke="rgba(0,228,168,${0.15 + share * 0.45})" stroke-width="2" class="ap-share-ring"/>`;
@@ -12032,7 +12271,7 @@
       if (isCoarsePointer()) {
         html += `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(18, r + 10)}" fill="transparent" class="ap-dot-hit" data-iata="${ap.iata}"/>`;
       }
-      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${selected ? 2 : 1.2}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"/>`;
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${style.strokeWidth}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"><title>${style.title.replace(/"/g, "'")}</title></circle>`;
       if (owned && util) {
         const capClass = util.pct < 50 ? 'low' : '';
         html += `<text x="${p.x}" y="${p.y - 10}" text-anchor="middle" class="map-cap-badge ${capClass}">${Math.round(util.pct)}%</text>`;
@@ -12040,7 +12279,7 @@
           html += `<text x="${p.x}" y="${p.y - 18}" text-anchor="middle" class="map-cap-badge" fill="#a8c4e0" font-size="7">${util.remaining} open</text>`;
         }
       }
-      if (owned || selected || labelAll) {
+      if (owned || selected || labelAll || style.tier === 'gold') {
         html += `<text x="${p.x + 8}" y="${p.y + 4}" fill="#f0f8ff" font-size="${labelAll ? 11 : 10}" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${ap.iata}</text>`;
       }
     });
@@ -12285,12 +12524,13 @@
           .slice(0, 4)
       : [];
     const hubRoutesHtml = hubIdeas.length
-      ? `<p class="muted" style="font-size:0.68rem;margin:8px 0 4px;color:var(--gold);">Can launch now from ${iata}</p>
+      ? `<p class="muted" style="font-size:0.68rem;margin:8px 0 4px;color:var(--gold);">Can launch now from ${iata} <span class="muted">(out % · return %)</span></p>
         <div class="avail-chips">${hubIdeas
-          .map(
-            (s) =>
-              `<button type="button" class="avail-chip" data-hub-route="${iata}" data-hub-dest="${s.dest}" data-hub-freq="${s.maxFreq || s.freq}" data-hub-ac="${s.bestPlaneId || ''}">${iata}→${s.dest} · ${s.maxFreq || s.freq}/wk · ${s.label}</button>`
-          )
+          .map((s) => {
+            const outPct = Math.round((s.outLoad != null ? s.outLoad : s.load) * 100);
+            const retPct = Math.round((s.retLoad != null ? s.retLoad : s.load) * 100);
+            return `<button type="button" class="avail-chip" data-hub-route="${iata}" data-hub-dest="${s.dest}" data-hub-freq="${s.maxFreq || s.freq}" data-hub-ac="${s.bestPlaneId || ''}" title="${(s.directionPrompt || '').replace(/"/g, "'")}">${iata}⇄${s.dest} · ${s.maxFreq || s.freq}/wk · ${outPct}%/${retPct}%</button>`;
+          })
           .join('')}</div>`
       : myGates.length
         ? `<p class="muted" style="font-size:0.68rem;margin:8px 0;">No new routes fit gate + aircraft hours from ${iata} — bump frequency or lease another plane.</p>`
@@ -12342,9 +12582,19 @@
       </details>`;
 
     const positionTitle = gate ? `Your gate — ${gateSummary}` : 'Lease a gate';
+    const opp = airportOpportunityScore(ap);
+    const oppBanner = `<div class="ap-opp-banner tier-${opp.tier}" title="${(opp.tip || '').replace(/"/g, "'")}">
+      <span class="ap-opp-dot" style="background:${opp.fill}"></span>
+      <div>
+        <strong>${opp.label}</strong> · score ${opp.score}/100
+        <span class="muted" style="display:block;font-size:0.68rem;margin-top:2px;">${opp.tip}</span>
+        <span class="muted" style="display:block;font-size:0.64rem;margin-top:2px;">Underserved ${(opp.underserved * 100).toFixed(0)}% · fare opp ${(opp.fareOpp * 100).toFixed(0)}% · size = market scale</span>
+      </div>
+    </div>`;
     panel.innerHTML = `
       <h3>${ap.iata} — ${ap.city}${ap.regional ? '<span class="badge-regional">Regional</span>' : ''}</h3>
       <p class="muted" style="font-size:0.75rem;margin-bottom:8px;">${ap.name}${ap.state ? ` · ${ap.state}` : ''}</p>
+      ${oppBanner}
       ${panelSectionHtml('position', positionTitle, airportSections.position, positionBody)}
       ${panelSectionHtml('competition', 'Competition', airportSections.competition, competitionBody)}
       ${panelSectionHtml('market', 'Market snapshot', airportSections.market, marketBody)}
@@ -14173,6 +14423,10 @@
       : s.maxFreq > 0
         ? `<span class="rs-status">Up to ${s.maxFreq}/wk available</span>`
         : '';
+    const dirHtml = s.dir ? directionalLoadChipsHtml(origin, s.dest, s.dir) : '';
+    const promptLine = s.directionPrompt
+      ? `<span class="rs-prompt">${s.directionPrompt}</span>`
+      : '';
     return `<li>
       <button type="button" class="route-suggest-btn${blocked ? ' blocked' : ''}" data-tier="${s.tier}"
         data-route-suggest="1"
@@ -14182,9 +14436,11 @@
         data-fare="${s.fare}"
         data-freq="${freq}"
         data-auto-launch="${s.canLaunch ? 'true' : 'false'}">
-        <span class="rs-route">${launchLabel}: ${origin} → ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
-        <span class="rs-meta">${s.dist} nm · ${s.acName} · ${freq}/wk · ~${s.dailyPax} pax/day${s.market ? ` · ${formatMarketSharePct(s.market.originShare)} of ${origin}` : ''}</span>
-        <span class="rs-via via-${s.tier}">${s.label} (${(s.load * 100).toFixed(0)}% est. load${s.capturePct ? ` · ${s.capturePct}% capture` : ''})</span>
+        <span class="rs-route">${launchLabel}: ${origin} ⇄ ${s.dest} <span class="muted">${s.destCity}</span>${s.common ? ' <span class="badge-regional">Common</span>' : ''}</span>
+        <span class="rs-meta">${s.dist} nm · ${s.acName} · ${freq}/wk · ~${s.dailyPax} pax/day out${s.market ? ` · ${formatMarketSharePct(s.market.originShare)} of ${origin}` : ''}</span>
+        <span class="rs-via via-${s.tier}">${s.label} · RT avg ${((s.rtAvgLoad != null ? s.rtAvgLoad : s.load) * 100).toFixed(0)}%${s.capturePct ? ` · ${s.capturePct}% capture` : ''}</span>
+        ${dirHtml}
+        ${promptLine}
         ${statusLine}
       </button>
     </li>`;
@@ -14207,7 +14463,8 @@
     const ready = ideas.filter((s) => s.status === 'ready' || s.status === 'limited');
     const blocked = ideas.filter((s) => !['ready', 'limited'].includes(s.status));
 
-    let html = `<h4 style="margin:0 0 6px;font-size:0.88rem;color:var(--gold);">Routes from ${origin}${oAp ? ` (${oAp.city})` : ''}</h4>`;
+    let html = `<h4 style="margin:0 0 6px;font-size:0.88rem;color:var(--gold);">Where to fly from ${origin}${oAp ? ` (${oAp.city})` : ''}</h4>
+      <p class="muted" style="font-size:0.68rem;margin:0 0 8px;">Loads are directional — a full outbound with a softer return can still be profitable if you sell seats both ways (planes must come home either way).</p>`;
     if (ready.length) {
       html += `<p class="route-suggest-group ready">Ready or partially available (${ready.length})</p><ul class="route-suggest-list">`;
       ready.forEach((s) => {
@@ -14242,6 +14499,7 @@
     const fare = +($('rt-fare') && $('rt-fare').value) || suggestFareForPair(oCode, dCode);
     const planeId = plane ? plane.id : null;
     const via = estimateRouteViability(oCode, dCode, acType, freq, fare, planeId);
+    const dir = estimateDirectionalPair(oCode, dCode, acType, freq, fare, planeId);
     const ac = aircraftType(acType);
     const oAp = airport(oCode);
     const dAp = airport(dCode);
@@ -14276,7 +14534,10 @@
     const mktLine = mkt
       ? `<br><span class="muted">Market scope: <b>${formatMarketSharePct(mkt.originShare)}</b> of ~${mkt.originMarketDaily}/day at ${oCode} (${mkt.playerOriginDeps}/${mkt.originMarketWeekly} deps/wk) · pair ${formatMarketSharePct(mkt.pairCapacityShare)} · capture ${formatMarketSharePct(mkt.captureFactor)}</span>`
       : '';
-    el.innerHTML = `<strong>Demand preview:</strong> ${dist} nm · ${via.label} · ~${via.dailyPax} pax/day at $${fare} (${(via.load * 100).toFixed(0)}% load) · market $${market}${validNote}${flyNote}${mktLine}`;
+    const dirLine = `<br>${directionalLoadChipsHtml(oCode, dCode, dir)}
+      <span class="muted" style="font-size:0.72rem;"> · RT avg ${(dir.rtAvgLoad * 100).toFixed(0)}% · ferry-only would be ~${(dir.ferryAvgLoad * 100).toFixed(0)}% effective
+      <br>${dir.prompt}</span>`;
+    el.innerHTML = `<strong>Demand preview:</strong> ${dist} nm · ${via.label} · ~${via.dailyPax} pax/day out at $${fare} · market $${market}${validNote}${flyNote}${dirLine}${mktLine}`;
   }
 
   function applyRouteSuggestion(destIata, acType, fare, freq, autoLaunch, aircraftId) {
