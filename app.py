@@ -1156,8 +1156,12 @@ def require_admin(f):
 
 
 def _runway_share_access_granted():
-    """True if request includes a valid share token (sets session for return visits)."""
-    if not RUNWAY_SHARE_TOKEN:
+    """Optional guest link — only when both SHARE token and PUBLIC flag are on.
+
+    Route Lab is a private experiment for the owner (not Hub teammates like Ben).
+    Guest links are opt-in via env, not the default.
+    """
+    if not RUNWAY_PUBLIC_ACCESS or not RUNWAY_SHARE_TOKEN:
         return False
     token = (request.args.get('access') or '').strip()
     if token and token == RUNWAY_SHARE_TOKEN:
@@ -1167,16 +1171,23 @@ def _runway_share_access_granted():
 
 
 def require_runway_access(f):
+    """Route Lab: owner only (or explicit public/share env for solo testing)."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if RUNWAY_PUBLIC_ACCESS or _runway_share_access_granted():
+        # Owner always wins when logged in
+        if session.get('user_key') == RUNWAY_OWNER:
+            return f(*args, **kwargs)
+        # Optional solo public / share — never grant other Hub users
+        if RUNWAY_PUBLIC_ACCESS and _runway_share_access_granted():
+            return f(*args, **kwargs)
+        if RUNWAY_PUBLIC_ACCESS and not RUNWAY_SHARE_TOKEN:
+            # Fully public only when intentionally enabled without a token
             return f(*args, **kwargs)
         if not session.get('user_key'):
             return redirect(url_for('login', next=request.url))
-        if session.get('user_key') != RUNWAY_OWNER:
-            return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
+        # Logged-in Hub users who are not the owner (e.g. Ben) → dashboard only
+        return redirect(url_for('dashboard'))
     return decorated
 
 

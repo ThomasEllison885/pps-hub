@@ -71,37 +71,74 @@
   const ROUTE_STATS_WINDOW_DAYS = 30;
   const ROUTE_HISTORY_MAX_DAYS = 90;
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
-  /** Mid-game ops campaigns after the 9-step regional build track. */
+  /**
+   * Staged mid-game goals after the 9-step regional build track.
+   * phase: expand → sustain → scale → exit (shown in coach / session recap).
+   */
   const OPS_MIDGAME_GOALS = [
     {
-      id: 'ltm_25m',
-      label: 'Scale: $25M LTM revenue',
-      hint: 'Grow frequency and open markets — revenue is the PE/IPO ladder.',
-      tab: 'routes',
-    },
-    {
-      id: 'hub_presence',
-      label: 'Hub presence: 8%+ of departures at your main base',
-      hint: 'Add frequency from your busiest gate until you are a real share of the airport.',
+      id: 'rt_pairs_2',
+      phase: 'expand',
+      phaseLabel: 'Phase 2 · Expand',
+      label: 'Two round-trip markets',
+      hint: 'Sell seats both ways — open return legs so planes do not ferry empty.',
       tab: 'routes',
     },
     {
       id: 'profit_month',
-      label: 'Sustain: profitable trailing month',
+      phase: 'sustain',
+      phaseLabel: 'Phase 3 · Sustain',
+      label: 'Profitable trailing month',
       hint: 'Fix losing routes before adding more thin markets.',
       tab: 'routes',
     },
     {
+      id: 'hub_presence',
+      phase: 'sustain',
+      phaseLabel: 'Phase 3 · Sustain',
+      label: 'Hub presence: 8%+ of departures at main base',
+      hint: 'Add frequency from your busiest gate until you own real share.',
+      tab: 'routes',
+    },
+    {
       id: 'network_6',
+      phase: 'scale',
+      phaseLabel: 'Phase 4 · Scale',
       label: 'Network: six active routes',
       hint: 'A true regional web — six city pairs flying.',
       tab: 'routes',
     },
     {
-      id: 'pressure_win',
-      label: 'Compete: profitable route under high pressure',
-      hint: 'Win on a contested pair with load and green P&L.',
+      id: 'ltm_25m',
+      phase: 'scale',
+      phaseLabel: 'Phase 4 · Scale',
+      label: 'Scale: $25M LTM revenue',
+      hint: 'Grow frequency and markets — PE/IPO ladder starts here.',
       tab: 'routes',
+    },
+    {
+      id: 'pressure_win',
+      phase: 'scale',
+      phaseLabel: 'Phase 4 · Scale',
+      label: 'Win a contested route (pressure ≥55, green P&L)',
+      hint: 'Hold load and margin where rivals fight you.',
+      tab: 'routes',
+    },
+    {
+      id: 'second_base_profit',
+      phase: 'scale',
+      phaseLabel: 'Phase 4 · Scale',
+      label: 'Two profitable bases',
+      hint: 'Green variable P&L from two different origin airports.',
+      tab: 'routes',
+    },
+    {
+      id: 'capital_event',
+      phase: 'exit',
+      phaseLabel: 'Phase 5 · Capital',
+      label: 'Close PE, secondary, or IPO',
+      hint: 'Use Capital when the network can carry board pressure.',
+      tab: 'finance',
     },
   ];
 
@@ -1871,11 +1908,18 @@
   /** Rivals hit harder after PE / IPO / scale — markets notice capital. */
   function competitorAggressionMult() {
     if (!state) return 1;
-    let m = 1;
-    if (state.pe_done) m *= 1.28;
-    if (state.public || state.ipo_done) m *= 1.45;
-    if ((state.ltm_revenue || 0) >= 40_000_000) m *= 1.12;
-    if ((state.routes || []).length >= 6) m *= 1.08;
+    let m = 1.08; // slightly hotter baseline so empty markets don't stay quiet forever
+    // Grace period: learn the loop before full rival heat
+    if ((state.day || 0) < 50) m *= 0.7;
+    else if ((state.day || 0) < 100) m *= 0.88;
+    if (state.pe_done) m *= 1.42;
+    if (state.public || state.ipo_done) m *= 1.55;
+    if ((state.ltm_revenue || 0) >= 25_000_000) m *= 1.1;
+    if ((state.ltm_revenue || 0) >= 60_000_000) m *= 1.12;
+    if ((state.routes || []).length >= 4) m *= 1.08;
+    if ((state.routes || []).length >= 8) m *= 1.1;
+    // Cash pile after a raise invites match capacity
+    if ((state.cash || 0) >= 15_000_000) m *= 1.1;
     return m;
   }
 
@@ -2647,6 +2691,10 @@
       switchTab(option.tab);
     } else if (option.effect === 'tab_routes') {
       switchTab('routes');
+    } else if (option.effect === 'tab_finance') {
+      switchTab('finance');
+    } else if (option.effect === 'tab_fleet') {
+      switchTab('fleet');
     } else if (option.effect === 'tab' && option.tab) {
       switchTab(option.tab);
     } else if (option.effect === 'route_review' && option.routeId) {
@@ -9213,13 +9261,16 @@
   }
 
   function processMonthlyGateEfficiency() {
-    if (!state || state.game_over || state.day < 30) return;
+    // Soft start: no gate-tax nagging while you're still learning (first ~2 months)
+    if (!state || state.game_over || state.day < 55) return;
     const utils = allGateUtilizations().filter((u) => u.underutilized || u.idle);
     if (!utils.length) return;
     if (!state.gate_nudge_day) state.gate_nudge_day = {};
 
     utils.forEach((util) => {
-      if (state.day - (state.gate_nudge_day[util.iata] || 0) < 28) return;
+      // When cash is critical, nudge less often — focus on runway coach instead
+      const nudgeGap = runwayMonths() < 3 ? 45 : 28;
+      if (state.day - (state.gate_nudge_day[util.iata] || 0) < nudgeGap) return;
       state.gate_nudge_day[util.iata] = state.day;
       const leaseMo = state.gates
         .filter((g) => g.airport === util.iata)
@@ -9231,12 +9282,14 @@
     });
 
     const worst = utils[0];
+    // Skip modal pile-on when you're already in a cash crisis
+    if (runwayMonths() < 2.5) return;
     if (
       !worst ||
       worst.pct >= 58 ||
       activeDecision ||
       decisionQueue.length ||
-      state.day - (state.last_gate_efficiency_decision_day || 0) < 45
+      state.day - (state.last_gate_efficiency_decision_day || 0) < 50
     ) {
       return;
     }
@@ -11222,21 +11275,27 @@
       alert('Series A already closed.');
       return;
     }
-    if ((state.day || 0) < 180) {
-      alert('Series A opens after ~6 months of operations (day 180).');
+    if ((state.day || 0) < 210) {
+      alert('Series A opens after ~7 months of operations (day 210).');
       return;
     }
-    if ((state.routes || []).length < 2) {
-      alert('Series A needs at least 2 active routes.');
+    if ((state.routes || []).length < 3) {
+      alert('Series A needs at least 3 active routes.');
       return;
     }
-    if ((state.ltm_revenue || 0) < 8_000_000) {
-      alert(`Series A needs ~${fmtMoney(8_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
+    if ((state.ltm_revenue || 0) < 12_000_000) {
+      alert(`Series A needs ~${fmtMoney(12_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
       return;
     }
-    const amount = 30_000_000;
-    const dilution = 0.24;
+    const trail = trailingMonthPnl();
+    if (trail != null && trail < -500_000) {
+      alert('Series A wants a network that is not free-falling — fix monthly losses first.');
+      return;
+    }
     const ev = companyEnterpriseValue();
+    // Smaller check, steeper dilution than the old free $30M
+    const amount = Math.round(Math.min(28_000_000, Math.max(12_000_000, ev * 0.22)));
+    const dilution = Math.min(0.3, Math.max(0.22, amount / (ev + amount) + 0.04));
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
     state.series_a_done = true;
@@ -11244,10 +11303,11 @@
     state.raises.push({ type: 'series_a', amount, dilution, day: state.day, ev });
     pushEvent(
       `Series A closed: <b>${fmtMoney(amount)}</b> at ~${fmtMoney(ev)} enterprise value ` +
-        `(${(dilution * 100).toFixed(0)}% new shares). You retain <b>${state.equity_pct.toFixed(1)}%</b>.`,
+        `(${(dilution * 100).toFixed(0)}% new shares). You retain <b>${state.equity_pct.toFixed(1)}%</b>. Rivals will notice the war chest.`,
       'milestone'
     );
     markMilestoneOnce('raise_series_a', `${state.airline_name} closed Series A.`);
+    processReactiveCompetitorThreats('weekly');
     saveGame();
     renderAll();
   }
@@ -11282,21 +11342,27 @@
       alert('A PE round is already on the books. Use secondary sale or IPO next.');
       return;
     }
-    if ((state.routes || []).length < 3) {
-      alert('PE wants a real network — open at least 3 routes first.');
+    if ((state.routes || []).length < 4) {
+      alert('PE wants a real network — open at least 4 routes first.');
       return;
     }
-    if ((state.ltm_revenue || 0) < 15_000_000) {
-      alert(`PE minimum ~${fmtMoney(15_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
+    if ((state.ltm_revenue || 0) < 28_000_000) {
+      alert(`PE minimum ~${fmtMoney(28_000_000)} LTM revenue (now ${fmtMoney(state.ltm_revenue || 0)}).`);
       return;
     }
-    if ((state.day || 0) < 270 && !state.series_a_done && state.financing_tier !== 'serial') {
-      alert('PE usually arrives after ~9 months or a Series A. Keep flying or raise Series A first.');
+    if ((state.day || 0) < 330 && !state.series_a_done && state.financing_tier !== 'serial') {
+      alert('PE usually arrives after ~11 months or a Series A. Keep flying or raise Series A first.');
+      return;
+    }
+    const trail = trailingMonthPnl();
+    if (trail == null || trail <= 0) {
+      alert('PE wants a profitable trailing month before writing a check.');
       return;
     }
     const ev = companyEnterpriseValue();
-    const amount = Math.round(Math.min(80_000_000, Math.max(20_000_000, ev * 0.28)));
-    const dilution = Math.min(0.32, Math.max(0.14, amount / (ev + amount)));
+    // Harder money: smaller of EV slice, steeper dilution, board pressure starts now
+    const amount = Math.round(Math.min(55_000_000, Math.max(18_000_000, ev * 0.2)));
+    const dilution = Math.min(0.38, Math.max(0.22, amount / (ev + amount) + 0.06));
     state.cash += amount;
     state.equity_pct *= 1 - dilution;
     state.pe_done = true;
@@ -11306,10 +11372,13 @@
     pushEvent(
       `Private equity closed: <b>${fmtMoney(amount)}</b> into the airline at ~${fmtMoney(ev)} EV ` +
         `(${(dilution * 100).toFixed(0)}% dilution). You own <b>${state.equity_pct.toFixed(1)}%</b>. ` +
-        `Capital tab → Secondary sale if you want personal liquidity.`,
+        `Board will watch red routes — rivals will match your capital.`,
       'milestone'
     );
     markMilestoneOnce('raise_pe', `${state.airline_name} took private equity capital.`);
+    // Immediate competitive heat + board tick
+    processReactiveCompetitorThreats('weekly');
+    processReactiveCompetitorThreats('player_route');
     checkScenarioGoal();
     saveGame();
     renderAll();
@@ -11353,13 +11422,15 @@
   function canLaunchIPO() {
     if (!state || state.ipo_done || state.public) return { ok: false, reason: 'IPO already done or not applicable.' };
     const reasons = [];
-    if ((state.ltm_revenue || 0) < 80_000_000) {
-      reasons.push(`LTM revenue ${fmtMoney(state.ltm_revenue || 0)} (need ${fmtMoney(80_000_000)})`);
+    if ((state.ltm_revenue || 0) < 100_000_000) {
+      reasons.push(`LTM revenue ${fmtMoney(state.ltm_revenue || 0)} (need ${fmtMoney(100_000_000)})`);
     }
-    if ((state.routes || []).length < 6) reasons.push(`${state.routes.length}/6 routes`);
-    if ((state.reputation || 0) < 35) reasons.push(`reputation ${(state.reputation || 0).toFixed(0)}/35`);
+    if ((state.routes || []).length < 8) reasons.push(`${state.routes.length}/8 routes`);
+    if ((state.reputation || 0) < 42) reasons.push(`reputation ${(state.reputation || 0).toFixed(0)}/42`);
+    if ((state.equity_pct || 100) < 18) reasons.push('ownership too thin for a clean IPO story');
     const trail = trailingMonthPnl();
     if (trail == null || trail <= 0) reasons.push('need a profitable trailing month');
+    if (runwayMonths() < 6) reasons.push('need ≥6 months cash runway at IPO');
     if (reasons.length) return { ok: false, reason: reasons.join(' · ') };
     return { ok: true, reason: '' };
   }
@@ -11372,11 +11443,11 @@
     }
     const evPre = companyEnterpriseValue();
     // Primary: company raises; Secondary: founder sells a slice into the IPO
-    const primary = Math.round(Math.min(120_000_000, Math.max(40_000_000, evPre * 0.35)));
-    const primaryDilution = Math.min(0.28, primary / (evPre + primary));
+    const primary = Math.round(Math.min(95_000_000, Math.max(35_000_000, evPre * 0.28)));
+    const primaryDilution = Math.min(0.32, primary / (evPre + primary) + 0.03);
     state.cash += primary;
     state.equity_pct *= 1 - primaryDilution;
-    const secondaryPts = Math.min(12, Math.max(5, Math.floor((state.equity_pct || 0) * 0.15)));
+    const secondaryPts = Math.min(10, Math.max(4, Math.floor((state.equity_pct || 0) * 0.12)));
     const evPost = evPre + primary;
     const secondaryProceeds = Math.round(evPost * (secondaryPts / 100));
     state.equity_pct = Math.max(5, (state.equity_pct || 0) - secondaryPts);
@@ -11425,12 +11496,19 @@
     const burn = burnMonthly();
     const runway = burn > 0 ? state.cash / burn : 99;
     const debtSvc = monthlyDebtService();
-    if (runway < 3 && debtSvc > 0 && !(state.capital_coach_day > state.day - 45)) {
+    // Earlier, clearer cash warning — before the death spiral (was only debt + <3 mo)
+    if (runway < 4.5 && !(state.capital_coach_day > state.day - 40)) {
       state.capital_coach_day = state.day;
+      const idleGates = allGateUtilizations().filter((u) => u.idle || u.pct < 35).length;
+      const idleNote =
+        idleGates > 0
+          ? ` You have <b>${idleGates}</b> underused gate(s) still charging lease — fill them or give them back.`
+          : '';
       pushEvent(
-        `Capital coach: cash runway ~<b>${runway.toFixed(1)} mo</b> after ~${fmtMoney(debtSvc)}/mo debt service. ` +
-          `Open <b>Capital</b> — raise equity, restructure, or cut costs.`,
-        'bad'
+        `Cash runway ~<b>${runway.toFixed(1)} mo</b>${debtSvc > 0 ? ` · debt service ${fmtMoney(debtSvc)}/mo` : ''}.` +
+          idleNote +
+          ` Fix loads, cut idle metal/gates, or raise capital before Chapter 11 is the only door left.`,
+        runway < 2.5 ? 'bad' : 'warn'
       );
     }
   }
@@ -13007,6 +13085,20 @@
 
   function midgameGoalProgress(goal) {
     if (!goal || !state) return { done: false, pct: 0, progress: '—' };
+    if (goal.id === 'rt_pairs_2') {
+      const pairs = new Set();
+      (state.routes || []).forEach((r) => {
+        if (hasReturnLeg(r)) {
+          pairs.add([r.origin, r.dest].sort().join('-'));
+        }
+      });
+      const n = pairs.size;
+      return {
+        done: n >= 2,
+        pct: Math.min(100, (n / 2) * 100),
+        progress: `${n} of 2 RT pairs (sell both directions)`,
+      };
+    }
     if (goal.id === 'ltm_25m') {
       const cur = state.ltm_revenue || 0;
       return {
@@ -13047,6 +13139,36 @@
         progress: win ? 'holding a green contested route' : 'need green P&L under pressure ≥55',
       };
     }
+    if (goal.id === 'second_base_profit') {
+      const byOrigin = {};
+      (state.routes || []).forEach((route) => {
+        const h = diagnoseRouteHealth(route);
+        if (!h) return;
+        byOrigin[route.origin] = (byOrigin[route.origin] || 0) + (h.pnl || 0);
+      });
+      const greenBases = Object.keys(byOrigin).filter((k) => byOrigin[k] > 150);
+      const n = greenBases.length;
+      return {
+        done: n >= 2,
+        pct: Math.min(100, (n / 2) * 100),
+        progress:
+          n >= 2
+            ? `${greenBases.slice(0, 2).join(' + ')} cash-positive`
+            : `${n}/2 bases with green day P&L`,
+      };
+    }
+    if (goal.id === 'capital_event') {
+      const done = !!(state.pe_done || state.ipo_done || (state.personal_cash || 0) > 50_000);
+      return {
+        done,
+        pct: done ? 100 : state.series_a_done ? 40 : state.seed_done ? 15 : 0,
+        progress: done
+          ? 'capital event closed'
+          : state.series_a_done
+            ? 'Series A done — PE / secondary / IPO next'
+            : 'raise when LTM and network support it',
+      };
+    }
     return { done: false, pct: 0, progress: '—' };
   }
 
@@ -13054,7 +13176,7 @@
     if (!state) return null;
     const build = regionalBuildSteps();
     const buildProgress = build.filter((s) => s.done).length;
-    if (buildProgress < 6 && (state.routes || []).length < 3) return null;
+    if (buildProgress < 4 && (state.routes || []).length < 2) return null;
 
     state.ops_goals_done = state.ops_goals_done || [];
     for (let i = 0; i < OPS_MIDGAME_GOALS.length; i++) {
@@ -13063,7 +13185,7 @@
       const prog = midgameGoalProgress(g);
       if (prog.done) {
         state.ops_goals_done.push(g.id);
-        pushEvent(`Ops goal achieved: <b>${g.label}</b>`, 'milestone');
+        pushEvent(`${g.phaseLabel || 'Ops'}: achieved <b>${g.label}</b>`, 'milestone');
         markMilestoneOnce(`ops_goal_${g.id}`, `${state.airline_name}: ${g.label}`);
         continue;
       }
@@ -13072,10 +13194,66 @@
     return null;
   }
 
-  function midgameOpsGoalHtml() {
+  /** Single “what next” for coach, HUD, and session recap. */
+  function nextObjectiveSnapshot() {
+    if (!state) return null;
+    if (state.game_over) {
+      return {
+        phase: 'Over',
+        label: 'Game over',
+        progress: state.paused_reason || 'Liquidated',
+        pct: 100,
+        tab: 'finance',
+      };
+    }
+    const build = regionalBuildSteps();
+    const doneN = build.filter((s) => s.done).length;
+    const nextBuild = build.find((s) => !s.done);
+    if (nextBuild && doneN < 6) {
+      return {
+        phase: 'Phase 1 · Build',
+        label: nextBuild.label,
+        progress: `${doneN}/${build.length} build steps`,
+        pct: (doneN / build.length) * 100,
+        tab: nextBuild.tab === 'map' ? 'routes' : nextBuild.tab,
+        hint: 'Finish the regional build track first.',
+      };
+    }
     const g = activeMidgameOpsGoal();
-    if (!g) return '';
-    return `<p class="ops-midgame-line">Next ops goal: <b>${g.label}</b> · ${g.progress} <span class="muted">(${Math.round(g.pct)}%)</span></p>`;
+    if (g) {
+      return {
+        phase: g.phaseLabel || 'Ops',
+        label: g.label,
+        progress: g.progress,
+        pct: g.pct,
+        tab: g.tab || 'routes',
+        hint: g.hint,
+      };
+    }
+    const runway = runwayMonths();
+    if (runway < 4) {
+      return {
+        phase: 'Cash',
+        label: 'Extend runway',
+        progress: `${runway.toFixed(1)} mo cash left — cut burn or raise`,
+        pct: Math.min(100, (runway / 6) * 100),
+        tab: 'finance',
+      };
+    }
+    return {
+      phase: 'Free play',
+      label: 'Grow or exit',
+      progress: 'Track complete — scale, defend share, or take capital',
+      pct: 100,
+      tab: 'routes',
+    };
+  }
+
+  function midgameOpsGoalHtml() {
+    const obj = nextObjectiveSnapshot();
+    if (!obj) return '';
+    const hint = obj.hint ? ` <span class="muted">— ${obj.hint}</span>` : '';
+    return `<p class="ops-midgame-line"><span class="ops-phase">${obj.phase}</span> · <b>${obj.label}</b> · ${obj.progress} <span class="muted">(${Math.round(obj.pct || 0)}%)</span>${hint}</p>`;
   }
 
   function maybeMonthlyOpsReview() {
@@ -14977,6 +15155,19 @@
 
   function buildSaveMeta(gameState, label) {
     const sc = bootstrap.scenarios[(gameState && gameState.scenario_id) || ''] || {};
+    // Snapshot next objective without requiring live `state` (saves can build from any blob)
+    let nextObj = null;
+    const prev = state;
+    try {
+      if (gameState) {
+        state = gameState;
+        nextObj = nextObjectiveSnapshot();
+      }
+    } catch (e) {
+      nextObj = null;
+    } finally {
+      state = prev;
+    }
     return {
       label: label || null,
       savedAt: new Date().toISOString(),
@@ -14989,6 +15180,11 @@
       routes: ((gameState && gameState.routes) || []).length,
       fleet: ((gameState && gameState.fleet) || []).length,
       game_over: !!(gameState && gameState.game_over),
+      reputation: (gameState && gameState.reputation) || 0,
+      ltm_revenue: (gameState && gameState.ltm_revenue) || 0,
+      next_phase: nextObj ? nextObj.phase : null,
+      next_label: nextObj ? nextObj.label : null,
+      next_progress: nextObj ? nextObj.progress : null,
     };
   }
 
@@ -15116,15 +15312,84 @@
       alert('Could not load that save.');
       return;
     }
-    enterLoadedGame();
+    enterLoadedGame({ showRecap: true });
   }
 
-  function enterLoadedGame() {
+  function sessionRecapHtml() {
+    if (!state) return '';
+    const obj = nextObjectiveSnapshot() || {};
+    const net = networkRouteStats();
+    const loadPct = net.count ? Math.round(net.avgLoad * 100) : null;
+    const trail = typeof trailingMonthPnl === 'function' ? trailingMonthPnl() : null;
+    return `
+      <div class="session-recap">
+        <h3>Session recap</h3>
+        <p class="session-recap-airline"><b>${state.airline_name || 'Airline'}</b> · Day ${state.day} · ${fmtMoney(state.cash)} cash</p>
+        <ul class="session-recap-stats">
+          <li>${(state.routes || []).length} routes · ${(state.fleet || []).length} aircraft · ${(state.gates || []).length} gates</li>
+          <li>LTM rev ${fmtMoney(state.ltm_revenue || 0)}${loadPct != null ? ` · network load ~${loadPct}%` : ''}</li>
+          ${trail != null ? `<li>Trailing month P&amp;L <b class="${trail >= 0 ? '' : 'danger'}">${fmtMoney(trail)}</b></li>` : ''}
+          <li>Runway ~${runwayMonths().toFixed(1)} mo · rep ${(state.reputation || 0).toFixed(0)}</li>
+        </ul>
+        <p class="session-recap-next"><span class="ops-phase">${obj.phase || 'Next'}</span><br><b>${obj.label || 'Play on'}</b><br><span class="muted">${obj.progress || ''}</span></p>
+        ${obj.hint ? `<p class="muted" style="font-size:0.78rem;">${obj.hint}</p>` : ''}
+      </div>`;
+  }
+
+  function queueSessionRecapDecision() {
+    if (!state || state.game_over) return;
+    if (activeDecision || decisionQueue.length) return;
+    const obj = nextObjectiveSnapshot() || {};
+    const tab = obj.tab || 'routes';
+    queueDecision({
+      kicker: `${fmtDate(state.day)} · Welcome back`,
+      title: `Continue ${state.airline_name || 'your airline'}`,
+      body: sessionRecapHtml(),
+      teach: 'Short sessions: do one objective, save, come back.',
+      logLine: `Resumed session day ${state.day}`,
+      options: [
+        {
+          id: 'session_do_next',
+          label: `A — Do next: ${obj.label || 'Open routes'}`,
+          hint: obj.progress || 'Jump to the objective',
+          effect: tab === 'finance' ? 'tab_finance' : tab === 'fleet' ? 'tab_fleet' : 'tab_routes',
+        },
+        {
+          id: 'session_play',
+          label: 'B — Just press ▶',
+          hint: 'Resume at Slow when you dismiss.',
+          effect: 'none',
+        },
+        {
+          id: 'session_capital',
+          label: 'C — Open Capital',
+          hint: 'Cash, debt, PE / IPO',
+          effect: 'tab_finance',
+        },
+      ],
+    });
+  }
+
+  function enterLoadedGame(opts) {
+    opts = opts || {};
     if (!state) return;
     showScreen('screen-game');
     setSpeed('pause');
-    state.paused_reason = state.game_over ? state.paused_reason || 'Game over' : 'Loaded save — press ▶ when ready';
+    state.paused_reason = state.game_over
+      ? state.paused_reason || 'Game over'
+      : 'Loaded save — press ▶ when ready';
     renderAll();
+    if (opts.showRecap && !state.game_over) {
+      // After first paint so decision modal can open cleanly
+      setTimeout(() => {
+        try {
+          queueSessionRecapDecision();
+          renderAll();
+        } catch (e) {
+          /* recap optional */
+        }
+      }, 80);
+    }
     if (isMobileLayout()) {
       const activeTab = document.querySelector('[data-tab].active');
       syncMobileDock(activeTab ? activeTab.dataset.tab : 'routes');
@@ -15226,7 +15491,7 @@
         writeSaveIndex(index);
         activeSaveSlotId = target;
         closeSaveLoadModal();
-        enterLoadedGame();
+        enterLoadedGame({ showRecap: true });
         pushEvent(`Imported save into ${slotLabel(target)}.`, 'good');
       } catch (e) {
         alert('Could not read that save file. Pick a Route Lab download from this game.');
@@ -15324,7 +15589,7 @@
           return;
         }
         closeSaveLoadModal();
-        enterLoadedGame();
+        enterLoadedGame({ showRecap: true });
       });
     });
     modal.querySelectorAll('[data-export-slot]').forEach((btn) => {
@@ -15365,19 +15630,29 @@
       return;
     }
     const recent = mostRecentSaveSlot();
-    const metaLine = recent ? formatSaveMetaLine(recent.meta) : '';
+    const m = (recent && recent.meta) || {};
+    const metaLine = recent ? formatSaveMetaLine(m) : '';
+    const nextLine =
+      m.next_label
+        ? `<p class="start-session-next"><span class="ops-phase">${m.next_phase || 'Next'}</span> · <b>${m.next_label}</b>${
+            m.next_progress ? ` <span class="muted">· ${m.next_progress}</span>` : ''
+          }</p>`
+        : '';
     box.classList.remove('hidden');
     box.innerHTML = `
-      <h2>Saved airlines</h2>
-      <p>Resume where you left off, open all save slots, or load a file from your computer.</p>
-      <div class="btn-row" style="margin-top:0;">
-        <button type="button" class="btn" id="btn-continue-save">Continue — ${
-          recent && recent.meta ? recent.meta.airline_name : 'last save'
-        }</button>
-        <button type="button" class="btn secondary" id="btn-open-load">Load game…</button>
-        <button type="button" class="btn secondary" id="btn-import-start">Open save file…</button>
+      <h2>Continue your experiment</h2>
+      <p class="muted" style="margin-bottom:8px;">Private sandbox — your saves only. Pick up in one click.</p>
+      <div class="start-session-card">
+        <p class="start-session-title"><b>${m.airline_name || 'Airline'}</b> · Day ${m.day != null ? m.day : '—'} · ${fmtMoney(m.cash || 0)}</p>
+        <p class="muted" style="font-size:0.78rem;margin:0 0 6px;">${m.scenario_name || ''} · ${(m.routes != null ? m.routes : '—')} routes · ${(m.fleet != null ? m.fleet : '—')} aircraft</p>
+        ${nextLine}
+        <div class="btn-row" style="margin-top:12px;">
+          <button type="button" class="btn" id="btn-continue-save">Continue — ${m.airline_name || 'last save'}</button>
+          <button type="button" class="btn secondary" id="btn-open-load">All saves…</button>
+          <button type="button" class="btn secondary" id="btn-import-start">Open file…</button>
+        </div>
       </div>
-      <p class="muted" style="margin-top:10px;margin-bottom:0;font-size:0.78rem;">${metaLine}</p>`;
+      <p class="muted" style="margin-top:10px;margin-bottom:0;font-size:0.72rem;">${metaLine}</p>`;
     const cont = $('btn-continue-save');
     if (cont) cont.addEventListener('click', continueMostRecentSave);
     const openLoad = $('btn-open-load');

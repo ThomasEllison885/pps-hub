@@ -1003,6 +1003,39 @@
   }
   .start-saves p { font-size: 0.85rem; color: var(--muted); line-height: 1.45; margin-bottom: 12px; }
   .start-saves.hidden { display: none; }
+  .start-session-card {
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(0, 200, 150, 0.35);
+    background: rgba(0, 40, 32, 0.35);
+  }
+  .start-session-title { margin: 0 0 4px; font-size: 0.95rem; color: #e8f4ff; }
+  .start-session-next { margin: 8px 0 0; font-size: 0.82rem; line-height: 1.4; color: #c8dff0; }
+  .ops-phase {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--gold);
+  }
+  .session-recap { text-align: left; }
+  .session-recap h3 { margin: 0 0 8px; color: var(--gold); font-size: 1rem; }
+  .session-recap-airline { margin: 0 0 8px; }
+  .session-recap-stats {
+    margin: 0 0 12px;
+    padding-left: 18px;
+    font-size: 0.85rem;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+  .session-recap-next {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 209, 102, 0.3);
+    background: rgba(20, 30, 48, 0.6);
+    font-size: 0.88rem;
+    line-height: 1.4;
+  }
   #save-load-modal {
     display: none;
     position: fixed;
@@ -3353,6 +3386,6 @@
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
 <script src="/static/runway/economics.js?v=76"></script>
-<script src="/static/runway/game.js?v=78"></script>
+<script src="/static/runway/game.js?v=79"></script>
 </body>
 </html>
