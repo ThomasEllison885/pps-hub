@@ -486,7 +486,7 @@ def get_date_events(user_key, is_admin=False):
                     'message': f"🏆 {first_name} is hitting {years} year{'s' if years > 1 else ''} with PPS {event_label(hire_days)}. Worth acknowledging.",
                 })
     else:
-        # User sees their own events
+        # User sees their own events (must include 'days' for sort below)
         dates = TEAM_DATES.get(user_key)
         if dates:
             user = USERS.get(user_key, {})
@@ -498,15 +498,25 @@ def get_date_events(user_key, is_admin=False):
             if bday_days <= 3:
                 events.append({
                     'type': 'birthday',
+                    'name': first_name,
+                    'full_name': user.get('display', ''),
+                    'days': bday_days,
+                    'label': event_label(bday_days),
+                    'date_str': f"{MONTH_NAMES[dates['birthday'][0]-1]} {dates['birthday'][1]}",
                     'message': f"🎂 Your birthday is {event_label(bday_days)} — {MONTH_NAMES[dates['birthday'][0]-1]} {dates['birthday'][1]}. Hope it's a good one.",
                 })
             if hire_days <= 3 and years >= 1:
                 events.append({
                     'type': 'anniversary',
+                    'name': first_name,
+                    'full_name': user.get('display', ''),
+                    'days': hire_days,
+                    'label': event_label(hire_days),
+                    'date_str': f"{MONTH_NAMES[hire_month-1]} {hire_day}",
                     'message': f"🏆 {years} year{'s' if years > 1 else ''} at PPS {event_label(hire_days)}. That's worth something.",
                 })
 
-    events.sort(key=lambda x: x['days'])
+    events.sort(key=lambda x: x.get('days', 999))
     return events
 
 CONSULTANTS = {
