@@ -51,6 +51,8 @@
   let mapRouteHealthFilter = 'all'; // all | good | watch | bad
   let mapView = { x: 0, y: 0, w: MAP_W, h: MAP_H };
   let fleetPending = null;
+  let cabinReconfigPlaneId = null;
+  let cabinReconfigDraft = null;
   let pendingScenarioId = null;
   let speedBeforePause = 'day';
   let decisionQueue = [];
@@ -1129,8 +1131,45 @@
     return Math.min(ac.seats_max || ac.seats, Math.max(ac.seats_min || ac.seats, s));
   }
 
+  const CABIN_CLASS_UNITS = { economy: 1, premium: 1.5, business: 2.5 };
+
+  /**
+   * Cabin config: three real seat classes with independent fares and demand pools.
+   * plane.cabin is the source of truth once a plane is configured beyond default
+   * all-economy. Absent (legacy saves / never touched) planes fall back to a
+   * single all-economy class at plane.seats, so nothing changes for planes the
+   * player never reconfigures.
+   */
+  function planeCabin(plane) {
+    if (plane && plane.cabin) return plane.cabin;
+    const total = aircraftSeats(plane ? plane.type : null, plane ? plane.seats : null);
+    return { economy: total, premium: 0, business: 0 };
+  }
+
+  function cabinUnits(cabin) {
+    return (
+      (cabin.economy || 0) * CABIN_CLASS_UNITS.economy +
+      (cabin.premium || 0) * CABIN_CLASS_UNITS.premium +
+      (cabin.business || 0) * CABIN_CLASS_UNITS.business
+    );
+  }
+
+  function cabinMaxUnits(acType) {
+    const ac = aircraftType(acType);
+    return ac ? ac.seats_max || ac.seats : 0;
+  }
+
+  function isMultiClassCabin(cabin) {
+    return !!(cabin && ((cabin.premium || 0) > 0 || (cabin.business || 0) > 0));
+  }
+
+  function planeTotalSeats(plane) {
+    const c = planeCabin(plane);
+    return (c.economy || 0) + (c.premium || 0) + (c.business || 0);
+  }
+
   function fleetSeatCount(plane) {
-    return aircraftSeats(plane.type, plane.seats);
+    return planeTotalSeats(plane);
   }
 
   /**
@@ -2288,7 +2327,36 @@
     state.last_competitor_ai_day = state.day;
   }
 
+  /**
+   * Configured fares for a real 3-class cabin. route.fare is always the economy
+   * fare (unchanged meaning); premium/business default to a multiple of it until
+   * the player sets their own.
+   */
+  function routeCabinFares(route) {
+    const economy = route.fare || 129;
+    return {
+      economy,
+      premium: route.fare_premium || Math.round(economy * 1.6),
+      business: route.fare_business || Math.round(economy * 2.8),
+    };
+  }
+
+  function routeAssignedPlane(route) {
+    return route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+  }
+
   function routeFareBuckets(route) {
+    const plane = routeAssignedPlane(route);
+    const cabin = plane ? planeCabin(plane) : null;
+    if (isMultiClassCabin(cabin)) {
+      const total = (cabin.economy || 0) + (cabin.premium || 0) + (cabin.business || 0);
+      const fares = routeCabinFares(route);
+      return [
+        { id: 'economy', fare: fares.economy, share: total > 0 ? cabin.economy / total : 1 },
+        { id: 'premium', fare: fares.premium, share: total > 0 ? cabin.premium / total : 0 },
+        { id: 'business', fare: fares.business, share: total > 0 ? cabin.business / total : 0 },
+      ];
+    }
     const base = route.fare || 129;
     const mode = route.ancillary_mode || 'auto';
     let basicMult = 0.84;
@@ -2319,6 +2387,32 @@
     const rem = pax - assigned;
     if (rem > 0) rev += rem * route.fare;
     return rev;
+  }
+
+  /**
+   * Real per-day cabin fill for a multi-class aircraft: business/premium demand
+   * is capped both by configured seats AND by how much the market (luxury_share +
+   * wealth at both endpoints) actually wants those classes — unlike
+   * bucketedTicketRevenue's fixed proportional split, a mismatched cabin (e.g.
+   * business seats on a thin regional leisure route) leaves seats empty rather
+   * than always filling to the configured share.
+   */
+  function routeCabinFill(cabin, totalPax, o, d) {
+    const luxury = ((o ? airportLuxury(o) : 0.06) + (d ? airportLuxury(d) : 0.06)) / 2;
+    const wealth = ((o ? airportWealth(o) : 0.4) + (d ? airportWealth(d) : 0.4)) / 2;
+    const premiumDemandFactor = Math.min(1, luxury * 1.8 + wealth * 0.4);
+    const businessShare = Math.min(0.18, 0.02 + premiumDemandFactor * 0.16);
+    const premiumShare = Math.min(0.28, 0.06 + premiumDemandFactor * 0.22);
+    const economyShare = Math.max(0, 1 - businessShare - premiumShare);
+    const business = Math.min(cabin.business || 0, Math.round(totalPax * businessShare));
+    const premium = Math.min(cabin.premium || 0, Math.round(totalPax * premiumShare));
+    const economy = Math.min(cabin.economy || 0, Math.round(totalPax * economyShare));
+    return { economy, premium, business };
+  }
+
+  function cabinTicketRevenue(route, fill) {
+    const fares = routeCabinFares(route);
+    return fill.economy * fares.economy + fill.premium * fares.premium + fill.business * fares.business;
   }
 
   function ancillaryPerPax(route, load, o, d) {
@@ -4709,6 +4803,24 @@
     renderHud();
   }
 
+  function setRoutePremiumFare(routeId, fare) {
+    const route = state.routes.find((r) => r.id === routeId);
+    if (!route) return;
+    route.fare_premium = Math.max(69, Math.min(1500, Math.round(fare)));
+    saveGame();
+    renderRoutes();
+    renderHud();
+  }
+
+  function setRouteBusinessFare(routeId, fare) {
+    const route = state.routes.find((r) => r.id === routeId);
+    if (!route) return;
+    route.fare_business = Math.max(89, Math.min(3000, Math.round(fare)));
+    saveGame();
+    renderRoutes();
+    renderHud();
+  }
+
   function setRouteFareMode(routeId, mode) {
     const route = state.routes.find((r) => r.id === routeId);
     if (!route) return;
@@ -6292,6 +6404,9 @@
     ensurePlaneTelemetry(plane);
     const ac = aircraftType(plane.type);
     const seats = fleetSeatCount(plane);
+    const cabin = planeCabin(plane);
+    const cabinMax = cabinMaxUnits(plane.type);
+    const isReconfiguring = cabinReconfigPlaneId === plane.id;
     const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
     const util = planeMonthUtilizationPct(plane);
     const utilToday = planeUtilizationPct(plane);
@@ -6346,6 +6461,53 @@
       ? `<span class="danger">On ground (AOG) — ${plane.aog_days_left} day${plane.aog_days_left === 1 ? '' : 's'} left</span>`
       : '<span class="via-good">In service</span>';
 
+    let cabinBlockHtml;
+    if (isReconfiguring && cabinReconfigDraft) {
+      const draft = cabinReconfigDraft;
+      const draftUnits = cabinUnits(draft);
+      const draftTotal = draft.economy + draft.premium + draft.business;
+      const over = draftUnits > cabinMax;
+      const empty = draftTotal <= 0;
+      const cost = cabinReconfigCost(ac);
+      const downtimeDays = cabinReconfigDowntimeDays(ac);
+      const canAfford = state.cash >= cost;
+      cabinBlockHtml = `
+        <div class="plane-life-block cabin-reconfig-block" style="margin-top:10px;">
+          <div class="pressure-meter-head"><span>Reconfiguring cabin</span></div>
+          <div class="cabin-reconfig-inputs">
+            <label>Economy <input type="number" min="0" value="${draft.economy}" data-cabin-input="economy"></label>
+            <label>Premium <input type="number" min="0" value="${draft.premium}" data-cabin-input="premium"></label>
+            <label>Business <input type="number" min="0" value="${draft.business}" data-cabin-input="business"></label>
+          </div>
+          <p class="muted" style="font-size:0.7rem;margin-top:6px;">
+            ${draftTotal} total seat${draftTotal === 1 ? '' : 's'} · cabin space used
+            <b class="${over ? 'danger' : ''}">${draftUnits.toFixed(0)} / ${cabinMax}</b> units
+            <span class="muted">(economy 1 · premium 1.5 · business 2.5 units each)</span>
+          </p>
+          ${over ? '<p class="danger" style="font-size:0.7rem;margin-top:4px;">Over cabin capacity — reduce a class.</p>' : ''}
+          <p class="muted" style="font-size:0.7rem;margin-top:4px;">
+            Cost <b class="${canAfford ? '' : 'danger'}">${fmtMoney(cost)}</b> · out of service <b>${downtimeDays} day${downtimeDays === 1 ? '' : 's'}</b>.
+          </p>
+          <div class="btn-row" style="margin-top:8px;">
+            <button type="button" class="btn" ${over || empty || !canAfford ? 'disabled' : ''} onclick="Runway.confirmCabinReconfig()">Confirm reconfiguration</button>
+            <button type="button" class="btn secondary" onclick="Runway.cancelCabinReconfig()">Cancel</button>
+          </div>
+        </div>`;
+    } else {
+      const mixNote = isMultiClassCabin(cabin)
+        ? `${cabin.economy} economy · ${cabin.premium} premium · ${cabin.business} business`
+        : `${cabin.economy} economy · single class`;
+      cabinBlockHtml = `
+        <div class="plane-life-block" style="margin-top:10px;">
+          <div class="pressure-meter-head">
+            <span>Cabin configuration</span>
+            <strong>${seats} seats</strong>
+          </div>
+          <p class="muted" style="font-size:0.72rem;margin:6px 0 0;">${mixNote}</p>
+          <button type="button" class="btn secondary" style="margin-top:8px;" onclick="Runway.openCabinReconfig('${plane.id}')">Reconfigure cabin</button>
+        </div>`;
+    }
+
     overlay.innerHTML = `
       <div class="route-review-card plane-detail-card" role="dialog" aria-modal="true" aria-label="Aircraft detail">
         <button type="button" class="btn secondary route-review-close" data-plane-detail-close>← Back to fleet</button>
@@ -6398,6 +6560,8 @@
           </p>
         </div>
 
+        ${cabinBlockHtml}
+
         <h4 class="rival-section-title" style="margin-top:14px;">Assigned routes</h4>
         <table class="route-review-table">
           <thead><tr><th>Route</th><th>Freq</th><th>Fare</th><th>Load</th><th>P&amp;L</th></tr></thead>
@@ -6413,6 +6577,13 @@
     overlay.classList.add('active');
     document.body.classList.add('plane-detail-active');
     overlay.querySelector('[data-plane-detail-close]')?.addEventListener('click', closePlaneDetail);
+    overlay.querySelectorAll('[data-cabin-input]').forEach((inp) => {
+      inp.addEventListener('change', () => {
+        if (!cabinReconfigDraft) return;
+        cabinReconfigDraft[inp.dataset.cabinInput] = Math.max(0, Math.round(+inp.value || 0));
+        renderPlaneDetailModal();
+      });
+    });
     overlay.querySelectorAll('[data-plane-open-route]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const rid = btn.getAttribute('data-plane-open-route');
@@ -6438,6 +6609,70 @@
     planeDetailId = null;
     renderPlaneDetailModal();
     resumeSpeedAfterInterrupt();
+  }
+
+  // ── CABIN CONFIGURATION ────────────────────────────────────────────
+  function cabinReconfigCost(ac) {
+    const base = (ac && (ac.seats_max || ac.seats)) || 50;
+    return Math.round(Math.min(150000, Math.max(50000, base * 1200)) / 1000) * 1000;
+  }
+
+  function cabinReconfigDowntimeDays(ac) {
+    const base = (ac && (ac.seats_max || ac.seats)) || 50;
+    return Math.max(3, Math.round(3 + base / 60));
+  }
+
+  function openCabinReconfig(planeId) {
+    const plane = planeById(planeId);
+    if (!plane) return;
+    cabinReconfigPlaneId = planeId;
+    cabinReconfigDraft = { ...planeCabin(plane) };
+    renderPlaneDetailModal();
+  }
+
+  function cancelCabinReconfig() {
+    cabinReconfigPlaneId = null;
+    cabinReconfigDraft = null;
+    renderPlaneDetailModal();
+  }
+
+  function confirmCabinReconfig() {
+    if (!cabinReconfigPlaneId || !cabinReconfigDraft) return;
+    const plane = planeById(cabinReconfigPlaneId);
+    if (!plane) return;
+    const ac = aircraftType(plane.type);
+    const draft = cabinReconfigDraft;
+    const maxUnits = cabinMaxUnits(plane.type);
+    if (cabinUnits(draft) > maxUnits) {
+      alert('That cabin mix is over the aircraft\'s space budget — reduce a class first.');
+      return;
+    }
+    if (draft.economy + draft.premium + draft.business <= 0) {
+      alert('A cabin needs at least one seat.');
+      return;
+    }
+    const cost = cabinReconfigCost(ac);
+    if (state.cash < cost) {
+      alert(`Insufficient cash — reconfiguring costs ${fmtMoney(cost)}.`);
+      return;
+    }
+    const downtimeDays = cabinReconfigDowntimeDays(ac);
+    state.cash -= cost;
+    plane.cabin = { economy: draft.economy, premium: draft.premium, business: draft.business };
+    plane.seats = Math.round(cabinUnits(plane.cabin));
+    plane.aog_days_left = Math.max(plane.aog_days_left || 0, downtimeDays);
+    const mixNote = isMultiClassCabin(plane.cabin)
+      ? `${plane.cabin.economy}E / ${plane.cabin.premium}P / ${plane.cabin.business}J`
+      : `${plane.cabin.economy} economy`;
+    pushEvent(
+      `${ac ? ac.name : plane.type} (${plane.id}) reconfigured — ${mixNote}. ${fmtMoney(cost)} spent, ${downtimeDays}d out of service.`,
+      'neutral'
+    );
+    cabinReconfigPlaneId = null;
+    cabinReconfigDraft = null;
+    saveGame();
+    renderAll();
+    renderPlaneDetailModal();
   }
 
   function backfillRouteForecast(route) {
@@ -7849,10 +8084,20 @@
       };
     }
 
-    const pax = Math.floor(dailySeats * load);
+    const demandPax = Math.floor(dailySeats * load);
+    const cabin = plane ? planeCabin(plane) : null;
+    const multiClass = isMultiClassCabin(cabin);
+    const cabinFill = multiClass ? routeCabinFill(cabin, demandPax, o, d) : null;
+    const pax = multiClass ? cabinFill.economy + cabinFill.premium + cabinFill.business : demandPax;
+    // Displayed/recorded load reflects what actually sold, not just aggregate demand —
+    // a mismatched premium cabin should visibly show empty seats and a lower load factor.
+    const soldLoad = dailySeats > 0 ? pax / dailySeats : 0;
     const ota = otaEffects(opts);
     const yieldM = prod.yieldMult != null ? prod.yieldMult : 1;
-    let ticketRev = bucketedTicketRevenue(route, pax) * ota.revenueMult * yieldM;
+    let ticketRev =
+      (multiClass ? cabinTicketRevenue(route, cabinFill) : bucketedTicketRevenue(route, pax)) *
+      ota.revenueMult *
+      yieldM;
     let ancillaryRev = pax * ancillaryPerPax(route, load, o, d) * ota.revenueMult * yieldM;
     // Cargo-in-bin: sell empty seats as belly freight
     let cargoRev = 0;
@@ -7897,7 +8142,7 @@
       revenue,
       cost: variable,
       pax,
-      load,
+      load: multiClass ? soldLoad : load,
       ticketRev,
       ancillaryRev,
       cargoRev,
@@ -7910,6 +8155,7 @@
       flightsToday,
       market: mkt,
       demand,
+      cabinFill,
     };
   }
 
@@ -15262,6 +15508,9 @@
           ? (aircraftType(plane.type) || {}).name || plane.type
           : route.aircraft_type || '—';
         const seatN = plane ? fleetSeatCount(plane) : '—';
+        const routeCabin = plane ? planeCabin(plane) : null;
+        const routeMultiClass = isMultiClassCabin(routeCabin);
+        const routeFares = routeMultiClass ? routeCabinFares(route) : null;
         // Return leg load (directional)
         const reverse = findReverseRoute(route);
         let retLoadPct = null;
@@ -15348,10 +15597,22 @@
                   ${fleetOptionsHtml(route.aircraft_id, route.origin, route.dest)}
                 </select>
               </label>
-              <label>Fare $ (${modeLabel})
+              <label>${routeMultiClass ? 'Economy $' : 'Fare $'} (${modeLabel})
                 <input type="number" min="49" max="899" value="${route.fare}"
                   onchange="Runway.setRouteFare('${route.id}', this.value, 'manual')" title="Buckets: ${bucketHint}">
               </label>
+              ${
+                routeMultiClass
+                  ? `<label>Premium $ (${routeCabin.premium} seats)
+                <input type="number" min="69" max="1500" value="${routeFares.premium}"
+                  onchange="Runway.setRoutePremiumFare('${route.id}', this.value)" ${routeCabin.premium ? '' : 'disabled'}>
+              </label>
+              <label>Business $ (${routeCabin.business} seats)
+                <input type="number" min="89" max="3000" value="${routeFares.business}"
+                  onchange="Runway.setRouteBusinessFare('${route.id}', this.value)" ${routeCabin.business ? '' : 'disabled'}>
+              </label>`
+                  : ''
+              }
               <label>Pricing
                 <select onchange="Runway.setRouteFareMode('${route.id}', this.value)">
                   <option value="auto" ${mode === 'auto' ? 'selected' : ''}>Dynamic</option>
@@ -15367,6 +15628,15 @@
               </label>
             </div>
             ${fareRmNote}
+            ${
+              routeMultiClass && r.cabinFill
+                ? `<p class="muted" style="font-size:0.68rem;margin-top:4px;">Filled today: <b>${r.cabinFill.economy}</b>/${routeCabin.economy} economy · <b class="${r.cabinFill.premium < routeCabin.premium ? 'danger' : ''}">${r.cabinFill.premium}</b>/${routeCabin.premium} premium · <b class="${r.cabinFill.business < routeCabin.business ? 'danger' : ''}">${r.cabinFill.business}</b>/${routeCabin.business} business${
+                    routeCabin.business > 0 && r.cabinFill.business < routeCabin.business * 0.4
+                      ? ' — this market doesn’t support that much premium capacity'
+                      : ''
+                  }</p>`
+                : ''
+            }
             <p class="route-card-hint muted">Buckets: ${bucketHint} · levers: freq · metal · marketing · fare</p>
           </details>
           </div>
@@ -16886,6 +17156,8 @@
     focusHubForRoutes,
     bumpRouteFrequency,
     setRouteFare,
+    setRoutePremiumFare,
+    setRouteBusinessFare,
     setRouteFareMode,
     setRouteAncillary,
     resetRouteFare,
@@ -16900,6 +17172,9 @@
     closeRouteReview,
     openPlaneDetail,
     closePlaneDetail,
+    openCabinReconfig,
+    cancelCabinReconfig,
+    confirmCabinReconfig,
     setEmblem: (id) => {
       pendingEmblem = id;
       document.querySelectorAll('[data-emblem]').forEach((btn) => {

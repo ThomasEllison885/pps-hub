@@ -3178,6 +3178,29 @@
     border: 1px solid var(--border);
     background: rgba(6, 13, 24, 0.5);
   }
+  .cabin-reconfig-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .cabin-reconfig-inputs label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 0.68rem;
+    color: var(--muted);
+    min-width: 0;
+  }
+  .cabin-reconfig-inputs input {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.6);
+    color: #fff;
+    font-size: 0.85rem;
+  }
   button.linkish {
     background: none;
     border: none;
