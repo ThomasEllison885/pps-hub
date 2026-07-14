@@ -2006,6 +2006,7 @@
             airline: cr.airline,
             type: 'fare_cut',
             pct,
+            flavor: competitorFlavorLine(cr.airline, 'fare_cut'),
           },
           cr
         );
@@ -2057,11 +2058,14 @@
     state.last_competitor_event_day = state.day;
     const impact = competitorImpactHtml(log);
     if (log.type === 'fare_cut') {
+      const flavor = competitorFlavorLine(log.airline, 'fare_cut');
       queueDecision({
         airport: log.airport,
         kicker: `${fmtDate(state.day)} · Competitor pricing`,
         title: `${log.airline} responds to your route`,
-        body: `${log.msg}. They are defending share on a market you entered.${impact}`,
+        body: `${log.msg}. They are defending share on a market you entered.${
+          flavor ? ` <em class="muted">${flavor}</em>` : ''
+        }${impact}`,
         teach: 'You never have to match. Marketing builds demand without cutting price; doing nothing is valid if loads still look fine.',
         logLine: log.msg,
         options: fareWarResponseOptions(log.airport, log.airline, log.pct || 0.1),
@@ -4732,6 +4736,7 @@
     if (roll < 0.30) {
       const pct = 0.14 + Math.random() * 0.12;
       bumpCompetitorMarket(iata, incumbent.airline, { fare_index: 1 - pct });
+      const flavor = competitorFlavorLine(incumbent.airline, 'fare_cut');
       decision = {
         kind: 'threat',
         airport: iata,
@@ -4740,6 +4745,7 @@
         body:
           `${incumbent.airline} dropped fares about <b>${Math.round(pct * 100)}%</b> on overlapping pairs from <b>${iata}</b>. ` +
           `This is a <b>price</b> fight — different from a capacity dump or a demand surge.` +
+          (flavor ? ` <em class="muted">${flavor}</em>` : '') +
           competitorImpactHtml({ airport: iata, type: 'fare_cut', airline: incumbent.airline }),
         teach: 'Match tickets, lean on ancillaries, buy demand with ads, or wait. After you choose, the clock resumes at <b>Slow</b>.',
         logLine: `${incumbent.airline} fare war at ${iata} (−${Math.round(pct * 100)}%)`,
@@ -4776,6 +4782,7 @@
     } else if (roll < 0.52) {
       const pct = 0.1 + Math.random() * 0.08;
       bumpCompetitorMarket(iata, incumbent.airline, { capacity_index: 1 + pct });
+      const flavorCap = competitorFlavorLine(incumbent.airline, 'capacity');
       decision = {
         kind: 'threat',
         airport: iata,
@@ -4784,6 +4791,7 @@
         body:
           `${incumbent.airline} added about <b>+${Math.round(pct * 100)}% capacity</b> from ${iata}. ` +
           `This is a <b>supply</b> shock (more seats), not a pure fare cut — you can price, advertise, or match frequency.` +
+          (flavorCap ? ` <em class="muted">${flavorCap}</em>` : '') +
           competitorImpactHtml({ airport: iata, type: 'capacity', airline: incumbent.airline }),
         teach: 'Capacity wars burn cash if you only match seats. Fares and ancillaries often defend better. Resumes at Slow.',
         logLine: `${incumbent.airline} capacity increase at ${iata}`,
@@ -7389,6 +7397,7 @@
     state.marketing_spend_monthly = state.marketing_spend_monthly || {};
     state.brand_awareness = state.brand_awareness || {};
     state.market_research = state.market_research || {};
+    state.media_shade_airports = state.media_shade_airports || {};
     // Infer raises already taken from equity below 100 on older saves
     if (!state.seed_done && (state.equity_pct || 100) < 95 && state.financing_tier === 'startup') {
       state.seed_done = true;
@@ -9890,18 +9899,219 @@
     return `<div class="competitor-impact"><h4>Your routes affected</h4><ul class="list">${rows}</ul></div>`;
   }
 
+  /**
+   * Rival voice — short personality lines. Not every event; used when flavor helps.
+   * Keys match airline names from profiles / route seeds.
+   */
+  const COMPETITOR_PERSONALITY = {
+    Delta: {
+      tone: 'legacy hub machine',
+      fare_cut: 'Delta’s revenue management just smiled — and cut.',
+      capacity: 'More mainline metal. Classic Delta fortress move.',
+      exit: 'Delta walked away. Take the gift carefully.',
+      pullback: 'Delta trimmed the bank. Seats just got freer.',
+      shade: 'On CNBC, Delta’s CEO waved off “garage-door startups” trying to nibble fortress hubs.',
+    },
+    American: {
+      tone: 'network grind',
+      fare_cut: 'American matched and then some — AA does not like freeloaders on its spokes.',
+      capacity: 'American threw another bank of seats at the problem.',
+      exit: 'American folded a thin spoke. Room to breathe.',
+      pullback: 'American pulled back schedules — temporary or not, loads may rise.',
+      shade: 'American’s CEO told MSNBC your “tiny airline” would learn why hubs are expensive.',
+    },
+    United: {
+      tone: 'connectivity flex',
+      fare_cut: 'United priced to protect connections, not your feelings.',
+      capacity: 'United added frequency — connecting traffic first, you second.',
+      exit: 'United left a gap. Connectivity is a two-way street.',
+      pullback: 'United depeaked a bit. Local traffic might finally book you.',
+      shade: 'United’s chief called regional newcomers “cute until winter ops hit.”',
+    },
+    Southwest: {
+      tone: 'friendly steel',
+      fare_cut: 'Southwest bags-fly-free energy — with a knife behind the smile.',
+      capacity: 'Southwest layered more trips. They live for density.',
+      exit: 'Southwest walked. Rare. Respect the vacancy.',
+      pullback: 'Southwest thinned a bank. Opportunity if you can staff it.',
+      shade: 'Southwest’s CEO joked on-air that some startups “haven’t met a turn time yet.”',
+    },
+    Allegiant: {
+      tone: 'leisure sniper',
+      fare_cut: 'Allegiant went full vacation-price war.',
+      capacity: 'Allegiant dropped another leisure wave.',
+      exit: 'Allegiant ghosted the market. Classic hit-and-run.',
+      pullback: 'Allegiant cut leisure metal — shoulders just softened.',
+      shade: 'Allegiant’s CEO smirked that “real ULCs don’t need investor PowerPoints.”',
+    },
+    Frontier: {
+      tone: 'fee-first ULC',
+      fare_cut: 'Frontier baselined the fare into the floor — ancillaries will do the rest.',
+      capacity: 'Frontier stuffed the route with dense seats.',
+      exit: 'Frontier bailed. Keep your bags fees honest.',
+      pullback: 'Frontier pulled capacity. Your base fare might hold.',
+      shade: 'Frontier’s boss said on air that “microcarriers confuse low fares with a business.”',
+    },
+    Spirit: {
+      tone: 'bare-bones brawler',
+      fare_cut: 'Spirit went nuclear on the base fare.',
+      capacity: 'Spirit added yellow-metal seats. Volume play.',
+      exit: 'Spirit left. The race-to-the-bottom just paused.',
+      pullback: 'Spirit thinned out. Don’t get cocky on price.',
+      shade: 'Spirit’s CEO called smaller rivals “weekend projects with ICAO codes.”',
+    },
+    JetBlue: {
+      tone: 'product flex',
+      fare_cut: 'JetBlue cut — and still sells the experience.',
+      capacity: 'JetBlue added trips. Mint and core both watching.',
+      exit: 'JetBlue stepped back. Brand space opened.',
+      pullback: 'JetBlue eased frequency. Service wars, not just price.',
+      shade: 'JetBlue’s CEO shrugged that “not every logo on a tail is a real network.”',
+    },
+    Alaska: {
+      tone: 'west-coast polish',
+      fare_cut: 'Alaska defended the corridor with a clean price cut.',
+      capacity: 'Alaska added flights — reliability narrative intact.',
+      exit: 'Alaska exited. Rare on their core.',
+      pullback: 'Alaska pulled a bank. Load factors may tick up for you.',
+      shade: 'Alaska’s CEO noted on TV that “scale still wins when the weather turns.”',
+    },
+    Breeze: {
+      tone: 'new-route hunter',
+      fare_cut: 'Breeze undercut the leisure hop.',
+      capacity: 'Breeze added another thin-city experiment.',
+      exit: 'Breeze folded a trial market. Happens.',
+      pullback: 'Breeze de-risked capacity. Your turn to hold.',
+      shade: 'Breeze’s founder quipped that copycats arrive after the hard markets are found.',
+    },
+  };
+
+  function competitorPersonality(airline) {
+    return COMPETITOR_PERSONALITY[airline] || null;
+  }
+
+  function competitorFlavorLine(airline, type) {
+    const p = competitorPersonality(airline);
+    if (!p) return '';
+    return p[type] || '';
+  }
+
   function formatCompetitorEventMsg(log) {
+    const flavor = log.airline ? competitorFlavorLine(log.airline, log.type) : '';
+    let msg = log.msg;
+    if (flavor && !log.msg.includes(flavor.slice(0, 24))) {
+      msg = `${log.msg} <span class="muted">— ${flavor}</span>`;
+    }
     const hits = routesAffectedByCompetitor(log);
-    if (!hits.length) return log.msg;
+    if (!hits.length) return msg;
     const names = hits
       .slice(0, 3)
       .map((h) => `${h.route.origin}–${h.route.dest}`)
       .join(', ');
-    return `${log.msg} — affects <b>${names}</b>`;
+    return `${msg} — affects <b>${names}</b>`;
   }
 
   function competitorEventTier(type) {
+    if (type === 'media_shade') return 'bad';
     return type === 'exit' || type === 'pullback' || type === 'fare_rise' || type === 'demand_surge' ? 'good' : 'bad';
+  }
+
+  /** Fortress / national hubs only — regionals and thin fields never get CEO TV shade. */
+  function isMajorMediaAirport(ap) {
+    if (!ap) return false;
+    if (ap.regional) return false;
+    const pax = ap.annual_pax_m || 0;
+    const gates = ap.gates_total || 0;
+    return pax >= 18 || gates >= 85;
+  }
+
+  function majorIncumbentAt(ap) {
+    if (!ap || !ap.incumbents || !ap.incumbents.length) return null;
+    const majors = ['Delta', 'American', 'United', 'Southwest', 'JetBlue', 'Alaska', 'Spirit', 'Frontier'];
+    const hit = ap.incumbents.find((inc) => majors.includes(inc.airline) && (inc.share || 0) >= 0.12);
+    return hit || ap.incumbents.find((inc) => majors.includes(inc.airline)) || null;
+  }
+
+  /**
+   * Rare flavor event: first gate at a *major* hub draws lazy media shade from the incumbent CEO.
+   * Never on small airports; cooldown long; only once per airport.
+   */
+  function maybeMajorHubMediaShade(iata) {
+    if (!state || state.game_over) return;
+    const ap = airport(iata);
+    if (!isMajorMediaAirport(ap)) return;
+    // Only the first gate at this city (expansion into the market, not adding gate #4)
+    if (gateCountAt(iata) !== 1) return;
+    if (!state.media_shade_airports) state.media_shade_airports = {};
+    if (state.media_shade_airports[iata]) return;
+    const last = state.last_media_shade_day || 0;
+    if (state.day - last < 100) return; // rare
+    // Startup vs giant only — big PE/public carriers already "exist"
+    if ((state.routes || []).length > 28 || (state.ltm_revenue || 0) > 200_000_000) return;
+    const inc = majorIncumbentAt(ap);
+    if (!inc) return;
+    // ~40% when eligible so it feels special, not scripted every time
+    if (Math.random() > 0.4) return;
+
+    state.media_shade_airports[iata] = true;
+    state.last_media_shade_day = state.day;
+    const p = competitorPersonality(inc.airline);
+    const shade =
+      (p && p.shade) ||
+      `${inc.airline}'s CEO shrugged on cable news that another "microcarrier" just bought a gate at ${iata}.`;
+    const freePress = Math.random() < 0.55;
+    if (freePress) {
+      // Earned media: slightly more people heard of you in this city
+      state.brand_awareness = state.brand_awareness || {};
+      state.brand_awareness[iata] = Math.min(100, (state.brand_awareness[iata] || 0) + 2.5);
+      state.reputation = Math.min(100, (state.reputation || 0) + 0.4);
+    } else {
+      // Slight ego bruise, no economics hammer
+      state.reputation = Math.max(0, (state.reputation || 0) - 0.6);
+    }
+
+    pushEvent(
+      `<b>Media:</b> ${shade} ${freePress ? 'Oddly, brand awareness ticked up at ' + iata + '.' : 'Investors hate the optics — rep soft for a day.'}`,
+      'bad'
+    );
+
+    if (activeDecision || decisionQueue.length) return;
+    queueDecision({
+      airport: iata,
+      kicker: `${fmtDate(state.day)} · Cable news · ${ap.city}`,
+      title: `${inc.airline} throws shade at ${state.airline_name}`,
+      body:
+        `<p>${shade}</p>` +
+        `<p class="muted" style="font-size:0.82rem;margin-top:8px;">You just leased your <b>first gate at ${iata}</b> — a real hub market. Big airlines ignore strip airports; they only talk when you show up on their map.` +
+        (freePress
+          ? ` The segment was free advertising: <b>+brand at ${iata}</b>.</p>`
+          : ` The clip was unflattering — tiny reputation ding, nothing structural.</p>`) +
+        competitorImpactHtml({ airport: iata, airline: inc.airline, type: 'media_shade' }),
+      teach: 'Ignore the TV, or answer with product: frequency, fares, and marketing at the hub — not a press release.',
+      logLine: `${inc.airline} media shade after ${iata} gate`,
+      options: [
+        {
+          id: 'ads',
+          label: 'A — Answer with airport marketing',
+          hint: `Buy local awareness at ${iata} — deeds over soundbites.`,
+          effect: 'set_marketing',
+          airport: iata,
+        },
+        {
+          id: 'route',
+          label: 'B — Launch / densify from this gate',
+          hint: 'Put metal on the map. Schedules shut people up.',
+          effect: 'hub_routes',
+          airport: iata,
+        },
+        {
+          id: 'shrug',
+          label: 'C — Shrug it off',
+          hint: 'No spend. Keep building.',
+          effect: 'none',
+        },
+      ],
+    });
   }
 
   function processMonthlyGateEfficiency() {
@@ -10012,14 +10222,29 @@
     });
   }
 
-  function fareOptimizerChartHtml(draft) {
+  /** Draft marketing snapshot used by the fare chart what-if controls. */
+  function chartAirportMarketing(draft) {
+    if (!draft) return 0;
+    if (draft.chartMktWhatIf != null && Number.isFinite(+draft.chartMktWhatIf)) {
+      return clampMoney(draft.chartMktWhatIf);
+    }
+    return clampMoney(draft.investments && draft.investments.airport);
+  }
+
+  function draftWithAirportMarketing(draft, airportSpend) {
+    const inv = { ...(draft.investments || {}), airport: clampMoney(airportSpend) };
+    return { ...draft, investments: inv };
+  }
+
+  function scanFareCurvePoints(draft, fareStep) {
     const plane = state.fleet.find((f) => f.id === draft.aircraftId);
-    if (!plane) return '';
+    if (!plane) return { points: [], market: 0 };
     const market = marketFareForPair(draft.origin, draft.dest, plane.type);
+    const step = fareStep || 5;
     const scanMin = Math.max(49, Math.round(market * 0.52));
     const scanMax = Math.min(899, Math.round(market * 2.15));
     const points = [];
-    for (let f = scanMin; f <= scanMax; f += 5) {
+    for (let f = scanMin; f <= scanMax; f += step) {
       const econ = projectRouteBusinessCase({ ...draft, fare: f });
       if (!econ) continue;
       points.push({
@@ -10027,9 +10252,28 @@
         monthlyNet: econ.monthlyNet,
         load: econ.via.load || 0,
         monthlyVariable: econ.monthlyVariable || 0,
+        monthlyFixed: econ.monthlyFixed || 0,
+        marketingMonthly: econ.marketingMonthly || 0,
       });
     }
+    return { points, market };
+  }
+
+  function fareOptimizerChartHtml(draft) {
+    const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+    if (!plane) return '';
+    const formMkt = clampMoney(draft.investments && draft.investments.airport);
+    const whatIfMkt = chartAirportMarketing(draft);
+    const showCompare = whatIfMkt > 0; // dashed baseline = zero airport ads
+
+    const primaryDraft = draftWithAirportMarketing(draft, whatIfMkt);
+    const { points, market } = scanFareCurvePoints(primaryDraft, 5);
     if (points.length < 4) return '';
+
+    let baselinePoints = [];
+    if (showCompare) {
+      baselinePoints = scanFareCurvePoints(draftWithAirportMarketing(draft, 0), 5).points;
+    }
 
     const best = points.reduce((a, b) => (b.monthlyNet > a.monthlyNet ? b : a), points[0]);
     let peakIdx = points.findIndex((p) => p.fare === best.fare);
@@ -10041,15 +10285,17 @@
       tailDecline ? Math.min(points.length - 1, peakIdx + 14) : Math.min(points.length - 1, peakIdx + 8)
     );
     const view = points.slice(viewStart, viewEnd + 1);
+    const viewFares = new Set(view.map((p) => p.fare));
+    const baseView = baselinePoints.filter((p) => viewFares.has(p.fare));
 
     const width = 320;
-    const height = 108;
-    const margin = { l: 44, r: 12, t: 10, b: 24 };
+    const height = 118;
+    const margin = { l: 44, r: 12, t: 12, b: 24 };
     const innerW = width - margin.l - margin.r;
     const innerH = height - margin.t - margin.b;
     const minF = view[0].fare;
     const maxF = view[view.length - 1].fare;
-    const nets = view.map((p) => p.monthlyNet);
+    const nets = view.map((p) => p.monthlyNet).concat(baseView.map((p) => p.monthlyNet));
     let minN = Math.min(...nets, 0);
     let maxN = Math.max(...nets);
     if (minN === maxN) {
@@ -10062,13 +10308,18 @@
     const xAt = (fare) => margin.l + ((fare - minF) / (maxF - minF || 1)) * innerW;
     const yAt = (v) => margin.t + innerH - ((v - minN) / (maxN - minN)) * innerH;
 
-    let pathD = '';
-    view.forEach((p) => {
-      const seg = `${xAt(p.fare).toFixed(1)},${yAt(p.monthlyNet).toFixed(1)}`;
-      pathD += pathD ? ` L${seg}` : `M${seg}`;
-    });
+    const pathFrom = (arr) => {
+      let d = '';
+      arr.forEach((p) => {
+        const seg = `${xAt(p.fare).toFixed(1)},${yAt(p.monthlyNet).toFixed(1)}`;
+        d += d ? ` L${seg}` : `M${seg}`;
+      });
+      return d;
+    };
+    const pathD = pathFrom(view);
+    const pathBase = baseView.length >= 2 ? pathFrom(baseView) : '';
 
-    const cur = projectRouteBusinessCase(draft);
+    const cur = projectRouteBusinessCase(primaryDraft);
     const curLoad = cur && cur.via ? cur.via.load || 0 : 0;
     const curFareClamped = Math.max(minF, Math.min(maxF, draft.fare));
     const curX = xAt(curFareClamped).toFixed(1);
@@ -10077,6 +10328,42 @@
     const peakX = xAt(best.fare).toFixed(1);
     const peakY = yAt(best.monthlyNet).toFixed(1);
     const zeroY = yAt(0).toFixed(1);
+
+    const presets = [
+      { id: '0', label: 'No ads', spend: 0 },
+      { id: '5k', label: '$5k', spend: 5000 },
+      { id: 'form', label: 'Form', spend: formMkt },
+      { id: '12k', label: '$12k', spend: 12000 },
+      { id: '22k', label: '$22k', spend: 22000 },
+    ];
+    // Deduplicate by spend so Form doesn't double with $0
+    const seenSpend = new Set();
+    const chips = presets
+      .filter((p) => {
+        if (seenSpend.has(p.spend)) return false;
+        seenSpend.add(p.spend);
+        return true;
+      })
+      .map((p) => {
+        const active = Math.abs(whatIfMkt - p.spend) < 1;
+        return `<button type="button" class="chart-mkt-chip${active ? ' active' : ''}" data-chart-mkt="${p.spend}" title="Recompute chart with ${fmtMoney(p.spend)}/mo airport marketing at origin">${p.label}</button>`;
+      })
+      .join('');
+
+    const liftNote =
+      showCompare && baseView.length
+        ? (() => {
+            const baseAtCur = baseView.reduce((bestB, p) =>
+              Math.abs(p.fare - draft.fare) < Math.abs(bestB.fare - draft.fare) ? p : bestB
+            , baseView[0]);
+            const withAtCur = view.reduce((bestP, p) =>
+              Math.abs(p.fare - draft.fare) < Math.abs(bestP.fare - draft.fare) ? p : bestP
+            , view[0]);
+            const dNet = withAtCur.monthlyNet - baseAtCur.monthlyNet;
+            const dLoad = (withAtCur.load - baseAtCur.load) * 100;
+            return ` At your fare, ads change net by <b class="${dNet >= 0 ? '' : 'danger'}">${dNet >= 0 ? '+' : ''}${fmtMoney(dNet)}/mo</b> · load ${dLoad >= 0 ? '+' : ''}${dLoad.toFixed(0)} pts (includes ad cost).`;
+          })()
+        : '';
 
     const capNote =
       curLoad >= 0.88
@@ -10087,12 +10374,30 @@
         ? ` <span class="muted">· Your fare ($${draft.fare}) is outside the zoom window</span>`
         : '';
 
-    return `<div class="judgment-fare-chart">
-      <p class="muted" style="font-size:0.66rem;margin:0 0 6px;">Fare vs burdened net/mo — demand eases as price rises above market; peak near <b>$${best.fare}</b> (~${Math.round((best.load || 0) * 100)}% load).${capNote}${offChart}</p>
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Fare optimizer chart">
+    const applyBtn =
+      Math.abs(whatIfMkt - formMkt) > 1
+        ? `<button type="button" class="chart-mkt-apply" data-chart-mkt-apply="${whatIfMkt}">Apply ${fmtMoney(whatIfMkt)}/mo to launch form</button>`
+        : '';
+
+    return `<div class="judgment-fare-chart" data-fare-chart="1">
+      <p class="muted" style="font-size:0.66rem;margin:0 0 6px;">
+        <b>Interactive:</b> fare vs <b>fully burdened</b> net/mo (gate · aircraft · HQ · <b>marketing</b> · OTA).
+        Peak near <b>$${best.fare}</b> (~${Math.round((best.load || 0) * 100)}% load) with <b>${fmtMoney(whatIfMkt)}/mo</b> origin ads.${liftNote}${capNote}${offChart}
+      </p>
+      <div class="chart-mkt-controls" role="group" aria-label="Marketing what-if for chart">
+        <span class="chart-mkt-label">Airport ads</span>
+        ${chips}
+        ${applyBtn}
+      </div>
+      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Fare optimizer chart with marketing">
         <line x1="${margin.l}" y1="${zeroY}" x2="${width - margin.r}" y2="${zeroY}" class="chart-grid"/>
         <line x1="${mktX}" y1="${margin.t}" x2="${mktX}" y2="${height - margin.b}" class="chart-fare-market"/>
-        <path d="${pathD}" fill="none" stroke="#00c896" stroke-width="2"/>
+        ${
+          pathBase
+            ? `<path d="${pathBase}" fill="none" stroke="rgba(126,184,232,0.55)" stroke-width="1.6" stroke-dasharray="4 3" class="chart-path-baseline"/>`
+            : ''
+        }
+        <path d="${pathD}" fill="none" stroke="#00c896" stroke-width="2.2" class="chart-path-primary"/>
         <circle cx="${peakX}" cy="${peakY}" r="3" fill="none" stroke="#00c896" stroke-width="1.5"/>
         <line x1="${curX}" y1="${margin.t}" x2="${curX}" y2="${height - margin.b}" class="chart-fare-cursor"/>
         <circle cx="${curX}" cy="${curY}" r="4" fill="#ffd166" stroke="#041018" stroke-width="1"/>
@@ -10102,7 +10407,62 @@
         <text x="${margin.l - 4}" y="${zeroY}" class="chart-axis" text-anchor="end">$0</text>
         <text x="${mktX}" y="${margin.t + 8}" class="chart-axis" text-anchor="middle">mkt</text>
       </svg>
+      <p class="chart-legend muted">
+        <span class="chart-legend-swatch solid"></span> With ${fmtMoney(whatIfMkt)}/mo ads
+        ${showCompare ? '<span class="chart-legend-swatch dashed"></span> No origin ads (cost &amp; demand off)' : '· Toggle ads above to compare'}
+        · Gold = your fare
+      </p>
     </div>`;
+  }
+
+  function bindFareChartControls(root) {
+    if (!root || !routeLaunchDraft) return;
+    root.querySelectorAll('[data-chart-mkt]').forEach((btn) => {
+      if (btn._chartMktBound) return;
+      btn._chartMktBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const spend = clampMoney(+btn.dataset.chartMkt);
+        routeLaunchDraft.chartMktWhatIf = spend;
+        // Refresh judgment panels (chart lives inside judgment HTML)
+        const j = $('rl-judgment');
+        const rail = $('rl-rail-judgment');
+        if (j) setJudgmentHtml(j, routeLaunchDraft);
+        if (rail) setJudgmentHtml(rail, routeLaunchDraft);
+        bindFareChartControls(j);
+        bindFareChartControls(rail);
+      });
+    });
+    root.querySelectorAll('[data-chart-mkt-apply]').forEach((btn) => {
+      if (btn._chartApplyBound) return;
+      btn._chartApplyBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const spend = clampMoney(+btn.dataset.chartMktApply);
+        if (!routeLaunchDraft.investments) routeLaunchDraft.investments = {};
+        routeLaunchDraft.investments.airport = spend;
+        routeLaunchDraft.chartMktWhatIf = spend;
+        // Push into live form fields if present
+        const inv = document.querySelector('#route-launch-modal [data-inv-amount="airport"]');
+        const tog = document.querySelector('#route-launch-modal [data-inv-toggle="airport"]');
+        if (inv) inv.value = spend;
+        if (tog) tog.checked = spend > 0;
+        try {
+          if (typeof syncRouteStudioDraftFromDom === 'function') {
+            /* form already updated */
+          }
+        } catch (err) { /* ignore */ }
+        const j = $('rl-judgment');
+        const rail = $('rl-rail-judgment');
+        if (j) setJudgmentHtml(j, routeLaunchDraft);
+        if (rail) setJudgmentHtml(rail, routeLaunchDraft);
+        bindFareChartControls(j);
+        bindFareChartControls(rail);
+        refreshRouteStudioLivePanels();
+      });
+    });
   }
 
   function ensureMarketingInvestments() {
@@ -10283,6 +10643,8 @@
     });
     const n = gateCountAt(iata) + 1;
     pushPlayerEvent(`leased ${tier} gate #${n} at ${iata} (${years}yr, ${fmtMoney(upfront)} deposit).`);
+    // First gate at a major hub can draw rare incumbent CEO media shade (never on small fields).
+    if (n === 1) maybeMajorHubMediaShade(iata);
     saveGame();
     renderAll();
   }
@@ -10582,6 +10944,7 @@
     if (!el || !draft) return;
     el.innerHTML = routeBusinessJudgmentHtml(draft);
     bindJudgmentResearchButtons(el);
+    bindFareChartControls(el);
   }
 
   function routeBusinessJudgmentHtml(draft) {
@@ -10653,8 +11016,9 @@
         </dl>
         ${hqNote}
         ${outlookNote}
+        ${fareOptimizerChartHtml(draft)}
         ${marketResearchCtaHtml(draft)}
-        <p class="muted" style="font-size:0.64rem;margin-top:6px;">Live sim still uses full economics. Research unlocks the exact spreadsheet view for this pair.</p>
+        <p class="muted" style="font-size:0.64rem;margin-top:6px;">Live sim still uses full economics. Chart what-ifs include marketing cost &amp; demand; research unlocks exact payback tables.</p>
       </div>`;
     }
 
@@ -11453,6 +11817,7 @@
       btn.addEventListener('click', () => setRouteStudioStep(+btn.dataset.studioGoto));
     });
     bindJudgmentResearchButtons(overlay);
+    bindFareChartControls(overlay);
     overlay.querySelectorAll('[data-rl-nudge]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.rlNudge;

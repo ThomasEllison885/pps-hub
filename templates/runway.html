@@ -2205,7 +2205,7 @@
   }
   .judgment-fare-chart {
     margin: 10px 0 4px;
-    padding: 8px 8px 4px;
+    padding: 8px 8px 6px;
     border-radius: 8px;
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--border);
@@ -2213,6 +2213,72 @@
   .judgment-fare-chart svg { width: 100%; max-width: 340px; height: auto; display: block; }
   .chart-fare-cursor { stroke: var(--gold); stroke-width: 1.5; stroke-dasharray: 4 3; }
   .chart-fare-market { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+  .chart-mkt-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0 0 8px;
+  }
+  .chart-mkt-label {
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .chart-mkt-chip {
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.65);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .chart-mkt-chip:hover { border-color: var(--accent); }
+  .chart-mkt-chip.active {
+    border-color: var(--accent);
+    background: rgba(0, 200, 150, 0.12);
+    color: var(--accent);
+  }
+  .chart-mkt-apply {
+    font: inherit;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 209, 102, 0.45);
+    background: rgba(255, 209, 102, 0.1);
+    color: var(--gold);
+    cursor: pointer;
+  }
+  .chart-mkt-apply:hover { background: rgba(255, 209, 102, 0.18); }
+  .chart-legend {
+    font-size: 0.62rem;
+    margin: 6px 0 0;
+    line-height: 1.4;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+  }
+  .chart-legend-swatch {
+    display: inline-block;
+    width: 16px;
+    height: 0;
+    border-top: 2px solid #00c896;
+    vertical-align: middle;
+    margin-right: 2px;
+  }
+  .chart-legend-swatch.dashed {
+    border-top-color: rgba(126, 184, 232, 0.75);
+    border-top-style: dashed;
+  }
+  .chart-grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+  .chart-axis { fill: var(--muted); font-size: 8px; font-family: inherit; }
   .competitor-impact {
     margin: 10px 0;
     padding: 10px 12px;
