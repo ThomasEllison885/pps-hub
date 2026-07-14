@@ -2034,7 +2034,9 @@ LEAGUE_BY_REGION = {
 }
 
 # Player emblem marks — unique SVG shapes (rendered in game.js). Labels are internal only; UI shows marks without names.
+# Roughly half are flight / sky / stars / airline-themed; the rest are geometric brand marks.
 EMBLEM_OPTIONS = [
+    # —— Flight / sky / airline ——
     {
         'id': 'routes',
         'label': '',
@@ -2048,6 +2050,41 @@ EMBLEM_OPTIONS = [
         'glyph': '✈',
         'colors': ['#5bb4ff', '#071422', '#e8f2ff'],
         'mark': 'wing',
+    },
+    {
+        'id': 'jet',
+        'label': '',
+        'glyph': '✈',
+        'colors': ['#9ad4ff', '#0a1628', '#ffd166'],
+        'mark': 'jet',
+    },
+    {
+        'id': 'contrail',
+        'label': '',
+        'glyph': '⟶',
+        'colors': ['#e6f0fa', '#132a45', '#00c896'],
+        'mark': 'contrail',
+    },
+    {
+        'id': 'runway',
+        'label': '',
+        'glyph': '▭',
+        'colors': ['#ffd166', '#121820', '#e8f2ff'],
+        'mark': 'runway',
+    },
+    {
+        'id': 'propeller',
+        'label': '',
+        'glyph': '✱',
+        'colors': ['#7ec8ef', '#0c1a2e', '#ffb84d'],
+        'mark': 'propeller',
+    },
+    {
+        'id': 'tower',
+        'label': '',
+        'glyph': '🗼',
+        'colors': ['#00d4aa', '#0d1520', '#7ec8ef'],
+        'mark': 'tower',
     },
     {
         'id': 'compass',
@@ -2064,11 +2101,25 @@ EMBLEM_OPTIONS = [
         'mark': 'star',
     },
     {
-        'id': 'bolt',
+        'id': 'nightsky',
         'label': '',
-        'glyph': '⚡',
-        'colors': ['#6dffb4', '#041c12', '#00c896'],
-        'mark': 'bolt',
+        'glyph': '✦',
+        'colors': ['#c4b5fd', '#0b1020', '#fde68a'],
+        'mark': 'nightsky',
+    },
+    {
+        'id': 'constellation',
+        'label': '',
+        'glyph': '✧',
+        'colors': ['#a5f3fc', '#0f172a', '#fbbf24'],
+        'mark': 'constellation',
+    },
+    {
+        'id': 'sunrise',
+        'label': '',
+        'glyph': '☀',
+        'colors': ['#fb923c', '#1e1b4b', '#fde68a'],
+        'mark': 'sunrise',
     },
     {
         'id': 'globe',
@@ -2078,13 +2129,6 @@ EMBLEM_OPTIONS = [
         'mark': 'globe',
     },
     {
-        'id': 'stripe',
-        'label': '',
-        'glyph': '▮',
-        'colors': ['#e11d38', '#0b3d8c', '#ffffff'],
-        'mark': 'stripe',
-    },
-    {
         'id': 'talon',
         'label': '',
         'glyph': '⌃',
@@ -2092,11 +2136,82 @@ EMBLEM_OPTIONS = [
         'mark': 'talon',
     },
     {
-        'id': 'contrail',
+        'id': 'horizon',
         'label': '',
-        'glyph': '⟶',
-        'colors': ['#e6f0fa', '#132a45', '#00c896'],
-        'mark': 'contrail',
+        'glyph': '═',
+        'colors': ['#38bdf8', '#0c4a6e', '#fcd34d'],
+        'mark': 'horizon',
+    },
+    # —— Geometric / brand (non-flight) ——
+    {
+        'id': 'bolt',
+        'label': '',
+        'glyph': '⚡',
+        'colors': ['#6dffb4', '#041c12', '#00c896'],
+        'mark': 'bolt',
+    },
+    {
+        'id': 'stripe',
+        'label': '',
+        'glyph': '▮',
+        'colors': ['#e11d38', '#0b3d8c', '#ffffff'],
+        'mark': 'stripe',
+    },
+    {
+        'id': 'shield',
+        'label': '',
+        'glyph': '⬡',
+        'colors': ['#f472b6', '#1a1025', '#fbbf24'],
+        'mark': 'shield',
+    },
+    {
+        'id': 'diamond',
+        'label': '',
+        'glyph': '◆',
+        'colors': ['#34d399', '#042f2e', '#a7f3d0'],
+        'mark': 'diamond',
+    },
+    {
+        'id': 'hex',
+        'label': '',
+        'glyph': '⬡',
+        'colors': ['#60a5fa', '#0b1220', '#93c5fd'],
+        'mark': 'hex',
+    },
+    {
+        'id': 'wave',
+        'label': '',
+        'glyph': '∿',
+        'colors': ['#22d3ee', '#083344', '#67e8f9'],
+        'mark': 'wave',
+    },
+    {
+        'id': 'mountain',
+        'label': '',
+        'glyph': '▲',
+        'colors': ['#a3e635', '#14532d', '#fef08a'],
+        'mark': 'mountain',
+    },
+    {
+        'id': 'orbit',
+        'label': '',
+        'glyph': '◎',
+        'colors': ['#e879f9', '#1e1033', '#f0abfc'],
+        'mark': 'orbit',
+    },
+    {
+        'id': 'flame',
+        'label': '',
+        'glyph': '🔥',
+        'colors': ['#fb7185', '#1c0a0a', '#fdba74'],
+        'mark': 'flame',
+    },
+    {
+        'id': 'ring',
+        'label': '',
+        'glyph': '○',
+        'colors': ['#facc15', '#1c1917', '#fef3c7'],
+        'mark': 'ring',
     },
 ]
 

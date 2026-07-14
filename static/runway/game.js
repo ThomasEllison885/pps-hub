@@ -5572,6 +5572,137 @@
           <path d="M28.5 11.5 L35.5 9 L31 16.5 Z" fill="${a}"/>
           <circle cx="12" cy="27.5" r="1.2" fill="${d}" opacity="0.5"/>
         </svg>`;
+      case 'jet':
+        // Side-profile narrowbody
+        return `<svg ${common}>${bg}
+          <ellipse cx="20" cy="21" rx="14" ry="4.2" fill="url(#${uid}-fg)"/>
+          <path d="M10 21 L18 14 H22 L18 21 Z" fill="${a}"/>
+          <path d="M22 21 L30 15 H33 L27 21 Z" fill="${a}" opacity="0.9"/>
+          <path d="M8 21 L4 24 H9 L12 21 Z" fill="${d}"/>
+          <path d="M30 21 L36 19 L34 23 Z" fill="${d}"/>
+          <circle cx="14" cy="20.5" r="1.1" fill="${b}"/>
+          <circle cx="18" cy="20.5" r="1.1" fill="${b}"/>
+          <circle cx="22" cy="20.5" r="1.1" fill="${b}"/>
+        </svg>`;
+      case 'runway':
+        return `<svg ${common}>${bg}
+          <path d="M6 28 L14 10 H26 L34 28 Z" fill="none" stroke="${a}" stroke-width="1.4" opacity="0.5"/>
+          <path d="M12 28 L17 12 H23 L28 28" fill="none" stroke="${d}" stroke-width="1.2" opacity="0.35"/>
+          <rect x="18.2" y="11" width="3.6" height="18" rx="0.6" fill="url(#${uid}-fg)" opacity="0.9"/>
+          <rect x="18.8" y="13" width="2.4" height="2" fill="${d}"/>
+          <rect x="18.8" y="17.5" width="2.4" height="2" fill="${d}"/>
+          <rect x="18.8" y="22" width="2.4" height="2" fill="${d}"/>
+          <circle cx="10" cy="29" r="1.3" fill="${d}"/>
+          <circle cx="30" cy="29" r="1.3" fill="${d}"/>
+        </svg>`;
+      case 'propeller':
+        return `<svg ${common}>${bg}
+          <circle cx="20" cy="20" r="3.2" fill="${d}"/>
+          <circle cx="20" cy="20" r="1.4" fill="${b}"/>
+          <ellipse cx="20" cy="9.5" rx="3.2" ry="7.5" fill="url(#${uid}-fg)" transform="rotate(0 20 20)"/>
+          <ellipse cx="20" cy="9.5" rx="3.2" ry="7.5" fill="url(#${uid}-fg)" transform="rotate(120 20 20)" opacity="0.92"/>
+          <ellipse cx="20" cy="9.5" rx="3.2" ry="7.5" fill="url(#${uid}-fg)" transform="rotate(240 20 20)" opacity="0.85"/>
+          <circle cx="20" cy="20" r="11" fill="none" stroke="${a}" stroke-width="1" opacity="0.35"/>
+        </svg>`;
+      case 'tower':
+        return `<svg ${common}>${bg}
+          <rect x="17.5" y="18" width="5" height="14" fill="url(#${uid}-fg)"/>
+          <path d="M12 20 L20 10 L28 20 Z" fill="${a}"/>
+          <rect x="14" y="20" width="12" height="3.5" rx="0.8" fill="${d}" opacity="0.9"/>
+          <path d="M20 10 L20 6" stroke="${d}" stroke-width="1.4" stroke-linecap="round"/>
+          <circle cx="20" cy="5.2" r="1.5" fill="${d}"/>
+          <path d="M11 32 H29" stroke="${a}" stroke-width="1.5" opacity="0.5"/>
+        </svg>`;
+      case 'nightsky':
+        return `<svg ${common}>${bg}
+          <circle cx="26" cy="14" r="7" fill="${d}" opacity="0.95"/>
+          <circle cx="29" cy="12.5" r="6" fill="${b}"/>
+          <circle cx="9" cy="10" r="1.1" fill="${a}"/>
+          <circle cx="14" cy="16" r="0.8" fill="${a}" opacity="0.8"/>
+          <circle cx="11" cy="24" r="1.2" fill="${d}"/>
+          <circle cx="18" cy="28" r="0.7" fill="${a}"/>
+          <circle cx="32" cy="26" r="1" fill="${a}"/>
+          <circle cx="24" cy="30" r="0.6" fill="${d}" opacity="0.7"/>
+          <path d="M7 33 Q20 27 34 33" stroke="${a}" stroke-width="1.1" fill="none" opacity="0.35"/>
+        </svg>`;
+      case 'constellation':
+        return `<svg ${common}>${bg}
+          <circle cx="10" cy="12" r="1.6" fill="${d}"/>
+          <circle cx="20" cy="8" r="1.4" fill="${a}"/>
+          <circle cx="30" cy="14" r="1.6" fill="${d}"/>
+          <circle cx="16" cy="22" r="1.3" fill="${a}"/>
+          <circle cx="26" cy="24" r="1.5" fill="${d}"/>
+          <circle cx="12" cy="30" r="1.2" fill="${a}"/>
+          <circle cx="28" cy="32" r="1.1" fill="${d}"/>
+          <path d="M10 12 L20 8 L30 14 L26 24 L16 22 L10 12" stroke="${a}" stroke-width="1.1" fill="none" opacity="0.75"/>
+          <path d="M16 22 L12 30 M26 24 L28 32" stroke="${d}" stroke-width="0.9" fill="none" opacity="0.55"/>
+        </svg>`;
+      case 'sunrise':
+        return `<svg ${common}>${bg}
+          <path d="M4 26 H36" stroke="${a}" stroke-width="1.2" opacity="0.4"/>
+          <path d="M6 26 A14 14 0 0 1 34 26" fill="url(#${uid}-fg)"/>
+          <circle cx="20" cy="22" r="5.5" fill="${d}"/>
+          <path d="M8 28 H32" stroke="${d}" stroke-width="2" opacity="0.5"/>
+          <path d="M10 31 H30" stroke="${a}" stroke-width="1.4" opacity="0.35"/>
+          <path d="M20 10 L20 14 M9 16 L12 18 M31 16 L28 18" stroke="${d}" stroke-width="1.3" stroke-linecap="round" opacity="0.7"/>
+        </svg>`;
+      case 'horizon':
+        return `<svg ${common}>${bg}
+          <path d="M0 22 Q10 16 20 20 T40 18 L40 40 L0 40 Z" fill="${a}" opacity="0.35"/>
+          <path d="M0 26 Q12 22 22 26 T40 24 L40 40 L0 40 Z" fill="url(#${uid}-fg)" opacity="0.85"/>
+          <circle cx="28" cy="12" r="4.5" fill="${d}"/>
+          <path d="M6 30 H34" stroke="rgba(255,255,255,0.2)" stroke-width="1"/>
+        </svg>`;
+      case 'shield':
+        return `<svg ${common}>${bg}
+          <path d="M20 5.5 L32 10.5 V20 C32 28 26.5 33.5 20 35.5 C13.5 33.5 8 28 8 20 V10.5 Z" fill="url(#${uid}-fg)"/>
+          <path d="M20 9.5 L28 13 V20 C28 26 24.5 30 20 31.5 C15.5 30 12 26 12 20 V13 Z" fill="${b}" opacity="0.35"/>
+          <path d="M20 14 L23 20 H17 Z" fill="${d}"/>
+          <circle cx="20" cy="24" r="2" fill="${d}" opacity="0.85"/>
+        </svg>`;
+      case 'diamond':
+        return `<svg ${common}>${bg}
+          <path d="M20 5 L34 20 L20 35 L6 20 Z" fill="url(#${uid}-fg)"/>
+          <path d="M20 10 L29 20 L20 30 L11 20 Z" fill="${b}" opacity="0.28"/>
+          <path d="M20 5 L20 35 M6 20 H34" stroke="${d}" stroke-width="1" opacity="0.55"/>
+        </svg>`;
+      case 'hex':
+        return `<svg ${common}>${bg}
+          <path d="M20 5 L33 12.5 V27.5 L20 35 L7 27.5 V12.5 Z" fill="none" stroke="url(#${uid}-fg)" stroke-width="2.2"/>
+          <path d="M20 11 L28 15.5 V24.5 L20 29 L12 24.5 V15.5 Z" fill="${a}" opacity="0.85"/>
+          <circle cx="20" cy="20" r="2.2" fill="${d}"/>
+        </svg>`;
+      case 'wave':
+        return `<svg ${common}>${bg}
+          <path d="M4 16 C10 10, 14 22, 20 16 S30 10, 36 16" stroke="url(#${uid}-fg)" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+          <path d="M4 24 C10 18, 14 30, 20 24 S30 18, 36 24" stroke="${d}" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.85"/>
+          <path d="M4 31 C10 27, 14 35, 20 31 S30 27, 36 31" stroke="${a}" stroke-width="1.4" fill="none" opacity="0.45"/>
+        </svg>`;
+      case 'mountain':
+        return `<svg ${common}>${bg}
+          <path d="M4 32 L14 12 L20 22 L26 10 L36 32 Z" fill="url(#${uid}-fg)"/>
+          <path d="M14 12 L17 18 L12 22 Z" fill="${d}" opacity="0.9"/>
+          <path d="M26 10 L29 16 L24 20 Z" fill="${d}" opacity="0.7"/>
+          <path d="M4 32 H36" stroke="${a}" stroke-width="1.2" opacity="0.4"/>
+        </svg>`;
+      case 'orbit':
+        return `<svg ${common}>${bg}
+          <circle cx="20" cy="20" r="5" fill="url(#${uid}-fg)"/>
+          <ellipse cx="20" cy="20" rx="15" ry="6.5" fill="none" stroke="${d}" stroke-width="1.5" transform="rotate(-28 20 20)"/>
+          <ellipse cx="20" cy="20" rx="15" ry="6.5" fill="none" stroke="${a}" stroke-width="1.1" opacity="0.45" transform="rotate(40 20 20)"/>
+          <circle cx="33" cy="15" r="2.1" fill="${d}"/>
+        </svg>`;
+      case 'flame':
+        return `<svg ${common}>${bg}
+          <path d="M20 6 C24 12, 30 15, 30 23 C30 29 25.5 33.5 20 33.5 C14.5 33.5 10 29 10 23 C10 15 16 12 20 6 Z" fill="url(#${uid}-fg)"/>
+          <path d="M20 14 C22.5 18, 25 19.5 25 23.5 C25 26.8 22.8 29 20 29 C17.2 29 15 26.8 15 23.5 C15 19.5 17.5 18 20 14 Z" fill="${d}" opacity="0.9"/>
+        </svg>`;
+      case 'ring':
+        return `<svg ${common}>${bg}
+          <circle cx="20" cy="20" r="12" fill="none" stroke="url(#${uid}-fg)" stroke-width="4"/>
+          <circle cx="20" cy="20" r="7" fill="none" stroke="${d}" stroke-width="1.6" opacity="0.7"/>
+          <circle cx="20" cy="20" r="2.4" fill="${a}"/>
+        </svg>`;
       default:
         return `<svg ${common}>${bg}
           <path d="M12 24 C16 12, 24 10, 30 14 L26 17 C22 15, 18 16, 15 22 Z" fill="url(#${uid}-fg)"/>
