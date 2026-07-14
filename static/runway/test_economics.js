@@ -42,6 +42,31 @@ const cfgFromBootstrap = E.mergeConfig({
       presence_scale_min: 0.42,
       presence_scale_range: 0.58,
     },
+    hub_maturity: {
+      aware_new: 12,
+      aware_building: 35,
+      aware_mature: 55,
+      capture_floor_new: 0.04,
+      capture_floor_building: 0.09,
+      origin_presence_brand_boost: 0.18,
+      overhead_new_mult: 1.55,
+      overhead_building_mult: 1.22,
+      overhead_mature_mult: 1.0,
+      mkt_efficiency_new: 0.62,
+      mkt_efficiency_building: 0.88,
+      mkt_efficiency_mature: 1.12,
+      ramp_brand_lift: 0.28,
+      organic_brand_per_route_mo: 0.4,
+      organic_brand_cap_without_ads: 30,
+    },
+    judgment: {
+      fuzzy_outside_tutorial: true,
+      research_base_cost: 18000,
+      research_origin_pax_rate: 2800,
+      research_dest_pax_rate: 1600,
+      research_min_cost: 12000,
+      research_max_cost: 95000,
+    },
     imputed_pair: { size_multiplier: 3.2, dist_divisor: 180, min_weekly: 4 },
     market_departures: {
       avg_pax_tiers: [
@@ -137,6 +162,53 @@ const captureMature = E.computeMarketCapture(
 );
 assert(captureMature.captureFactor >= 0.14, `mature capture ${captureMature.captureFactor} >= 14%`);
 assert(captureMature.captureFactor > captureThin.captureFactor, 'mature capture > thin startup');
+
+// Hub maturity: high origin brand beats greenfield on same capacity
+const captureNewHub = E.computeMarketCapture(
+  {
+    playerOriginDeps: 7,
+    originMarketWeekly: E.airportMarketDeparturesWeekly(cmhAp, cfg),
+    destMarketWeekly: dayWeekly,
+    playerDestDeps: 0,
+    effectivePlayerFreq: 7,
+    compPairWeekly: 14,
+    imputedPairWeekly: 14,
+    reputation: 20,
+    brandAwareOrigin: 8,
+    brandAwareDest: 8,
+    mature: false,
+  },
+  cfg
+);
+const captureKnownHub = E.computeMarketCapture(
+  {
+    playerOriginDeps: 7,
+    originMarketWeekly: E.airportMarketDeparturesWeekly(cmhAp, cfg),
+    destMarketWeekly: dayWeekly,
+    playerDestDeps: 0,
+    effectivePlayerFreq: 7,
+    compPairWeekly: 14,
+    imputedPairWeekly: 14,
+    reputation: 20,
+    brandAwareOrigin: 62,
+    brandAwareDest: 20,
+    mature: false,
+  },
+  cfg
+);
+assert(
+  captureKnownHub.captureFactor > captureNewHub.captureFactor,
+  `known hub capture ${captureKnownHub.captureFactor} > new hub ${captureNewHub.captureFactor}`
+);
+assert(captureKnownHub.hubMaturity && captureKnownHub.hubMaturity.tier === 'mature', 'known hub tier mature');
+assert(captureNewHub.hubMaturity && captureNewHub.hubMaturity.tier === 'new', 'greenfield tier new');
+
+const matNew = E.hubMaturityFactors(8, cfg);
+const matMature = E.hubMaturityFactors(62, cfg);
+assert(matNew.overheadMult > matMature.overheadMult, 'new stations pay more HQ share');
+assert(matMature.mktEfficiency > matNew.mktEfficiency, 'mature hubs convert ads better');
+assert(cfg.judgment && cfg.judgment.fuzzy_outside_tutorial === true, 'fuzzy judgment default on');
+assert(cfgFromBootstrap.hub_maturity.aware_mature === 55, 'bootstrap hub maturity merge');
 
 // Load estimate: low demand vs seats
 const demand = 12;

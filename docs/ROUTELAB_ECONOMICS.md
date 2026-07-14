@@ -17,6 +17,8 @@ This document explains how launch judgment, demand, gates, and overhead math wor
 | Fare recommendation | Sweep from known variables — **hint only**; live results diverge (GDP, marketing, inflation, rivals) |
 | Payback display | Monthly net + steady payback; years 1–3 outlook table |
 | Verdict | **Show recommendation, never block** launch |
+| Judgment precision | **Full math** in tutorials; **directional/fuzzy** elsewhere until market research or flying the pair |
+| Hub maturity | Driven by origin **`brand_awareness`** — capture floor, HQ judgment share, ad efficiency, year-1 ramp |
 | League pillars → your routes | Click Profit/Riders/CSAT → league re-sorts **and** your routes rank (scoreboard panel + Routes tab) |
 | In-game math UI | **No** for players; this doc is for creator tuning |
 
@@ -91,7 +93,7 @@ originPresence = origin_presence_min + (1 − min) × (originShare / presence_ta
 capture = pairCore × originPresence × rep × awareness × freqPresence
 ```
 
-Mature / established / high brand pairs also get a **capture floor** (~14%) so existing services fill seats.
+**Capture floor scales with origin brand** (`hub_maturity` + `mature_capture_floor`): greenfield stations get a soft ~4% floor; known hubs rise toward ~14% so existing services fill seats.
 
 ### Round trips, ferry, and cancellations
 
@@ -157,6 +159,31 @@ Per-route metrics (30-day history when available, else today’s sim):
 - **Riders** — avg daily pax × 30.
 - **CSAT** — load × 28 + reputation share + base − AOG penalty (route-level approximation).
 
+## Hub maturity (`brand_awareness` at origin)
+
+Stations progress **new → building → mature** from origin brand (defaults: &lt;12 / 12–35 / 35–55+).
+
+| Lever | New station | Mature hub |
+|-------|-------------|------------|
+| Capture floor | Soft / low | Full mature floor |
+| Origin presence | Share only | Share + brand boost |
+| HQ share in **judgment** | ×1.55-ish | ×1.0 |
+| Airport ad efficiency | ~0.62× | ~1.12× |
+| Years 1–3 load ramp | Base ramp | Faster toward steady |
+| Organic brand (monthly) | Routes build brand up to ~30 without ads | Ads still needed past cap |
+
+Live sim uses the same capture/ad efficiency; the HQ multiplier is **judgment only** so new cities do not look free vs known bases.
+
+Tune in `ROUTE_ECONOMICS.hub_maturity`.
+
+## Launch judgment precision
+
+- **Tutorials** (`scenario.tutorial`): full P&amp;L, fare chart, suggested fare (teaching mode).
+- **Other scenarios**: directional bands (load word, money ranges, payback horizon) unless:
+  - player **commissions market research** on the city-pair (cash cost from `ROUTE_ECONOMICS.judgment`), or
+  - player **already flies** that pair.
+- Research is stored on `state.market_research` and survives saves. Never blocks launch.
+
 ## Reputation
 
 0–100 brand trust score. **Starts** from scenario (`runway_game_data.py` scenarios).
@@ -213,6 +240,7 @@ Renamed from CSAT. 0–100 passenger satisfaction index: reputation × 0.45 + av
 
 ## Remembered for later
 
-- Dual payback display (route-only vs fully burdened) in launch UI.
-- Fare optimizer chart on launch modal.
-- Hub maturity curve tied more tightly to `brand_awareness`.
+- Dual payback display (route-only vs fully burdened) in launch UI. *(shipped)*
+- Fare optimizer chart on launch modal. *(shipped as chart + sensitivity; refine interactivity if needed)*
+- Hub maturity curve tied more tightly to `brand_awareness`. *(shipped — capture/overhead/ads/ramp/organic brand)*
+- Fuzzy judgment outside tutorials + market research unlock. *(shipped)*

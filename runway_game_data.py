@@ -258,6 +258,37 @@ ROUTE_ECONOMICS = {
         'origin_share_cap': 0.95,
         'mature_capture_floor': 0.14,
     },
+    # Station maturity from brand_awareness at the origin (0–100).
+    # New / unknown cities capture less, burn more HQ share in judgment, and get less from ads.
+    'hub_maturity': {
+        'aware_new': 12,
+        'aware_building': 35,
+        'aware_mature': 55,
+        'capture_floor_new': 0.04,
+        'capture_floor_building': 0.09,
+        # mature floor uses market_capture.mature_capture_floor
+        'origin_presence_brand_boost': 0.18,
+        'overhead_new_mult': 1.55,
+        'overhead_building_mult': 1.22,
+        'overhead_mature_mult': 1.0,
+        'mkt_efficiency_new': 0.62,
+        'mkt_efficiency_building': 0.88,
+        'mkt_efficiency_mature': 1.12,
+        # Year-1 judgment ramp lifts toward steady as origin brand rises.
+        'ramp_brand_lift': 0.28,
+        # Organic brand while you operate (monthly, no ads required).
+        'organic_brand_per_route_mo': 0.4,
+        'organic_brand_cap_without_ads': 30,
+    },
+    # Route Studio: full math in tutorials; elsewhere fuzzy until market research.
+    'judgment': {
+        'fuzzy_outside_tutorial': True,
+        'research_base_cost': 18_000,
+        'research_origin_pax_rate': 2_800,
+        'research_dest_pax_rate': 1_600,
+        'research_min_cost': 12_000,
+        'research_max_cost': 95_000,
+    },
     'imputed_pair': {
         'size_multiplier': 3.2,
         'dist_divisor': 180,
@@ -276,7 +307,8 @@ ROUTE_ECONOMICS = {
     'projection_note': (
         'Launch projections use conservative ramp-up, static competition, HQ overhead, '
         'and draft marketing/OTA from Route Studio. '
-        'Actual results vary with GDP, inflation, marketing, and rival moves.'
+        'Actual results vary with GDP, inflation, marketing, and rival moves. '
+        'Outside tutorials, precise P&L requires market research or flying the pair.'
     ),
 }
 
@@ -1235,68 +1267,124 @@ def _validate_airport_gate_data():
 
 _validate_airport_gate_data()
 
+
+def _gate_monthly(iata, tier='common'):
+    ap = AIRPORT_BY_IATA.get(iata) or {}
+    if tier == 'exclusive':
+        return int(ap.get('lease_exclusive_monthly') or 20_000)
+    return int(ap.get('lease_common_monthly') or 8_000)
+
+
+def _build_ulc_peak_network():
+    """
+    Frontier-class ULC sandbox: multi-base A320 leisure network.
+    Scale is game-sized (not 150-plane real Frontier) but large enough to feel
+    like the end-state of the beginner path — national ops, many markets, high fixed cost.
+    """
+    # (origin, dest, freq/wk each way, base fare) — leisure + secondary-city style
+    pairs = [
+        ('DEN', 'LAS', 14, 89),
+        ('DEN', 'PHX', 12, 99),
+        ('DEN', 'MCO', 7, 129),
+        ('DEN', 'AUS', 10, 109),
+        ('DEN', 'BNA', 7, 119),
+        ('DEN', 'CLE', 7, 119),
+        ('DEN', 'CVG', 5, 129),
+        ('DEN', 'CMH', 5, 129),
+        ('DEN', 'TPA', 7, 139),
+        ('DEN', 'FLL', 7, 139),
+        ('DEN', 'SAN', 7, 119),
+        ('DEN', 'SEA', 7, 129),
+        ('LAS', 'MCO', 5, 149),
+        ('LAS', 'AUS', 7, 99),
+        ('LAS', 'BNA', 5, 119),
+        ('LAS', 'CLE', 5, 129),
+        ('MCO', 'PHX', 5, 149),
+        ('MCO', 'CLE', 7, 119),
+        ('MCO', 'CVG', 5, 119),
+        ('MCO', 'CMH', 5, 119),
+        ('PHX', 'AUS', 7, 99),
+        ('PHX', 'BNA', 5, 119),
+        ('TPA', 'CLE', 5, 109),
+        ('FLL', 'CLE', 5, 119),
+        ('AUS', 'BNA', 4, 99),
+        ('IND', 'MCO', 5, 119),
+        ('RDU', 'MCO', 4, 109),
+        ('STL', 'LAS', 4, 119),
+    ]
+
+    fleet = []
+    routes = []
+    plane_i = 0
+    for origin, dest, freq, fare in pairs:
+        plane_i += 1
+        pid = f'ra-{plane_i:02d}'
+        fleet.append({
+            'id': pid,
+            'type': 'a320',
+            'leased': True,
+            'lease_months_left': 60,
+            'seats': 180,  # dense ULC cabin
+        })
+        for o, d, rid_sfx in ((origin, dest, 'a'), (dest, origin, 'b')):
+            routes.append({
+                'id': f'ra-{plane_i:02d}{rid_sfx}',
+                'origin': o,
+                'dest': d,
+                'aircraft_type': 'a320',
+                'frequency_week': freq,
+                'fare': fare,
+                'fare_mode': 'manual',
+                'aircraft_id': pid,
+                'established': True,
+                'product': 'leisure' if o in ('LAS', 'MCO', 'TPA', 'FLL') or d in ('LAS', 'MCO', 'TPA', 'FLL') else 'standard',
+            })
+
+    # Multi-gate presence at focus cities (Frontier-ish densification)
+    gate_plan = [
+        ('DEN', 'exclusive', 5, 6),
+        ('LAS', 'exclusive', 3, 5),
+        ('MCO', 'exclusive', 3, 5),
+        ('PHX', 'common', 2, 4),
+        ('TPA', 'common', 2, 4),
+        ('FLL', 'common', 2, 4),
+        ('CLE', 'common', 2, 4),
+        ('CVG', 'common', 1, 3),
+        ('CMH', 'common', 1, 3),
+        ('AUS', 'common', 2, 4),
+        ('BNA', 'common', 2, 4),
+        ('IND', 'common', 1, 3),
+        ('RDU', 'common', 1, 3),
+        ('SAN', 'common', 1, 3),
+        ('SEA', 'common', 1, 3),
+        ('STL', 'common', 1, 3),
+    ]
+    gates = []
+    brand = {}
+    marketing = {}
+    for iata, tier, n, years in gate_plan:
+        monthly = _gate_monthly(iata, tier)
+        for g in range(n):
+            gates.append({
+                'airport': iata,
+                'tier': tier if g == 0 else 'common',
+                'years_left': years,
+                'monthly': monthly if g == 0 and tier == 'exclusive' else _gate_monthly(iata, 'common'),
+            })
+        brand[iata] = 72 if iata == 'DEN' else (58 if iata in ('LAS', 'MCO', 'PHX') else 44)
+        marketing[iata] = 22_000 if iata == 'DEN' else (14_000 if iata in ('LAS', 'MCO') else 8_000)
+
+    return fleet, gates, routes, brand, marketing
+
+
+_ULC_FLEET, _ULC_GATES, _ULC_ROUTES, _ULC_BRAND, _ULC_MKT = _build_ulc_peak_network()
+
 SCENARIOS = {
-    'beginner_2026': {
-        'id': 'beginner_2026',
-        'name': '2026 — Beginner (Ohio Tutorial)',
-        'tagline': 'Step-by-step — routes, fleet, fares in Ohio.',
-        'goal': {
-            'label': 'Graduate: post a profitable trailing month',
-            'profit_month': True,
-        },
-        'year': 2026,
-        'region': 'ohio',
-        'tutorial': True,
-        'briefing': (
-            'Training scenario in Ohio. You run Gateway Air with one E145 on a <b>round trip</b> '
-            'CMH⇄DAY (paying passengers both ways), gates at both ends, and a short UI tour before you unpause.'
-        ),
-        'cash': 8_500_000,
-        'debt': [],
-        'bonds': [],
-        'equity_pct': 100.0,
-        'reputation': 28,
-        'brand_awareness': {'CMH': 58, 'DAY': 42},
-        'financing_tier': 'startup',
-        'bond_rating': 'BB',
-        'player_name': 'CEO',
-        'airline_name': 'Gateway Air',
-        'fleet': [
-            {'id': 'ga-1', 'type': 'e145', 'leased': True, 'lease_months_left': 48, 'seats': 50},
-        ],
-        'gates': [
-            {'airport': 'CMH', 'tier': 'exclusive', 'years_left': 4, 'monthly': 16_000},
-            {'airport': 'DAY', 'tier': 'common', 'years_left': 3, 'monthly': 7_200},
-        ],
-        'routes': [
-            {
-                'id': 'ga-r1',
-                'origin': 'CMH',
-                'dest': 'DAY',
-                'aircraft_type': 'e145',
-                'frequency_week': 7,
-                'fare': 149,
-                'fare_mode': 'auto',
-                'aircraft_id': 'ga-1',
-                'established': True,
-            },
-            {
-                'id': 'ga-r2',
-                'origin': 'DAY',
-                'dest': 'CMH',
-                'aircraft_type': 'e145',
-                'frequency_week': 7,
-                'fare': 149,
-                'fare_mode': 'auto',
-                'aircraft_id': 'ga-1',
-                'established': True,
-            },
-        ],
-    },
+    # Sole Ohio tutorial (coach + tuned profit start). Plain "Beginner" removed as a duplicate.
     'beginner_winning_2026': {
         'id': 'beginner_winning_2026',
         'name': '2026 — Winning Path (Ohio Coach)',
-        'tagline': 'Same Ohio tutorial — round-trip CMH⇄DAY tuned for profit.',
+        'tagline': 'Ohio tutorial with profit coach — the recommended start.',
         'goal': {
             'label': 'Graduate: post a profitable trailing month',
             'profit_month': True,
@@ -1548,6 +1636,65 @@ SCENARIOS = {
                 'aircraft_id': 'lsa-3',
             },
         ],
+    },
+    # End-state sandbox: play a Frontier-class ULC already at scale (what the beginner path aims toward).
+    'peak_ulc_2026': {
+        'id': 'peak_ulc_2026',
+        'name': '2026 — Peak Network (ULC Scale)',
+        'tagline': 'Frontier-class A320 leisure network — jump in mid-game.',
+        'goal': {
+            'label': 'Hold scale: $450M annual revenue and a profitable month',
+            'ltm_revenue': 450_000_000,
+            'profit_month': True,
+        },
+        'year': 2026,
+        'region': 'national',
+        'mature_network': True,
+        'skip_starter_coach': True,
+        'briefing': (
+            'You inherit the helm of <b>RidgeAir</b> — a national ultra-low-cost carrier built the way the '
+            'Ohio path is meant to end: <b>~28 leased A320s</b>, densified cabins, multi-gate bases at '
+            '<b>DEN / LAS / MCO / PHX</b> plus leisure spokes (CLE, CVG, CMH, TPA, FLL, AUS, BNA…). '
+            'Ancillaries are aggressive; brand is strong where you fly. Cash is real but so is lease burn — '
+            'defend loads, prune thin markets, and keep the board happy. This is large-airline <b>gameplay</b>, '
+            'not a from-scratch build.'
+        ),
+        'cash': 118_000_000,
+        'debt': [
+            {
+                'id': 'ridge_abs',
+                'name': 'Aircraft ABS warehouse',
+                'principal': 95_000_000,
+                'rate': 0.068,
+                'monthly_payment': 1_150_000,
+                'secured': True,
+            }
+        ],
+        'bonds': [
+            {
+                'id': 'ridge_corp',
+                'name': 'RidgeAir 2029 notes',
+                'principal': 40_000_000,
+                'coupon': 0.072,  # annual; game bills principal*coupon/4 quarterly
+            }
+        ],
+        'equity_pct': 72.0,
+        'reputation': 52,
+        'brand_awareness': _ULC_BRAND,
+        'marketing_spend_monthly': _ULC_MKT,
+        'financing_tier': 'serial',
+        'bond_rating': 'BB',
+        'player_name': 'CEO',
+        'airline_name': 'RidgeAir',
+        'ancillary_strategy': 'aggressive',
+        'seed_ltm_revenue': 380_000_000,
+        'seed_done': True,
+        'series_a_done': True,
+        'growth_equity_done': True,
+        'pe_done': True,
+        'fleet': _ULC_FLEET,
+        'gates': _ULC_GATES,
+        'routes': _ULC_ROUTES,
     },
 }
 

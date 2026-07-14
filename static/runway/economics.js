@@ -34,6 +34,35 @@
       origin_share_cap: 0.95,
       mature_capture_floor: 0.14,
     },
+    /**
+     * Station maturity from origin brand_awareness (0–100).
+     * New / unknown cities capture less, pay more HQ share in judgment, ads work less.
+     */
+    hub_maturity: {
+      aware_new: 12,
+      aware_building: 35,
+      aware_mature: 55,
+      capture_floor_new: 0.04,
+      capture_floor_building: 0.09,
+      origin_presence_brand_boost: 0.18,
+      overhead_new_mult: 1.55,
+      overhead_building_mult: 1.22,
+      overhead_mature_mult: 1.0,
+      mkt_efficiency_new: 0.62,
+      mkt_efficiency_building: 0.88,
+      mkt_efficiency_mature: 1.12,
+      ramp_brand_lift: 0.28,
+      organic_brand_per_route_mo: 0.4,
+      organic_brand_cap_without_ads: 30,
+    },
+    judgment: {
+      fuzzy_outside_tutorial: true,
+      research_base_cost: 18000,
+      research_origin_pax_rate: 2800,
+      research_dest_pax_rate: 1600,
+      research_min_cost: 12000,
+      research_max_cost: 95000,
+    },
     imputed_pair: {
       size_multiplier: 3.2,
       dist_divisor: 180,
@@ -53,12 +82,22 @@
     cancel_load_threshold: 0.1,
   };
 
+  function clamp01(x) {
+    return Math.max(0, Math.min(1, x));
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * clamp01(t);
+  }
+
   function mergeConfig(bootstrap) {
     const src = (bootstrap && bootstrap.route_economics) || {};
     const mc = { ...DEFAULTS.market_capture, ...(src.market_capture || {}) };
     // Drop legacy dead keys so they never confuse creators.
     delete mc.presence_scale_min;
     delete mc.presence_scale_range;
+    const hm = { ...DEFAULTS.hub_maturity, ...(src.hub_maturity || {}) };
+    const ju = { ...DEFAULTS.judgment, ...(src.judgment || {}) };
     const ip = { ...DEFAULTS.imputed_pair, ...(src.imputed_pair || {}) };
     const mdSrc = src.market_departures || {};
     const md = {
@@ -76,6 +115,8 @@
       ...DEFAULTS,
       ...src,
       market_capture: mc,
+      hub_maturity: hm,
+      judgment: ju,
       imputed_pair: ip,
       market_departures: md,
       ramp_load_multipliers: src.ramp_load_multipliers || DEFAULTS.ramp_load_multipliers,
@@ -115,8 +156,66 @@
   }
 
   /**
+   * Hub maturity at a station from brand_awareness (0–100).
+   * tier: new | building | mature
+   */
+  function hubMaturityFactors(brandOrigin, cfg) {
+    const hm = (cfg && cfg.hub_maturity) || DEFAULTS.hub_maturity;
+    const mc = (cfg && cfg.market_capture) || DEFAULTS.market_capture;
+    const brand = Math.max(0, Math.min(100, brandOrigin == null ? 5 : +brandOrigin));
+    let tier = 'new';
+    if (brand >= hm.aware_mature) tier = 'mature';
+    else if (brand >= hm.aware_building) tier = 'building';
+
+    const span = Math.max(1, hm.aware_mature - hm.aware_new);
+    const t = clamp01((brand - hm.aware_new) / span);
+    const matureFloor = mc.mature_capture_floor != null ? mc.mature_capture_floor : 0.14;
+    const captureFloor = lerp(hm.capture_floor_new, matureFloor, t);
+
+    let overheadMult = hm.overhead_new_mult;
+    let mktEfficiency = hm.mkt_efficiency_new;
+    if (tier === 'building') {
+      overheadMult = hm.overhead_building_mult;
+      mktEfficiency = hm.mkt_efficiency_building;
+    } else if (tier === 'mature') {
+      overheadMult = hm.overhead_mature_mult;
+      mktEfficiency = hm.mkt_efficiency_mature;
+    }
+
+    // Smooth overhead / efficiency between building and mature for nicer curves.
+    if (brand >= hm.aware_building && brand < hm.aware_mature) {
+      const t2 = clamp01((brand - hm.aware_building) / Math.max(1, hm.aware_mature - hm.aware_building));
+      overheadMult = lerp(hm.overhead_building_mult, hm.overhead_mature_mult, t2);
+      mktEfficiency = lerp(hm.mkt_efficiency_building, hm.mkt_efficiency_mature, t2);
+    } else if (brand < hm.aware_building) {
+      const t0 = clamp01(brand / Math.max(1, hm.aware_building));
+      overheadMult = lerp(hm.overhead_new_mult, hm.overhead_building_mult, t0);
+      mktEfficiency = lerp(hm.mkt_efficiency_new, hm.mkt_efficiency_building, t0);
+    }
+
+    const originPresenceBrandAdd = hm.origin_presence_brand_boost * (brand / 100);
+    // Year-1 ramp multiplier boost: unknown hubs stay at base ramp; mature hubs ramp faster.
+    const rampBrandBoost = (hm.ramp_brand_lift || 0) * (brand / 100);
+
+    return {
+      brand,
+      tier,
+      captureFloor,
+      originPresenceBrandAdd,
+      overheadMult,
+      mktEfficiency,
+      rampBrandBoost,
+      organicBrandPerRouteMo: hm.organic_brand_per_route_mo,
+      organicBrandCapWithoutAds: hm.organic_brand_cap_without_ads,
+      label:
+        tier === 'mature' ? 'Mature hub' : tier === 'building' ? 'Building presence' : 'New station',
+    };
+  }
+
+  /**
    * Capture of addressable city-pair demand.
    * Pair capacity share is the core lever; airport-wide share only softens presence.
+   * Origin brand_awareness scales presence boost and capture floor (hub maturity).
    */
   function computeMarketCapture(params, cfg) {
     const mc = cfg.market_capture;
@@ -130,25 +229,35 @@
     );
     const pairCapacityShare = params.effectivePlayerFreq / pairDenom;
     const repBoost = 1 + (params.reputation || 0) / mc.rep_divisor;
-    const awareAvg = ((params.brandAwareOrigin || 5) + (params.brandAwareDest || 5)) / 2;
+    const brandO = params.brandAwareOrigin != null ? params.brandAwareOrigin : 5;
+    const brandD = params.brandAwareDest != null ? params.brandAwareDest : 5;
+    const awareAvg = (brandO + brandD) / 2;
     const awareBoost = 1 + (awareAvg / 100) * mc.awareness_factor;
     const freqPresence =
       mc.freq_presence_base +
       Math.min(mc.freq_presence_max_add, params.effectivePlayerFreq / mc.freq_presence_divisor);
 
+    const maturity = hubMaturityFactors(brandO, cfg);
+
     // Pair-first core (not sqrt of airport share × pair — that zeroed thin majors).
     const pairCore = Math.max(mc.pair_share_floor, pairCapacityShare);
-    const originPresence =
+    let originPresence =
       mc.origin_presence_min +
       (1 - mc.origin_presence_min) *
         Math.min(1, Math.pow(Math.max(mc.origin_share_floor, originShare) / mc.presence_origin_target, 0.45));
+    // Known stations punch above pure departure share.
+    originPresence = Math.min(1, originPresence + maturity.originPresenceBrandAdd);
 
     let capture = pairCore * originPresence * repBoost * awareBoost * freqPresence;
 
-    // Mature brand on a known city-pair — floor so "existing airline" isn't empty.
-    if (params.mature || awareAvg >= 40) {
-      const floor = mc.mature_capture_floor || 0.14;
+    // Brand-scaled capture floor — mature/established pairs fill seats; greenfield stays soft.
+    const hm = cfg.hub_maturity || DEFAULTS.hub_maturity;
+    const floor = maturity.captureFloor;
+    if (params.mature || brandO >= hm.aware_building || awareAvg >= 40) {
       capture = Math.max(capture, floor * Math.min(1.15, awareBoost));
+    } else {
+      // Soft greenfield floor so brand building still matters without zeroing load.
+      capture = Math.max(capture, floor * 0.72 * Math.min(1.08, awareBoost));
     }
 
     capture = Math.min(mc.capture_cap, capture);
@@ -163,6 +272,7 @@
       captureFactor: capture,
       pairDenom,
       originPresence,
+      hubMaturity: maturity,
     };
   }
 
@@ -178,6 +288,7 @@
     airportMarketDeparturesDaily,
     airportMarketDeparturesWeekly,
     imputedPairMarketWeekly,
+    hubMaturityFactors,
     computeMarketCapture,
     estimateLoadFromDemand,
   };

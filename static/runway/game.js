@@ -246,6 +246,161 @@
 
   const RunwayEcon = () => window.RunwayEconomics;
 
+  /** Station maturity from brand_awareness at an airport (new / building / mature). */
+  function hubMaturityAt(iata) {
+    const brand = (state && state.brand_awareness && state.brand_awareness[iata]) || 0;
+    const E = RunwayEcon();
+    if (E && E.hubMaturityFactors) return E.hubMaturityFactors(brand, routeEconomics());
+    return {
+      brand,
+      tier: brand >= 55 ? 'mature' : brand >= 35 ? 'building' : 'new',
+      captureFloor: 0.08,
+      originPresenceBrandAdd: 0,
+      overheadMult: 1,
+      mktEfficiency: 1,
+      rampBrandBoost: 0,
+      organicBrandPerRouteMo: 0.4,
+      organicBrandCapWithoutAds: 30,
+      label: 'Station',
+    };
+  }
+
+  function isTutorialScenario(scenarioId) {
+    const id = scenarioId || (state && state.scenario_id);
+    const sc = (bootstrap.scenarios && bootstrap.scenarios[id]) || {};
+    return !!sc.tutorial;
+  }
+
+  function marketResearchPairKey(origin, dest) {
+    if (!origin || !dest) return '';
+    // Ordered pair — research for A→B unlocks that direction; reverse is separate market.
+    return `${origin}|${dest}`;
+  }
+
+  function hasMarketResearch(origin, dest) {
+    if (!state || !origin || !dest) return false;
+    const mr = state.market_research || {};
+    return !!(mr[marketResearchPairKey(origin, dest)] || mr[marketResearchPairKey(dest, origin)]);
+  }
+
+  function playerFliesPair(origin, dest) {
+    if (!state || !origin || !dest) return false;
+    return (state.routes || []).some(
+      (r) =>
+        (r.origin === origin && r.dest === dest) || (r.origin === dest && r.dest === origin)
+    );
+  }
+
+  /**
+   * Full P&L math in tutorials, or after market research / flying the pair.
+   * Harder scenarios stay fuzzy so launch is a real judgment call.
+   */
+  function judgmentIsPrecise(draft) {
+    if (!draft || !draft.origin || !draft.dest) return true;
+    const cfg = routeEconomics();
+    const ju = cfg.judgment || {};
+    if (ju.fuzzy_outside_tutorial === false) return true;
+    if (isTutorialScenario()) return true;
+    if (playerFliesPair(draft.origin, draft.dest)) return true;
+    if (hasMarketResearch(draft.origin, draft.dest)) return true;
+    return false;
+  }
+
+  function marketResearchCost(origin, dest) {
+    const cfg = routeEconomics();
+    const ju = cfg.judgment || {};
+    const o = airport(origin);
+    const d = airport(dest);
+    const base = ju.research_base_cost != null ? ju.research_base_cost : 18000;
+    const oRate = ju.research_origin_pax_rate != null ? ju.research_origin_pax_rate : 2800;
+    const dRate = ju.research_dest_pax_rate != null ? ju.research_dest_pax_rate : 1600;
+    const minC = ju.research_min_cost != null ? ju.research_min_cost : 12000;
+    const maxC = ju.research_max_cost != null ? ju.research_max_cost : 95000;
+    const raw = base + (o?.annual_pax_m || 1) * oRate + (d?.annual_pax_m || 1) * dRate;
+    return Math.round(Math.max(minC, Math.min(maxC, raw)));
+  }
+
+  function buyMarketResearch(origin, dest) {
+    if (!state || !origin || !dest || origin === dest) return false;
+    if (hasMarketResearch(origin, dest)) return true;
+    const cost = marketResearchCost(origin, dest);
+    if (state.cash < cost) {
+      alert(`Need ${fmtMoney(cost)} cash for market research on ${origin}→${dest}.`);
+      return false;
+    }
+    state.cash -= cost;
+    state.market_research = state.market_research || {};
+    state.market_research[marketResearchPairKey(origin, dest)] = {
+      day: state.day,
+      cost,
+    };
+    // Small brand bump — research implies local awareness work.
+    state.brand_awareness = state.brand_awareness || {};
+    state.brand_awareness[origin] = Math.min(100, (state.brand_awareness[origin] || 0) + 1.2);
+    state.brand_awareness[dest] = Math.min(100, (state.brand_awareness[dest] || 0) + 0.8);
+    pushPlayerEvent(
+      `commissioned market research on <b>${origin}→${dest}</b> (${fmtMoney(cost)}) — Route Studio now shows full P&amp;L math.`
+    );
+    saveGame();
+    if (routeLaunchDraft && routeLaunchDraft.origin === origin && routeLaunchDraft.dest === dest) {
+      try {
+        if (typeof renderRouteLaunchModal === 'function' && $('route-launch-modal')?.classList.contains('active')) {
+          renderRouteLaunchModal();
+        } else {
+          const j = $('rl-judgment');
+          const rail = $('rl-rail-judgment');
+          if (j) setJudgmentHtml(j, routeLaunchDraft);
+          if (rail) setJudgmentHtml(rail, routeLaunchDraft);
+        }
+      } catch (e) {
+        /* ignore UI refresh glitches */
+      }
+    }
+    renderAll();
+    return true;
+  }
+
+  function fuzzyMoneyBand(n) {
+    if (n == null || !Number.isFinite(+n)) return '—';
+    const v = +n;
+    const abs = Math.abs(v);
+    let step = 5000;
+    if (abs < 4000) step = 1500;
+    else if (abs < 20000) step = 5000;
+    else if (abs < 80000) step = 15000;
+    else if (abs < 250000) step = 40000;
+    else step = 75000;
+    const lo = Math.floor(v / step) * step;
+    const hi = lo + step;
+    if (v < 0) {
+      // lo is more negative or equal; show loss range
+      const a = Math.min(lo, hi);
+      const b = Math.max(lo, hi);
+      if (b >= 0) return `about ${fmtMoney(Math.abs(a))}/mo loss`;
+      return `${fmtMoney(Math.abs(b))}–${fmtMoney(Math.abs(a))}/mo loss`;
+    }
+    if (lo === 0 && hi > 0) return `up to ~${fmtMoney(hi)}/mo`;
+    return `${fmtMoney(lo)}–${fmtMoney(hi)}/mo`;
+  }
+
+  function fuzzyYearsBand(years) {
+    if (years == null || !Number.isFinite(+years)) return 'unclear';
+    if (years <= 0) return 'quick if it holds';
+    if (years < 1.2) return 'under ~18 months';
+    if (years < 2.2) return 'roughly 1–2 years';
+    if (years < 3.5) return 'roughly 2–4 years';
+    return 'many years — if it works at all';
+  }
+
+  function fuzzyLoadLabel(load) {
+    if (load == null || !Number.isFinite(+load)) return 'unknown';
+    if (load < 0.35) return 'thin';
+    if (load < 0.55) return 'soft';
+    if (load < 0.72) return 'moderate';
+    if (load < 0.85) return 'solid';
+    return 'strong';
+  }
+
   function airportGateWeeklyCapacity(ap) {
     if (!ap) return DEPARTURES_PER_GATE_PER_WEEK;
     if (ap.max_weekly_departures_per_gate) return ap.max_weekly_departures_per_gate;
@@ -777,7 +932,8 @@
     }</div>`;
   }
 
-  function marketJudgmentOneLiner(draft) {
+  function marketJudgmentOneLiner(draft, opts) {
+    opts = opts || {};
     const plane = state.fleet.find((f) => f.id === draft.aircraftId);
     if (!plane) return '';
     const via = estimateRouteViability(
@@ -790,11 +946,18 @@
     );
     const mkt = via.market;
     if (!mkt) return '';
+    const thin = via.load < 0.45;
+    const mat = hubMaturityAt(draft.origin);
+    if (opts.precise === false) {
+      const loadWord = fuzzyLoadLabel(via.load);
+      return `<p class="judgment-market-line${thin ? ' thin' : ''}">Rough read: <b>${loadWord}</b> loads at this fare/freq · ${draft.origin} is a <b>${mat.label.toLowerCase()}</b> (brand ${mat.brand.toFixed(0)}%)${
+        thin ? ' — thin market; smaller metal or more weekly frequency usually helps.' : '.'
+      }</p>`;
+    }
     const share = formatMarketSharePct(mkt.originShare || 0);
     const cap = formatMarketSharePct(mkt.captureFactor || 0);
     const loadPct = (via.load * 100).toFixed(0);
-    const thin = via.load < 0.45;
-    return `<p class="judgment-market-line${thin ? ' thin' : ''}">Market slice: <b>${share}</b> of <b>${draft.origin}</b> departures · <b>${cap}</b> demand capture → ~<b>${loadPct}%</b> est. load${
+    return `<p class="judgment-market-line${thin ? ' thin' : ''}">Market slice: <b>${share}</b> of <b>${draft.origin}</b> departures · <b>${cap}</b> demand capture → ~<b>${loadPct}%</b> est. load · hub <b>${mat.label}</b> (brand ${mat.brand.toFixed(0)}%)${
       thin ? ' — thin market; smaller aircraft or more weekly frequency usually helps.' : '.'
     }</p>`;
   }
@@ -2722,6 +2885,33 @@
     };
   }
 
+  /**
+   * Monthly organic brand growth from operating routes (hub maturity).
+   * Caps without ad spend so marketing still matters for mature brand levels.
+   */
+  function applyOrganicHubBrandGrowth() {
+    if (!state) return;
+    const cfg = routeEconomics();
+    const hm = cfg.hub_maturity || {};
+    const perRoute = hm.organic_brand_per_route_mo != null ? hm.organic_brand_per_route_mo : 0.4;
+    const capNoAds = hm.organic_brand_cap_without_ads != null ? hm.organic_brand_cap_without_ads : 30;
+    const counts = {};
+    (state.routes || []).forEach((r) => {
+      if (!r.origin) return;
+      counts[r.origin] = (counts[r.origin] || 0) + 1;
+      if (r.dest) counts[r.dest] = (counts[r.dest] || 0) + 0.55;
+    });
+    state.brand_awareness = state.brand_awareness || {};
+    Object.keys(counts).forEach((ap) => {
+      const spend = clampMoney(state.marketing_spend_monthly && state.marketing_spend_monthly[ap]);
+      const cur = state.brand_awareness[ap] || 0;
+      const cap = spend > 0 ? 100 : capNoAds;
+      if (cur >= cap) return;
+      const bump = perRoute * Math.min(4, counts[ap]);
+      state.brand_awareness[ap] = Math.min(cap, cur + bump);
+    });
+  }
+
   function marketingPaybackHint(iata, amount) {
     const routes = routesTouchingAirport(iata);
     const avgFare = routes.length
@@ -3308,7 +3498,7 @@
   function buildNewGameBriefing(scenarioId) {
     const sc = bootstrap.scenarios[scenarioId] || {};
     const sections = formatBriefingSections(scenarioId);
-    const guided = !!(sc.tutorial || sc.winning_track || scenarioId === 'beginner_2026');
+    const guided = !!(sc.tutorial || sc.winning_track);
 
     // Only two clear choices — tour vs jump in. No overlapping A/B that open the same UI.
     const options = guided
@@ -3409,7 +3599,7 @@
     const route = state.routes[0];
     const routeLabel = route ? `${route.origin}–${route.dest}` : `${hub}–DAY`;
 
-    if (scenarioId === 'beginner_2026' || sc.tutorial || sc.winning_track) {
+    if (sc.tutorial || sc.winning_track) {
       const winning = isWinningTrackScenario(scenarioId);
       const freq = route ? route.frequency_week : 10;
       const fare = route ? route.fare : 139;
@@ -5074,7 +5264,8 @@
       fuel_price: bootstrap.fuel_base,
       macro: createMacroState(),
       marketing_spend_monthly: { ...(base.marketing_spend_monthly || {}) },
-      ltm_revenue: 0,
+      market_research: {},
+      ltm_revenue: base.seed_ltm_revenue || 0,
       revenue_history: [],
       daily_pnl: 0,
       events: [],
@@ -5086,28 +5277,42 @@
       paused_reason: null,
       onboarding_done: false,
       airline_emblem: pendingEmblem || 'wing',
-      ancillary_strategy: pendingAncillaryStrategy || 'auto',
+      ancillary_strategy: base.ancillary_strategy || pendingAncillaryStrategy || 'auto',
       personal_cash: 0,
-      seed_done: false,
-      series_a_done: false,
-      growth_equity_done: false,
-      pe_done: false,
-      ipo_done: false,
-      public: false,
+      seed_done: !!base.seed_done,
+      series_a_done: !!base.series_a_done,
+      growth_equity_done: !!base.growth_equity_done,
+      pe_done: !!base.pe_done,
+      ipo_done: !!base.ipo_done,
+      public: !!base.public,
       raises: [],
       debt_month: null,
       ops_goals_done: [],
     };
+    // Mature networks: seed trailing revenue so Capital / goals reflect operating scale on day 0.
+    if (base.seed_ltm_revenue > 0) {
+      const daily = base.seed_ltm_revenue / 365;
+      state.revenue_history = Array.from({ length: 365 }, () => daily);
+      state.ltm_revenue = base.seed_ltm_revenue;
+    }
     sanitizeMarketingSpend();
     normalizeGameState();
     if (isWinningTrackScenario(scenarioId)) ensureWinningPlaybook();
     ensureMetrics();
-    state.metrics.league_scope = defaultLeagueScope();
+    // Large national networks default the league to US, not Ohio pond.
+    if (base.region === 'national' || base.mature_network) {
+      state.metrics.league_scope = 'national';
+    } else {
+      state.metrics.league_scope = defaultLeagueScope();
+    }
     state.metrics.league_snapshot = buildLeagueTable(state.metrics.league_scope);
     initCompetitorMarkets();
     initCompetitorRoutes();
     resetMapView();
-    pushEvent(`${state.player_name} founded ${state.airline_name} — ${base.name}`);
+    const helm = base.mature_network
+      ? `${state.player_name} took the helm of ${state.airline_name} — ${base.name}`
+      : `${state.player_name} founded ${state.airline_name} — ${base.name}`;
+    pushEvent(helm);
     saveGame();
     renderAll();
   }
@@ -7052,6 +7257,7 @@
     state.revenue_history = Array.isArray(state.revenue_history) ? state.revenue_history : [];
     state.marketing_spend_monthly = state.marketing_spend_monthly || {};
     state.brand_awareness = state.brand_awareness || {};
+    state.market_research = state.market_research || {};
     // Infer raises already taken from equity below 100 on older saves
     if (!state.seed_done && (state.equity_pct || 100) < 95 && state.financing_tier === 'startup') {
       state.seed_done = true;
@@ -8201,6 +8407,8 @@
           );
         }
       });
+      // Organic hub maturity: operating routes builds local brand without ads (capped).
+      applyOrganicHubBrandGrowth();
       // System reputation: sustained airport ads rebuild trust after AOG / soft service
       const totalAirportAds = Object.values(state.marketing_spend_monthly || {}).reduce(
         (a, b) => a + clampMoney(b),
@@ -9840,8 +10048,10 @@
       spend = clampMoney(opts.airportSpendByIata[iata]);
     }
     if (spend <= 0) return 0;
+    // Ads convert better at stations passengers already know (hub maturity).
+    const eff = hubMaturityAt(iata).mktEfficiency || 1;
     // ~$5–12k/mo at a thin station should feel like +10–25% demand, not a rounding error.
-    return Math.min(0.35, (spend / gross) * 3.6);
+    return Math.min(0.38, (spend / gross) * 3.6 * eff);
   }
 
   /**
@@ -9883,15 +10093,17 @@
     const lift = airportMarketingDemandLift(iata);
     const aware = state.brand_awareness[iata] || 0;
     const liftPct = Math.round(lift * 100);
+    const mat = hubMaturityAt(iata);
     return {
       spend,
       lift,
       liftPct,
       aware,
+      hubTier: mat.tier,
       line:
         spend > 0
-          ? `${fmtMoney(spend)}/mo at ${iata} → about <b>+${liftPct}%</b> local demand · brand ${aware.toFixed(0)}%`
-          : `No airport marketing at ${iata} — brand ${aware.toFixed(0)}%`,
+          ? `${fmtMoney(spend)}/mo at ${iata} → about <b>+${liftPct}%</b> local demand · brand ${aware.toFixed(0)}% (${mat.label})`
+          : `No airport marketing at ${iata} — brand ${aware.toFixed(0)}% (${mat.label})`,
     };
   }
 
@@ -10062,7 +10274,10 @@
       if (o.feature) otaMonthly += p.route_feature_monthly || 0;
       if (o.hubPush) otaMonthly += p.hub_push_monthly || 0;
     });
-    const corpShare = playerNaturalOverheadMonthly() / Math.max(1, state.routes.length + 1);
+    // New / low-brand stations carry more HQ share in judgment until hub matures.
+    const maturity = hubMaturityAt(draft.origin);
+    const baseCorpShare = playerNaturalOverheadMonthly() / Math.max(1, state.routes.length + 1);
+    const corpShare = baseCorpShare * (maturity.overheadMult || 1);
     const monthlyFixed = gateShare + fleetShare + marketingMonthly + otaMonthly + corpShare;
     const monthlyNet = monthlyVariable - monthlyFixed;
 
@@ -10129,6 +10344,8 @@
       marketingMonthly,
       otaMonthly,
       corpShare,
+      baseCorpShare,
+      hubMaturity: maturity,
       routesAtOrigin,
       isNewStation,
       schedScale,
@@ -10158,12 +10375,16 @@
     const cfg = routeEconomics();
     const ramps = cfg.ramp_load_multipliers || [0.55, 0.78, 0.92];
     const creep = cfg.ramp_cost_creep_per_year || 0.03;
+    // Known hubs ramp load faster toward steady-state (brand already exists).
+    const brandBoost = (steady.hubMaturity && steady.hubMaturity.rampBrandBoost) || 0;
     ensureMacro();
     const infl = (state.macro.inflation_pct || 2) / 100;
     let cumulative = -(steady.upfront || 0);
     return ramps.map((ramp, i) => {
       const year = i + 1;
-      const monthlyVar = steady.monthlyVariable * ramp * (1 + infl * i * 0.35);
+      // Lift early years toward 1.0 as origin brand rises; year 3 still near base ramp.
+      const rampAdj = Math.min(0.98, ramp + brandBoost * (1 - i * 0.28));
+      const monthlyVar = steady.monthlyVariable * rampAdj * (1 + infl * i * 0.35);
       const monthlyFixed = steady.monthlyFixed * (1 + creep * i + infl * i * 0.25);
       const monthlyNet = monthlyVar - monthlyFixed;
       const yearProfit = monthlyNet * 12;
@@ -10173,7 +10394,7 @@
         monthlyNet,
         yearProfit,
         cumulative,
-        loadPct: Math.round((steady.via.load || 0) * ramp * 100),
+        loadPct: Math.round((steady.via.load || 0) * rampAdj * 100),
       };
     });
   }
@@ -10197,14 +10418,115 @@
     </p>`;
   }
 
+  function marketResearchCtaHtml(draft) {
+    if (!draft || !draft.origin || !draft.dest) return '';
+    const cost = marketResearchCost(draft.origin, draft.dest);
+    const canAfford = state.cash >= cost;
+    return `<div class="judgment-research">
+      <p class="judgment-research-lead"><b>Market fog:</b> Outside tutorials, precise P&amp;L is locked until you commission research or fly the pair. Qualitative verdict still updates with fare &amp; frequency.</p>
+      <button type="button" class="btn secondary judgment-research-btn" data-buy-research="${draft.origin}|${draft.dest}" ${canAfford ? '' : 'disabled'} title="Spend cash for full model on this city-pair">
+        Commission research · ${fmtMoney(cost)}
+      </button>
+      ${canAfford ? '' : `<p class="muted" style="font-size:0.68rem;margin:6px 0 0;">Need ${fmtMoney(cost)} cash (you have ${fmtMoney(state.cash)}).</p>`}
+    </div>`;
+  }
+
+  /** Wire research CTAs after judgment HTML is injected (full modal or live rail refresh). */
+  function bindJudgmentResearchButtons(root) {
+    if (!root) return;
+    root.querySelectorAll('[data-buy-research]').forEach((btn) => {
+      if (btn._researchBound) return;
+      btn._researchBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.dataset.buyResearch || '';
+        const parts = key.split('|');
+        if (parts.length === 2) buyMarketResearch(parts[0], parts[1]);
+      });
+    });
+  }
+
+  function setJudgmentHtml(el, draft) {
+    if (!el || !draft) return;
+    el.innerHTML = routeBusinessJudgmentHtml(draft);
+    bindJudgmentResearchButtons(el);
+  }
+
   function routeBusinessJudgmentHtml(draft) {
     const econ = projectRouteBusinessCase(draft);
     if (!econ) return '<p class="muted">Select an aircraft to judge this route.</p>';
     const cfg = routeEconomics();
-    const rec = recommendLaunchFare(draft);
+    const precise = judgmentIsPrecise(draft);
+    const rec = precise ? recommendLaunchFare(draft) : null;
     const yearly = projectRouteYearlyOutlook(draft);
     const loadPct = (econ.via.load * 100).toFixed(0);
     const hubTarget = cfg.hub_profit_target_years || 2.5;
+    const mat = econ.hubMaturity || hubMaturityAt(draft.origin);
+
+    const hasReverse = (state.routes || []).some(
+      (r) => r.origin === draft.dest && r.dest === draft.origin
+    );
+    const returnHtml = hasReverse
+      ? `<p class="judgment-note">Return service <b>${draft.dest}→${draft.origin}</b> already flies — both legs carry paying passengers.</p>`
+      : `<p class="judgment-note danger"><b>Empty return:</b> without a <b>${draft.dest}→${draft.origin}</b> flight, the plane ferries home empty (fuel + crew, $0 tickets). Open the return leg — or check “Launch with return” below.</p>`;
+
+    // Soften exact year copy on weak cases when fuzzy
+    let verdictLabel = econ.verdictLabel;
+    if (!precise && econ.monthlyNet > 0 && econ.breakEvenYears != null && econ.breakEvenYears > routeEconomics().marginal_payback_warn_years) {
+      verdictLabel = 'Weak — long recovery if it works at all';
+    }
+
+    if (!precise) {
+      const netBand = fuzzyMoneyBand(econ.monthlyNet);
+      const varBand = fuzzyMoneyBand(econ.monthlyVariable);
+      const fixedBand = fuzzyMoneyBand(econ.monthlyFixed);
+      const payBand =
+        econ.monthlyNet <= 0
+          ? '<span class="danger">May never recover launch costs</span>'
+          : fuzzyYearsBand(econ.breakEvenYears);
+      const loadWord = fuzzyLoadLabel(econ.via.load);
+      const plane = state.fleet.find((f) => f.id === draft.aircraftId);
+      const market =
+        plane && draft.origin && draft.dest
+          ? marketFareForPair(draft.origin, draft.dest, plane.type)
+          : null;
+      const fareNote = market
+        ? `<p class="judgment-rec judgment-rec-fuzzy">Your fare <b>$${draft.fare}</b> vs ~market <b>$${market}</b> — without research there is no optimal-fare hint. Start near market and watch live loads.</p>`
+        : '';
+      const y1 = yearly[0];
+      const y3 = yearly[2] || yearly[yearly.length - 1];
+      const outlookNote =
+        y1 && y3
+          ? `<p class="judgment-note">Conservative outlook: year 1 looks <b>${fuzzyLoadLabel((y1.loadPct || 0) / 100)}</b>; by year 3 still only directional (${y3.cumulative >= 0 ? 'may cover launch' : 'still underwater on this math'}).</p>`
+          : '';
+      const hqNote = `<p class="judgment-note"><b>${mat.label}</b> at ${draft.origin} (brand ${mat.brand.toFixed(0)}%) — ${
+        mat.tier === 'new'
+          ? 'new stations pay more HQ share and convert ads poorly until passengers know you.'
+          : mat.tier === 'building'
+            ? 'building presence; overhead and capture improve as brand rises.'
+            : 'mature hub — better capture and ad efficiency.'
+      }</p>`;
+      return `<div class="route-judgment ${econ.verdictClass} judgment-fuzzy">
+        <p class="judgment-kicker">Business judgment · directional</p>
+        <p class="judgment-verdict"><strong>${verdictLabel}</strong></p>
+        ${marketJudgmentOneLiner(draft, { precise: false })}
+        ${returnHtml}
+        ${fareNote}
+        <dl class="stat-dl judgment-stats">
+          <dt>Route margin (est.)</dt><dd class="${econ.monthlyVariable >= 0 ? '' : 'danger'}">${varBand} <span class="muted">· ${loadWord} loads</span></dd>
+          <dt>Allocated fixed (est.)</dt><dd>${fixedBand}</dd>
+          <dt>Net contribution (est.)</dt><dd class="${econ.monthlyNet >= 0 ? '' : 'danger'}">${netBand}</dd>
+          <dt>Upfront at launch</dt><dd>${fmtMoney(econ.upfront)}</dd>
+          <dt>Payback horizon</dt><dd>${payBand}</dd>
+        </dl>
+        ${hqNote}
+        ${outlookNote}
+        ${marketResearchCtaHtml(draft)}
+        <p class="muted" style="font-size:0.64rem;margin-top:6px;">Live sim still uses full economics. Research unlocks the exact spreadsheet view for this pair.</p>
+      </div>`;
+    }
+
     const paybackBurdened =
       econ.monthlyNet <= 0
         ? `<span class="danger">Never</span> — loses <b>${fmtMoney(Math.abs(econ.monthlyNet))}/mo</b> after gate, aircraft, HQ &amp; launch costs.`
@@ -10230,9 +10552,20 @@
     const recHtml = rec
       ? `<p class="judgment-rec">Suggested starting fare: <b>$${rec.fare}</b> (market $${rec.market}) — model hint only; GDP, rivals, and marketing will move results.</p>`
       : '';
+    const researchBadge = hasMarketResearch(draft.origin, draft.dest)
+      ? '<span class="judgment-precise-badge">Market research</span>'
+      : isTutorialScenario()
+        ? '<span class="judgment-precise-badge tutorial">Tutorial full math</span>'
+        : playerFliesPair(draft.origin, draft.dest)
+          ? '<span class="judgment-precise-badge">Flown pair — full math</span>'
+          : '';
+    const ohMultNote =
+      mat.overheadMult && Math.abs(mat.overheadMult - 1) > 0.02
+        ? ` · hub maturity ×${mat.overheadMult.toFixed(2)} HQ`
+        : '';
     const hqNote = econ.isNewStation
-      ? `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ &amp; corporate overhead share. New stations bear more overhead per route until the hub matures — existing hubs look cheaper for the same aircraft.</p>`
-      : `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ overhead (split across ${state.routes.length + 1} routes). Airlines typically want a <b>hub station profitable within ~${hubTarget} years</b>.</p>`;
+      ? `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ &amp; corporate overhead share (<b>${mat.label}</b>, brand ${mat.brand.toFixed(0)}%${ohMultNote}). New stations bear more overhead per route until brand matures — known hubs look cheaper for the same aircraft.</p>`
+      : `<p class="judgment-note">Includes <b>${fmtMoney(econ.corpShare)}/mo</b> HQ overhead (split across ${state.routes.length + 1} routes · <b>${mat.label}</b>${ohMultNote}). Airlines typically want a <b>hub station profitable within ~${hubTarget} years</b>.</p>`;
     const yearRows = yearly
       .map(
         (y) =>
@@ -10241,20 +10574,13 @@
       .join('');
     const yearTable = yearly.length
       ? `<table class="route-review-table judgment-years"><thead><tr><th>Horizon</th><th>Conservative load</th><th>Net/mo</th><th>Cumulative</th></tr></thead><tbody>${yearRows}</tbody></table>
-         <p class="muted" style="font-size:0.66rem;margin:4px 0 0;">Years 1–3 use conservative ramp (brand building), cost creep, and inflation — not a guarantee.</p>`
+         <p class="muted" style="font-size:0.66rem;margin:4px 0 0;">Years 1–3 use conservative ramp (faster when origin brand is high), cost creep, and inflation — not a guarantee.</p>`
       : '';
 
-    const hasReverse = (state.routes || []).some(
-      (r) => r.origin === draft.dest && r.dest === draft.origin
-    );
-    const returnHtml = hasReverse
-      ? `<p class="judgment-note">Return service <b>${draft.dest}→${draft.origin}</b> already flies — both legs carry paying passengers.</p>`
-      : `<p class="judgment-note danger"><b>Empty return:</b> without a <b>${draft.dest}→${draft.origin}</b> flight, the plane ferries home empty (fuel + crew, $0 tickets). Open the return leg — or check “Launch with return” below.</p>`;
-
     return `<div class="route-judgment ${econ.verdictClass}">
-      <p class="judgment-kicker">Business judgment</p>
-      <p class="judgment-verdict"><strong>${econ.verdictLabel}</strong></p>
-      ${marketJudgmentOneLiner(draft)}
+      <p class="judgment-kicker">Business judgment ${researchBadge}</p>
+      <p class="judgment-verdict"><strong>${verdictLabel}</strong></p>
+      ${marketJudgmentOneLiner(draft, { precise: true })}
       ${returnHtml}
       ${recHtml}
       <dl class="stat-dl judgment-stats">
@@ -10684,7 +11010,7 @@
     const limits = $('rl-limits');
     try {
       if (prev) prev.innerHTML = routeLaunchPreviewHtml(d);
-      if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(d);
+      if (judgment) setJudgmentHtml(judgment, d);
       if (limits) limits.innerHTML = launchLimitsStripHtml(d);
     } catch (err) {
       console.error('Runway: studio preview failed', err);
@@ -10907,7 +11233,7 @@
           railPrev.innerHTML = routeLaunchPreviewHtml(routeLaunchDraft);
         }
         if (railJudg && routeLaunchStep >= 2 && routeLaunchDraft.origin && routeLaunchDraft.dest) {
-          railJudg.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
+          setJudgmentHtml(railJudg, routeLaunchDraft);
         }
       } catch (e) { /* ignore live rail glitches */ }
       refreshRouteStudioLivePanels();
@@ -10995,6 +11321,7 @@
     overlay.querySelectorAll('[data-studio-goto]').forEach((btn) => {
       btn.addEventListener('click', () => setRouteStudioStep(+btn.dataset.studioGoto));
     });
+    bindJudgmentResearchButtons(overlay);
     overlay.querySelectorAll('[data-rl-nudge]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const kind = btn.dataset.rlNudge;
@@ -13497,6 +13824,7 @@
   function scenarioDifficultyMeta(sc) {
     if (!sc) return { label: 'Custom', tone: 'mid' };
     if (sc.tutorial) return { label: 'Guided tutorial', tone: 'guided' };
+    if (sc.mature_network) return { label: 'Large airline sandbox', tone: 'mid' };
     if ((sc.debt || []).length || sc.financing_tier === 'distressed') return { label: 'Turnaround', tone: 'hard' };
     if ((sc.cash || 0) >= 20_000_000) return { label: 'Well-funded', tone: 'easy' };
     if ((sc.cash || 0) < 1_000_000) return { label: 'Lean startup', tone: 'hard' };
@@ -17099,9 +17427,11 @@
           .join('');
         const tutorialBadge = s.winning_track
           ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended — profit coach</span>'
-          : s.tutorial
-            ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Recommended for new players</span>'
-            : '';
+          : s.mature_network
+            ? '<span class="scenario-chip" style="border-color:var(--gold);color:var(--gold);">End-state sandbox</span>'
+            : s.tutorial
+              ? '<span class="scenario-chip" style="border-color:var(--accent);color:var(--accent);">Tutorial</span>'
+              : '';
         const goalLine = s.goal
           ? `<span class="scenario-goal">Goal: ${s.goal.label}</span>`
           : '';
@@ -17134,6 +17464,7 @@
     discardRouteStudioDraft,
     softCloseRouteStudio,
     setRouteStudioStep,
+    buyMarketResearch,
     adjustRouteFrequency,
     setRouteFrequency,
     setRouteAircraft,
@@ -17193,7 +17524,9 @@
       renderEconomy();
       if (routeLaunchDraft) {
         const judgment = $('rl-judgment');
-        if (judgment) judgment.innerHTML = routeBusinessJudgmentHtml(routeLaunchDraft);
+        const rail = $('rl-rail-judgment');
+        if (judgment) setJudgmentHtml(judgment, routeLaunchDraft);
+        if (rail) setJudgmentHtml(rail, routeLaunchDraft);
       }
     },
     toggleAirportSection: (section) => {
