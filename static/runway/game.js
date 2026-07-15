@@ -2621,6 +2621,9 @@
 
   function planeBlockHoursToday(plane) {
     if (!plane || plane.aog_days_left > 0) return 0;
+    if (plane.block_hours_today != null && Number.isFinite(plane.block_hours_today)) {
+      return plane.block_hours_today;
+    }
     let hours = 0;
     (state.routes || []).forEach((r) => {
       if (r.aircraft_id !== plane.id) return;
@@ -2655,12 +2658,421 @@
     if (!Array.isArray(plane.aog_log)) plane.aog_log = [];
     if (plane.acquired_day == null) plane.acquired_day = Math.max(0, (state && state.day) || 0);
     if (plane.aog_events == null) plane.aog_events = 0;
+    if (plane.block_hours_today == null) plane.block_hours_today = 0;
+    if (!plane.status) plane.status = 'parked';
+    if (!Array.isArray(plane.legs_today)) plane.legs_today = [];
+    if (plane.location == null) {
+      const assigned = (state && state.routes || []).find((r) => r.aircraft_id === plane.id);
+      plane.location =
+        (assigned && assigned.origin) ||
+        (state && state.gates[0] && state.gates[0].airport) ||
+        'CMH';
+    }
     const ac = aircraftType(plane.type);
     if (!plane.leased && plane.life_months_left == null && ac) {
       plane.life_months_left = (ac.lifespan_years || 25) * 12;
     }
     if (plane.leased && plane.lease_months_left == null) plane.lease_months_left = 60;
     return plane;
+  }
+
+  // ── Live aircraft ops (hour clock + board + map) ─────────────────────
+
+  function flightsPerDayForRoute(route) {
+    return Math.max(0, Math.round((route.frequency_week || 0) / 7));
+  }
+
+  function defaultOpsWindow(iata) {
+    const ap = airport(iata);
+    const hours = (ap && ap.ops_hours_per_day) || 14;
+    // Center a realistic bank starting ~06:00 local sim clock
+    const start = 6;
+    const end = Math.min(23, start + hours);
+    return { start, end };
+  }
+
+  function turnaroundHoursAt(iata) {
+    const ap = airport(iata);
+    return Math.max(0.5, ((ap && ap.min_turnaround_min) || 90) / 60);
+  }
+
+  function legBlockHours(origin, dest, plane) {
+    const o = airport(origin);
+    const d = airport(dest);
+    const ac = aircraftType(plane.type) || aircraftType(plane.aircraft_type);
+    if (!o || !d || !ac) return 1.5;
+    return Math.max(0.6, blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), ac));
+  }
+
+  /**
+   * Build today's leg list for one aircraft: chain revenue legs + ferries.
+   * Visualization + ops exceptions; cash P&L still closes on day economics.
+   */
+  function buildPlaneDayLegs(plane) {
+    ensurePlaneTelemetry(plane);
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+    const bag = [];
+    routes.forEach((r) => {
+      const n = flightsPerDayForRoute(r);
+      const bh = legBlockHours(r.origin, r.dest, plane);
+      for (let i = 0; i < n; i++) {
+        bag.push({
+          routeId: r.id,
+          origin: r.origin,
+          dest: r.dest,
+          blockH: bh,
+          type: 'revenue',
+        });
+      }
+    });
+
+    if (!isPlaneAvailable(plane)) {
+      return [];
+    }
+
+    let loc = plane.location || (bag[0] && bag[0].origin) || (state.gates[0] && state.gates[0].airport) || 'CMH';
+    if (plane.status === 'airborne' && plane.airborne && plane.airborne.dest) {
+      loc = plane.airborne.dest; // will land first in hour sim
+    }
+    const win = defaultOpsWindow(loc);
+    let t = win.start;
+    // If rebuilding mid-day, don't schedule in the past
+    if (plane.schedule_day === state.day && state.hour != null) {
+      t = Math.max(t, state.hour);
+    }
+
+    const legs = [];
+    let guard = 0;
+    while (bag.length && guard++ < 48) {
+      let idx = bag.findIndex((l) => l.origin === loc);
+      if (idx < 0) {
+        // Ferry empty to next needed origin
+        const next = bag[0];
+        const bh = legBlockHours(loc, next.origin, plane) * 0.92;
+        const dep = t;
+        const arr = dep + bh;
+        if (arr > win.end + 3) {
+          bag.forEach((l) => {
+            legs.push({
+              ...l,
+              depHour: t,
+              arrHour: t,
+              status: 'missed',
+              missReason: 'ops window full',
+              type: l.type || 'revenue',
+            });
+          });
+          bag.length = 0;
+          break;
+        }
+        legs.push({
+          type: 'ferry',
+          origin: loc,
+          dest: next.origin,
+          blockH: bh,
+          depHour: dep,
+          arrHour: arr,
+          status: 'planned',
+          routeId: null,
+        });
+        t = arr + turnaroundHoursAt(next.origin) * 0.75;
+        loc = next.origin;
+        continue;
+      }
+      const leg = bag.splice(idx, 1)[0];
+      const dep = t;
+      const arr = dep + leg.blockH;
+      if (arr > win.end + 2.5) {
+        legs.push({
+          ...leg,
+          depHour: dep,
+          arrHour: arr,
+          status: 'missed',
+          missReason: 'past ops hours',
+        });
+        bag.forEach((l) => {
+          legs.push({
+            ...l,
+            depHour: t,
+            arrHour: t,
+            status: 'missed',
+            missReason: 'ops window full',
+          });
+        });
+        bag.length = 0;
+        break;
+      }
+      legs.push({
+        ...leg,
+        depHour: dep,
+        arrHour: arr,
+        status: 'planned',
+      });
+      t = arr + turnaroundHoursAt(leg.dest);
+      loc = leg.dest;
+    }
+    return legs;
+  }
+
+  function rebuildAircraftDaySchedule(force) {
+    if (!state || !state.fleet) return;
+    (state.fleet || []).forEach((plane) => {
+      ensurePlaneTelemetry(plane);
+      if (!force && plane.schedule_day === state.day && Array.isArray(plane.legs_today) && plane.legs_today.length) {
+        return;
+      }
+      // Preserve airborne progress across rebuild
+      const wasAir = plane.status === 'airborne' ? plane.airborne : null;
+      plane.legs_today = buildPlaneDayLegs(plane);
+      plane.schedule_day = state.day;
+      plane.block_hours_today = plane.block_hours_today || 0;
+      if (wasAir) {
+        plane.status = 'airborne';
+        plane.airborne = wasAir;
+      } else if (!isPlaneAvailable(plane)) {
+        plane.status = 'aog';
+        plane.airborne = null;
+      } else if (plane.status === 'airborne' && !plane.airborne) {
+        plane.status = 'parked';
+      } else if (plane.status !== 'turnaround') {
+        plane.status = plane.status === 'aog' ? 'aog' : 'parked';
+      }
+    });
+  }
+
+  function formatHourClock(h) {
+    if (h == null || !Number.isFinite(+h)) return '—';
+    const hr = Math.floor(+h) % 24;
+    const min = Math.round((+h - Math.floor(+h)) * 60);
+    return `${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+
+  function planeLiveStatusLabel(plane) {
+    ensurePlaneTelemetry(plane);
+    if (!isPlaneAvailable(plane)) return `AOG ${plane.aog_days_left || 0}d`;
+    if (plane.status === 'airborne' && plane.airborne) {
+      const ab = plane.airborne;
+      const pct = Math.round((ab.progress || 0) * 100);
+      return `✈ ${ab.origin}→${ab.dest} (${pct}%)`;
+    }
+    if (plane.status === 'turnaround') {
+      return `Turn @ ${plane.location || '—'} until ${formatHourClock(plane.turnaround_free_hour)}`;
+    }
+    return `Parked ${plane.location || '—'}`;
+  }
+
+  function nextPlannedLeg(plane) {
+    return (plane.legs_today || []).find((l) => l.status === 'planned') || null;
+  }
+
+  function aircraftMapPosition(plane) {
+    ensurePlaneTelemetry(plane);
+    if (plane.status === 'airborne' && plane.airborne) {
+      const ab = plane.airborne;
+      const o = airport(ab.origin);
+      const d = airport(ab.dest);
+      if (!o || !d) return null;
+      const t = Math.max(0, Math.min(1, ab.progress != null ? ab.progress : 0.5));
+      return {
+        lat: o.lat + (d.lat - o.lat) * t,
+        lon: o.lon + (d.lon - o.lon) * t,
+        heading: Math.atan2(d.lon - o.lon, d.lat - o.lat),
+        airborne: true,
+        label: `${plane.id} ${ab.origin}→${ab.dest}`,
+      };
+    }
+    const iata = plane.location;
+    const ap = airport(iata);
+    if (!ap) return null;
+    return {
+      lat: ap.lat,
+      lon: ap.lon,
+      heading: 0,
+      airborne: false,
+      label: `${plane.id} @ ${iata}`,
+    };
+  }
+
+  /** Advance fleet one simulated hour (positions, departures, landings, misses). */
+  function advanceAircraftOneHour() {
+    if (!state || !state.fleet) return;
+    rebuildAircraftDaySchedule(false);
+    const h = state.hour == null ? 6 : state.hour;
+
+    state.fleet.forEach((plane) => {
+      ensurePlaneTelemetry(plane);
+      if (!isPlaneAvailable(plane)) {
+        plane.status = 'aog';
+        plane.airborne = null;
+        return;
+      }
+
+      // Free from turnaround when clock reaches free hour
+      if (
+        plane.status === 'turnaround' &&
+        plane.turnaround_free_hour != null &&
+        h + 0.001 >= plane.turnaround_free_hour
+      ) {
+        plane.status = 'parked';
+        plane.turnaround_free_hour = null;
+      }
+
+      // Airborne: update progress / land
+      if (plane.status === 'airborne' && plane.airborne) {
+        const ab = plane.airborne;
+        const span = Math.max(0.35, ab.arrHour - ab.depHour);
+        const mid = h + 0.5;
+        ab.progress = Math.max(0, Math.min(0.99, (mid - ab.depHour) / span));
+        if (h + 1 > ab.arrHour - 0.001) {
+          // Land this hour
+          plane.location = ab.dest;
+          plane.status = 'turnaround';
+          const turn = turnaroundHoursAt(ab.dest);
+          plane.turnaround_free_hour = Math.max(h + 0.25, ab.arrHour + turn);
+          const leg = (plane.legs_today || []).find(
+            (l) =>
+              l.status === 'departed' &&
+              l.origin === ab.origin &&
+              l.dest === ab.dest &&
+              Math.abs((l.depHour || 0) - ab.depHour) < 0.05
+          );
+          if (leg) leg.status = 'arrived';
+          plane.airborne = null;
+        }
+        return; // can't depart same hour after landing in this simplified model if still airborne
+      }
+
+      // Depart due legs
+      if (plane.status === 'parked' || plane.status === 'turnaround') {
+        if (
+          plane.status === 'turnaround' &&
+          plane.turnaround_free_hour != null &&
+          plane.turnaround_free_hour > h + 0.05
+        ) {
+          return;
+        }
+        if (plane.status === 'turnaround') {
+          plane.status = 'parked';
+          plane.turnaround_free_hour = null;
+        }
+        const legs = plane.legs_today || [];
+        for (let i = 0; i < legs.length; i++) {
+          const leg = legs[i];
+          if (leg.status !== 'planned') continue;
+          // Not yet due
+          if (leg.depHour >= h + 1) break;
+          // Overdue or due this hour
+          if (plane.location !== leg.origin) {
+            leg.status = 'missed';
+            leg.missReason = `aircraft at ${plane.location || '—'}, not ${leg.origin}`;
+            if (!plane._missLogged || plane._missLogged !== `${state.day}-${i}`) {
+              plane._missLogged = `${state.day}-${i}`;
+              pushEvent(
+                `<b>${plane.id}</b> missed ${leg.origin}→${leg.dest} — metal not at origin (${leg.missReason}).`,
+                'bad'
+              );
+            }
+            continue;
+          }
+          // Depart
+          leg.status = 'departed';
+          plane.status = 'airborne';
+          plane.location = null;
+          plane.airborne = {
+            origin: leg.origin,
+            dest: leg.dest,
+            depHour: leg.depHour,
+            arrHour: leg.arrHour,
+            progress: 0.05,
+            routeId: leg.routeId,
+            ferry: leg.type === 'ferry',
+          };
+          const bh = Math.max(0.25, (leg.arrHour || 0) - (leg.depHour || 0));
+          plane.block_hours_today = (plane.block_hours_today || 0) + bh;
+          break;
+        }
+      }
+    });
+  }
+
+  /** After a full day economy tick: place metal at end of planned day and refresh schedule. */
+  function snapAircraftAfterDayTick() {
+    if (!state || !state.fleet) return;
+    state.fleet.forEach((plane) => {
+      ensurePlaneTelemetry(plane);
+      plane.block_hours_today = 0;
+      if (!isPlaneAvailable(plane)) {
+        plane.status = 'aog';
+        plane.airborne = null;
+        plane.legs_today = [];
+        plane.schedule_day = state.day;
+        return;
+      }
+      // Build schedule for the new day and leave plane parked at start location of first leg or last dest
+      plane.airborne = null;
+      plane.turnaround_free_hour = null;
+      plane.status = 'parked';
+      plane.schedule_day = null; // force rebuild
+      plane.legs_today = [];
+      const legs = buildPlaneDayLegs(plane);
+      plane.legs_today = legs;
+      plane.schedule_day = state.day;
+      // Start of day: sit at first planned origin or keep location
+      const first = legs.find((l) => l.status === 'planned');
+      if (first) plane.location = first.origin;
+      else if (!plane.location) {
+        const r = (state.routes || []).find((x) => x.aircraft_id === plane.id);
+        plane.location = (r && r.origin) || (state.gates[0] && state.gates[0].airport) || 'CMH';
+      }
+    });
+  }
+
+  function liveBoardHtml() {
+    if (!state || !state.fleet || !state.fleet.length) {
+      return '<p class="muted" style="font-size:0.72rem;">No aircraft — lease metal to open the live board.</p>';
+    }
+    rebuildAircraftDaySchedule(false);
+    const rows = state.fleet
+      .map((plane) => {
+        ensurePlaneTelemetry(plane);
+        const ac = aircraftType(plane.type);
+        const next = nextPlannedLeg(plane);
+        const nextLabel = next
+          ? `${formatHourClock(next.depHour)} ${next.origin}→${next.dest}${next.type === 'ferry' ? ' (ferry)' : ''}`
+          : '—';
+        const done = (plane.legs_today || []).filter((l) => l.status === 'arrived' || l.status === 'departed').length;
+        const missed = (plane.legs_today || []).filter((l) => l.status === 'missed').length;
+        const planned = (plane.legs_today || []).filter((l) => l.status === 'planned').length;
+        const st = planeLiveStatusLabel(plane);
+        const stCls =
+          plane.status === 'airborne'
+            ? 'live-air'
+            : plane.status === 'aog' || missed
+              ? 'live-bad'
+              : plane.status === 'turnaround'
+                ? 'live-turn'
+                : '';
+        return `<tr class="${stCls}">
+          <td><b>${plane.id}</b><br><span class="muted" style="font-size:0.62rem;">${ac ? ac.name : plane.type}</span></td>
+          <td>${st}</td>
+          <td>${nextLabel}</td>
+          <td>${fmtHours(plane.block_hours_today || 0)}h<br><span class="muted" style="font-size:0.62rem;">${done} done · ${planned} left${missed ? ` · <span class="danger">${missed} miss</span>` : ''}</span></td>
+        </tr>`;
+      })
+      .join('');
+    return `
+      <div class="live-board">
+        <div class="live-board-head">
+          <h4>Live board · Day ${state.day} · ${formatHourClock(state.hour != null ? state.hour : 8)}</h4>
+          <span class="muted" style="font-size:0.66rem;">Slow = 1 simulated hour. Watch metal move on the map.</span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="route-review-table live-board-table">
+            <thead><tr><th>Tail</th><th>Now</th><th>Next leg</th><th>Today</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
   }
 
   /** Reliability 0–100 from utilization stress + AOG history (display + AOG risk context). */
@@ -3886,7 +4298,7 @@
           {
             id: 'slow',
             label: 'A — Set speed to Slow & open Financials',
-            hint: '4-hour steps — safe way to watch loads build.',
+            hint: '1-hour steps — watch the live board and map.',
             effect: 'playbook_slow_finance',
           },
           {
@@ -5286,6 +5698,7 @@
       day: 0,
       hour: 8,
       speed: 'pause',
+      hour: 6,
       cash: base.cash,
       debt: base.debt,
       bonds: base.bonds,
@@ -5355,6 +5768,12 @@
     const helm = base.mature_network
       ? `${state.player_name} took the helm of ${state.airline_name} — ${base.name}`
       : `${state.player_name} founded ${state.airline_name} — ${base.name}`;
+    // Place metal at home bases for the live board
+    try {
+      snapAircraftAfterDayTick();
+    } catch (e) {
+      /* ops optional on brand-new games */
+    }
     pushEvent(helm);
     saveGame();
     renderAll();
@@ -9352,7 +9771,7 @@
     const labels = isMobileLayout()
       ? {
           pause: 'Paused',
-          slow: '4-hour steps',
+          slow: '1-hour steps · live board',
           day: '1 day / tick',
           week: '1 week / tick',
           month: '1 month / tick',
@@ -9360,13 +9779,29 @@
         }
       : {
           pause: 'Paused',
-          slow: '4-hour steps',
-          day: '1 day / tick',
+          slow: '1 hour / tick — watch planes on the map',
+          day: '1 day / tick — full day economics',
           week: '1 week / tick — alerts will pause & slow you',
           month: '1 month / tick — alerts will pause & slow you',
           year: '365 days / tick — alerts still pause mid-year',
         };
     hint.textContent = labels[speedId] || '';
+  }
+
+  function closeSimulatedDay(econ, interest) {
+    recordPnlHistory(state.daily_pnl);
+    recordCompanyDayLedger(econ, interest);
+    recordPositiveDayStreak(state.daily_pnl);
+    updateDailyMetrics(econ);
+    recordStationDayHistory();
+    recordFleetUtilHistory();
+    processDayRollover(econ.dayRev, econ.dayCost);
+    checkSurvivalTriggers();
+    checkPositiveMilestones();
+    checkScenarioGoal();
+    // New calendar day — reset hour ops board
+    state.hour = 6;
+    snapAircraftAfterDayTick();
   }
 
   /** Core day loop without save/render — used by tickDays and year chunking. */
@@ -9380,16 +9815,7 @@
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
-      recordPnlHistory(state.daily_pnl);
-      recordCompanyDayLedger(econ, interest);
-      recordPositiveDayStreak(state.daily_pnl);
-      updateDailyMetrics(econ);
-      recordStationDayHistory();
-      recordFleetUtilHistory();
-      processDayRollover(econ.dayRev, econ.dayCost);
-      checkSurvivalTriggers();
-      checkPositiveMilestones();
-      checkScenarioGoal();
+      closeSimulatedDay(econ, interest);
       if (state.game_over || state.paused_reason) break;
     }
     return ran;
@@ -9838,36 +10264,53 @@
 
   function tickHours(hours) {
     if (!state || state.game_over || hours <= 0) return;
-    if (state.hour == null) state.hour = 8;
+    if (state.hour == null) state.hour = 6;
 
-    const econ = simulateDayEconomics();
-    const frac = hours / 24;
-    const interest = accrueCashInterest(frac);
-    state.daily_pnl = econ.pnl + interest;
-    state.cash += econ.pnl * frac;
-
-    state.hour += hours;
     let dayAdvanced = false;
-    while (state.hour >= 24) {
-      state.hour -= 24;
-      state.day += 1;
-      dayAdvanced = true;
-      recordPnlHistory(state.daily_pnl);
-      recordCompanyDayLedger(econ, interest);
-      recordPositiveDayStreak(state.daily_pnl);
-      updateDailyMetrics(econ);
-      recordStationDayHistory();
-      recordFleetUtilHistory();
-      processDayRollover(econ.dayRev, econ.dayCost);
-      checkSurvivalTriggers();
-      checkPositiveMilestones();
-      checkScenarioGoal();
+    for (let step = 0; step < hours; step++) {
       if (state.game_over || state.paused_reason) break;
+      rebuildAircraftDaySchedule(false);
+      advanceAircraftOneHour();
+
+      // Soft live P&L preview while on hour clock (does not double-commit day books)
+      const preview = simulateDayEconomics({ commit: false });
+      state.daily_pnl = preview.pnl;
+
+      state.hour = (state.hour == null ? 6 : state.hour) + 1;
+      if (state.hour >= 24) {
+        // Close the day with full economics once
+        state.hour = 0;
+        state.day += 1;
+        dayAdvanced = true;
+        const econ = simulateDayEconomics({ commit: true });
+        const interest = accrueCashInterest(1);
+        state.daily_pnl = econ.pnl + interest;
+        state.cash += econ.pnl;
+        closeSimulatedDay(econ, interest);
+        if (state.game_over || state.paused_reason) break;
+      }
     }
 
     saveGame();
-    if (dayAdvanced) renderAll();
-    else renderHud();
+    if (dayAdvanced) {
+      renderAll();
+    } else {
+      renderHud();
+      try {
+        drawMap();
+      } catch (e) {
+        /* map optional */
+      }
+      // Refresh fleet board if that tab is open
+      const fleetPanel = $('panel-fleet');
+      if (fleetPanel && fleetPanel.classList.contains('active')) {
+        try {
+          renderFleet();
+        } catch (e2) {
+          /* ignore */
+        }
+      }
+    }
   }
 
   function resolveSpeedId(speedId) {
@@ -13700,8 +14143,53 @@
     fitMapToManagedArea();
   }
 
+  function ensureMapboxAircraftLayer() {
+    if (!mapboxMap || mapboxMap.getSource('aircraft')) return;
+    mapboxMap.addSource('aircraft', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    });
+    if (!mapboxMap.getLayer('aircraft-layer')) {
+      mapboxMap.addLayer({
+        id: 'aircraft-layer',
+        type: 'circle',
+        source: 'aircraft',
+        paint: {
+          'circle-radius': ['case', ['get', 'airborne'], 6, 4.5],
+          'circle-color': ['case', ['get', 'airborne'], '#ffd166', '#7eb8e8'],
+          'circle-stroke-color': '#041018',
+          'circle-stroke-width': 1.5,
+          'circle-opacity': 0.95,
+        },
+      });
+    }
+    if (!mapboxMap.getLayer('aircraft-labels-layer')) {
+      mapboxMap.addLayer({
+        id: 'aircraft-labels-layer',
+        type: 'symbol',
+        source: 'aircraft',
+        layout: {
+          'text-field': ['get', 'id'],
+          'text-size': 9,
+          'text-offset': [0, 1.1],
+          'text-anchor': 'top',
+          'text-allow-overlap': false,
+        },
+        paint: {
+          'text-color': '#f0f8ff',
+          'text-halo-color': '#041018',
+          'text-halo-width': 1.2,
+        },
+      });
+    }
+  }
+
   function setupMapboxLayers() {
-    if (!mapboxMap || mapboxMap.getSource('airports')) return;
+    if (!mapboxMap) return;
+    if (mapboxMap.getSource('airports')) {
+      ensureMapboxAircraftLayer();
+      return;
+    }
 
     mapboxMap.addSource('competitor-routes', {
       type: 'geojson',
@@ -13719,6 +14207,7 @@
       type: 'geojson',
       data: { type: 'FeatureCollection', features: [] },
     });
+    ensureMapboxAircraftLayer();
 
     mapboxMap.addLayer({
       id: 'competitor-routes-layer',
@@ -14402,7 +14891,36 @@
       mapboxMap
         .getSource('competitor-routes')
         .setData(buildRoutesGeoJSON(state.competitor_routes, false));
+      ensureMapboxAircraftLayer();
+      const acSrc = mapboxMap.getSource('aircraft');
+      if (acSrc) {
+        acSrc.setData(buildAircraftGeoJSON());
+      }
     }
+  }
+
+  function buildAircraftGeoJSON() {
+    const features = [];
+    if (!state || !state.fleet) return { type: 'FeatureCollection', features };
+    rebuildAircraftDaySchedule(false);
+    state.fleet.forEach((plane) => {
+      const pos = aircraftMapPosition(plane);
+      if (!pos) return;
+      features.push({
+        type: 'Feature',
+        properties: {
+          id: plane.id,
+          airborne: !!pos.airborne,
+          label: pos.label || plane.id,
+          status: plane.status || 'parked',
+        },
+        geometry: {
+          type: 'Point',
+          coordinates: [pos.lon, pos.lat],
+        },
+      });
+    });
+    return { type: 'FeatureCollection', features };
   }
 
   function clampMapView() {
@@ -14680,6 +15198,22 @@
       }
     });
     html += '</g>';
+
+    // Live aircraft markers (hour ops)
+    if (state && state.fleet && state.fleet.length) {
+      rebuildAircraftDaySchedule(false);
+      html += '<g class="map-aircraft">';
+      state.fleet.forEach((plane) => {
+        const pos = aircraftMapPosition(plane);
+        if (!pos) return;
+        const p = projectMap(pos.lat, pos.lon);
+        const fill = pos.airborne ? '#ffd166' : '#7eb8e8';
+        const r = pos.airborne ? 5.5 : 4.2;
+        html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="#041018" stroke-width="1.4" class="map-plane-dot" data-plane-id="${plane.id}" style="cursor:pointer"><title>${String(pos.label || plane.id).replace(/"/g, "'")}</title></circle>`;
+        html += `<text x="${p.x}" y="${p.y - 8}" text-anchor="middle" fill="#f0f8ff" font-size="8" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:2.5px">${plane.id}</text>`;
+      });
+      html += '</g>';
+    }
 
     svg.setAttribute('width', '100%');
     svg.setAttribute('height', '100%');
@@ -16281,7 +16815,7 @@
       cash: 'Company cash on hand. Pays leases, fuel, gates, and debt. Personal wealth is separate (Capital → secondary/IPO).',
       runway:
         'Months of cash left at today’s monthly burn (leases + marketing + debt service). Under ~3 mo = raise capital or cut costs.',
-      date: 'Simulated calendar. Slow = 4-hour steps (best while learning). Day = 1 day per tick.',
+      date: 'Simulated calendar. Slow = 1-hour steps (live board / planes on map). Day = 1 day per tick.',
       pnl:
         'Today’s net: route ticket profit minus fuel/crew minus a daily slice of gate & aircraft leases. Red does not always mean the route is broken — overhead may be heavy.',
       load:
@@ -16379,8 +16913,9 @@
     setText('hud-cash', fmtMoney(state.cash));
     const runwayText = state.cash < 0 ? 'BANKRUPT' : `${runwayMonths().toFixed(1)} mo`;
     setText('hud-runway', runwayText);
-    const showClock = state.speed === 'slow' || state.hour != null;
-    setText('hud-date', fmtDate(state.day, showClock ? (state.hour ?? 8) : null));
+    // Always show clock when we have an hour (live board / slow ops)
+    const hour = state.hour != null ? state.hour : 6;
+    setText('hud-date', fmtDate(state.day, hour));
     setText('hud-pnl', fmtMoney(state.daily_pnl));
     const net = networkRouteStats();
     const loadPct = net.count ? Math.round(net.avgLoad * 100) : null;
@@ -17012,7 +17547,8 @@
     if (!state.fleet.length) {
       html += '<p class="muted">No aircraft yet — open the shop to lease or buy your first plane.</p>';
     } else {
-      html += '<div class="fleet-owned-list">';
+      html += liveBoardHtml();
+      html += '<div class="fleet-owned-list" style="margin-top:12px;">';
       state.fleet.forEach((f) => {
         const ac = aircraftType(f.type);
         if (!ac) {
@@ -17040,8 +17576,10 @@
         const blockUsed = planeWeeklyBlockHoursUsed(f.id);
         const rel = planeReliabilityScore(f);
         const relTone = rel >= 80 ? 'chip-load-good' : rel >= 55 ? 'chip-load-warn' : 'chip-load-bad';
+        const live = planeLiveStatusLabel(f);
         html += `<button type="button" class="fleet-owned-card fleet-owned-card-btn" data-plane-detail="${f.id}" title="Open aircraft details">
-          <strong>${ac.name}</strong>${aog}
+          <strong>${ac.name}</strong> <span class="muted" style="font-size:0.72rem;">${f.id}</span>${aog}
+          <span class="muted fleet-live-line">${live}</span>
           <span class="muted">${seats} seats · ${f.leased ? 'Leased' : 'Owned'} · ${life}</span>
           <span class="muted">${ac.range_nm} nm · ${assigned} route${assigned === 1 ? '' : 's'} · <b>${fmtHours(blockUsed)}/${fmtHours(blockCap)}</b> block-hr/wk scheduled</span>
           <span class="muted" style="font-size:0.7rem;">Seat load: ${seatLoadLabel} · Util ${utilToday.toFixed(0)}% today / ${util.toFixed(0)}% MTD · Reliability <b class="${relTone}">${rel}</b></span>
@@ -17051,7 +17589,7 @@
       });
       html += '</div>';
       html +=
-        '<p class="muted" style="font-size:0.72rem;">Tap a plane for the full info page. Leased aircraft bill monthly even when <b>AOG</b>.</p>';
+        '<p class="muted" style="font-size:0.72rem;">Use <b>Slow (1 hr)</b> to watch the live board and map. Tap a plane for maintenance detail. Leased metal bills monthly even when <b>AOG</b>.</p>';
     }
 
     html += `<div class="btn-row">

@@ -2331,6 +2331,37 @@
   }
   .report-hub-table td, .report-fleet-table td { vertical-align: top; font-size: 0.72rem; }
   .report-section-body .warn { color: var(--gold); }
+  .live-board {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 200, 150, 0.28);
+    background: linear-gradient(160deg, rgba(0, 200, 150, 0.08), rgba(6, 13, 24, 0.75));
+  }
+  .live-board-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 12px;
+    margin-bottom: 8px;
+  }
+  .live-board-head h4 {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--accent);
+  }
+  .live-board-table td { font-size: 0.72rem; vertical-align: top; }
+  .live-board-table tr.live-air td { color: #ffd166; }
+  .live-board-table tr.live-turn td { color: #7eb8e8; }
+  .live-board-table tr.live-bad td { color: #ffb4b4; }
+  .fleet-live-line {
+    display: block;
+    font-size: 0.74rem !important;
+    color: var(--gold) !important;
+    margin: 2px 0 4px;
+  }
+  .map-plane-dot { pointer-events: auto; }
   .route-variance, .route-burden-block, .route-mkt-block {
     margin: 12px 0;
     padding: 10px 12px;
@@ -3804,7 +3835,7 @@
   <div class="speed-bar">
     <div class="speed-toolbar" aria-label="Simulation speed">
       <button type="button" class="speed-btn speed-pause" data-speed="pause" title="Pause">⏸</button>
-      <button type="button" class="speed-btn speed-slow" data-speed="slow" title="Slow — 4 hours per step">▷</button>
+      <button type="button" class="speed-btn speed-slow" data-speed="slow" title="Slow — 1 hour per step (live aircraft board)">▷</button>
       <button type="button" class="speed-btn speed-normal" data-speed="day" title="Normal — 1 day per step">▶</button>
       <button type="button" class="speed-btn" data-speed="week" title="Fast — 1 week per step">▶▶</button>
       <button type="button" class="speed-btn" data-speed="month" title="Faster — 1 month per step">▶▶▶</button>
@@ -3891,7 +3922,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=79"></script>
-<script src="/static/runway/game.js?v=85"></script>
+<script src="/static/runway/economics.js?v=80"></script>
+<script src="/static/runway/game.js?v=86"></script>
 </body>
 </html>

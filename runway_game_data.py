@@ -1883,7 +1883,8 @@ MARKETING_CHANNELS = [
 
 TIME_SPEEDS = [
     {'id': 'pause', 'label': 'Pause', 'days_per_tick': 0, 'hours_per_tick': 0},
-    {'id': 'slow', 'label': 'Slow (4 hr)', 'days_per_tick': 0, 'hours_per_tick': 4},
+    # Hour ops: live board + aircraft movement (1 simulated hour per tick).
+    {'id': 'slow', 'label': 'Slow (1 hr)', 'days_per_tick': 0, 'hours_per_tick': 1},
     {'id': 'day', 'label': 'Normal (1 day)', 'days_per_tick': 1, 'hours_per_tick': 0},
     {'id': 'week', 'label': 'Fast (1 week)', 'days_per_tick': 7, 'hours_per_tick': 0},
     {'id': 'month', 'label': 'Faster (1 month)', 'days_per_tick': 30, 'hours_per_tick': 0},
@@ -1893,7 +1894,7 @@ TIME_SPEEDS = [
 
 TICK_MS = {
     'pause': 0,
-    'slow': 1100,
+    'slow': 900,  # readable hour steps for live board
     'day': 750,
     'week': 580,
     'month': 460,
