@@ -2704,9 +2704,315 @@
     return Math.max(0.6, blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), ac));
   }
 
+  function ensureOpsDayBucket() {
+    if (!state) return null;
+    if (!state.ops_day || state.ops_day.day !== state.day) {
+      state.ops_day = {
+        day: state.day,
+        rev: 0,
+        cost: 0,
+        ticket: 0,
+        ancillary: 0,
+        cargo: 0,
+        subsidy: 0,
+        fuel: 0,
+        crew: 0,
+        fees: 0,
+        pax: 0,
+        loadSum: 0,
+        loadWeight: 0,
+        legsBooked: 0,
+        legsMissed: 0,
+        ferries: 0,
+        fixedApplied: false,
+        active: true,
+      };
+    }
+    return state.ops_day;
+  }
+
+  function opsDayVarMargin() {
+    const o = state && state.ops_day;
+    if (!o || o.day !== state.day) return 0;
+    return (o.rev || 0) - (o.cost || 0);
+  }
+
+  function opsDayLivePnl() {
+    const fixed =
+      fleetMonthlyCosts() / 30 + gateLeaseMonthly() / 30 + marketingMonthly() / 30;
+    // Fixed accrues smoothly across the day for HUD; cash charges fixed once at day close.
+    const hour = state.hour != null ? state.hour : 6;
+    const frac = Math.max(0.05, Math.min(1, (hour + 1) / 24));
+    return opsDayVarMargin() - fixed * frac;
+  }
+
+  /** Book cash + ops bucket for one completed ferry (empty) leg. */
+  function bookFerryLegEconomics(plane, leg) {
+    if (!leg || leg.booked || leg.type !== 'ferry') return null;
+    leg.booked = true;
+    const ac = aircraftType(plane.type);
+    if (!ac) return null;
+    const bh = Math.max(0.35, leg.blockH || (leg.arrHour || 0) - (leg.depHour || 0));
+    const fuel = bh * ac.fuel_gal_hr * (state.fuel_price || bootstrap.fuel_base || 2.85);
+    const crew = bh * (bootstrap.crew_cost_per_block_hour || 0);
+    const fees = bootstrap.airport_fee_per_departure || 0; // one landing
+    const cost = fuel + crew + fees;
+    leg.rev = 0;
+    leg.cost = cost;
+    leg.pnl = -cost;
+    leg.pax = 0;
+    leg.ticket = 0;
+    leg.ancillary = 0;
+    leg.fuel = fuel;
+    leg.crew = crew;
+    leg.fees = fees;
+    const ops = ensureOpsDayBucket();
+    ops.cost += cost;
+    ops.fuel += fuel;
+    ops.crew += crew;
+    ops.fees += fees;
+    ops.ferries += 1;
+    ops.legsBooked += 1;
+    state.cash -= cost;
+    if (plane) plane.block_hours_month = (plane.block_hours_month || 0) + bh;
+    return leg;
+  }
+
+  /**
+   * Book cash + ops bucket for one completed revenue flight (hour ops).
+   * Uses single-flight route economics so load/fares match the live network.
+   */
+  function bookRevenueLegEconomics(plane, leg) {
+    if (!leg || leg.booked || leg.type === 'ferry') return null;
+    const route = leg.routeId ? routeById(leg.routeId) : null;
+    if (!route) {
+      leg.booked = true;
+      leg.rev = 0;
+      leg.cost = 0;
+      leg.pnl = 0;
+      return leg;
+    }
+    leg.booked = true;
+    const sim = simulateRouteDay(route, {
+      commit: true,
+      singleFlight: true,
+    });
+    const rev = sim.revenue || 0;
+    const cost = sim.cost || 0;
+    leg.rev = rev;
+    leg.cost = cost;
+    leg.pnl = rev - cost;
+    leg.pax = sim.pax || 0;
+    leg.load = sim.load;
+    leg.ticket = sim.ticketRev || 0;
+    leg.ancillary = sim.ancillaryRev || 0;
+    leg.cargo = sim.cargoRev || 0;
+    leg.subsidy = sim.subsidy || 0;
+    leg.fuel = sim.fuel || 0;
+    leg.crew = sim.crew || 0;
+    leg.fees = sim.fees || 0;
+    leg.canceled = !!sim.canceled;
+
+    const ops = ensureOpsDayBucket();
+    ops.rev += rev;
+    ops.cost += cost;
+    ops.ticket += leg.ticket;
+    ops.ancillary += leg.ancillary;
+    ops.cargo += leg.cargo || 0;
+    ops.subsidy += leg.subsidy || 0;
+    ops.fuel += leg.fuel;
+    ops.crew += leg.crew;
+    ops.fees += leg.fees;
+    ops.pax += leg.pax;
+    if (leg.load != null && Number.isFinite(leg.load)) {
+      const w = Math.max(1, leg.pax || 1);
+      ops.loadSum += leg.load * w;
+      ops.loadWeight += w;
+    }
+    ops.legsBooked += 1;
+    state.cash += rev - cost;
+
+    // Accumulate on route for day history flush
+    if (!route.ops_today || route.ops_today.day !== state.day) {
+      route.ops_today = {
+        day: state.day,
+        rev: 0,
+        cost: 0,
+        pax: 0,
+        loadSum: 0,
+        flights: 0,
+        ticket: 0,
+        ancillary: 0,
+        fuel: 0,
+        crew: 0,
+        fees: 0,
+      };
+    }
+    const rt = route.ops_today;
+    rt.rev += rev;
+    rt.cost += cost;
+    rt.pax += leg.pax;
+    rt.flights += 1;
+    rt.ticket += leg.ticket;
+    rt.ancillary += leg.ancillary;
+    rt.fuel += leg.fuel;
+    rt.crew += leg.crew;
+    rt.fees += leg.fees;
+    if (leg.load != null) rt.loadSum += leg.load;
+
+    return leg;
+  }
+
+  function bookCompletedLeg(plane, leg) {
+    if (!leg || leg.booked) return null;
+    if (leg.type === 'ferry') return bookFerryLegEconomics(plane, leg);
+    return bookRevenueLegEconomics(plane, leg);
+  }
+
+  function flushRouteOpsToHistory() {
+    if (!state || !state.routes) return;
+    state.routes.forEach((route) => {
+      const rt = route.ops_today;
+      if (!rt || rt.day !== state.day || !rt.flights) return;
+      ensureRouteStats(route);
+      const avgLoad = rt.loadSum / Math.max(1, rt.flights);
+      const alloc = routeAllocatedFixedDaily(route);
+      const varPnl = rt.rev - rt.cost;
+      const last = route.history.length ? route.history[route.history.length - 1] : null;
+      const entry = {
+        day: state.day,
+        load: avgLoad,
+        pax: rt.pax,
+        rev: rt.rev,
+        cost: rt.cost,
+        pnl: varPnl,
+        ticket: rt.ticket,
+        ancillary: rt.ancillary,
+        fuel: rt.fuel,
+        crew: rt.crew,
+        fees: rt.fees,
+        gateAlloc: alloc.gate,
+        fleetAlloc: alloc.fleet,
+        mktAlloc: alloc.marketing,
+        hqAlloc: alloc.hq,
+        burdened: varPnl - alloc.total,
+        grounded: false,
+        canceled: false,
+        fromHourOps: true,
+      };
+      if (last && last.day === state.day) route.history[route.history.length - 1] = entry;
+      else route.history.push(entry);
+      if (route.history.length > ROUTE_HISTORY_MAX_DAYS) {
+        route.history = route.history.slice(-ROUTE_HISTORY_MAX_DAYS);
+      }
+      // rolling stats window
+      const s = route.stats;
+      if (s.days >= ROUTE_STATS_WINDOW_DAYS) {
+        const k = (ROUTE_STATS_WINDOW_DAYS - 1) / ROUTE_STATS_WINDOW_DAYS;
+        s.pax_sum *= k;
+        s.load_sum *= k;
+      } else {
+        s.days += 1;
+      }
+      s.pax_sum += rt.pax;
+      s.load_sum += avgLoad;
+      route.ops_today = null;
+    });
+  }
+
+  function buildEconFromOpsDay(fixed) {
+    const o = state.ops_day || ensureOpsDayBucket();
+    const fleetDay = fleetMonthlyCosts() / 30;
+    const gateDay = gateLeaseMonthly() / 30;
+    const mktDay = marketingMonthly() / 30;
+    const dailyFixed = fixed != null ? fixed : fleetDay + gateDay + mktDay;
+    const dayRev = o.rev || 0;
+    const dayCost = o.cost || 0;
+    return {
+      dayRev,
+      dayCost,
+      dailyFixed,
+      pnl: dayRev - dayCost - dailyFixed,
+      ticketRev: o.ticket || 0,
+      ancillaryRev: o.ancillary || 0,
+      cargoRev: o.cargo || 0,
+      subsidy: o.subsidy || 0,
+      fuel: o.fuel || 0,
+      crew: o.crew || 0,
+      fees: o.fees || 0,
+      pax: o.pax || 0,
+      avgLoad: o.loadWeight > 0 ? o.loadSum / o.loadWeight : 0,
+      fleetDay,
+      gateDay,
+      mktDay,
+      airportAdsDay:
+        Object.values(state.marketing_spend_monthly || {}).reduce((a, b) => a + clampMoney(b), 0) / 30,
+      scopedMktDay: scopedMarketingMonthly() / 30,
+      otaDay: (otaListingMonthly() + hubOtaMonthlyCost() + routeOtaFeatureMonthlyCost()) / 30,
+      fromHourOps: true,
+      legsBooked: o.legsBooked || 0,
+      legsMissed: o.legsMissed || 0,
+      check: {
+        revParts: (o.ticket || 0) + (o.ancillary || 0) + (o.cargo || 0) + (o.subsidy || 0),
+        varParts: (o.fuel || 0) + (o.crew || 0) + (o.fees || 0),
+        fixedParts: fleetDay + gateDay + mktDay,
+      },
+    };
+  }
+
+  /**
+   * Close a day that was played on the hour clock: variable cash already booked per leg;
+   * charge fixed once, flush route history, roll metrics — do NOT re-sim all routes.
+   * Call while state.day is still the day being closed (before increment).
+   */
+  function closeHourOpsDay() {
+    // Force bucket for the day we're closing (do not roll day first)
+    if (!state.ops_day || state.ops_day.day !== state.day) {
+      ensureOpsDayBucket();
+    }
+    const ops = state.ops_day;
+    const fleetDay = fleetMonthlyCosts() / 30;
+    const gateDay = gateLeaseMonthly() / 30;
+    const mktDay = marketingMonthly() / 30;
+    const fixed = fleetDay + gateDay + mktDay;
+    if (!ops.fixedApplied) {
+      state.cash -= fixed;
+      ops.fixedApplied = true;
+    }
+    const interest = accrueCashInterest(1);
+    const econ = buildEconFromOpsDay(fixed);
+    state.daily_pnl = econ.pnl + interest;
+    flushRouteOpsToHistory();
+    // Metrics without a second full-network commit sim
+    ensureMetrics();
+    state.metrics.passengers_mtd = (state.metrics.passengers_mtd || 0) + (econ.pax || 0);
+    state.metrics.op_revenue_mtd = (state.metrics.op_revenue_mtd || 0) + (econ.dayRev || 0);
+    state.metrics.op_cost_mtd =
+      (state.metrics.op_cost_mtd || 0) + (econ.dayCost || 0) + (econ.dailyFixed || 0);
+    state.metrics.csat = computeCsat();
+
+    recordPnlHistory(state.daily_pnl);
+    recordCompanyDayLedger(econ, interest);
+    recordPositiveDayStreak(state.daily_pnl);
+    recordStationDayHistory();
+    recordFleetUtilHistory();
+    processDayRollover(econ.dayRev, econ.dayCost);
+    checkSurvivalTriggers();
+    checkPositiveMilestones();
+    checkScenarioGoal();
+
+    // Advance calendar and reset live board for the new day
+    state.ops_day = null;
+    state.day += 1;
+    state.hour = 6;
+    snapAircraftAfterDayTick();
+    ensureOpsDayBucket();
+    return econ;
+  }
+
   /**
    * Build today's leg list for one aircraft: chain revenue legs + ferries.
-   * Visualization + ops exceptions; cash P&L still closes on day economics.
+   * Hour path books cash per completed leg; Day+ path still uses full day economics.
    */
   function buildPlaneDayLegs(plane) {
     ensurePlaneTelemetry(plane);
@@ -2924,7 +3230,7 @@
         const mid = h + 0.5;
         ab.progress = Math.max(0, Math.min(0.99, (mid - ab.depHour) / span));
         if (h + 1 > ab.arrHour - 0.001) {
-          // Land this hour
+          // Land this hour — book leg economics now
           plane.location = ab.dest;
           plane.status = 'turnaround';
           const turn = turnaroundHoursAt(ab.dest);
@@ -2936,7 +3242,10 @@
               l.dest === ab.dest &&
               Math.abs((l.depHour || 0) - ab.depHour) < 0.05
           );
-          if (leg) leg.status = 'arrived';
+          if (leg) {
+            leg.status = 'arrived';
+            bookCompletedLeg(plane, leg);
+          }
           plane.airborne = null;
         }
         return; // can't depart same hour after landing in this simplified model if still airborne
@@ -2965,10 +3274,16 @@
           if (plane.location !== leg.origin) {
             leg.status = 'missed';
             leg.missReason = `aircraft at ${plane.location || '—'}, not ${leg.origin}`;
+            leg.rev = 0;
+            leg.cost = 0;
+            leg.pnl = 0;
+            leg.booked = true;
+            const ops = ensureOpsDayBucket();
+            ops.legsMissed = (ops.legsMissed || 0) + 1;
             if (!plane._missLogged || plane._missLogged !== `${state.day}-${i}`) {
               plane._missLogged = `${state.day}-${i}`;
               pushEvent(
-                `<b>${plane.id}</b> missed ${leg.origin}→${leg.dest} — metal not at origin (${leg.missReason}).`,
+                `<b>${plane.id}</b> missed ${leg.origin}→${leg.dest} — metal not at origin (${leg.missReason}). $0 revenue.`,
                 'bad'
               );
             }
@@ -3040,9 +3355,13 @@
         const nextLabel = next
           ? `${formatHourClock(next.depHour)} ${next.origin}→${next.dest}${next.type === 'ferry' ? ' (ferry)' : ''}`
           : '—';
-        const done = (plane.legs_today || []).filter((l) => l.status === 'arrived' || l.status === 'departed').length;
+        const doneLegs = (plane.legs_today || []).filter((l) => l.status === 'arrived');
+        const done = doneLegs.length;
+        const airborne = (plane.legs_today || []).filter((l) => l.status === 'departed').length;
         const missed = (plane.legs_today || []).filter((l) => l.status === 'missed').length;
         const planned = (plane.legs_today || []).filter((l) => l.status === 'planned').length;
+        const legPnl = doneLegs.reduce((s, l) => s + (l.pnl || 0), 0);
+        const legRev = doneLegs.reduce((s, l) => s + (l.rev || 0), 0);
         const st = planeLiveStatusLabel(plane);
         const stCls =
           plane.status === 'airborne'
@@ -3056,22 +3375,33 @@
           <td><b>${plane.id}</b><br><span class="muted" style="font-size:0.62rem;">${ac ? ac.name : plane.type}</span></td>
           <td>${st}</td>
           <td>${nextLabel}</td>
-          <td>${fmtHours(plane.block_hours_today || 0)}h<br><span class="muted" style="font-size:0.62rem;">${done} done · ${planned} left${missed ? ` · <span class="danger">${missed} miss</span>` : ''}</span></td>
+          <td>${fmtHours(plane.block_hours_today || 0)}h · <span class="${legPnl >= 0 ? '' : 'danger'}">${fmtMoney(legPnl)}</span>
+            <br><span class="muted" style="font-size:0.62rem;">${done} done${airborne ? ` · ${airborne} air` : ''} · ${planned} left${missed ? ` · <span class="danger">${missed} miss</span>` : ''} · rev ${fmtMoney(legRev)}</span></td>
         </tr>`;
       })
       .join('');
+    const ops = state.ops_day && state.ops_day.day === state.day ? state.ops_day : null;
+    const opsLine = ops
+      ? `<p class="muted" style="font-size:0.68rem;margin:6px 0 0;">
+          Network ops today: <b class="${opsDayVarMargin() >= 0 ? '' : 'danger'}">${fmtMoney(opsDayVarMargin())}</b> variable
+          · ${ops.legsBooked || 0} legs booked · ${ops.pax || 0} pax
+          ${ops.legsMissed ? ` · <span class="danger">${ops.legsMissed} missed</span>` : ''}
+          · cash <b>${fmtMoney(state.cash)}</b>
+        </p>`
+      : '';
     return `
       <div class="live-board">
         <div class="live-board-head">
           <h4>Live board · Day ${state.day} · ${formatHourClock(state.hour != null ? state.hour : 8)}</h4>
-          <span class="muted" style="font-size:0.66rem;">Slow = 1 simulated hour. Watch metal move on the map.</span>
+          <span class="muted" style="font-size:0.66rem;">Slow = 1 hr · revenue books when each leg lands</span>
         </div>
         <div style="overflow-x:auto;">
           <table class="route-review-table live-board-table">
-            <thead><tr><th>Tail</th><th>Now</th><th>Next leg</th><th>Today</th></tr></thead>
+            <thead><tr><th>Tail</th><th>Now</th><th>Next leg</th><th>Today P&amp;L</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
+        ${opsLine}
       </div>`;
   }
 
@@ -8943,14 +9273,16 @@
   }
 
   /**
-   * Simulate one day of a route.
-   * opts.commit — only true from authoritative day ticks. Previews (HUD, Studio,
-   * league) must leave block hours and smooth_load untouched.
+   * Simulate one day of a route (or a single flight when opts.singleFlight).
+   * opts.commit — only true from authoritative day ticks / leg booking. Previews
+   * (HUD, Studio, league) must leave block hours and smooth_load untouched.
+   * opts.singleFlight — one departure (hour ops); no synthetic ferry return.
    * opts.airportSpendByIata / opts.investments / opts.draftOta — Studio draft projection.
    */
   function simulateRouteDay(route, opts) {
     opts = opts || {};
     const commit = !!opts.commit;
+    const singleFlight = !!opts.singleFlight;
     const empty = {
       revenue: 0,
       cost: 0,
@@ -8971,14 +9303,15 @@
     if (dist > ac.range_nm) return { ...empty };
 
     const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
-    if (plane && !isPlaneAvailable(plane)) {
+    if (plane && !isPlaneAvailable(plane) && !singleFlight) {
       return { ...empty, grounded: true };
     }
     const o = airport(route.origin);
     const d = airport(route.dest);
     const seats = plane ? fleetSeatCount(plane) : ac.seats;
-    const schedScale = plane ? planeScheduleScaleForRoute(plane.id, route) : 1;
-    const flightsToday = (route.frequency_week / 7) * schedScale;
+    const schedScale = singleFlight ? 1 : plane ? planeScheduleScaleForRoute(plane.id, route) : 1;
+    // singleFlight: one operated departure (hour board). Day path keeps weekly/7 scale.
+    const flightsToday = singleFlight ? 1 : (route.frequency_week / 7) * schedScale;
     const dailySeats = seats * flightsToday;
     const mkt = routeMarketContext(route, opts);
     simulatingDemandDepth += 1;
@@ -9002,7 +9335,8 @@
     let load = stabilizeRouteLoad(route, rawLoad, { commit });
 
     const reverse = findReverseRoute(route);
-    const ferryReturn = !reverse && routeProductId(route) !== 'tag';
+    // Hour-ops single legs handle empty returns as separate ferry legs on the board.
+    const ferryReturn = !singleFlight && !reverse && routeProductId(route) !== 'tag';
     let cancelThreshold = (routeEconomics().cancel_load_threshold != null
       ? routeEconomics().cancel_load_threshold
       : 0.1);
@@ -9014,7 +9348,9 @@
     }
 
     // Cancel only truly hopeless non-established services (and never on day 0–21).
+    // singleFlight = already launched on the live board — always operate.
     const canCancel =
+      !singleFlight &&
       !route.established &&
       !route.force_fly &&
       !prod.hardToCancel &&
@@ -9809,9 +10145,11 @@
     if (!state || state.game_over || n <= 0) return 0;
     let ran = 0;
     for (let i = 0; i < n; i++) {
+      // Day+ speeds: full-day economics (not hour-leg books)
+      state.ops_day = null;
       state.day += 1;
       ran += 1;
-      const econ = simulateDayEconomics();
+      const econ = simulateDayEconomics({ commit: true });
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
@@ -10265,6 +10603,7 @@
   function tickHours(hours) {
     if (!state || state.game_over || hours <= 0) return;
     if (state.hour == null) state.hour = 6;
+    ensureOpsDayBucket();
 
     let dayAdvanced = false;
     for (let step = 0; step < hours; step++) {
@@ -10272,21 +10611,15 @@
       rebuildAircraftDaySchedule(false);
       advanceAircraftOneHour();
 
-      // Soft live P&L preview while on hour clock (does not double-commit day books)
-      const preview = simulateDayEconomics({ commit: false });
-      state.daily_pnl = preview.pnl;
+      // Live P&L from booked legs + pro-rated fixed (cash already moved on each landing)
+      state.daily_pnl = opsDayLivePnl();
 
       state.hour = (state.hour == null ? 6 : state.hour) + 1;
       if (state.hour >= 24) {
-        // Close the day with full economics once
-        state.hour = 0;
-        state.day += 1;
+        // Close on hour-ops books for the day just finished (state.day unchanged until close)
+        state.hour = 23; // keep in-day for any last reads inside close
         dayAdvanced = true;
-        const econ = simulateDayEconomics({ commit: true });
-        const interest = accrueCashInterest(1);
-        state.daily_pnl = econ.pnl + interest;
-        state.cash += econ.pnl;
-        closeSimulatedDay(econ, interest);
+        closeHourOpsDay(); // increments day, sets hour=6, new schedule
         if (state.game_over || state.paused_reason) break;
       }
     }
@@ -10301,7 +10634,6 @@
       } catch (e) {
         /* map optional */
       }
-      // Refresh fleet board if that tab is open
       const fleetPanel = $('panel-fleet');
       if (fleetPanel && fleetPanel.classList.contains('active')) {
         try {
