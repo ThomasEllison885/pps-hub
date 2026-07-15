@@ -2289,6 +2289,48 @@
   .report-today h4 { margin: 0 0 6px; font-size: 0.78rem; color: var(--accent); }
   .report-charts { margin-top: 8px; }
   .report-is-table tr.report-is-total td { font-weight: 700; border-top: 1px solid rgba(255,255,255,0.08); }
+  .report-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 12px;
+  }
+  .report-subnav-btn {
+    font: inherit;
+    font-size: 0.74rem;
+    font-weight: 700;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.65);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .report-subnav-btn:hover { border-color: var(--accent); }
+  .report-subnav-btn.active {
+    border-color: var(--accent);
+    background: rgba(0, 200, 150, 0.12);
+    color: var(--accent);
+  }
+  .report-integrity {
+    margin-top: 14px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    line-height: 1.4;
+  }
+  .report-integrity.ok {
+    border: 1px solid rgba(0, 200, 150, 0.35);
+    background: rgba(0, 200, 150, 0.08);
+    color: var(--accent);
+  }
+  .report-integrity.bad {
+    border: 1px solid rgba(255, 107, 107, 0.4);
+    background: rgba(255, 107, 107, 0.08);
+    color: #ffb4b4;
+  }
+  .report-hub-table td, .report-fleet-table td { vertical-align: top; font-size: 0.72rem; }
+  .report-section-body .warn { color: var(--gold); }
   .route-variance, .route-burden-block, .route-mkt-block {
     margin: 12px 0;
     padding: 10px 12px;
@@ -3849,7 +3891,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=77"></script>
-<script src="/static/runway/game.js?v=83"></script>
+<script src="/static/runway/economics.js?v=78"></script>
+<script src="/static/runway/game.js?v=84"></script>
 </body>
 </html>

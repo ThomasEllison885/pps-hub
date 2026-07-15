@@ -5277,6 +5277,8 @@
       marketing_spend_monthly: { ...(base.marketing_spend_monthly || {}) },
       market_research: {},
       day_ledger: [],
+      station_opened: {},
+      station_history: {},
       ltm_revenue: base.seed_ltm_revenue || 0,
       revenue_history: [],
       daily_pnl: 0,
@@ -5307,6 +5309,10 @@
       state.revenue_history = Array.from({ length: 365 }, () => daily);
       state.ltm_revenue = base.seed_ltm_revenue;
     }
+    // Stations already held at scenario start
+    (state.gates || []).forEach((g) => {
+      if (g && g.airport) state.station_opened[g.airport] = 0;
+    });
     sanitizeMarketingSpend();
     normalizeGameState();
     if (isWinningTrackScenario(scenarioId)) ensureWinningPlaybook();
@@ -7534,6 +7540,18 @@
     state.market_research = state.market_research || {};
     state.media_shade_airports = state.media_shade_airports || {};
     state.day_ledger = Array.isArray(state.day_ledger) ? state.day_ledger : [];
+    state.station_opened = state.station_opened || {};
+    state.station_history = state.station_history || {};
+    // Backfill station opened for gates that predate the field
+    (state.gates || []).forEach((g) => {
+      if (g && g.airport && state.station_opened[g.airport] == null) {
+        state.station_opened[g.airport] = 0;
+      }
+    });
+    (state.fleet || []).forEach((p) => {
+      ensurePlaneTelemetry(p);
+      if (!Array.isArray(p.util_history)) p.util_history = [];
+    });
     // Infer raises already taken from equity below 100 on older saves
     if (!state.seed_done && (state.equity_pct || 100) < 95 && state.financing_tier === 'startup') {
       state.seed_done = true;
@@ -8644,7 +8662,14 @@
     };
   }
 
-  function simulateDayEconomics() {
+  /**
+   * Network day economics.
+   * opts.commit (default true) — only day ticks should commit block hours / load smoothing.
+   * Reports HUD previews must pass { commit: false }.
+   */
+  function simulateDayEconomics(opts) {
+    opts = opts || {};
+    const commit = opts.commit !== false;
     let dayRev = 0;
     let dayCost = 0;
     let ticketRev = 0;
@@ -8658,7 +8683,7 @@
     let loadWeight = 0;
     let loadSum = 0;
     state.routes.forEach((route) => {
-      const r = simulateRouteDay(route, { commit: true });
+      const r = simulateRouteDay(route, { commit });
       dayRev += r.revenue || 0;
       dayCost += r.cost || 0;
       ticketRev += r.ticketRev || 0;
@@ -8708,6 +8733,12 @@
       airportAdsDay,
       scopedMktDay,
       otaDay,
+      // Identity checks for reporting integrity
+      check: {
+        revParts: ticketRev + ancillaryRev + cargoRev + subsidy,
+        varParts: fuel + crew + fees,
+        fixedParts: fleetDay + gateDay + mktDay,
+      },
     };
   }
 
@@ -9317,6 +9348,8 @@
       recordCompanyDayLedger(econ, interest);
       recordPositiveDayStreak(state.daily_pnl);
       updateDailyMetrics(econ);
+      recordStationDayHistory();
+      recordFleetUtilHistory();
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       checkPositiveMilestones();
@@ -9432,22 +9465,32 @@
     const varCost = sum('varCost');
     const fixed = sum('fixed');
     const interest = sum('interest');
+    const ticket = sum('ticket');
+    const ancillary = sum('ancillary');
+    const cargo = sum('cargo');
+    const subsidy = sum('subsidy');
+    const fuel = sum('fuel');
+    const crew = sum('crew');
+    const fees = sum('fees');
+    const fleet = sum('fleet');
+    const gates = sum('gates');
+    const mkt = sum('mkt');
     return {
       days: n,
       scale,
       rev,
-      ticket: sum('ticket'),
-      ancillary: sum('ancillary'),
-      cargo: sum('cargo'),
-      subsidy: sum('subsidy'),
-      fuel: sum('fuel'),
-      crew: sum('crew'),
-      fees: sum('fees'),
+      ticket,
+      ancillary,
+      cargo,
+      subsidy,
+      fuel,
+      crew,
+      fees,
       varCost,
       varMargin: rev - varCost,
-      fleet: sum('fleet'),
-      gates: sum('gates'),
-      mkt: sum('mkt'),
+      fleet,
+      gates,
+      mkt,
       airportAds: sum('airportAds'),
       ota: sum('ota'),
       fixed,
@@ -9458,7 +9501,303 @@
       avgLoad: win.reduce((s, e) => s + (e.load || 0), 0) / n,
       endCash: win[win.length - 1].cash,
       startCash: win[0].cash,
+      // Parts should reconcile to totals (within float noise)
+      revParts: ticket + ancillary + cargo + subsidy,
+      varParts: fuel + crew + fees,
+      fixedParts: fleet + gates + mkt,
     };
+  }
+
+  const STATION_HISTORY_MAX = 90;
+  const FLEET_UTIL_HISTORY_MAX = 90;
+
+  function ensureStationOpened(iata) {
+    if (!state || !iata) return;
+    state.station_opened = state.station_opened || {};
+    if (state.station_opened[iata] == null) state.station_opened[iata] = state.day || 0;
+  }
+
+  function routeDaySnapshot(route) {
+    ensureRouteStats(route);
+    const hist = route.history || [];
+    const last = hist.length ? hist[hist.length - 1] : null;
+    if (last && last.day === state.day) return last;
+    const sim = simulateRouteDay(route, { commit: false });
+    const alloc = routeAllocatedFixedDaily(route);
+    const varPnl = (sim.revenue || 0) - (sim.cost || 0);
+    return {
+      day: state.day,
+      load: sim.grounded ? null : sim.load,
+      pax: sim.pax || 0,
+      rev: sim.revenue || 0,
+      cost: sim.cost || 0,
+      pnl: varPnl,
+      burdened: varPnl - alloc.total,
+      grounded: !!sim.grounded,
+      canceled: !!sim.canceled,
+      gateAlloc: alloc.gate,
+      fleetAlloc: alloc.fleet,
+      mktAlloc: alloc.marketing,
+      hqAlloc: alloc.hq,
+    };
+  }
+
+  /** Live hub / station scorecard for Reports. */
+  function computeHubScorecard(iata) {
+    const util = gateUtilizationAt(iata);
+    const from = (state.routes || []).filter((r) => r.origin === iata);
+    const touch = (state.routes || []).filter((r) => r.origin === iata || r.dest === iata);
+    let varPnl = 0;
+    let rev = 0;
+    let pax = 0;
+    let loadS = 0;
+    let loadN = 0;
+    let burdened = 0;
+    from.forEach((r) => {
+      const h = routeDaySnapshot(r);
+      if (h.grounded) return;
+      varPnl += h.pnl || 0;
+      rev += h.rev || 0;
+      pax += h.pax || 0;
+      burdened += h.burdened != null ? h.burdened : h.pnl || 0;
+      if (h.load != null) {
+        loadS += h.load;
+        loadN += 1;
+      }
+    });
+    const gateMo = (state.gates || [])
+      .filter((g) => g.airport === iata)
+      .reduce((s, g) => s + (g.monthly || 0), 0);
+    const gateDay = gateMo / 30;
+    // Station contribution: origin route variable margin − gate lease (fleet is plane-level)
+    const stationNetDay = varPnl - gateDay;
+    const brand = (state.brand_awareness && state.brand_awareness[iata]) || 0;
+    const mat = hubMaturityAt(iata);
+    const mkt = marketingImpactSummary(iata);
+    const opened = state.station_opened && state.station_opened[iata];
+    const daysOpen = opened != null ? Math.max(1, (state.day || 0) - opened + 1) : null;
+    const hist = (state.station_history && state.station_history[iata]) || [];
+    const cumulativeNet = hist.length
+      ? hist.reduce((s, e) => s + (e.net || 0), 0)
+      : stationNetDay;
+    return {
+      iata,
+      util,
+      fromCount: from.length,
+      touchCount: touch.length,
+      varPnlDay: varPnl,
+      revDay: rev,
+      paxDay: pax,
+      avgLoad: loadN ? loadS / loadN : 0,
+      burdenedDay: burdened,
+      gateMo,
+      gateDay,
+      stationNetDay,
+      brand,
+      maturity: mat,
+      marketing: mkt,
+      opened,
+      daysOpen,
+      cumulativeNet,
+      history: hist,
+    };
+  }
+
+  function allHubScorecards() {
+    const iatas = [...new Set((state.gates || []).map((g) => g.airport))];
+    return iatas
+      .map((iata) => computeHubScorecard(iata))
+      .sort((a, b) => a.stationNetDay - b.stationNetDay);
+  }
+
+  function recordStationDayHistory() {
+    if (!state) return;
+    state.station_history = state.station_history || {};
+    state.station_opened = state.station_opened || {};
+    const iatas = [...new Set((state.gates || []).map((g) => g.airport))];
+    iatas.forEach((iata) => {
+      if (state.station_opened[iata] == null) state.station_opened[iata] = state.day || 0;
+      const card = computeHubScorecard(iata);
+      if (!Array.isArray(state.station_history[iata])) state.station_history[iata] = [];
+      const hist = state.station_history[iata];
+      const entry = {
+        day: state.day,
+        varPnl: card.varPnlDay,
+        gate: card.gateDay,
+        net: card.stationNetDay,
+        util: card.util.pct,
+        brand: card.brand,
+        rev: card.revDay,
+        pax: card.paxDay,
+        load: card.avgLoad,
+      };
+      const last = hist[hist.length - 1];
+      if (last && last.day === state.day) hist[hist.length - 1] = entry;
+      else hist.push(entry);
+      if (hist.length > STATION_HISTORY_MAX) state.station_history[iata] = hist.slice(-STATION_HISTORY_MAX);
+    });
+  }
+
+  function computeFleetScorecard(plane) {
+    ensurePlaneTelemetry(plane);
+    const ac = aircraftType(plane.type);
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+    let varPnl = 0;
+    let rev = 0;
+    let pax = 0;
+    let blockEst = 0;
+    routes.forEach((r) => {
+      const h = routeDaySnapshot(r);
+      if (!h.grounded && !h.canceled) {
+        varPnl += h.pnl || 0;
+        rev += h.rev || 0;
+        pax += h.pax || 0;
+      }
+      // Block estimate from live sim for display (non-commit)
+      const sim = simulateRouteDay(r, { commit: false });
+      if (sim && !sim.grounded && sim.flightsToday) {
+        const o = airport(r.origin);
+        const d = airport(r.dest);
+        const dist = o && d ? haversineNm(o.lat, o.lon, d.lat, d.lon) : 0;
+        const acT = aircraftType(r.aircraft_type);
+        if (acT) {
+          let bh = blockHours(dist, acT) * (sim.flightsToday || 0);
+          if (sim.ferryReturn) bh += blockHours(dist, acT) * (sim.flightsToday || 0) * 0.92;
+          blockEst += bh;
+        }
+      }
+    });
+    const leaseMo = plane.leased ? planeLeaseMonthly(plane) : planeMaintMonthly(plane);
+    const leaseDay = leaseMo / 30;
+    const util = planeMonthUtilizationPct(plane);
+    const targetDay = planeTargetBlockHoursDay(plane);
+    const targetMonth = targetDay * 30;
+    const monthHrs = plane.block_hours_month || 0;
+    const contribDay = varPnl - leaseDay;
+    const leasePerBh =
+      monthHrs > 0.5 ? leaseMo / monthHrs : null;
+    const leasePerPax = pax > 0 ? leaseDay / pax : null;
+    return {
+      plane,
+      ac,
+      routes,
+      routeCount: routes.length,
+      varPnlDay: varPnl,
+      revDay: rev,
+      paxDay: pax,
+      leaseMo,
+      leaseDay,
+      contribDay,
+      util,
+      targetDay,
+      targetMonth,
+      monthHrs,
+      blockEstToday: blockEst,
+      leasePerBh,
+      leasePerPax,
+      reliability: planeReliabilityScore(plane),
+      aog: (plane.aog_days_left || 0) > 0,
+      aogDays: plane.aog_days_left || 0,
+      history: plane.util_history || [],
+    };
+  }
+
+  function allFleetScorecards() {
+    return (state.fleet || [])
+      .map((p) => computeFleetScorecard(p))
+      .sort((a, b) => a.contribDay - b.contribDay);
+  }
+
+  function recordFleetUtilHistory() {
+    if (!state || !state.fleet) return;
+    state.fleet.forEach((plane) => {
+      ensurePlaneTelemetry(plane);
+      if (!Array.isArray(plane.util_history)) plane.util_history = [];
+      const util = planeMonthUtilizationPct(plane);
+      const entry = {
+        day: state.day,
+        monthHrs: plane.block_hours_month || 0,
+        util,
+        aog: (plane.aog_days_left || 0) > 0 ? 1 : 0,
+      };
+      const last = plane.util_history[plane.util_history.length - 1];
+      if (last && last.day === state.day) plane.util_history[plane.util_history.length - 1] = entry;
+      else plane.util_history.push(entry);
+      if (plane.util_history.length > FLEET_UTIL_HISTORY_MAX) {
+        plane.util_history = plane.util_history.slice(-FLEET_UTIL_HISTORY_MAX);
+      }
+    });
+  }
+
+  /**
+   * Integrity checks: ledger parts sum, hub nets vs gate costs, fleet lease vs fixed.
+   * Returns { ok, issues[] } for Reports footer + automated tests.
+   */
+  function verifyReportingIntegrity() {
+    const issues = [];
+    const econ = simulateDayEconomics({ commit: false });
+    if (econ.check) {
+      if (Math.abs(econ.check.revParts - econ.dayRev) > 1.5) {
+        issues.push(`Rev parts ${econ.check.revParts.toFixed(0)} ≠ dayRev ${econ.dayRev.toFixed(0)}`);
+      }
+      if (Math.abs(econ.check.varParts - econ.dayCost) > 1.5) {
+        issues.push(`Var parts ${econ.check.varParts.toFixed(0)} ≠ dayCost ${econ.dayCost.toFixed(0)}`);
+      }
+      if (Math.abs(econ.check.fixedParts - econ.dailyFixed) > 1.5) {
+        issues.push(`Fixed parts ${econ.check.fixedParts.toFixed(0)} ≠ dailyFixed ${econ.dailyFixed.toFixed(0)}`);
+      }
+      const expectPnl = econ.dayRev - econ.dayCost - econ.dailyFixed;
+      if (Math.abs(expectPnl - econ.pnl) > 1.5) {
+        issues.push(`PnL identity broken: ${econ.pnl.toFixed(0)} vs ${expectPnl.toFixed(0)}`);
+      }
+    }
+    // Fleet lease day total should match econ.fleetDay
+    const fleetLeaseDay = (state.fleet || []).reduce((s, p) => {
+      ensurePlaneTelemetry(p);
+      return s + (p.leased ? planeLeaseMonthly(p) : planeMaintMonthly(p)) / 30;
+    }, 0);
+    if (Math.abs(fleetLeaseDay - econ.fleetDay) > 2) {
+      issues.push(`Fleet lease day ${fleetLeaseDay.toFixed(0)} ≠ econ.fleetDay ${econ.fleetDay.toFixed(0)}`);
+    }
+    // Gate leases match
+    if (Math.abs(gateLeaseMonthly() / 30 - econ.gateDay) > 1) {
+      issues.push('Gate lease day mismatch vs econ');
+    }
+    // Hub station nets: sum of origin var P&L − gate day should be consistent per hub
+    const hubs = allHubScorecards();
+    hubs.forEach((h) => {
+      const re = h.varPnlDay - h.gateDay;
+      if (Math.abs(re - h.stationNetDay) > 1) {
+        issues.push(`${h.iata} station net identity failed`);
+      }
+    });
+    // Sum of origin route variable P&L across hubs should equal network variable margin
+    // (each route has one origin — no double count)
+    const hubVarSum = hubs.reduce((s, h) => s + h.varPnlDay, 0);
+    const netVar = econ.dayRev - econ.dayCost;
+    // Only if every route originates at a gated airport we operate
+    const routesAtGated = (state.routes || []).every((r) => gateCountAt(r.origin) > 0);
+    if (routesAtGated && hubs.length && Math.abs(hubVarSum - netVar) > 5) {
+      issues.push(
+        `Hub var sum ${hubVarSum.toFixed(0)} ≠ network var ${netVar.toFixed(0)} (check origin coverage)`
+      );
+    }
+    // Ledger last day should match today's econ if same day was recorded
+    const led = state.day_ledger || [];
+    const last = led[led.length - 1];
+    if (last && last.day === state.day) {
+      if (Math.abs(last.rev - econ.dayRev) > 25) {
+        // allow some noise from load smoothing between commits
+        issues.push(`Ledger rev ${last.rev.toFixed(0)} diverges from live ${econ.dayRev.toFixed(0)}`);
+      }
+    }
+    const is30 = monthlyIncomeStatementFromLedger(30);
+    if (is30) {
+      if (Math.abs(is30.revParts - is30.rev) > 5) issues.push('IS rev parts do not sum');
+      if (Math.abs(is30.varParts - is30.varCost) > 5) issues.push('IS var parts do not sum');
+      if (Math.abs(is30.fixedParts - is30.fixed) > 5) issues.push('IS fixed parts do not sum');
+    }
+    return { ok: issues.length === 0, issues, econ, hubs };
   }
 
   function tickHours(hours) {
@@ -9480,6 +9819,9 @@
       recordPnlHistory(state.daily_pnl);
       recordCompanyDayLedger(econ, interest);
       recordPositiveDayStreak(state.daily_pnl);
+      updateDailyMetrics(econ);
+      recordStationDayHistory();
+      recordFleetUtilHistory();
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
       checkPositiveMilestones();
@@ -10921,6 +11263,7 @@
       years_left: years,
     });
     const n = gateCountAt(iata) + 1;
+    if (n === 1) ensureStationOpened(iata);
     pushPlayerEvent(`leased ${tier} gate #${n} at ${iata} (${years}yr, ${fmtMoney(upfront)} deposit).`);
     // First gate at a major hub can draw rare incumbent CEO media shade (never on small fields).
     if (n === 1) maybeMajorHubMediaShade(iata);
@@ -16021,22 +16364,12 @@
     }
   }
 
-  function renderReports() {
-    const el = $('tab-reports');
-    if (!el || !state) return;
+  function reportsSectionCompany() {
     const ledger = state.day_ledger || [];
-    const last30 = companyLedgerWindow(30);
     const last90 = companyLedgerWindow(90);
     const is30 = monthlyIncomeStatementFromLedger(30);
     const is7 = monthlyIncomeStatementFromLedger(7);
-
-    const toSeries = (entries, key) =>
-      (entries || []).map((e) => ({
-        day: e.day,
-        y: e[key],
-        // renderLineChart uses sequential x; day label optional
-      }));
-
+    const toSeries = (entries, key) => (entries || []).map((e) => ({ day: e.day, y: e[key] }));
     const cashChart = renderLineChart(toSeries(last90, 'cash'), {
       valueKey: 'y',
       color: '#00c896',
@@ -16062,19 +16395,16 @@
       formatValue: (v) => fmtMoney(v),
       height: 100,
     });
-
     const trail30 = (state.pnl_history || []).slice(-30);
     const trailSum = trail30.reduce((a, b) => a + b, 0);
-    const net = networkRouteStats();
-
     const isRow = (label, val, opts) => {
       opts = opts || {};
-      const cls = opts.danger && val < 0 ? 'danger' : opts.bold ? 'report-is-total' : '';
+      const cls = opts.bold ? 'report-is-total' : '';
       const indent = opts.indent ? ' style="padding-left:14px"' : '';
-      return `<tr class="${cls}"><td${indent}>${label}</td><td class="${val < 0 && opts.signed !== false ? 'danger' : ''}">${fmtMoney(val)}${opts.suffix || ''}</td></tr>`;
+      return `<tr class="${cls}"><td${indent}>${label}</td><td class="${val < 0 && opts.signed !== false ? 'danger' : ''}">${fmtMoney(val)}</td></tr>`;
     };
-
-    let isHtml = '<p class="muted" style="font-size:0.72rem;">Run the clock to build the day ledger. Statements scale short samples to a ~30-day month.</p>';
+    let isHtml =
+      '<p class="muted" style="font-size:0.72rem;">Run the clock to build the day ledger. Statements scale short samples to a ~30-day month.</p>';
     if (is30) {
       isHtml = `
         <p class="muted" style="font-size:0.72rem;margin:0 0 8px;">Based on <b>${is30.days}</b> ledger day(s)${is30.scale !== 1 ? ` · scaled ×${is30.scale.toFixed(2)} to ~monthly` : ''}.</p>
@@ -16083,7 +16413,7 @@
           <tbody>
             ${isRow('Ticket revenue', is30.ticket, { indent: true })}
             ${isRow('Ancillaries', is30.ancillary, { indent: true })}
-            ${is30.cargo ? isRow('Cargo / other', is30.cargo + is30.subsidy, { indent: true }) : is30.subsidy ? isRow('Subsidy / other', is30.subsidy, { indent: true }) : ''}
+            ${is30.cargo || is30.subsidy ? isRow('Cargo / subsidy', is30.cargo + is30.subsidy, { indent: true }) : ''}
             ${isRow('Total operating revenue', is30.rev, { bold: true })}
             ${isRow('Fuel', -is30.fuel, { indent: true })}
             ${isRow('Crew', -is30.crew, { indent: true })}
@@ -16099,28 +16429,24 @@
             ${isRow('Net (ops + interest)', is30.net, { bold: true, signed: true })}
           </tbody>
         </table>
-        <p class="muted" style="font-size:0.66rem;margin:8px 0 0;">Debt service &amp; bond coupons hit cash on month/quarter ticks — not in daily ops net above. Avg load ${(is30.avgLoad * 100).toFixed(0)}% · ~${Math.round(is30.pax).toLocaleString()} pax/mo.</p>`;
+        <p class="muted" style="font-size:0.66rem;margin:8px 0 0;">Debt service hits cash on month ticks. Avg load ${(is30.avgLoad * 100).toFixed(0)}% · ~${Math.round(is30.pax).toLocaleString()} pax/mo.</p>`;
     }
-
     const cashFlowNote = is30
       ? `<dl class="stat-dl" style="margin-top:10px;">
           <dt>Cash start → end (window)</dt>
-          <dd>${fmtMoney(is30.startCash)} → ${fmtMoney(is30.endCash)} <span class="muted">(${is30.days}d raw)</span></dd>
+          <dd>${fmtMoney(is30.startCash)} → ${fmtMoney(is30.endCash)}</dd>
           <dt>Trail 30d P&amp;L sum</dt>
           <dd class="${trailSum >= 0 ? '' : 'danger'}">${fmtMoney(trailSum)}</dd>
-          <dt>LTM revenue</dt>
-          <dd>${fmtMoney(state.ltm_revenue || 0)}</dd>
-          <dt>Debt service / mo</dt>
-          <dd>${fmtMoney(monthlyDebtService())}</dd>
+          <dt>LTM revenue</dt><dd>${fmtMoney(state.ltm_revenue || 0)}</dd>
+          <dt>Debt service / mo</dt><dd>${fmtMoney(monthlyDebtService())}</dd>
         </dl>`
       : '';
-
-    const today = state.routes.length ? simulateDayEconomics() : null;
+    const today = state.routes.length ? simulateDayEconomics({ commit: false }) : null;
     const todayStrip = today
       ? `<div class="report-today">
-          <h4>Today (live)</h4>
+          <h4>Today (live preview · not committing)</h4>
           <p style="font-size:0.74rem;margin:0;line-height:1.45;">
-            Rev <b>${fmtMoney(today.dayRev)}</b> · var cost <b>−${fmtMoney(today.dayCost)}</b>
+            Rev <b>${fmtMoney(today.dayRev)}</b> · var <b>−${fmtMoney(today.dayCost)}</b>
             (fuel ${fmtMoney(today.fuel)} · crew ${fmtMoney(today.crew)} · fees ${fmtMoney(today.fees)})
             · fixed <b>−${fmtMoney(today.dailyFixed)}</b>
             (fleet ${fmtMoney(today.fleetDay)} · gates ${fmtMoney(today.gateDay)} · mkt ${fmtMoney(today.mktDay)})
@@ -16129,18 +16455,12 @@
           </p>
         </div>`
       : '<p class="muted">No routes flying — launch service to populate reports.</p>';
-
-    el.innerHTML = `
-      <h3>Reports — control tower</h3>
-      <p class="muted" style="font-size:0.74rem;line-height:1.45;margin:0 0 12px;">
-        Company ledger (up to ${COMPANY_LEDGER_MAX_DAYS} days). Route-level detail is still on each route card → Review.
-        Network load now <b>${net.count ? (net.avgLoad * 100).toFixed(0) + '%' : '—'}</b> · ledger days <b>${ledger.length}</b>.
-      </p>
+    return `
       ${todayStrip}
       <h4 style="margin-top:14px;">Trailing trends (90d)</h4>
       ${
         last90.length < 2
-          ? '<p class="muted" style="font-size:0.72rem;">Need a few simulated days before charts appear. Press ▶ and come back.</p>'
+          ? '<p class="muted" style="font-size:0.72rem;">Need a few simulated days before charts appear.</p>'
           : `<div class="route-review-charts report-charts">
               <div class="chart-panel"><h4>Cash</h4>${cashChart}</div>
               <div class="chart-panel"><h4>Daily net P&amp;L</h4>${pnlChart}</div>
@@ -16153,10 +16473,169 @@
       ${cashFlowNote}
       ${
         is7 && is30
-          ? `<p class="muted" style="font-size:0.66rem;margin-top:10px;">Last 7d pace (×~4.3): rev ~${fmtMoney(is7.rev)} · net ~${fmtMoney(is7.net)}/mo equivalent.</p>`
+          ? `<p class="muted" style="font-size:0.66rem;margin-top:10px;">Last 7d pace: rev ~${fmtMoney(is7.rev)} · net ~${fmtMoney(is7.net)}/mo equivalent.</p>`
           : ''
       }
-      <p class="muted" style="font-size:0.66rem;margin-top:12px;">Tip: open a losing route’s Review for forecast vs actual and fully burdened contribution.</p>`;
+      <p class="muted" style="font-size:0.64rem;margin-top:8px;">Ledger days: <b>${ledger.length}</b> / ${COMPANY_LEDGER_MAX_DAYS}</p>`;
+  }
+
+  function reportsSectionHubs() {
+    const hubs = allHubScorecards();
+    if (!hubs.length) {
+      return '<p class="muted">No gates yet — lease a station to open hub scorecards.</p>';
+    }
+    const rows = hubs
+      .map((h) => {
+        const ap = airport(h.iata);
+        const tone = h.stationNetDay >= 0 ? '' : 'danger';
+        const utilTone = h.util.pct < 55 ? 'danger' : h.util.pct < 75 ? 'warn' : '';
+        return `<tr>
+          <td><b>${h.iata}</b><br><span class="muted" style="font-size:0.62rem;">${ap ? ap.city : ''}</span></td>
+          <td class="${utilTone}">${h.util.pct.toFixed(0)}%<br><span class="muted" style="font-size:0.62rem;">${h.util.used}/${h.util.max} dep/wk · ${h.util.gates}g</span></td>
+          <td>${h.fromCount} out<br><span class="muted" style="font-size:0.62rem;">${h.touchCount} touch</span></td>
+          <td class="${h.varPnlDay >= 0 ? '' : 'danger'}">${fmtMoney(h.varPnlDay)}/d</td>
+          <td>−${fmtMoney(h.gateDay)}/d</td>
+          <td class="${tone}"><b>${fmtMoney(h.stationNetDay)}/d</b></td>
+          <td>${h.brand.toFixed(0)}%<br><span class="muted" style="font-size:0.62rem;">${h.maturity.label}</span></td>
+          <td class="${h.cumulativeNet >= 0 ? '' : 'danger'}">${fmtMoney(h.cumulativeNet)}</td>
+        </tr>`;
+      })
+      .join('');
+    // Expand first / worst hub chart
+    const focus = hubs[0];
+    const hist = focus.history || [];
+    const netSeries = hist.map((e) => ({ day: e.day, y: e.net }));
+    const utilSeries = hist.map((e) => ({ day: e.day, y: e.util }));
+    const brandSeries = hist.map((e) => ({ day: e.day, y: e.brand }));
+    const charts =
+      hist.length >= 2
+        ? `<div class="route-review-charts report-charts" style="margin-top:12px;">
+            <div class="chart-panel"><h4>${focus.iata} station net/day</h4>${renderLineChart(netSeries, { valueKey: 'y', color: '#f472b6', formatValue: (v) => fmtMoney(v), height: 96 })}</div>
+            <div class="chart-panel"><h4>${focus.iata} gate util %</h4>${renderLineChart(utilSeries, { valueKey: 'y', color: '#ffd166', formatValue: (v) => v.toFixed(0), unit: '%', height: 96 })}</div>
+            <div class="chart-panel"><h4>${focus.iata} brand %</h4>${renderLineChart(brandSeries, { valueKey: 'y', color: '#7eb8e8', formatValue: (v) => v.toFixed(0), unit: '%', height: 96 })}</div>
+          </div>
+          <p class="muted" style="font-size:0.66rem;">Charts show the weakest station by today&rsquo;s net (sorted ascending). Marketing: ${focus.marketing.line}</p>`
+        : `<p class="muted" style="font-size:0.72rem;margin-top:8px;">Station history builds after day ticks. Weakest hub by net: <b>${focus.iata}</b>.</p>`;
+
+    return `
+      <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:0 0 10px;">
+        <b>Station net</b> = variable margin of routes <em>originating</em> here − gate lease/day.
+        Fleet cost sits on aircraft (Fleet section). HQ is company-level.
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="route-review-table report-hub-table">
+          <thead>
+            <tr>
+              <th>Hub</th><th>Gate util</th><th>Routes</th>
+              <th>Var P&amp;L</th><th>Gate</th><th>Station net</th>
+              <th>Brand</th><th>Cum. net</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${charts}`;
+  }
+
+  function reportsSectionFleet() {
+    const cards = allFleetScorecards();
+    if (!cards.length) {
+      return '<p class="muted">No aircraft — lease metal in Fleet to see utilization.</p>';
+    }
+    const rows = cards
+      .map((c) => {
+        const name = c.ac ? c.ac.name : c.plane.type;
+        const utilCls = c.util < 35 ? 'danger' : c.util > 90 ? 'warn' : '';
+        return `<tr>
+          <td><b>${c.plane.id}</b><br><span class="muted" style="font-size:0.62rem;">${name}${c.aog ? ' · <span class="danger">AOG</span>' : ''}</span></td>
+          <td>${c.routeCount}</td>
+          <td class="${utilCls}">${c.util.toFixed(0)}%<br><span class="muted" style="font-size:0.62rem;">${c.monthHrs.toFixed(0)}/${c.targetMonth.toFixed(0)} h/mo</span></td>
+          <td class="${c.varPnlDay >= 0 ? '' : 'danger'}">${fmtMoney(c.varPnlDay)}/d</td>
+          <td>−${fmtMoney(c.leaseDay)}/d</td>
+          <td class="${c.contribDay >= 0 ? '' : 'danger'}"><b>${fmtMoney(c.contribDay)}/d</b></td>
+          <td>${c.leasePerBh != null ? fmtMoney(c.leasePerBh) + '/bh' : '—'}<br><span class="muted" style="font-size:0.62rem;">${c.reliability} rel</span></td>
+        </tr>`;
+      })
+      .join('');
+    const worst = cards[0];
+    const hist = worst.history || [];
+    const utilSeries = hist.map((e) => ({ day: e.day, y: e.util }));
+    const hrsSeries = hist.map((e) => ({ day: e.day, y: e.monthHrs }));
+    const fleetUtilAvg =
+      cards.reduce((s, c) => s + c.util, 0) / Math.max(1, cards.length);
+    const charts =
+      hist.length >= 2
+        ? `<div class="route-review-charts report-charts" style="margin-top:12px;">
+            <div class="chart-panel"><h4>${worst.plane.id} util %</h4>${renderLineChart(utilSeries, { valueKey: 'y', color: '#00c896', formatValue: (v) => v.toFixed(0), unit: '%', height: 96 })}</div>
+            <div class="chart-panel"><h4>${worst.plane.id} MTD block hours</h4>${renderLineChart(hrsSeries, { valueKey: 'y', color: '#7eb8e8', formatValue: (v) => v.toFixed(0), height: 96 })}</div>
+          </div>`
+        : '<p class="muted" style="font-size:0.72rem;margin-top:8px;">Fleet util history fills after day ticks.</p>';
+
+    return `
+      <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:0 0 10px;">
+        <b>Contribution</b> = variable margin on routes assigned to this tail − daily lease/maint.
+        Fleet avg util <b>${fleetUtilAvg.toFixed(0)}%</b> (target band ~50–78% for reliability).
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="route-review-table report-fleet-table">
+          <thead>
+            <tr>
+              <th>Aircraft</th><th>Routes</th><th>Util</th>
+              <th>Var P&amp;L</th><th>Lease</th><th>Contrib</th><th>$ / block-hr</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${charts}
+      <p class="muted" style="font-size:0.66rem;margin-top:8px;">Sorted by contribution (weakest first). AOG tails show red; block hours reset monthly.</p>`;
+  }
+
+  function renderReports() {
+    const el = $('tab-reports');
+    if (!el || !state) return;
+    const section = state.reports_section || 'company';
+    const net = networkRouteStats();
+    let integrity;
+    try {
+      integrity = verifyReportingIntegrity();
+    } catch (err) {
+      integrity = { ok: false, issues: [String(err && err.message ? err.message : err)] };
+    }
+    const integHtml = integrity.ok
+      ? '<p class="report-integrity ok">✓ Numbers check out — rev/var/fixed parts, hub nets, and fleet leases reconcile.</p>'
+      : `<p class="report-integrity bad">⚠ Integrity: ${integrity.issues
+          .slice(0, 4)
+          .map((i) => String(i).replace(/</g, '&lt;'))
+          .join(' · ')}</p>`;
+
+    const body =
+      section === 'hubs'
+        ? reportsSectionHubs()
+        : section === 'fleet'
+          ? reportsSectionFleet()
+          : reportsSectionCompany();
+
+    el.innerHTML = `
+      <h3>Reports — control tower</h3>
+      <p class="muted" style="font-size:0.74rem;line-height:1.45;margin:0 0 10px;">
+        Company · hubs · fleet. Network load <b>${net.count ? (net.avgLoad * 100).toFixed(0) + '%' : '—'}</b>.
+        Route deep-dive still on each route → Review.
+      </p>
+      <div class="report-subnav" role="tablist">
+        <button type="button" class="report-subnav-btn${section === 'company' ? ' active' : ''}" data-report-section="company">Company</button>
+        <button type="button" class="report-subnav-btn${section === 'hubs' ? ' active' : ''}" data-report-section="hubs">Hubs</button>
+        <button type="button" class="report-subnav-btn${section === 'fleet' ? ' active' : ''}" data-report-section="fleet">Fleet</button>
+      </div>
+      <div class="report-section-body">${body}</div>
+      ${integHtml}`;
+
+    el.querySelectorAll('[data-report-section]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.reports_section = btn.dataset.reportSection;
+        renderReports();
+      });
+    });
   }
 
   function renderEconomy() {
@@ -18457,6 +18936,8 @@
     openLoad: () => openSaveLoadModal('load'),
     continueSave: continueMostRecentSave,
     exportSave: exportCurrentGame,
+    /** Dev / integrity: Reports number reconciliation */
+    verifyReporting: () => (state ? verifyReportingIntegrity() : { ok: false, issues: ['no state'] }),
     /** Return to scenario picker (autosaves first). */
     reset: requestNewGame,
     newGameMenu: requestNewGame,
