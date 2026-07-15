@@ -1984,6 +1984,11 @@
     if (trigger === 'weekly' && (investedAirports().includes(cr.origin) || investedAirports().includes(cr.dest))) {
       score += 10;
     }
+    // Fortress footprint: exclusive player gates dampen rival urgency to pile on
+    if (hasExclusiveGateAt(cr.origin) || hasExclusiveGateAt(cr.dest)) {
+      const eg = exclusiveGateCfg();
+      score *= eg.rival_threat_score_mult != null ? eg.rival_threat_score_mult : 0.78;
+    }
     return score;
   }
 
@@ -2261,7 +2266,13 @@
   function competitorOriginDepCap(iata) {
     const ap = airport(iata);
     const weekly = airportMarketDeparturesWeekly(ap) || 80;
-    return Math.max(40, Math.round(weekly * 0.9));
+    let cap = Math.max(40, Math.round(weekly * 0.9));
+    // Player exclusive presence eats scarce preferred positions
+    if (hasExclusiveGateAt(iata)) {
+      const eg = exclusiveGateCfg();
+      cap = Math.round(cap * (eg.rival_dep_cap_mult != null ? eg.rival_dep_cap_mult : 0.88));
+    }
+    return cap;
   }
 
   function competitorOriginDepsUsed(iata, excludeId) {
@@ -2346,6 +2357,12 @@
       if (roll < 0.38) {
         const ap = pickCompetitorAirport(true);
         if (!ap || !ap.incumbents || !ap.incumbents.length) continue;
+        // Prefer not to plant new rival service into player's exclusive fortress
+        if (hasExclusiveGateAt(ap.iata)) {
+          const eg = exclusiveGateCfg();
+          const skip = eg.rival_new_route_skip_chance != null ? eg.rival_new_route_skip_chance : 0.4;
+          if (Math.random() < skip) continue;
+        }
         const inc = ap.incumbents[Math.floor(Math.random() * ap.incumbents.length)];
         const dest = pickCompetitorDest(ap.iata);
         if (!dest || hasCompetitorRoute(inc.airline, ap.iata, dest.iata)) continue;
@@ -2908,12 +2925,15 @@
       if (r.dest) counts[r.dest] = (counts[r.dest] || 0) + 0.55;
     });
     state.brand_awareness = state.brand_awareness || {};
+    const eg = exclusiveGateCfg();
+    const exclBrand = eg.organic_brand_mult != null ? eg.organic_brand_mult : 1.25;
     Object.keys(counts).forEach((ap) => {
       const spend = clampMoney(state.marketing_spend_monthly && state.marketing_spend_monthly[ap]);
       const cur = state.brand_awareness[ap] || 0;
       const cap = spend > 0 ? 100 : capNoAds;
       if (cur >= cap) return;
-      const bump = perRoute * Math.min(4, counts[ap]);
+      let bump = perRoute * Math.min(4, counts[ap]);
+      if (hasExclusiveGateAt(ap)) bump *= exclBrand;
       state.brand_awareness[ap] = Math.min(cap, cur + bump);
     });
   }
@@ -4725,11 +4745,16 @@
     const minGap = Math.max(28, Math.round(50 / agg));
     if (gap < minGap) return;
     // Public / PE airlines face more board-visible competitive drama
-    const fireChance = Math.min(0.72, 0.42 * agg);
-    if (Math.random() > fireChance) return;
+    let fireChance = Math.min(0.72, 0.42 * agg);
     const invested = investedAirports();
     if (!invested.length) return;
     const iata = invested[Math.floor(Math.random() * invested.length)];
+    // Exclusive player stations draw fewer random fare-war popups (rivals pick easier fields)
+    if (hasExclusiveGateAt(iata)) {
+      const eg = exclusiveGateCfg();
+      fireChance *= eg.event_aggression_mult != null ? eg.event_aggression_mult : 0.72;
+    }
+    if (Math.random() > fireChance) return;
     const ap = airport(iata);
     if (!ap || !ap.incumbents || !ap.incumbents.length) return;
     const incumbent = ap.incumbents[Math.floor(Math.random() * Math.min(3, ap.incumbents.length))];
@@ -8461,9 +8486,15 @@
 
     let next = rawLoad;
     if (prev != null) {
-      // Blend + hard cap ±12 percentage points per day
+      // Blend + hard cap day-over-day (±12 pts common; exclusive origin tighter)
       const blended = prev * 0.58 + rawLoad * 0.42;
-      const maxDelta = 0.12;
+      const eg = exclusiveGateCfg();
+      const maxDelta =
+        route.origin && hasExclusiveGateAt(route.origin)
+          ? eg.load_max_delta != null
+            ? eg.load_max_delta
+            : 0.09
+          : 0.12;
       next = Math.max(prev - maxDelta, Math.min(prev + maxDelta, blended));
     }
     if (route.established || route.force_fly) {
@@ -8557,6 +8588,11 @@
       ? routeEconomics().cancel_load_threshold
       : 0.1);
     if (prod.hardToCancel) cancelThreshold = Math.min(cancelThreshold, 0.06);
+    // Exclusive origin: prefer to operate thin flights (better turns / product control)
+    if (hasExclusiveGateAt(route.origin)) {
+      const eg = exclusiveGateCfg();
+      cancelThreshold *= eg.cancel_threshold_mult != null ? eg.cancel_threshold_mult : 0.85;
+    }
 
     // Cancel only truly hopeless non-established services (and never on day 0–21).
     const canCancel =
@@ -9927,8 +9963,61 @@
     return state.gates.filter((g) => g.airport === iata).length;
   }
 
+  function exclusiveGateCountAt(iata) {
+    return (state.gates || []).filter((g) => g.airport === iata && g.tier === 'exclusive').length;
+  }
+
+  function commonGateCountAt(iata) {
+    return (state.gates || []).filter((g) => g.airport === iata && g.tier !== 'exclusive').length;
+  }
+
   function hasGateAt(iata) {
     return gateCountAt(iata) > 0;
+  }
+
+  function hasExclusiveGateAt(iata) {
+    return exclusiveGateCountAt(iata) > 0;
+  }
+
+  function exclusiveGateCfg() {
+    const cfg = routeEconomics();
+    return (
+      cfg.exclusive_gate || {
+        capacity_mult: 1.1,
+        capacity_min_bonus_deps: 1,
+        load_max_delta: 0.09,
+        cancel_threshold_mult: 0.85,
+        organic_brand_mult: 1.25,
+        ad_efficiency_mult: 1.1,
+        rival_threat_score_mult: 0.78,
+        rival_new_route_skip_chance: 0.4,
+        rival_dep_cap_mult: 0.88,
+        event_aggression_mult: 0.72,
+      }
+    );
+  }
+
+  /**
+   * Weekly departure capacity from player gates.
+   * Exclusive gates densify slightly (preferential banks) vs common-use.
+   */
+  function playerGateWeeklyCapacityTotal(iata) {
+    const ap = airport(iata);
+    const base = airportGateWeeklyCapacity(ap);
+    const eg = exclusiveGateCfg();
+    const mult = eg.capacity_mult != null ? eg.capacity_mult : 1.1;
+    const minBonus = eg.capacity_min_bonus_deps != null ? eg.capacity_min_bonus_deps : 1;
+    let total = 0;
+    (state.gates || [])
+      .filter((g) => g.airport === iata)
+      .forEach((g) => {
+        if (g.tier === 'exclusive') {
+          total += Math.max(base + minBonus, Math.round(base * mult));
+        } else {
+          total += base;
+        }
+      });
+    return total;
   }
 
   function originFrequencyUsed(iata, excludeRouteId) {
@@ -9938,8 +10027,7 @@
   }
 
   function maxFrequencyAtOrigin(iata) {
-    const ap = airport(iata);
-    return gateCountAt(iata) * airportGateWeeklyCapacity(ap);
+    return playerGateWeeklyCapacityTotal(iata);
   }
 
   function gateCapacityRemaining(iata, excludeRouteId) {
@@ -9959,11 +10047,16 @@
     const cap = gateCapacityLabel(iata, freq, excludeRouteId);
     if (cap.ok) return null;
     const gates = gateCountAt(iata);
+    const excl = exclusiveGateCountAt(iata);
     const per = airportGateWeeklyCapacity(airport(iata));
+    const exclNote = excl
+      ? ` Exclusive gates densify (~${Math.round((exclusiveGateCfg().capacity_mult || 1.1) * 100 - 100)}% more deps/wk each).`
+      : '';
     return (
       `Your gates at ${iata} are full — lease another gate, lower frequency, or move departures. ` +
-      `(${cap.after}/${cap.max} weekly departures = ${gates} gate${gates !== 1 ? 's' : ''} × ~${per}/wk each. ` +
-      `Not “one route per gate” — it's total departures/week from this airport.)`
+      `(${cap.after}/${cap.max} weekly departures from ${gates} gate${gates !== 1 ? 's' : ''} · base ~${per}/wk common).` +
+      exclNote +
+      ` Not “one route per gate” — it's total departures/week from this airport.)`
     );
   }
 
@@ -9977,20 +10070,28 @@
         `Route Studio’s <b>station build-out</b> is a one-time counters/signage cost when you open a market — it is <em>not</em> another gate.</p>`;
     }
     const util = gateUtilizationAt(iata);
-    const per = util.perGate || airportGateWeeklyCapacity(airport(iata));
+    const per = airportGateWeeklyCapacity(airport(iata));
+    const excl = exclusiveGateCountAt(iata);
+    const common = commonGateCountAt(iata);
     const needAnother =
       util.remaining <= 0
         ? `At capacity — lease another gate at ${iata} (or cut frequency) before adding flights.`
         : util.remaining <= 3
           ? `Only <b>${util.remaining}</b> deps/wk free — next frequency bump may require another gate.`
           : `<b>${util.remaining}</b> departures/wk still open on your gate(s).`;
+    const mix =
+      excl || common
+        ? `${common ? `<b>${common}</b> common` : ''}${common && excl ? ' · ' : ''}${
+            excl ? `<b>${excl}</b> exclusive (+capacity / brand / rival buffer)` : ''
+          }`
+        : `<b>${util.gates}</b> gate${util.gates !== 1 ? 's' : ''}`;
     return `<div class="gate-math">
       <p><b>${iata} gate capacity</b></p>
       <p class="muted" style="font-size:0.72rem;line-height:1.45;margin:4px 0 0;">
-        <b>${util.gates}</b> gate${util.gates !== 1 ? 's' : ''} × ~<b>${per}</b> deps/wk each =
+        ${mix} · base ~<b>${per}</b> deps/wk per common gate =
         <b>${util.max}</b>/wk max · using <b>${util.used}</b> · ${needAnother}<br>
         Math is <b>total weekly departures from ${iata}</b>, not “one route = one gate”.
-        A single busy route can fill a gate; many thin routes can share one if total freq fits.
+        Exclusive densifies banks slightly vs common-use.
       </p>
       <p class="muted" style="font-size:0.68rem;margin:6px 0 0;">
         <b>Station build-out</b> (in Route Studio) ≠ leasing a gate. Build-out is paid once when you launch a new city-pair from here; gate lease is the ongoing slot that lets you fly.
@@ -10004,7 +10105,7 @@
     const gates = gateCountAt(iata);
     const pct = cap.max > 0 ? (cap.used / cap.max) * 100 : 0;
     const routesFrom = (state.routes || []).filter((r) => r.origin === iata);
-    const perGate = gates > 0 && ap ? airportGateWeeklyCapacity(ap) : 0;
+    const perGate = gates > 0 && ap ? Math.round(cap.max / Math.max(1, gates)) : 0;
     const idle = gates > 0 && cap.used === 0;
     const underutilized =
       gates > 0 &&
@@ -10017,6 +10118,7 @@
       ...cap,
       pct,
       gates,
+      exclusiveGates: exclusiveGateCountAt(iata),
       perGate,
       routesFrom,
       routeCount: routesFrom.length,
@@ -11161,9 +11263,14 @@
     }
     if (spend <= 0) return 0;
     // Ads convert better at stations passengers already know (hub maturity).
-    const eff = hubMaturityAt(iata).mktEfficiency || 1;
+    let eff = hubMaturityAt(iata).mktEfficiency || 1;
+    // Exclusive holdroom / branded presence: ads work harder
+    if (hasExclusiveGateAt(iata)) {
+      const eg = exclusiveGateCfg();
+      eff *= eg.ad_efficiency_mult != null ? eg.ad_efficiency_mult : 1.1;
+    }
     // ~$5–12k/mo at a thin station should feel like +10–25% demand, not a rounding error.
-    return Math.min(0.38, (spend / gross) * 3.6 * eff);
+    return Math.min(0.42, (spend / gross) * 3.6 * eff);
   }
 
   /**
@@ -14852,10 +14959,14 @@
       ${
         canLeaseMore
           ? `<div class="btn-row" style="margin-top:8px;">
-        <button type="button" class="btn" onclick="Runway.leaseGate('${iata}','common',3)">${gate ? 'Add ' : ''}Common-use (3yr)</button>
-        <button type="button" class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)">${gate ? 'Add ' : ''}Exclusive (5yr)</button>
+        <button type="button" class="btn" onclick="Runway.leaseGate('${iata}','common',3)" title="Lower rent · flexible · no fortress bonuses">${gate ? 'Add ' : ''}Common-use (3yr) · ${fmtMoney(ap.lease_common_monthly)}/mo</button>
+        <button type="button" class="btn secondary" onclick="Runway.leaseGate('${iata}','exclusive',5)" title="Higher rent · denser banks · stickier brand · softer rival pressure">${gate ? 'Add ' : ''}Exclusive (5yr) · ${fmtMoney(ap.lease_exclusive_monthly)}/mo</button>
       </div>
-      <p class="muted" style="font-size:0.68rem;margin-top:6px;">${ap.gates_available} open slot${ap.gates_available !== 1 ? 's' : ''} · 2-month deposit</p>`
+      <p class="muted" style="font-size:0.68rem;margin-top:6px;line-height:1.4;">
+        ${ap.gates_available} open slot${ap.gates_available !== 1 ? 's' : ''} · 2-month deposit.
+        <b>Common</b> = cheap entry.
+        <b>Exclusive</b> = +capacity density, steadier loads, faster brand, ads work better, rivals less eager to pile on — only worth it if you densify this hub.
+      </p>`
           : gate
             ? '<p class="muted" style="font-size:0.68rem;margin-top:6px;">No additional gate slots here.</p>'
             : '<p class="muted" style="font-size:0.68rem;margin-top:6px;">Airport full — no gates available.</p>'

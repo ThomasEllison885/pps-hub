@@ -159,6 +159,21 @@ Per-route metrics (30-day history when available, else today’s sim):
 - **Riders** — avg daily pax × 30.
 - **CSAT** — load × 28 + reputation share + base − AOG penalty (route-level approximation).
 
+## Exclusive vs common gates
+
+| | Common-use | Exclusive |
+|--|------------|-----------|
+| Term (UI) | 3 years | 5 years |
+| Rent | `lease_common_monthly` | `lease_exclusive_monthly` (higher) |
+| Capacity | Base deps/wk per gate | **+~10%** deps/wk (min +1) |
+| Load stability | ±12 pts/day | **Tighter** (±9 default) |
+| Cancel threshold | Base | **Lower** (prefer to fly) |
+| Organic brand | Base | **×1.25** |
+| Ad efficiency | Hub maturity only | **×1.10** extra |
+| Rival pressure | Full | Softer threat score / fewer new routes / less event heat |
+
+Tune: `ROUTE_ECONOMICS.exclusive_gate`. Exclusive only pays when the station is densified.
+
 ## Hub maturity (`brand_awareness` at origin)
 
 Stations progress **new → building → mature** from origin brand (defaults: &lt;12 / 12–35 / 35–55+).

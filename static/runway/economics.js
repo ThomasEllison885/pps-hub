@@ -63,6 +63,18 @@
       research_min_cost: 12000,
       research_max_cost: 95000,
     },
+    exclusive_gate: {
+      capacity_mult: 1.1,
+      capacity_min_bonus_deps: 1,
+      load_max_delta: 0.09,
+      cancel_threshold_mult: 0.85,
+      organic_brand_mult: 1.25,
+      ad_efficiency_mult: 1.1,
+      rival_threat_score_mult: 0.78,
+      rival_new_route_skip_chance: 0.4,
+      rival_dep_cap_mult: 0.88,
+      event_aggression_mult: 0.72,
+    },
     imputed_pair: {
       size_multiplier: 3.2,
       dist_divisor: 180,
@@ -98,6 +110,7 @@
     delete mc.presence_scale_range;
     const hm = { ...DEFAULTS.hub_maturity, ...(src.hub_maturity || {}) };
     const ju = { ...DEFAULTS.judgment, ...(src.judgment || {}) };
+    const eg = { ...DEFAULTS.exclusive_gate, ...(src.exclusive_gate || {}) };
     const ip = { ...DEFAULTS.imputed_pair, ...(src.imputed_pair || {}) };
     const mdSrc = src.market_departures || {};
     const md = {
@@ -117,6 +130,7 @@
       market_capture: mc,
       hub_maturity: hm,
       judgment: ju,
+      exclusive_gate: eg,
       imputed_pair: ip,
       market_departures: md,
       ramp_load_multipliers: src.ramp_load_multipliers || DEFAULTS.ramp_load_multipliers,

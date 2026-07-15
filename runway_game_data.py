@@ -289,6 +289,19 @@ ROUTE_ECONOMICS = {
         'research_min_cost': 12_000,
         'research_max_cost': 95_000,
     },
+    # Exclusive-use gates: higher rent/longer term justified by real-world-ish control benefits.
+    'exclusive_gate': {
+        'capacity_mult': 1.10,  # denser banks on your own gate
+        'capacity_min_bonus_deps': 1,  # at least +1 dep/wk vs common at same airport
+        'load_max_delta': 0.09,  # tighter day-to-day load (common uses 0.12)
+        'cancel_threshold_mult': 0.85,  # harder to scrub thin flights from exclusive base
+        'organic_brand_mult': 1.25,
+        'ad_efficiency_mult': 1.10,
+        'rival_threat_score_mult': 0.78,  # rivals less eager to pile on
+        'rival_new_route_skip_chance': 0.40,  # when choosing exclusive player hub
+        'rival_dep_cap_mult': 0.88,  # less headroom for rival frequency at your fortress
+        'event_aggression_mult': 0.72,  # fewer random fare wars at exclusive stations
+    },
     'imputed_pair': {
         'size_multiplier': 3.2,
         'dist_divisor': 180,
