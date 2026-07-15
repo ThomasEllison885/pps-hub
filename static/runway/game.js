@@ -77,6 +77,8 @@
   const DEPARTURES_PER_GATE_PER_WEEK = 14; // fallback if airport ops data missing
   const ROUTE_STATS_WINDOW_DAYS = 30;
   const ROUTE_HISTORY_MAX_DAYS = 90;
+  const COMPANY_LEDGER_MAX_DAYS = 365;
+  const PNL_HISTORY_MAX_DAYS = 365;
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
   /**
    * Staged mid-game goals after the 9-step regional build track.
@@ -3397,6 +3399,7 @@
     if (tabId === 'fleet') renderFleet();
     if (tabId === 'economy') renderEconomy();
     if (tabId === 'events') renderEvents();
+    if (tabId === 'reports') renderReports();
     renderOpsGuide();
     if (isMobileLayout()) {
       syncMobileDock(tabId);
@@ -5273,6 +5276,7 @@
       macro: createMacroState(),
       marketing_spend_monthly: { ...(base.marketing_spend_monthly || {}) },
       market_research: {},
+      day_ledger: [],
       ltm_revenue: base.seed_ltm_revenue || 0,
       revenue_history: [],
       daily_pnl: 0,
@@ -6437,6 +6441,44 @@
     if (!Array.isArray(route.history)) route.history = [];
   }
 
+  /**
+   * Allocate fixed costs to a route for reporting (same spirit as Route Studio judgment).
+   * Judgment-only HQ mult uses hub maturity; cash sim does not charge HQ daily.
+   */
+  function routeAllocatedFixedDaily(route) {
+    if (!route || !state) {
+      return { gate: 0, fleet: 0, marketing: 0, hq: 0, total: 0 };
+    }
+    const routesAtOrigin = state.routes.filter((r) => r.origin === route.origin).length || 1;
+    const gateMonthly = state.gates
+      .filter((g) => g.airport === route.origin)
+      .reduce((s, g) => s + (g.monthly || 0), 0);
+    const gate = gateMonthly / routesAtOrigin / 30;
+
+    const plane = route.aircraft_id ? state.fleet.find((f) => f.id === route.aircraft_id) : null;
+    const routesOnPlane = plane
+      ? state.routes.filter((r) => r.aircraft_id === plane.id).length || 1
+      : 1;
+    let fleet = 0;
+    if (plane) {
+      const ac = aircraftType(plane.type);
+      if (plane.leased && ac) fleet = (planeLeaseMonthly(plane) || ac.lease_monthly || 0) / routesOnPlane / 30;
+      else if (ac) fleet = (planeMaintMonthly(plane) || ac.maintenance_monthly || 0) / routesOnPlane / 30;
+    }
+
+    const originAds = clampMoney(state.marketing_spend_monthly && state.marketing_spend_monthly[route.origin]);
+    const destAds = clampMoney(state.marketing_spend_monthly && state.marketing_spend_monthly[route.dest]);
+    const marketing = (originAds / routesAtOrigin + destAds * 0.35 / Math.max(1, state.routes.filter((r) => r.dest === route.dest || r.origin === route.dest).length)) / 30;
+
+    const mat = hubMaturityAt(route.origin);
+    const hq =
+      (playerNaturalOverheadMonthly() / Math.max(1, state.routes.length) / 30) *
+      (mat.overheadMult || 1);
+
+    const total = gate + fleet + marketing + hq;
+    return { gate, fleet, marketing, hq, total, maturity: mat };
+  }
+
   function recordRouteDailyStats(route, sim) {
     if (!route || !state) return;
     ensureRouteStats(route);
@@ -6454,14 +6496,27 @@
     }
     const last = route.history.length ? route.history[route.history.length - 1] : null;
     if (!last || last.day !== state.day) {
+      const alloc = routeAllocatedFixedDaily(route);
+      const varPnl = (sim.revenue || 0) - (sim.cost || 0);
       route.history.push({
         day: state.day,
         load: sim.grounded ? null : sim.load,
         pax: sim.grounded ? 0 : sim.pax || 0,
         rev: sim.revenue || 0,
         cost: sim.cost || 0,
-        pnl: (sim.revenue || 0) - (sim.cost || 0),
+        pnl: varPnl,
+        ticket: sim.ticketRev || 0,
+        ancillary: sim.ancillaryRev || 0,
+        fuel: sim.fuel || 0,
+        crew: sim.crew || 0,
+        fees: sim.fees || 0,
+        gateAlloc: alloc.gate,
+        fleetAlloc: alloc.fleet,
+        mktAlloc: alloc.marketing,
+        hqAlloc: alloc.hq,
+        burdened: varPnl - alloc.total,
         grounded: !!sim.grounded,
+        canceled: !!sim.canceled,
       });
       if (route.history.length > ROUTE_HISTORY_MAX_DAYS) {
         route.history = route.history.slice(-ROUTE_HISTORY_MAX_DAYS);
@@ -6495,13 +6550,22 @@
     const window = routeHistoryWindow(route, days).filter((h) => !h.grounded && h.load != null);
     if (!window.length) return null;
     const n = window.length;
+    const avg = (key) => window.reduce((s, h) => s + (Number(h[key]) || 0), 0) / n;
     return {
       days: n,
       avgLoad: window.reduce((s, h) => s + h.load, 0) / n,
       avgPax: window.reduce((s, h) => s + h.pax, 0) / n,
-      avgPnl: window.reduce((s, h) => s + h.pnl, 0) / n,
+      avgPnl: avg('pnl'),
+      avgBurdened: avg('burdened'),
+      avgMktAlloc: avg('mktAlloc'),
+      avgGateAlloc: avg('gateAlloc'),
+      avgFleetAlloc: avg('fleetAlloc'),
+      avgHqAlloc: avg('hqAlloc'),
+      avgTicket: avg('ticket'),
+      avgAncillary: avg('ancillary'),
       totalRev: window.reduce((s, h) => s + h.rev, 0),
       totalPnl: window.reduce((s, h) => s + h.pnl, 0),
+      totalBurdened: window.reduce((s, h) => s + (h.burdened != null ? h.burdened : h.pnl), 0),
     };
   }
 
@@ -6622,6 +6686,41 @@
     const daysLive = hist.length;
     const forecastLoad = route.launch_forecast_load;
     const forecastPax = route.launch_forecast_pax_day;
+    const allocToday = routeAllocatedFixedDaily(route);
+    const originMkt = marketingImpactSummary(route.origin);
+    const destMkt = marketingImpactSummary(route.dest);
+
+    // Forecast vs actual (30d or all)
+    const actual = avg30 || avgAll;
+    let varianceHtml = '<p class="muted" style="font-size:0.72rem;">Collecting actuals for forecast variance…</p>';
+    if (actual && forecastLoad != null) {
+      const loadPts = (actual.avgLoad - forecastLoad) * 100;
+      const paxDelta = forecastPax != null ? actual.avgPax - forecastPax : null;
+      const loadCls = loadPts >= -3 ? '' : 'danger';
+      varianceHtml = `<div class="route-variance">
+        <h4>Launch plan vs actual</h4>
+        <table class="route-review-table">
+          <thead><tr><th></th><th>Plan (launch)</th><th>Actual ${actual.days}d</th><th>Variance</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>Load</td>
+              <td>${(forecastLoad * 100).toFixed(0)}%</td>
+              <td>${(actual.avgLoad * 100).toFixed(0)}%</td>
+              <td class="${loadCls}">${loadPts >= 0 ? '+' : ''}${loadPts.toFixed(0)} pts</td>
+            </tr>
+            <tr>
+              <td>Pax/day</td>
+              <td>${forecastPax != null ? Math.round(forecastPax) : '—'}</td>
+              <td>${Math.round(actual.avgPax)}</td>
+              <td class="${paxDelta != null && paxDelta < 0 ? 'danger' : ''}">${
+                paxDelta != null ? `${paxDelta >= 0 ? '+' : ''}${Math.round(paxDelta)}` : '—'
+              }</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted" style="font-size:0.66rem;margin:6px 0 0;">Plan is the Studio estimate at launch. Actuals use live demand, rivals, and marketing.</p>
+      </div>`;
+    }
 
     const loadChart = renderLineChart(hist, {
       valueKey: 'load',
@@ -6644,14 +6743,22 @@
       color: '#ffd166',
       formatValue: (v) => fmtMoney(v),
     });
+    const burdenedChart = renderLineChart(hist, {
+      valueKey: 'burdened',
+      label: 'Fully burdened daily',
+      color: '#f472b6',
+      formatValue: (v) => fmtMoney(v),
+    });
 
     const statRow = (label, avg) => {
-      if (!avg) return `<tr><td>${label}</td><td class="muted" colspan="3">—</td></tr>`;
+      if (!avg) return `<tr><td>${label}</td><td class="muted" colspan="4">—</td></tr>`;
+      const bur = avg.avgBurdened != null ? avg.avgBurdened : avg.avgPnl;
       return `<tr>
         <td>${label}</td>
         <td>${(avg.avgLoad * 100).toFixed(0)}%</td>
         <td>${Math.round(avg.avgPax)}</td>
         <td class="${avg.avgPnl >= 0 ? '' : 'danger'}">${fmtMoney(avg.avgPnl)}</td>
+        <td class="${bur >= 0 ? '' : 'danger'}">${fmtMoney(bur)}</td>
       </tr>`;
     };
 
@@ -6674,13 +6781,37 @@
               ? (() => {
                   const h = hist[hist.length - 1];
                   if (h.grounded) return '<span class="danger">AOG — no service</span>';
-                  return `${(h.load * 100).toFixed(0)}% load · ${h.pax} pax · <span class="${h.pnl >= 0 ? '' : 'danger'}">${fmtMoney(h.pnl)}</span>`;
+                  if (h.canceled) return `<span class="danger">Canceled</span> · plan load ${(h.load * 100).toFixed(0)}%`;
+                  const bur = h.burdened != null ? h.burdened : h.pnl;
+                  return `${(h.load * 100).toFixed(0)}% load · ${h.pax} pax · var <span class="${h.pnl >= 0 ? '' : 'danger'}">${fmtMoney(h.pnl)}</span> · burdened <span class="${bur >= 0 ? '' : 'danger'}">${fmtMoney(bur)}</span>`;
                 })()
               : 'Collecting…'
           }</dd>
         </dl>
+        ${varianceHtml}
+        <div class="route-burden-block">
+          <h4>Fully burdened contribution (today’s allocation)</h4>
+          <p class="muted" style="font-size:0.68rem;margin:0 0 8px;">Variable margin minus gate · aircraft · marketing · HQ share (judgment-style). Cash still books HQ only at the company level.</p>
+          <dl class="stat-dl">
+            <dt>Gate share (${route.origin})</dt><dd>−${fmtMoney(allocToday.gate)}/day</dd>
+            <dt>Aircraft share</dt><dd>−${fmtMoney(allocToday.fleet)}/day</dd>
+            <dt>Marketing alloc</dt><dd>−${fmtMoney(allocToday.marketing)}/day</dd>
+            <dt>HQ share (${allocToday.maturity ? allocToday.maturity.label : 'station'})</dt><dd>−${fmtMoney(allocToday.hq)}/day</dd>
+            <dt>Total allocated fixed</dt><dd>−${fmtMoney(allocToday.total)}/day</dd>
+          </dl>
+        </div>
+        <div class="route-mkt-block">
+          <h4>Marketing on this city-pair</h4>
+          <p style="font-size:0.74rem;margin:0 0 4px;">${originMkt.line}</p>
+          <p style="font-size:0.74rem;margin:0;">${destMkt.line}</p>
+          ${
+            avg30 && avg30.avgMktAlloc
+              ? `<p class="muted" style="font-size:0.66rem;margin:6px 0 0;">~${fmtMoney(avg30.avgMktAlloc)}/day marketing allocated to this route (30d avg).</p>`
+              : ''
+          }
+        </div>
         <table class="route-review-table">
-          <thead><tr><th>Window</th><th>Avg load</th><th>Avg pax/day</th><th>Avg P&L/day</th></tr></thead>
+          <thead><tr><th>Window</th><th>Avg load</th><th>Avg pax/day</th><th>Var P&L/day</th><th>Burdened/day</th></tr></thead>
           <tbody>
             ${statRow('Last 7 days', avg7)}
             ${statRow('Last 30 days', avg30)}
@@ -6697,11 +6828,15 @@
             ${paxChart}
           </div>
           <div class="chart-panel">
-            <h4>Daily P&amp;L (route variable)</h4>
+            <h4>Daily P&amp;L (variable)</h4>
             ${pnlChart}
           </div>
+          <div class="chart-panel">
+            <h4>Fully burdened daily</h4>
+            ${burdenedChart}
+          </div>
         </div>
-        <p class="muted" style="font-size:0.68rem;margin-top:10px;">Daily snapshots (up to ${ROUTE_HISTORY_MAX_DAYS} days). Same chart pattern will extend to fleet, gates, and league metrics.</p>
+        <p class="muted" style="font-size:0.68rem;margin-top:10px;">Daily snapshots (up to ${ROUTE_HISTORY_MAX_DAYS} days). Company-level trends live under the <b>Reports</b> tab.</p>
       </div>`;
     overlay.classList.add('active');
     document.body.classList.add('route-review-active');
@@ -7398,6 +7533,7 @@
     state.brand_awareness = state.brand_awareness || {};
     state.market_research = state.market_research || {};
     state.media_shade_airports = state.media_shade_airports || {};
+    state.day_ledger = Array.isArray(state.day_ledger) ? state.day_ledger : [];
     // Infer raises already taken from equity below 100 on older saves
     if (!state.seed_done && (state.equity_pct || 100) < 95 && state.financing_tier === 'startup') {
       state.seed_done = true;
@@ -8475,14 +8611,14 @@
       plane.block_hours_month = (plane.block_hours_month || 0) + block;
     }
     const costM = prod.costMult != null ? prod.costMult : 1;
-    const fuel = block * ac.fuel_gal_hr * state.fuel_price;
-    const crew = block * bootstrap.crew_cost_per_block_hour;
+    const fuel = block * ac.fuel_gal_hr * state.fuel_price * costM;
+    const crew = block * bootstrap.crew_cost_per_block_hour * costM;
     // Airport fees: once per landing. Ferry return still lands at origin. Tag = 2 landings.
     let landings = flightsToday;
     if (prod.isTag && route.tag_dest) landings = flightsToday * 2;
     else if (ferryReturn) landings = flightsToday * 2;
-    const fees = landings * bootstrap.airport_fee_per_departure;
-    const variable = (fuel + crew + fees) * costM;
+    const fees = landings * bootstrap.airport_fee_per_departure * costM;
+    const variable = fuel + crew + fees;
 
     return {
       revenue,
@@ -8493,6 +8629,9 @@
       ancillaryRev,
       cargoRev,
       subsidy,
+      fuel,
+      crew,
+      fees,
       product: prod.id,
       grounded: false,
       canceled: false,
@@ -8508,18 +8647,68 @@
   function simulateDayEconomics() {
     let dayRev = 0;
     let dayCost = 0;
+    let ticketRev = 0;
+    let ancillaryRev = 0;
+    let cargoRev = 0;
+    let subsidy = 0;
+    let fuel = 0;
+    let crew = 0;
+    let fees = 0;
+    let pax = 0;
+    let loadWeight = 0;
+    let loadSum = 0;
     state.routes.forEach((route) => {
       const r = simulateRouteDay(route, { commit: true });
-      dayRev += r.revenue;
-      dayCost += r.cost;
+      dayRev += r.revenue || 0;
+      dayCost += r.cost || 0;
+      ticketRev += r.ticketRev || 0;
+      ancillaryRev += r.ancillaryRev || 0;
+      cargoRev += r.cargoRev || 0;
+      subsidy += r.subsidy || 0;
+      fuel += r.fuel || 0;
+      crew += r.crew || 0;
+      fees += r.fees || 0;
+      pax += r.pax || 0;
+      if (!r.grounded && !r.canceled && r.load != null) {
+        const w = Math.max(1, r.pax || 1);
+        loadSum += r.load * w;
+        loadWeight += w;
+      }
     });
     // Debt service hits cash on the month tick (interest + principal), not daily —
     // so principal actually declines. Daily fixed = ops overhead only.
     // Interest is still reflected in burn/runway via monthlyDebtService().
-    const dailyFixed =
-      (fleetMonthlyCosts() + gateLeaseMonthly()) / 30 + marketingMonthly() / 30;
+    const fleetDay = fleetMonthlyCosts() / 30;
+    const gateDay = gateLeaseMonthly() / 30;
+    const airportAdsDay =
+      Object.values(state.marketing_spend_monthly || {}).reduce((a, b) => a + clampMoney(b), 0) / 30;
+    const scopedMktDay = scopedMarketingMonthly() / 30;
+    const otaDay =
+      (otaListingMonthly() + hubOtaMonthlyCost() + routeOtaFeatureMonthlyCost()) / 30;
+    const mktDay = marketingMonthly() / 30;
+    const dailyFixed = fleetDay + gateDay + mktDay;
     const pnl = dayRev - dayCost - dailyFixed;
-    return { dayRev, dayCost, dailyFixed, pnl };
+    return {
+      dayRev,
+      dayCost,
+      dailyFixed,
+      pnl,
+      ticketRev,
+      ancillaryRev,
+      cargoRev,
+      subsidy,
+      fuel,
+      crew,
+      fees,
+      pax,
+      avgLoad: loadWeight > 0 ? loadSum / loadWeight : 0,
+      fleetDay,
+      gateDay,
+      mktDay,
+      airportAdsDay,
+      scopedMktDay,
+      otaDay,
+    };
   }
 
   function processDayRollover(dayRev, dayCost) {
@@ -9125,6 +9314,7 @@
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
       recordPnlHistory(state.daily_pnl);
+      recordCompanyDayLedger(econ, interest);
       recordPositiveDayStreak(state.daily_pnl);
       updateDailyMetrics(econ);
       processDayRollover(econ.dayRev, econ.dayCost);
@@ -9180,7 +9370,95 @@
   function recordPnlHistory(pnl) {
     if (!Array.isArray(state.pnl_history)) state.pnl_history = [];
     state.pnl_history.push(pnl);
-    if (state.pnl_history.length > 30) state.pnl_history.shift();
+    if (state.pnl_history.length > PNL_HISTORY_MAX_DAYS) {
+      state.pnl_history = state.pnl_history.slice(-PNL_HISTORY_MAX_DAYS);
+    }
+  }
+
+  /** Durable company day pack for Reports tab (matches cash-affecting ops PnL). */
+  function recordCompanyDayLedger(econ, interest) {
+    if (!state || !econ) return;
+    if (!Array.isArray(state.day_ledger)) state.day_ledger = [];
+    const entry = {
+      day: state.day,
+      cash: state.cash,
+      rev: econ.dayRev || 0,
+      varCost: econ.dayCost || 0,
+      fixed: econ.dailyFixed || 0,
+      interest: interest || 0,
+      pnl: state.daily_pnl != null ? state.daily_pnl : econ.pnl || 0,
+      pax: econ.pax || 0,
+      load: econ.avgLoad || 0,
+      ticket: econ.ticketRev || 0,
+      ancillary: econ.ancillaryRev || 0,
+      cargo: econ.cargoRev || 0,
+      subsidy: econ.subsidy || 0,
+      fuel: econ.fuel || 0,
+      crew: econ.crew || 0,
+      fees: econ.fees || 0,
+      fleet: econ.fleetDay || 0,
+      gates: econ.gateDay || 0,
+      mkt: econ.mktDay || 0,
+      airportAds: econ.airportAdsDay || 0,
+      ota: econ.otaDay || 0,
+      routes: (state.routes || []).length,
+      fleetN: (state.fleet || []).length,
+    };
+    const last = state.day_ledger[state.day_ledger.length - 1];
+    if (last && last.day === state.day) state.day_ledger[state.day_ledger.length - 1] = entry;
+    else state.day_ledger.push(entry);
+    if (state.day_ledger.length > COMPANY_LEDGER_MAX_DAYS) {
+      state.day_ledger = state.day_ledger.slice(-COMPANY_LEDGER_MAX_DAYS);
+    }
+  }
+
+  function companyLedgerWindow(days) {
+    const led = (state && state.day_ledger) || [];
+    if (!days || days >= led.length) return led.slice();
+    return led.slice(-days);
+  }
+
+  function sumLedgerField(entries, key) {
+    return (entries || []).reduce((s, e) => s + (Number(e[key]) || 0), 0);
+  }
+
+  function monthlyIncomeStatementFromLedger(days) {
+    const win = companyLedgerWindow(days || 30);
+    if (!win.length) return null;
+    const n = win.length;
+    const scale = 30 / n; // normalize short windows to ~monthly
+    const sum = (k) => sumLedgerField(win, k) * scale;
+    const rev = sum('rev');
+    const varCost = sum('varCost');
+    const fixed = sum('fixed');
+    const interest = sum('interest');
+    return {
+      days: n,
+      scale,
+      rev,
+      ticket: sum('ticket'),
+      ancillary: sum('ancillary'),
+      cargo: sum('cargo'),
+      subsidy: sum('subsidy'),
+      fuel: sum('fuel'),
+      crew: sum('crew'),
+      fees: sum('fees'),
+      varCost,
+      varMargin: rev - varCost,
+      fleet: sum('fleet'),
+      gates: sum('gates'),
+      mkt: sum('mkt'),
+      airportAds: sum('airportAds'),
+      ota: sum('ota'),
+      fixed,
+      interest,
+      opIncome: rev - varCost - fixed,
+      net: rev - varCost - fixed + interest,
+      pax: sumLedgerField(win, 'pax') * scale,
+      avgLoad: win.reduce((s, e) => s + (e.load || 0), 0) / n,
+      endCash: win[win.length - 1].cash,
+      startCash: win[0].cash,
+    };
   }
 
   function tickHours(hours) {
@@ -9200,6 +9478,7 @@
       state.day += 1;
       dayAdvanced = true;
       recordPnlHistory(state.daily_pnl);
+      recordCompanyDayLedger(econ, interest);
       recordPositiveDayStreak(state.daily_pnl);
       processDayRollover(econ.dayRev, econ.dayCost);
       checkSurvivalTriggers();
@@ -15742,6 +16021,144 @@
     }
   }
 
+  function renderReports() {
+    const el = $('tab-reports');
+    if (!el || !state) return;
+    const ledger = state.day_ledger || [];
+    const last30 = companyLedgerWindow(30);
+    const last90 = companyLedgerWindow(90);
+    const is30 = monthlyIncomeStatementFromLedger(30);
+    const is7 = monthlyIncomeStatementFromLedger(7);
+
+    const toSeries = (entries, key) =>
+      (entries || []).map((e) => ({
+        day: e.day,
+        y: e[key],
+        // renderLineChart uses sequential x; day label optional
+      }));
+
+    const cashChart = renderLineChart(toSeries(last90, 'cash'), {
+      valueKey: 'y',
+      color: '#00c896',
+      formatValue: (v) => fmtMoney(v),
+      height: 100,
+    });
+    const pnlChart = renderLineChart(toSeries(last90, 'pnl'), {
+      valueKey: 'y',
+      color: '#ffd166',
+      formatValue: (v) => fmtMoney(v),
+      height: 100,
+    });
+    const loadChart = renderLineChart(toSeries(last90, 'load'), {
+      valueKey: 'y',
+      color: '#7eb8e8',
+      formatValue: (v) => `${(v * 100).toFixed(0)}`,
+      unit: '%',
+      height: 100,
+    });
+    const revChart = renderLineChart(toSeries(last90, 'rev'), {
+      valueKey: 'y',
+      color: '#a5f3fc',
+      formatValue: (v) => fmtMoney(v),
+      height: 100,
+    });
+
+    const trail30 = (state.pnl_history || []).slice(-30);
+    const trailSum = trail30.reduce((a, b) => a + b, 0);
+    const net = networkRouteStats();
+
+    const isRow = (label, val, opts) => {
+      opts = opts || {};
+      const cls = opts.danger && val < 0 ? 'danger' : opts.bold ? 'report-is-total' : '';
+      const indent = opts.indent ? ' style="padding-left:14px"' : '';
+      return `<tr class="${cls}"><td${indent}>${label}</td><td class="${val < 0 && opts.signed !== false ? 'danger' : ''}">${fmtMoney(val)}${opts.suffix || ''}</td></tr>`;
+    };
+
+    let isHtml = '<p class="muted" style="font-size:0.72rem;">Run the clock to build the day ledger. Statements scale short samples to a ~30-day month.</p>';
+    if (is30) {
+      isHtml = `
+        <p class="muted" style="font-size:0.72rem;margin:0 0 8px;">Based on <b>${is30.days}</b> ledger day(s)${is30.scale !== 1 ? ` · scaled ×${is30.scale.toFixed(2)} to ~monthly` : ''}.</p>
+        <table class="route-review-table report-is-table">
+          <thead><tr><th>Income statement (~monthly)</th><th>Amount</th></tr></thead>
+          <tbody>
+            ${isRow('Ticket revenue', is30.ticket, { indent: true })}
+            ${isRow('Ancillaries', is30.ancillary, { indent: true })}
+            ${is30.cargo ? isRow('Cargo / other', is30.cargo + is30.subsidy, { indent: true }) : is30.subsidy ? isRow('Subsidy / other', is30.subsidy, { indent: true }) : ''}
+            ${isRow('Total operating revenue', is30.rev, { bold: true })}
+            ${isRow('Fuel', -is30.fuel, { indent: true })}
+            ${isRow('Crew', -is30.crew, { indent: true })}
+            ${isRow('Airport fees', -is30.fees, { indent: true })}
+            ${isRow('Variable costs', -is30.varCost, { bold: true })}
+            ${isRow('Variable margin', is30.varMargin, { bold: true, signed: true })}
+            ${isRow('Aircraft leases / maint', -is30.fleet, { indent: true })}
+            ${isRow('Gate leases', -is30.gates, { indent: true })}
+            ${isRow('Marketing & OTA', -is30.mkt, { indent: true })}
+            ${isRow('Total fixed ops', -is30.fixed, { bold: true })}
+            ${isRow('Operating income (pre-debt)', is30.opIncome, { bold: true, signed: true })}
+            ${isRow('Cash interest earned', is30.interest, { indent: true })}
+            ${isRow('Net (ops + interest)', is30.net, { bold: true, signed: true })}
+          </tbody>
+        </table>
+        <p class="muted" style="font-size:0.66rem;margin:8px 0 0;">Debt service &amp; bond coupons hit cash on month/quarter ticks — not in daily ops net above. Avg load ${(is30.avgLoad * 100).toFixed(0)}% · ~${Math.round(is30.pax).toLocaleString()} pax/mo.</p>`;
+    }
+
+    const cashFlowNote = is30
+      ? `<dl class="stat-dl" style="margin-top:10px;">
+          <dt>Cash start → end (window)</dt>
+          <dd>${fmtMoney(is30.startCash)} → ${fmtMoney(is30.endCash)} <span class="muted">(${is30.days}d raw)</span></dd>
+          <dt>Trail 30d P&amp;L sum</dt>
+          <dd class="${trailSum >= 0 ? '' : 'danger'}">${fmtMoney(trailSum)}</dd>
+          <dt>LTM revenue</dt>
+          <dd>${fmtMoney(state.ltm_revenue || 0)}</dd>
+          <dt>Debt service / mo</dt>
+          <dd>${fmtMoney(monthlyDebtService())}</dd>
+        </dl>`
+      : '';
+
+    const today = state.routes.length ? simulateDayEconomics() : null;
+    const todayStrip = today
+      ? `<div class="report-today">
+          <h4>Today (live)</h4>
+          <p style="font-size:0.74rem;margin:0;line-height:1.45;">
+            Rev <b>${fmtMoney(today.dayRev)}</b> · var cost <b>−${fmtMoney(today.dayCost)}</b>
+            (fuel ${fmtMoney(today.fuel)} · crew ${fmtMoney(today.crew)} · fees ${fmtMoney(today.fees)})
+            · fixed <b>−${fmtMoney(today.dailyFixed)}</b>
+            (fleet ${fmtMoney(today.fleetDay)} · gates ${fmtMoney(today.gateDay)} · mkt ${fmtMoney(today.mktDay)})
+            · net <b class="${today.pnl >= 0 ? '' : 'danger'}">${fmtMoney(today.pnl)}</b>
+            · load ${(today.avgLoad * 100).toFixed(0)}% · ${today.pax} pax
+          </p>
+        </div>`
+      : '<p class="muted">No routes flying — launch service to populate reports.</p>';
+
+    el.innerHTML = `
+      <h3>Reports — control tower</h3>
+      <p class="muted" style="font-size:0.74rem;line-height:1.45;margin:0 0 12px;">
+        Company ledger (up to ${COMPANY_LEDGER_MAX_DAYS} days). Route-level detail is still on each route card → Review.
+        Network load now <b>${net.count ? (net.avgLoad * 100).toFixed(0) + '%' : '—'}</b> · ledger days <b>${ledger.length}</b>.
+      </p>
+      ${todayStrip}
+      <h4 style="margin-top:14px;">Trailing trends (90d)</h4>
+      ${
+        last90.length < 2
+          ? '<p class="muted" style="font-size:0.72rem;">Need a few simulated days before charts appear. Press ▶ and come back.</p>'
+          : `<div class="route-review-charts report-charts">
+              <div class="chart-panel"><h4>Cash</h4>${cashChart}</div>
+              <div class="chart-panel"><h4>Daily net P&amp;L</h4>${pnlChart}</div>
+              <div class="chart-panel"><h4>Network load</h4>${loadChart}</div>
+              <div class="chart-panel"><h4>Daily revenue</h4>${revChart}</div>
+            </div>`
+      }
+      <h4 style="margin-top:16px;">Monthly income statement</h4>
+      ${isHtml}
+      ${cashFlowNote}
+      ${
+        is7 && is30
+          ? `<p class="muted" style="font-size:0.66rem;margin-top:10px;">Last 7d pace (×~4.3): rev ~${fmtMoney(is7.rev)} · net ~${fmtMoney(is7.net)}/mo equivalent.</p>`
+          : ''
+      }
+      <p class="muted" style="font-size:0.66rem;margin-top:12px;">Tip: open a losing route’s Review for forecast vs actual and fully burdened contribution.</p>`;
+  }
+
   function renderEconomy() {
     const el = $('tab-economy');
     if (!el) return;
@@ -16947,6 +17364,7 @@
       renderOpsGuide,
       drawMap,
       renderFinance,
+      renderReports,
       renderEconomy,
       renderFleet,
       renderRoutes,

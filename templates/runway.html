@@ -2279,6 +2279,32 @@
   }
   .chart-grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
   .chart-axis { fill: var(--muted); font-size: 8px; font-family: inherit; }
+  .report-today {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(0, 200, 150, 0.06);
+    margin-bottom: 8px;
+  }
+  .report-today h4 { margin: 0 0 6px; font-size: 0.78rem; color: var(--accent); }
+  .report-charts { margin-top: 8px; }
+  .report-is-table tr.report-is-total td { font-weight: 700; border-top: 1px solid rgba(255,255,255,0.08); }
+  .route-variance, .route-burden-block, .route-mkt-block {
+    margin: 12px 0;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(6, 13, 24, 0.55);
+  }
+  .route-variance h4, .route-burden-block h4, .route-mkt-block h4 {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    color: var(--gold);
+  }
+  @media (max-width: 900px) {
+    .mobile-dock button { font-size: 0.58rem; padding: 6px 2px; }
+    .mobile-dock button .dock-icon { font-size: 0.95rem; }
+  }
   .competitor-impact {
     margin: 10px 0;
     padding: 10px 12px;
@@ -3798,12 +3824,14 @@
         <button data-tab="routes" class="active" title="Launch and manage flights">Routes<span class="tab-hint">Flights</span></button>
         <button data-tab="fleet" title="Lease or buy aircraft">Fleet<span class="tab-hint">Planes</span></button>
         <button data-tab="finance" title="Cash, debt, fundraising">Capital<span class="tab-hint">Money</span></button>
+        <button data-tab="reports" title="Company P&amp;L, cash, income statement">Reports<span class="tab-hint">Data</span></button>
         <button data-tab="economy" title="OTAs, pricing strategy, macro">Market<span class="tab-hint">Sell</span></button>
         <button data-tab="events" title="Game events and rival moves">Log<span class="tab-hint">News</span></button>
       </nav>
       <div id="panel-routes" class="tab-panel active"><div id="tab-routes"></div></div>
       <div id="panel-fleet" class="tab-panel"><div id="tab-fleet"></div></div>
       <div id="panel-finance" class="tab-panel"><div id="tab-finance"></div></div>
+      <div id="panel-reports" class="tab-panel"><div id="tab-reports"></div></div>
       <div id="panel-economy" class="tab-panel"><div id="tab-economy"></div></div>
       <div id="panel-events" class="tab-panel"><div id="tab-events"></div></div>
     </aside>
@@ -3813,6 +3841,7 @@
     <button type="button" data-mobile-nav="routes" class="active"><span class="dock-icon" aria-hidden="true">✈</span>Routes</button>
     <button type="button" data-mobile-nav="fleet"><span class="dock-icon" aria-hidden="true">🛩</span>Fleet</button>
     <button type="button" data-mobile-nav="finance"><span class="dock-icon" aria-hidden="true">$</span>Capital</button>
+    <button type="button" data-mobile-nav="reports"><span class="dock-icon" aria-hidden="true">📊</span>Reports</button>
     <button type="button" data-mobile-nav="economy"><span class="dock-icon" aria-hidden="true">📣</span>Market</button>
     <button type="button" data-mobile-nav="events"><span class="dock-icon" aria-hidden="true">📋</span>Log</button>
   </nav>
@@ -3820,7 +3849,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=76"></script>
-<script src="/static/runway/game.js?v=82"></script>
+<script src="/static/runway/economics.js?v=77"></script>
+<script src="/static/runway/game.js?v=83"></script>
 </body>
 </html>
