@@ -2690,7 +2690,17 @@
 
   function planeBlockHoursToday(plane) {
     if (!plane || plane.aog_days_left > 0) return 0;
-    if (plane.block_hours_today != null && Number.isFinite(plane.block_hours_today)) {
+    // block_hours_today only reflects real completed flight hours while the hour
+    // clock (Slow speed) is actually running — rebuildAircraftDaySchedule() also
+    // stamps schedule_day/zeroes this field just from drawing the map on ANY
+    // speed, so schedule_day alone isn't a reliable signal that hour-ops ran today.
+    if (
+      state &&
+      state.speed === 'slow' &&
+      plane.schedule_day === state.day &&
+      plane.block_hours_today != null &&
+      Number.isFinite(plane.block_hours_today)
+    ) {
       return plane.block_hours_today;
     }
     let hours = 0;
@@ -2747,8 +2757,34 @@
 
   // ── Live aircraft ops (hour clock + board + map) ─────────────────────
 
-  function flightsPerDayForRoute(route) {
-    return Math.max(0, Math.round((route.frequency_week || 0) / 7));
+  function routeWeekPhase(route) {
+    // Stable per-route offset (0-6) derived from the route id, so routes with the
+    // same frequency don't all cluster their "extra" flight on the same weekday.
+    const id = (route && route.id) || '';
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 7;
+    return h;
+  }
+
+  /**
+   * How many legs of this route fly TODAY on the hour clock. A flat
+   * Math.round(frequency_week/7) rounds anything <=3/wk down to zero — those
+   * routes would never fly at all on Slow. Instead, distribute frequency_week
+   * flights evenly across the 7-day week (Bresenham-style) so every served
+   * route still totals exactly frequency_week flights per week, just spread
+   * across specific days instead of an equal fractional amount every day.
+   */
+  function flightsPerDayForRoute(route, dayOverride) {
+    const freq = Math.max(0, route.frequency_week || 0);
+    if (freq <= 0) return 0;
+    const base = Math.floor(freq / 7);
+    const extra = freq - base * 7; // 0..6 leftover flights to distribute across the week
+    if (extra <= 0) return base;
+    const day = dayOverride != null ? dayOverride : state.day || 0;
+    const phase = routeWeekPhase(route);
+    const dow = ((day + phase) % 7 + 7) % 7;
+    const hasExtraToday = Math.floor(((dow + 1) * extra) / 7) > Math.floor((dow * extra) / 7);
+    return base + (hasExtraToday ? 1 : 0);
   }
 
   function defaultOpsWindow(iata) {
@@ -3052,30 +3088,17 @@
     const interest = accrueCashInterest(1);
     const econ = buildEconFromOpsDay(fixed);
     state.daily_pnl = econ.pnl + interest;
+    // Cheap metrics rollup (no second full-network resim) — must run before
+    // flushRouteOpsToHistory() clears route.ops_today.
+    updateMetricsFromOpsDay(econ);
     flushRouteOpsToHistory();
-    // Metrics without a second full-network commit sim
-    ensureMetrics();
-    state.metrics.passengers_mtd = (state.metrics.passengers_mtd || 0) + (econ.pax || 0);
-    state.metrics.op_revenue_mtd = (state.metrics.op_revenue_mtd || 0) + (econ.dayRev || 0);
-    state.metrics.op_cost_mtd =
-      (state.metrics.op_cost_mtd || 0) + (econ.dayCost || 0) + (econ.dailyFixed || 0);
-    state.metrics.csat = computeCsat();
 
-    recordPnlHistory(state.daily_pnl);
-    recordCompanyDayLedger(econ, interest);
-    recordPositiveDayStreak(state.daily_pnl);
-    recordStationDayHistory();
-    recordFleetUtilHistory();
-    processDayRollover(econ.dayRev, econ.dayCost);
-    checkSurvivalTriggers();
-    checkPositiveMilestones();
-    checkScenarioGoal();
-
-    // Advance calendar and reset live board for the new day
+    // Advance the calendar BEFORE the shared tail — processDayRollover()'s
+    // weekly/monthly checks (state.day % 7 / % 30) expect "today" to already be
+    // the day being closed, same as the Day+ path in tickDaysCore.
     state.ops_day = null;
     state.day += 1;
-    state.hour = 6;
-    snapAircraftAfterDayTick();
+    closeDayCommon(econ, interest);
     ensureOpsDayBucket();
     return econ;
   }
@@ -6126,9 +6149,8 @@
       player_name: playerName || base.player_name || 'CEO',
       airline_name: airlineName || base.airline_name,
       day: 0,
-      hour: 8,
-      speed: 'pause',
       hour: 6,
+      speed: 'pause',
       cash: base.cash,
       debt: base.debt,
       bonds: base.bonds,
@@ -8073,6 +8095,33 @@
     state.metrics.csat = computeCsat();
   }
 
+  /**
+   * Cheap equivalent of updateDailyMetrics() for the hour clock: per-route pax for
+   * today already accumulated in route.ops_today as legs booked, so airport_share
+   * and MTD totals can be rolled up without a second full-network resim. Must run
+   * BEFORE flushRouteOpsToHistory() clears route.ops_today.
+   */
+  function updateMetricsFromOpsDay(econ) {
+    if (!state) return;
+    ensureMetrics();
+    const share = { ...state.metrics.airport_share };
+    (state.routes || []).forEach((route) => {
+      const rt = route.ops_today;
+      if (!rt || rt.day !== state.day || !rt.pax) return;
+      share[route.origin] = (share[route.origin] || 0) + rt.pax * 0.6;
+      share[route.dest] = (share[route.dest] || 0) + rt.pax * 0.4;
+    });
+    state.metrics.passengers_mtd = (state.metrics.passengers_mtd || 0) + (econ.pax || 0);
+    state.metrics.op_revenue_mtd = (state.metrics.op_revenue_mtd || 0) + (econ.dayRev || 0);
+    state.metrics.op_cost_mtd =
+      (state.metrics.op_cost_mtd || 0) + (econ.dayCost || 0) + (econ.dailyFixed || 0);
+    Object.keys(share).forEach((k) => {
+      share[k] = Math.min(100, share[k] / 80);
+    });
+    state.metrics.airport_share = share;
+    state.metrics.csat = computeCsat();
+  }
+
   function processMonthlyScoreboard() {
     if (!state) return;
     ensureMetrics();
@@ -9605,6 +9654,15 @@
     } finally {
       simulatingDemandDepth -= 1;
     }
+    if (singleFlight) {
+      // demandForRoute() returns the route's TOTAL daily demand pool, independent of
+      // how many flights operate today — it has no notion of "this one leg's share."
+      // Without dividing here, every leg of a >1x/day route computes load as if it
+      // alone served the whole day's demand, inflating pax/revenue on the hour clock
+      // for any route flying more than once per day.
+      const legsToday = Math.max(1, flightsPerDayForRoute(route));
+      demand = demand / legsToday;
+    }
     let rawLoad = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const prod = routeProduct(routeProductId(route));
     // Established / starter / contract products keep a floor so tutorial & feeder don't free-fall.
@@ -10408,11 +10466,15 @@
     hint.textContent = labels[speedId] || '';
   }
 
-  function closeSimulatedDay(econ, interest) {
+  /**
+   * Shared close-of-day tail for BOTH the hour clock and Day+ speeds. Callers must
+   * increment state.day before calling this — processDayRollover()'s weekly/monthly
+   * checks (state.day % 7 / % 30) assume "today" is already the day being closed.
+   */
+  function closeDayCommon(econ, interest) {
     recordPnlHistory(state.daily_pnl);
     recordCompanyDayLedger(econ, interest);
     recordPositiveDayStreak(state.daily_pnl);
-    updateDailyMetrics(econ);
     recordStationDayHistory();
     recordFleetUtilHistory();
     processDayRollover(econ.dayRev, econ.dayCost);
@@ -10422,6 +10484,11 @@
     // New calendar day — reset hour ops board
     state.hour = 6;
     snapAircraftAfterDayTick();
+  }
+
+  function closeSimulatedDay(econ, interest) {
+    updateDailyMetrics(econ);
+    closeDayCommon(econ, interest);
   }
 
   /** Core day loop without save/render — used by tickDays and year chunking. */
@@ -17753,7 +17820,7 @@
     }
   }
 
-  function reportsSectionCompany() {
+  function reportsSectionCompany(precomputedEcon) {
     const ledger = state.day_ledger || [];
     const last90 = companyLedgerWindow(90);
     const is30 = monthlyIncomeStatementFromLedger(30);
@@ -17830,7 +17897,7 @@
           <dt>Debt service / mo</dt><dd>${fmtMoney(monthlyDebtService())}</dd>
         </dl>`
       : '';
-    const today = state.routes.length ? simulateDayEconomics({ commit: false }) : null;
+    const today = state.routes.length ? precomputedEcon || simulateDayEconomics({ commit: false }) : null;
     const todayStrip = today
       ? `<div class="report-today">
           <h4>Today (live preview · not committing)</h4>
@@ -17868,8 +17935,8 @@
       <p class="muted" style="font-size:0.64rem;margin-top:8px;">Ledger days: <b>${ledger.length}</b> / ${COMPANY_LEDGER_MAX_DAYS}</p>`;
   }
 
-  function reportsSectionHubs() {
-    const hubs = allHubScorecards();
+  function reportsSectionHubs(precomputedHubs) {
+    const hubs = precomputedHubs || allHubScorecards();
     if (!hubs.length) {
       return '<p class="muted">No gates yet — lease a station to open hub scorecards.</p>';
     }
@@ -17983,6 +18050,15 @@
   function renderReports() {
     const el = $('tab-reports');
     if (!el || !state) return;
+    // Reports is the only tab whose render does a full-network resimulation
+    // (verifyReportingIntegrity). renderAll() calls every tab's render function
+    // unconditionally so switching tabs feels instant, but that means this one was
+    // paying for a full resim on every action and every hourly tick even while some
+    // other tab was showing. switchTab() already force-renders Reports the moment
+    // the player opens it, so skipping the live-update here while it's hidden loses
+    // nothing.
+    const panel = $('panel-reports');
+    if (panel && !panel.classList.contains('active')) return;
     const section = state.reports_section || 'company';
     const net = networkRouteStats();
     let integrity;
@@ -17998,12 +18074,14 @@
           .map((i) => String(i).replace(/</g, '&lt;'))
           .join(' · ')}</p>`;
 
+    // Reuse verifyReportingIntegrity()'s own econ/hubs computation instead of each
+    // section independently re-running simulateDayEconomics()/allHubScorecards().
     const body =
       section === 'hubs'
-        ? reportsSectionHubs()
+        ? reportsSectionHubs(integrity.hubs)
         : section === 'fleet'
           ? reportsSectionFleet()
-          : reportsSectionCompany();
+          : reportsSectionCompany(integrity.econ);
 
     el.innerHTML = `
       <h3>Reports — control tower</h3>
