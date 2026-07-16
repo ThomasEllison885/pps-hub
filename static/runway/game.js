@@ -2701,7 +2701,8 @@
     const d = airport(dest);
     const ac = aircraftType(plane.type) || aircraftType(plane.aircraft_type);
     if (!o || !d || !ac) return 1.5;
-    return Math.max(0.6, blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), ac));
+    // Floor at 1.5h so short hops stay airborne across 2 Slow ticks (visible on map).
+    return Math.max(1.5, blockHours(haversineNm(o.lat, o.lon, d.lat, d.lon), ac));
   }
 
   function ensureOpsDayBucket() {
@@ -3178,21 +3179,38 @@
       const o = airport(ab.origin);
       const d = airport(ab.dest);
       if (!o || !d) return null;
-      const t = Math.max(0, Math.min(1, ab.progress != null ? ab.progress : 0.5));
+      // Prefer live progress; if missing, derive from current hour
+      let t = ab.progress;
+      if (t == null || !Number.isFinite(t)) {
+        const h = state.hour != null ? state.hour + 0.45 : ab.depHour;
+        const span = Math.max(0.35, ab.arrHour - ab.depHour);
+        t = (h - ab.depHour) / span;
+      }
+      t = Math.max(0.08, Math.min(0.92, t)); // keep marker clearly between airports
       return {
         lat: o.lat + (d.lat - o.lat) * t,
         lon: o.lon + (d.lon - o.lon) * t,
+        originLat: o.lat,
+        originLon: o.lon,
+        destLat: d.lat,
+        destLon: d.lon,
         heading: Math.atan2(d.lon - o.lon, d.lat - o.lat),
         airborne: true,
-        label: `${plane.id} ${ab.origin}→${ab.dest}`,
+        origin: ab.origin,
+        dest: ab.dest,
+        label: `${plane.id} ${ab.origin}→${ab.dest} (${Math.round(t * 100)}%)`,
       };
     }
     const iata = plane.location;
     const ap = airport(iata);
     if (!ap) return null;
+    // Parked: slight offset so multiple tails at one airport don't stack perfectly
+    const hash = String(plane.id || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
+    const ang = (hash % 360) * (Math.PI / 180);
+    const offset = 0.12; // degrees-ish via lat/lon nudge for map only
     return {
-      lat: ap.lat,
-      lon: ap.lon,
+      lat: ap.lat + Math.cos(ang) * offset * 0.02,
+      lon: ap.lon + Math.sin(ang) * offset * 0.02,
       heading: 0,
       airborne: false,
       label: `${plane.id} @ ${iata}`,
@@ -3202,6 +3220,8 @@
   /** Advance fleet one simulated hour (positions, departures, landings, misses). */
   function advanceAircraftOneHour() {
     if (!state || !state.fleet) return;
+    // Only build schedule once per day (force=false); mid-day rebuild was
+    // shifting dep hours forward and stranding planes with empty "planned" sets.
     rebuildAircraftDaySchedule(false);
     const h = state.hour == null ? 6 : state.hour;
 
@@ -3226,32 +3246,34 @@
       // Airborne: update progress / land
       if (plane.status === 'airborne' && plane.airborne) {
         const ab = plane.airborne;
-        const span = Math.max(0.35, ab.arrHour - ab.depHour);
-        const mid = h + 0.5;
-        ab.progress = Math.max(0, Math.min(0.99, (mid - ab.depHour) / span));
-        if (h + 1 > ab.arrHour - 0.001) {
-          // Land this hour — book leg economics now
+        const span = Math.max(0.5, ab.arrHour - ab.depHour);
+        // End of this hour's window
+        const tEnd = h + 0.95;
+        ab.progress = Math.max(0.1, Math.min(0.95, (tEnd - ab.depHour) / span));
+        // Land only after enough hours have passed (arrHour is exclusive end)
+        if (h + 1 >= ab.arrHour - 0.01) {
           plane.location = ab.dest;
           plane.status = 'turnaround';
           const turn = turnaroundHoursAt(ab.dest);
-          plane.turnaround_free_hour = Math.max(h + 0.25, ab.arrHour + turn);
+          plane.turnaround_free_hour = Math.max(h + 1 + 0.15, ab.arrHour + turn);
           const leg = (plane.legs_today || []).find(
             (l) =>
               l.status === 'departed' &&
               l.origin === ab.origin &&
               l.dest === ab.dest &&
-              Math.abs((l.depHour || 0) - ab.depHour) < 0.05
+              Math.abs((l.depHour || 0) - ab.depHour) < 0.08
           );
           if (leg) {
             leg.status = 'arrived';
             bookCompletedLeg(plane, leg);
           }
           plane.airborne = null;
+          // Allow a following leg same hour only if turn is already free (rare)
         }
-        return; // can't depart same hour after landing in this simplified model if still airborne
+        if (plane.status === 'airborne') return;
       }
 
-      // Depart due legs
+      // Depart due legs (one per hour max)
       if (plane.status === 'parked' || plane.status === 'turnaround') {
         if (
           plane.status === 'turnaround' &&
@@ -3268,10 +3290,10 @@
         for (let i = 0; i < legs.length; i++) {
           const leg = legs[i];
           if (leg.status !== 'planned') continue;
-          // Not yet due
+          // Not yet due this hour
           if (leg.depHour >= h + 1) break;
-          // Overdue or due this hour
           if (plane.location !== leg.origin) {
+            // Try a same-day ferry recovery: if next hop is from elsewhere, mark miss
             leg.status = 'missed';
             leg.missReason = `aircraft at ${plane.location || '—'}, not ${leg.origin}`;
             leg.rev = 0;
@@ -3283,7 +3305,7 @@
             if (!plane._missLogged || plane._missLogged !== `${state.day}-${i}`) {
               plane._missLogged = `${state.day}-${i}`;
               pushEvent(
-                `<b>${plane.id}</b> missed ${leg.origin}→${leg.dest} — metal not at origin (${leg.missReason}). $0 revenue.`,
+                `<b>${plane.id}</b> missed ${leg.origin}→${leg.dest} — only one place at a time (at ${plane.location || '—'}). $0 revenue.`,
                 'bad'
               );
             }
@@ -3293,17 +3315,26 @@
           leg.status = 'departed';
           plane.status = 'airborne';
           plane.location = null;
+          const bh = Math.max(1.5, (leg.arrHour || 0) - (leg.depHour || 0));
+          // Snap dep to this hour so progress maps cleanly across Slow ticks
+          const depH = Math.max(leg.depHour, h);
+          const arrH = depH + bh;
+          leg.depHour = depH;
+          leg.arrHour = arrH;
           plane.airborne = {
             origin: leg.origin,
             dest: leg.dest,
-            depHour: leg.depHour,
-            arrHour: leg.arrHour,
-            progress: 0.05,
+            depHour: depH,
+            arrHour: arrH,
+            progress: 0.15,
             routeId: leg.routeId,
             ferry: leg.type === 'ferry',
           };
-          const bh = Math.max(0.25, (leg.arrHour || 0) - (leg.depHour || 0));
           plane.block_hours_today = (plane.block_hours_today || 0) + bh;
+          pushEvent(
+            `<b>${plane.id}</b> departed ${leg.origin}→${leg.dest}${leg.type === 'ferry' ? ' (ferry)' : ''} · ETA ${formatHourClock(arrH)}.`,
+            leg.type === 'ferry' ? 'bad' : 'good'
+          );
           break;
         }
       }
@@ -15531,7 +15562,7 @@
     });
     html += '</g>';
 
-    // Live aircraft markers (hour ops)
+    // Live aircraft markers (hour ops) — gold = airborne between airports
     if (state && state.fleet && state.fleet.length) {
       rebuildAircraftDaySchedule(false);
       html += '<g class="map-aircraft">';
@@ -15539,10 +15570,17 @@
         const pos = aircraftMapPosition(plane);
         if (!pos) return;
         const p = projectMap(pos.lat, pos.lon);
+        if (pos.airborne && pos.originLat != null) {
+          const p0 = projectMap(pos.originLat, pos.originLon);
+          const p1 = projectMap(pos.destLat, pos.destLon);
+          html += `<line x1="${p0.x}" y1="${p0.y}" x2="${p1.x}" y2="${p1.y}" stroke="rgba(255,209,102,0.25)" stroke-width="2" stroke-dasharray="4 3"/>`;
+          html += `<line x1="${p0.x}" y1="${p0.y}" x2="${p.x}" y2="${p.y}" stroke="#ffd166" stroke-width="2.2" opacity="0.85" stroke-linecap="round"/>`;
+        }
         const fill = pos.airborne ? '#ffd166' : '#7eb8e8';
-        const r = pos.airborne ? 5.5 : 4.2;
-        html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="#041018" stroke-width="1.4" class="map-plane-dot" data-plane-id="${plane.id}" style="cursor:pointer"><title>${String(pos.label || plane.id).replace(/"/g, "'")}</title></circle>`;
-        html += `<text x="${p.x}" y="${p.y - 8}" text-anchor="middle" fill="#f0f8ff" font-size="8" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:2.5px">${plane.id}</text>`;
+        const r = pos.airborne ? 7 : 5;
+        html += `<circle cx="${p.x}" cy="${p.y}" r="${r + 3}" fill="${fill}" opacity="0.2"/>`;
+        html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="#041018" stroke-width="1.6" class="map-plane-dot" data-plane-id="${plane.id}" style="cursor:pointer"><title>${String(pos.label || plane.id).replace(/"/g, "'")}</title></circle>`;
+        html += `<text x="${p.x}" y="${p.y - (pos.airborne ? 12 : 9)}" text-anchor="middle" fill="#f0f8ff" font-size="9" font-weight="800" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${plane.id}${pos.airborne ? ' ✈' : ''}</text>`;
       });
       html += '</g>';
     }
@@ -18798,10 +18836,31 @@
 
   function setupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-      if (e.code !== 'Space' || e.repeat) return;
       const game = $('screen-game');
       if (!game || !game.classList.contains('active') || !state) return;
       if (isTypingTarget(document.activeElement)) return;
+
+      // Esc closes route review / plane detail (same as Back buttons)
+      if (e.key === 'Escape' || e.code === 'Escape') {
+        if (routeReviewRouteId) {
+          e.preventDefault();
+          closeRouteReview();
+          return;
+        }
+        if (planeDetailId) {
+          e.preventDefault();
+          closePlaneDetail();
+          return;
+        }
+        if (cabinReconfigPlaneId) {
+          e.preventDefault();
+          cancelCabinReconfig();
+          return;
+        }
+        return;
+      }
+
+      if (e.code !== 'Space' || e.repeat) return;
       e.preventDefault();
       togglePause();
     });

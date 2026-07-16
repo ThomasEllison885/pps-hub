@@ -1295,18 +1295,21 @@
     }
     .side-panel #ops-guide { order: 99; }
     .route-instrument { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    /* Keep chrome under zoom buttons, not stacked on the coach sheet / dock */
     .map-chrome-bar {
-      top: auto;
-      bottom: 10px;
+      top: 10px;
+      bottom: auto;
       left: 10px;
-      right: 56px;
+      right: 58px;
       max-width: none;
     }
     .map-legend {
-      bottom: 52px;
-      max-width: min(260px, 85%);
+      bottom: 10px;
+      left: 10px;
+      right: 58px;
+      max-width: none;
     }
-    .map-controls { top: 10px; right: 10px; }
+    .map-controls { top: 10px; right: 10px; z-index: 14; }
     .map-wrap { padding: 8px 10px 6px; }
     .map-wrap.map-collapsed { padding-bottom: 4px; }
     .map-wrap.map-collapsed #runway-map {
@@ -1506,12 +1509,19 @@
     position: absolute;
     top: 12px;
     left: 12px;
-    z-index: 6;
+    z-index: 12;
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 6px;
-    max-width: min(420px, 70%);
+    max-width: min(460px, calc(100% - 72px));
+    padding: 6px 8px;
+    border-radius: 10px;
+    border: 1px solid rgba(90, 140, 180, 0.5);
+    background: rgba(8, 18, 32, 0.94);
+    backdrop-filter: blur(6px);
     pointer-events: auto;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .map-chrome-btn,
   .map-chrome-select {
@@ -1525,12 +1535,15 @@
     background: #0c1828;
     color: #e8f4ff;
     cursor: pointer;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    box-shadow: none;
   }
   .map-chrome-btn:hover,
   .map-chrome-select:hover { border-color: var(--accent); color: var(--accent); }
   .map-filter-label { display: inline-flex; margin: 0; }
-  .map-chrome-select { max-width: 132px; }
+  .map-chrome-select { max-width: 140px; }
+  .map-controls {
+    z-index: 13;
+  }
   .sr-only {
     position: absolute;
     width: 1px;
@@ -1545,12 +1558,12 @@
     position: absolute;
     bottom: 12px;
     left: 12px;
-    z-index: 5;
+    z-index: 11;
     max-width: min(280px, 72%);
     padding: 8px 10px;
     border-radius: 8px;
     border: 1px solid rgba(90, 140, 180, 0.45);
-    background: #0c1828;
+    background: rgba(8, 18, 32, 0.94);
     font-size: 0.64rem;
     line-height: 1.35;
     color: #a8c4e0;
@@ -3886,7 +3899,7 @@
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ffb020;border-radius:2px;width:12px;height:3px"></span>Watch</span>
           <span class="map-legend-item"><span class="map-legend-swatch" style="background:#ff5c4a;border-radius:2px;width:12px;height:3px"></span>Losing</span>
         </div>
-        <div class="map-legend-note">Dots = opportunity · Lines = your health · Click a line to review</div>
+        <div class="map-legend-note">Dots = opportunity · Lines = health · Gold plane = airborne · Blue = parked · Click route to review · Esc closes review</div>
       </div>
       <div id="runway-map" role="application" aria-label="Route map"></div>
     </div>
@@ -3922,7 +3935,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=81"></script>
-<script src="/static/runway/game.js?v=87"></script>
+<script src="/static/runway/economics.js?v=82"></script>
+<script src="/static/runway/game.js?v=88"></script>
 </body>
 </html>
