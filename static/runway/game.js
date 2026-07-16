@@ -79,6 +79,7 @@
   const ROUTE_HISTORY_MAX_DAYS = 90;
   const COMPANY_LEDGER_MAX_DAYS = 365;
   const PNL_HISTORY_MAX_DAYS = 365;
+  const RANK_HISTORY_MAX_MONTHS = 60; // 5 years of monthly rank snapshots
   const REACTIVE_COMPETITOR_COOLDOWN_DAYS = 14;
   /**
    * Staged mid-game goals after the 9-step regional build track.
@@ -2410,6 +2411,10 @@
             airport: cr.origin,
             airline: cr.airline,
             type: 'exit',
+            // Only this branch is driven by `score` (how hard the player pressured
+            // this specific competitor) — the periodic AI-churn exit elsewhere isn't
+            // player-caused, so it shouldn't count as a rivalry win.
+            playerCaused: true,
           },
           cr
         );
@@ -5825,6 +5830,82 @@
     state.competitor_markets[iata][airline] = { ...cur, ...patch };
   }
 
+  // ── RIVAL MEMORY — persistent history of this specific rivalry ────────
+  function ensureRivalMemory() {
+    if (!state.rival_memory) state.rival_memory = {};
+    return state.rival_memory;
+  }
+
+  function rivalMemoryFor(airline) {
+    const mem = ensureRivalMemory();
+    if (!mem[airline]) {
+      mem[airline] = {
+        hits: 0, // times they hit a market we're invested in (fare cut / capacity add)
+        wins: 0, // times we drove them out of a market (reactive exit, player-caused)
+        lastEventDay: null,
+        lastEventType: null,
+        firstEncounterDay: state.day,
+      };
+    }
+    return mem[airline];
+  }
+
+  /** Called from enrichCompetitorLog() — every competitor event log funnels through there. */
+  function recordRivalMemory(log) {
+    if (!log || !log.airline || !state) return;
+    const isHit = log.big && (log.type === 'fare_cut' || log.type === 'capacity');
+    const isWin = log.type === 'exit' && log.playerCaused;
+    if (!isHit && !isWin) return;
+    const m = rivalMemoryFor(log.airline);
+    if (isHit) m.hits += 1;
+    if (isWin) m.wins += 1;
+    m.lastEventDay = state.day;
+    m.lastEventType = log.type;
+  }
+
+  /** Qualitative read on a rivalry, for the rival detail panel and dramatized events. */
+  function rivalRelationship(airline) {
+    const m = state.rival_memory && state.rival_memory[airline];
+    if (!m || (m.hits === 0 && m.wins === 0)) {
+      return { label: 'No history yet', tone: 'neutral', hits: 0, wins: 0 };
+    }
+    const { hits, wins } = m;
+    let label;
+    let tone;
+    if (wins >= 2 && wins > hits) {
+      label = `Beaten ${wins}× — they remember you`;
+      tone = 'good';
+    } else if (hits >= 3 && hits > wins) {
+      label = `Hit you ${hits}× — a real nemesis`;
+      tone = 'bad';
+    } else if (hits > 0 && wins > 0) {
+      label = `Even fight — ${wins} wins, ${hits} hits taken`;
+      tone = 'neutral';
+    } else if (wins > 0) {
+      label = `You've bested them ${wins}×`;
+      tone = 'good';
+    } else {
+      label = `Pressured you ${hits}×`;
+      tone = 'bad';
+    }
+    return { label, tone, hits, wins, lastEventDay: m.lastEventDay };
+  }
+
+  /** The rival with the most lopsided "hits taken" record — surfaced as a callout. */
+  function currentNemesis() {
+    const mem = state.rival_memory;
+    if (!mem) return null;
+    let best = null;
+    Object.keys(mem).forEach((name) => {
+      const m = mem[name];
+      const score = m.hits - m.wins;
+      if (score > 0 && (!best || score > best.score)) {
+        best = { airline: name, score, hits: m.hits, wins: m.wins };
+      }
+    });
+    return best;
+  }
+
   function maybeWindfallEvent() {
     if (!state || state.game_over || activeDecision || decisionQueue.length) return;
     const gap = state.day - (state.last_windfall_event_day || 0);
@@ -8497,6 +8578,18 @@
     state.metrics.passengers_mtd = 0;
     state.metrics.op_revenue_mtd = 0;
     state.metrics.op_cost_mtd = 0;
+
+    // Rank-over-time for the growth arc — piggybacks on the league table this
+    // function already builds monthly, instead of computing it again daily
+    // (buildLeagueTable/playerLeagueEntry resimulate every route, so it's only
+    // cheap enough for monthly cadence, not per day-close).
+    if (player) {
+      if (!Array.isArray(state.rank_history)) state.rank_history = [];
+      state.rank_history.push({ day: state.day, rank: player.rank, total: table.length, scope: region });
+      if (state.rank_history.length > RANK_HISTORY_MAX_MONTHS) {
+        state.rank_history = state.rank_history.slice(-RANK_HISTORY_MAX_MONTHS);
+      }
+    }
   }
 
   function playerShareAtAirport(iata) {
@@ -8570,6 +8663,7 @@
           })
           .join('')}</ul>`
       : '<p class="muted">Thin or no incumbent presence in this scope.</p>';
+    const rel = rivalRelationship(name);
 
     return `
       <div class="scoreboard-panel-inner rival-detail">
@@ -8580,6 +8674,10 @@
             <h3>${name}</h3>
             <p class="muted">${leagueScopeLabel(scope)} · ${prof.tier || 'carrier'} · national scale ${scale}%</p>
           </div>
+        </div>
+        <div class="rival-relationship rival-relationship-${rel.tone}">
+          <strong>${rel.label}</strong>
+          ${rel.lastEventDay != null ? `<span class="muted"> · last clash ${fmtDate(rel.lastEventDay)}</span>` : ''}
         </div>
         <dl class="stat-dl rival-stats">
           <dt>Est. monthly profit</dt><dd class="${stats.profit >= 0 ? '' : 'danger'}">${fmtMoney(stats.profit)}</dd>
@@ -8731,10 +8829,17 @@
     const worldNote = scopeCfg.note
       ? `<p class="muted" style="font-size:0.72rem;margin:0 0 8px;color:var(--gold);">${scopeCfg.note}</p>`
       : '';
+    const nemesis = currentNemesis();
+    const nemesisHtml = nemesis
+      ? `<button type="button" class="rival-relationship rival-relationship-bad nemesis-callout" data-rival-name="${nemesis.airline}" style="display:block;width:100%;text-align:left;cursor:pointer;">
+          ${airlineLogoHtml(nemesis.airline, null, 20)} <b>${nemesis.airline}</b> is your nemesis — hit you ${nemesis.hits}× vs. ${nemesis.wins} win${nemesis.wins === 1 ? '' : 's'} for you.
+        </button>`
+      : '';
     panel.innerHTML = `
       <div class="scoreboard-panel-inner">
         <h3>League — ${scope} · by ${pillarSortLabel(scoreboardSortBy)}</h3>
         <p class="muted" style="font-size:0.75rem;margin-bottom:6px;">Ranked by <b>${pillarSortLabel(scoreboardSortBy)}</b>. <b>#1 is best.</b> Switch Ohio → Midwest → US → World — your rank should fall until you grow beyond your home markets.</p>
+        ${nemesisHtml}
         ${recLine}
         ${worldNote}
         <table class="scoreboard-table">
@@ -8785,6 +8890,8 @@
     state.market_research = state.market_research || {};
     state.media_shade_airports = state.media_shade_airports || {};
     state.day_ledger = Array.isArray(state.day_ledger) ? state.day_ledger : [];
+    state.rank_history = Array.isArray(state.rank_history) ? state.rank_history : [];
+    state.rival_memory = state.rival_memory || {};
     state.station_opened = state.station_opened || {};
     state.station_history = state.station_history || {};
     // Backfill station opened for gates that predate the field
@@ -11002,6 +11109,7 @@
       ota: econ.otaDay || 0,
       routes: (state.routes || []).length,
       fleetN: (state.fleet || []).length,
+      netWorth: computeNetWorth(),
     };
     const last = state.day_ledger[state.day_ledger.length - 1];
     if (last && last.day === state.day) state.day_ledger[state.day_ledger.length - 1] = entry;
@@ -12176,6 +12284,7 @@
       log.routeOrigin = cr.origin;
       log.routeDest = cr.dest;
     }
+    recordRivalMemory(log);
     return log;
   }
 
@@ -18402,6 +18511,25 @@
       formatValue: (v) => fmtMoney(v),
       height: 100,
     });
+    const netWorthChart = renderLineChart(toSeries(last90, 'netWorth'), {
+      valueKey: 'y',
+      color: '#ffd166',
+      formatValue: (v) => fmtMoney(v),
+      height: 120,
+    });
+    // Rank history is recorded monthly (buildLeagueTable resimulates every route —
+    // too expensive to sample daily). Invert #1-is-best rank into a "higher = better"
+    // value so an improving rank reads as the line climbing, matching the net worth
+    // chart's up-is-good convention instead of counter-intuitively trending down.
+    const rankHist = state.rank_history || [];
+    const latestTotal = rankHist.length ? rankHist[rankHist.length - 1].total || 1 : 1;
+    const rankSeries = rankHist.map((r) => ({ day: r.day, y: Math.max(1, (r.total || latestTotal) - r.rank + 1) }));
+    const rankChart = renderLineChart(rankSeries, {
+      valueKey: 'y',
+      color: '#7eb8e8',
+      formatValue: (v) => `#${Math.max(1, Math.round(latestTotal - v + 1))}`,
+      height: 120,
+    });
     const trail30 = (state.pnl_history || []).slice(-30);
     const trailSum = trail30.reduce((a, b) => a + b, 0);
     const isRow = (label, val, opts) => {
@@ -18462,8 +18590,22 @@
           </p>
         </div>`
       : '<p class="muted">No routes flying — launch service to populate reports.</p>';
+    const growthArcHtml =
+      last90.length < 2
+        ? ''
+        : `<h4 style="margin-top:14px;">Growth arc</h4>
+           <p class="muted" style="font-size:0.7rem;margin:0 0 8px;">How far you've come — net worth day by day, league rank month by month. Both climbing is the whole game.</p>
+           <div class="route-review-charts report-charts growth-arc-charts">
+             <div class="chart-panel"><h4>Net worth (90d)</h4>${netWorthChart}</div>
+             <div class="chart-panel"><h4>League rank (by month)</h4>${
+               rankHist.length < 2
+                 ? '<p class="muted chart-empty">Rank history builds up monthly — check back after month 2.</p>'
+                 : rankChart
+             }</div>
+           </div>`;
     return `
       ${todayStrip}
+      ${growthArcHtml}
       <h4 style="margin-top:14px;">Trailing trends (90d)</h4>
       ${
         last90.length < 2
