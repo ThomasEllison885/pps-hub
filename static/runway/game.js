@@ -726,14 +726,51 @@
     } else if (launchMax > 0) {
       options.push({ type: 'ok', text: `Up to <b>${launchMax}/wk</b> available on this route now.`, freq: launchMax });
     }
-    if (bottleneck === 'aircraft' && gate && gate.remaining >= 3) {
-      const busy = (state.fleet || []).every((p) => {
+    // One plane, one place: if metal can't cover requested frequency (or is already busy), push lease/buy.
+    const needFreq = f > 0 ? f : 7;
+    const bestHeadroom = Math.max(
+      0,
+      ...(state.fleet || []).map((p) =>
+        origin && dest ? maxFrequencyForAircraft(p.id, origin, dest, p.type, excludeRouteId) : 0
+      )
+    );
+    const anyBusy =
+      (state.fleet || []).length > 0 &&
+      (state.fleet || []).every((p) => {
         const cap = planeWeeklyBlockHoursCapacity(p);
-        return planeWeeklyBlockHoursUsed(p.id, excludeRouteId) >= cap * 0.9;
+        return planeWeeklyBlockHoursUsed(p.id, excludeRouteId) >= cap * 0.75;
       });
-      if (busy && state.fleet.length === 1) {
-        options.push({ type: 'fleet', text: 'Gate has open slots — <b>lease a second aircraft</b> to use them.', tab: 'fleet' });
-      }
+    if (
+      origin &&
+      dest &&
+      hasGate &&
+      !exists &&
+      ((aircraft && !aircraft.ok) ||
+        (launchMax > 0 && needFreq > launchMax && bottleneck === 'aircraft') ||
+        (bestHeadroom < needFreq && state.fleet.length > 0) ||
+        (anyBusy && state.fleet.length === 1) ||
+        !state.fleet.length)
+    ) {
+      const recType =
+        acType || (origin && dest ? recommendAircraftTypeForPair(origin, dest) : 'e175');
+      const rec = aircraftType(recType);
+      const onRoutes = plane
+        ? (state.routes || []).filter((r) => r.aircraft_id === plane.id).length
+        : 0;
+      const why =
+        !state.fleet.length
+          ? 'No aircraft yet'
+          : onRoutes > 0
+            ? `Your plane already flies <b>${onRoutes}</b> route${onRoutes === 1 ? '' : 's'} — one airframe can only be in one place at a time`
+            : bestHeadroom < needFreq
+              ? `Need ~<b>${needFreq}/wk</b> but only <b>${bestHeadroom}/wk</b> aircraft hours free`
+              : 'Aircraft hours are the limit';
+      options.push({
+        type: 'need_plane',
+        text: `${why}. Lease another plane to open <b>${origin}–${dest}</b> (or raise frequency elsewhere).`,
+        typeId: recType,
+        typeName: rec ? rec.name : recType,
+      });
     }
     if (origin && hasGate && !exists) {
       const util = gateUtilizationAt(origin);
@@ -1021,8 +1058,11 @@
         'aircraft',
         { after: ctx.freq ? ctx.aircraft.after : null, decimals: 1 }
       );
+      if (ctx.aircraft.routesOn > 0 || !ctx.aircraft.ok) {
+        rows += `<p class="avail-one-place muted">One plane, one place — this airframe already has work scheduled. It cannot sit at two cities at once; raising frequency or opening a new city uses the same block-hour budget.</p>`;
+      }
     } else if (ctx.dest && !state.fleet.length) {
-      rows += `<p class="muted" style="font-size:0.72rem;margin:6px 0;">No aircraft in fleet — open <b>Fleet</b> to lease a plane.</p>`;
+      rows += `<p class="muted" style="font-size:0.72rem;margin:6px 0;">No aircraft in fleet — lease one below without leaving Route Studio.</p>`;
     }
     if (ctx.airportOps && ctx.dest) {
       rows += availabilityBarRow(
@@ -1038,18 +1078,19 @@
 
     let fleetRows = '';
     if (ctx.fleet.length && ctx.dest) {
-      fleetRows = `<p class="muted" style="font-size:0.66rem;margin:8px 0 4px;">Aircraft headroom on <b>${ctx.origin}–${ctx.dest}</b>:</p><ul class="avail-option-list">`;
+      fleetRows = `<p class="muted" style="font-size:0.66rem;margin:8px 0 4px;">Aircraft headroom on <b>${ctx.origin}–${ctx.dest}</b> <span class="muted">(one plane = one place)</span>:</p><ul class="avail-option-list">`;
       ctx.fleet.forEach((p) => {
         const sel = ctx.plane && ctx.plane.id === p.id ? ' <span class="muted">(selected)</span>' : '';
         const freqNote =
-          p.maxFreq > 0 ? `<b>+${p.maxFreq}/wk</b> on this route` : '<span class="danger">no hours left</span>';
-        fleetRows += `<li><b>${p.name}</b>${sel} · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr scheduled · ${freqNote}</li>`;
+          p.maxFreq > 0 ? `<b>+${p.maxFreq}/wk</b> free on this pair` : '<span class="danger">no hours left — need another plane</span>';
+        const viewBtn = `<button type="button" class="linkish" data-view-plane-sched="${p.id}">view schedule</button>`;
+        fleetRows += `<li><b>${p.name}</b>${sel} · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr · ${p.routesOn} route${p.routesOn === 1 ? '' : 's'} · ${freqNote} · ${viewBtn}</li>`;
       });
       fleetRows += '</ul>';
     } else if (ctx.fleet.length) {
       fleetRows = '<ul class="avail-option-list">';
       ctx.fleet.forEach((p) => {
-        fleetRows += `<li><b>${p.name}</b> · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr/wk · ${p.routesOn} route${p.routesOn === 1 ? '' : 's'}</li>`;
+        fleetRows += `<li><b>${p.name}</b> · ${fmtHours(p.used)}/${fmtHours(p.cap)} hr/wk · ${p.routesOn} route${p.routesOn === 1 ? '' : 's'} · <button type="button" class="linkish" data-view-plane-sched="${p.id}">view schedule</button></li>`;
       });
       fleetRows += '</ul>';
     }
@@ -1065,6 +1106,14 @@
       }
       if (o.type === 'fleet' && o.tab) {
         chips.push(`<button type="button" class="avail-chip secondary" data-ops-tab="${o.tab}">Open Fleet</button>`);
+      }
+      if (o.type === 'need_plane' && o.typeId) {
+        chips.push(
+          `<button type="button" class="avail-chip studio-primary" data-studio-lease="${o.typeId}">Lease ${o.typeName || 'plane'} here</button>`
+        );
+        chips.push(
+          `<button type="button" class="avail-chip secondary" data-studio-buy="${o.typeId}">Buy instead</button>`
+        );
       }
       if (o.type === 'bump' && o.routeId) {
         chips.push(
@@ -1212,7 +1261,249 @@
         }
       });
     });
+    scope.querySelectorAll('[data-studio-lease]').forEach((btn) => {
+      if (btn._leaseBound) return;
+      btn._leaseBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        acquireAircraftInStudio(btn.getAttribute('data-studio-lease'), 'lease');
+      });
+    });
+    scope.querySelectorAll('[data-studio-buy]').forEach((btn) => {
+      if (btn._buyBound) return;
+      btn._buyBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        acquireAircraftInStudio(btn.getAttribute('data-studio-buy'), 'buy');
+      });
+    });
+    scope.querySelectorAll('[data-view-plane-sched]').forEach((btn) => {
+      if (btn._schedBound) return;
+      btn._schedBound = true;
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openPlaneDetail(btn.getAttribute('data-view-plane-sched'));
+      });
+    });
     bindGateCapacityActions(scope);
+  }
+
+  /**
+   * Today's timed leg board for one plane (hour ops schedule). Rebuilds if stale.
+   */
+  function planeDayScheduleHtml(plane, opts) {
+    opts = opts || {};
+    if (!plane) return '';
+    ensurePlaneTelemetry(plane);
+    rebuildAircraftDaySchedule(false);
+    const legs = plane.legs_today || [];
+    const loc = plane.location || (state.gates[0] && state.gates[0].airport) || '—';
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+    const routeList = routes.length
+      ? routes.map((r) => `${r.origin}–${r.dest} ${r.frequency_week}/wk`).join(' · ')
+      : 'No routes assigned';
+
+    let rows = '';
+    if (!legs.length) {
+      rows = `<tr><td colspan="4" class="muted">${
+        routes.length
+          ? 'No timed legs built for today (Day+ speeds use weekly block hours; switch to <b>Slow</b> to watch the clock).'
+          : 'Idle — assign a route to fill a day plan.'
+      }</td></tr>`;
+    } else {
+      legs.forEach((leg) => {
+        const st =
+          leg.status === 'arrived'
+            ? 'done'
+            : leg.status === 'departed'
+              ? 'air'
+              : leg.status === 'missed'
+                ? 'miss'
+                : 'plan';
+        const kind = leg.type === 'ferry' ? 'Ferry (empty)' : 'Revenue';
+        const pair = `${leg.origin}→${leg.dest}`;
+        const when =
+          leg.depHour != null
+            ? `${formatHourClock(leg.depHour)}–${formatHourClock(leg.arrHour)}`
+            : '—';
+        const note =
+          leg.status === 'missed'
+            ? leg.missReason || 'missed'
+            : leg.type === 'ferry'
+              ? 'reposition'
+              : st === 'air'
+                ? 'en route'
+                : st === 'done'
+                  ? 'landed'
+                  : 'scheduled';
+        rows += `<tr class="plane-sched-row st-${st}">
+          <td>${when}</td>
+          <td><b>${pair}</b></td>
+          <td>${kind}</td>
+          <td class="muted">${note}</td>
+        </tr>`;
+      });
+    }
+
+    const cap = planeWeeklyBlockHoursCapacity(plane);
+    const used = planeWeeklyBlockHoursUsed(plane.id);
+    const head = opts.title
+      ? `<p class="plane-sched-kicker">${opts.title}</p>`
+      : `<p class="plane-sched-kicker">Today's flight plan · parked/base <b>${loc}</b></p>`;
+
+    return `<div class="plane-day-schedule">
+      ${head}
+      <p class="muted" style="font-size:0.72rem;line-height:1.4;margin:0 0 8px;">
+        One airframe, one place. Assigned: <b>${routeList}</b>.
+        Weekly block <b>${fmtHours(used)}</b> / <b>${fmtHours(cap)}</b> hr.
+        Legs chain with turnaround — if the day runs out of hours, later flights are <b>missed</b>.
+      </p>
+      <table class="plane-sched-table">
+        <thead><tr><th>Time</th><th>Leg</th><th>Type</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  /**
+   * Studio honesty card: selected plane's workload + whether this launch needs more metal.
+   */
+  function planeAssignmentHonestyHtml(origin, dest, aircraftId, freq) {
+    if (!origin || !dest) return '';
+    const plane = aircraftId ? state.fleet.find((f) => f.id === aircraftId) : state.fleet[0];
+    const want = freq || 7;
+    if (!plane) {
+      return `<div class="plane-honesty need-metal">
+        <p class="plane-honesty-kicker">Aircraft · required</p>
+        <p>You need a plane before launch. Lease one below — you stay in Route Studio.</p>
+      </div>`;
+    }
+    const ac = aircraftType(plane.type);
+    const maxF = maxFrequencyForAircraft(plane.id, origin, dest, plane.type);
+    const sched = planeScheduleLabel(plane.id, origin, dest, want, plane.type);
+    const routes = (state.routes || []).filter((r) => r.aircraft_id === plane.id);
+    const routeBits = routes
+      .map((r) => `<li><b>${r.origin}–${r.dest}</b> ${r.frequency_week}/wk</li>`)
+      .join('');
+    const servesOrigin = routes.some((r) => r.origin === origin || r.dest === origin);
+    const servesDest = routes.some((r) => r.origin === dest || r.dest === dest);
+    const newCity =
+      routes.length > 0 && (!servesOrigin || !servesDest);
+    const short =
+      maxF < want || (sched && !sched.ok)
+        ? 'need'
+        : routes.length
+          ? 'tight'
+          : 'ok';
+    const recType = recommendAircraftTypeForPair(origin, dest);
+    const rec = aircraftType(recType);
+    let verdict = '';
+    if (short === 'need') {
+      verdict = `This plane only has ~<b>${maxF}/wk</b> free for <b>${origin}–${dest}</b> (you want <b>${want}/wk</b>).
+        Raising frequency on existing markets or opening a new city on the <em>same</em> airframe is not free —
+        lease a second plane (recommended: <b>${rec ? rec.name : recType}</b>).`;
+    } else if (newCity) {
+      verdict = `This airframe already works <b>${routes.map((r) => r.origin + '–' + r.dest).join(', ')}</b>.
+        Adding <b>${origin}–${dest}</b> means it must <b>ferry or connect</b> through the day — one plane cannot
+        start departures from two hubs at once. Up to <b>${maxF}/wk</b> may fit on paper; if the day runs out of
+        hours, flights are missed. A dedicated plane for IND (or another city) is usually cleaner.`;
+    } else if (short === 'tight') {
+      verdict = `Same metal already flies <b>${routes.length}</b> route${routes.length === 1 ? '' : 's'}.
+        Up to <b>${maxF}/wk</b> more fits after turnarounds — still one plane, one place at a time.`;
+    } else {
+      verdict = `Aircraft has ~<b>${maxF}/wk</b> headroom for this pair. Timetable still has to chain through the day.`;
+    }
+    // Surface shop when opening a new city even if some hours remain
+    const forceNeedShop = short === 'need' || newCity;
+
+    const tone = forceNeedShop ? (short === 'need' ? 'need' : 'tight') : short;
+    return `<div class="plane-honesty plane-honesty-${tone}">
+      <p class="plane-honesty-kicker">One plane · one place</p>
+      <p class="plane-honesty-verdict">${verdict}</p>
+      ${
+        routes.length
+          ? `<ul class="plane-honesty-routes">${routeBits}</ul>`
+          : '<p class="muted" style="font-size:0.72rem;">No other routes on this metal yet.</p>'
+      }
+      ${
+        sched
+          ? `<p class="muted" style="font-size:0.72rem;">Block hours after this plan: <b>${fmtHours(sched.after)}</b> / <b>${fmtHours(sched.cap)}</b> hr/wk${
+              sched.ok ? '' : ' <span class="danger">— over capacity</span>'
+            }</p>`
+          : ''
+      }
+      <div class="plane-honesty-actions">
+        <button type="button" class="btn secondary" data-view-plane-sched="${plane.id}">View ${ac ? ac.name : plane.id} schedule</button>
+        ${
+          forceNeedShop || short === 'tight'
+            ? `<button type="button" class="btn studio-primary" data-studio-lease="${recType}">Lease another plane</button>
+               <button type="button" class="btn secondary" data-studio-buy="${recType}">Buy</button>`
+            : `<button type="button" class="btn secondary" data-studio-lease="${recType}">Lease extra metal</button>`
+        }
+      </div>
+      ${planeDayScheduleHtml(plane, { title: `${ac ? ac.name : plane.id} · today` })}
+    </div>`;
+  }
+
+  /** Compact shop so players can lease/buy without leaving Route Studio. */
+  function routeStudioFleetShopHtml(draft) {
+    const origin = draft && draft.origin;
+    const dest = draft && draft.dest;
+    const recType =
+      origin && dest ? recommendAircraftTypeForPair(origin, dest) : 'e175';
+    const ranked =
+      origin && dest ? scoreAircraftTypesForPair(origin, dest, draft.freq, draft.fare) : [];
+    const types = ranked.length
+      ? ranked.filter((r) => r.inRange).slice(0, 4)
+      : Object.keys(bootstrap.aircraft_types || {})
+          .map((tid) => {
+            const ac = aircraftType(tid);
+            return ac
+              ? {
+                  typeId: tid,
+                  name: ac.name,
+                  seatsMin: ac.seats_min,
+                  seatsMax: ac.seats_max,
+                  leaseMonthly: ac.lease_monthly,
+                  purchase: ac.purchase,
+                  fitTier: tid === recType ? 'good' : 'ok',
+                  fitLabel: tid === recType ? 'Recommended' : '',
+                }
+              : null;
+          })
+          .filter(Boolean);
+
+    const cards = types
+      .map((r) => {
+        const ac = aircraftType(r.typeId);
+        if (!ac) return '';
+        const deposit = (ac.lease_monthly || 0) * 2;
+        const canLease = state.cash >= deposit;
+        const canBuy = state.cash >= (ac.purchase || 0);
+        const rec = r.typeId === recType ? ' <span class="studio-pill ok">Best fit</span>' : '';
+        return `<div class="studio-fleet-card via-${r.fitTier || 'ok'}">
+          <strong>${ac.name}</strong>${rec}
+          <span class="muted">${r.seatsMin}–${r.seatsMax} seats · ${ac.range_nm} nm</span>
+          <span class="muted">Lease ${fmtMoney(ac.lease_monthly)}/mo · deposit ${fmtMoney(deposit)}</span>
+          <span class="muted">Buy ${fmtMoney(ac.purchase)}</span>
+          ${r.fitLabel ? `<span class="studio-fleet-fit">${r.fitLabel}</span>` : ''}
+          <div class="btn-row">
+            <button type="button" class="btn studio-primary" data-studio-lease="${r.typeId}" ${canLease ? '' : 'disabled'} title="${canLease ? 'Lease without leaving Studio' : 'Need more cash for deposit'}">Lease here</button>
+            <button type="button" class="btn secondary" data-studio-buy="${r.typeId}" ${canBuy ? '' : 'disabled'}>Buy here</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+
+    return `<div class="studio-fleet-shop" id="rl-fleet-shop">
+      <p class="studio-fleet-shop-kicker">Get an aircraft · stays in Route Studio</p>
+      <p class="muted" style="font-size:0.74rem;line-height:1.4;margin:0 0 10px;">
+        Beginner start has one ERJ on <b>CMH⇄DAY</b>. Opening <b>IND</b> (or stacking more frequency) usually needs
+        a <b>second plane</b> — the first airframe cannot be in Columbus and Indianapolis at the same time.
+      </p>
+      <div class="studio-fleet-grid">${cards || '<p class="muted">No aircraft types available.</p>'}</div>
+      <p class="muted" style="font-size:0.68rem;margin:8px 0 0;">Cash: <b>${fmtMoney(state.cash)}</b> · lease takes 2 months deposit now.</p>
+    </div>`;
   }
 
   function updateRouteAvailabilityPanel() {
@@ -7949,6 +8240,13 @@
           <tbody>${routeRows}</tbody>
         </table>
 
+        <h4 class="rival-section-title" style="margin-top:14px;">Today's schedule</h4>
+        <p class="muted" style="font-size:0.72rem;margin:0 0 8px;line-height:1.4;">
+          One airframe, one place. Legs are timed with turnarounds; Slow speed (1 hr) flies this board live.
+          Overbooked days miss later flights.
+        </p>
+        ${planeDayScheduleHtml(plane)}
+
         <h4 class="rival-section-title">Maintenance log</h4>
         <ul class="list" style="font-size:0.78rem;">${logRows}</ul>
         <p class="muted" style="font-size:0.68rem;margin-top:10px;">
@@ -9030,6 +9328,11 @@
   }
 
   function openFleetShopForType(typeId, mode) {
+    // Prefer staying in Studio when Route Studio is open (product step shop).
+    if (routeLaunchDraft && $('route-launch-modal')?.classList.contains('active')) {
+      acquireAircraftInStudio(typeId, mode || 'lease');
+      return;
+    }
     try {
       softCloseRouteStudio();
     } catch (e) {
@@ -9041,6 +9344,85 @@
       `Fleet shop: ${mode === 'buy' ? 'buy' : 'lease'} recommended metal for your Studio route draft.`,
       'neutral'
     );
+  }
+
+  /**
+   * Lease/buy from Route Studio without leaving — assigns the new airframe to the draft.
+   */
+  function acquireAircraftInStudio(typeId, mode) {
+    if (!state || !typeId) return null;
+    const ac = aircraftType(typeId);
+    if (!ac) {
+      alert(`Unknown aircraft type: ${typeId}`);
+      return null;
+    }
+    const seatCount = ac.seats != null ? ac.seats : ac.seats_max || ac.seats_min || 50;
+    const dens = seatDensityInfo(typeId, seatCount);
+    const leaseMo = planeLeaseMonthly(typeId, seatCount);
+    const deposit = leaseMo * 2;
+    const purchase = planePurchasePrice(typeId, seatCount);
+    const isBuy = mode === 'buy';
+    const due = isBuy ? purchase : deposit;
+    if (state.cash < due) {
+      alert(
+        isBuy
+          ? `Need ${fmtMoney(purchase)} to buy ${ac.name}.`
+          : `Need ${fmtMoney(deposit)} deposit to lease ${ac.name}.`
+      );
+      return null;
+    }
+    const densNote =
+      dens.t < 0.35 ? 'roomier cabin' : dens.t > 0.65 ? 'dense cabin' : 'standard cabin';
+    const ok = window.confirm(
+      isBuy
+        ? `Buy ${ac.name} (${seatCount} seats · ${densNote}) for ${fmtMoney(purchase)}?\n\nYou stay in Route Studio — the new plane is selected for this route.`
+        : `Lease ${ac.name} (${seatCount} seats · ${densNote})?\n\nDeposit now: ${fmtMoney(deposit)}\nThen ${fmtMoney(leaseMo)}/mo\n\nYou stay in Route Studio — the new plane is selected for this route.`
+    );
+    if (!ok) return null;
+
+    state.cash -= due;
+    const plane = {
+      id: uid('ac'),
+      type: typeId,
+      seats: seatCount,
+      leased: !isBuy,
+      aog_days_left: 0,
+      block_hours_month: 0,
+      total_aog_days: 0,
+      aog_events: 0,
+      aog_log: [],
+      acquired_day: state.day || 0,
+      location: (routeLaunchDraft && routeLaunchDraft.origin) || defaultRouteOrigin() || 'CMH',
+    };
+    if (isBuy) {
+      plane.life_months_left = (ac.lifespan_years || 25) * 12;
+    } else {
+      plane.lease_months_left = 60;
+    }
+    state.fleet.push(plane);
+    pushPlayerEvent(
+      isBuy
+        ? `purchased ${ac.name} (${seatCount} seats) from Route Studio.`
+        : `leased ${ac.name} (${seatCount} seats · ${fmtMoney(leaseMo)}/mo) from Route Studio.`
+    );
+    saveGame();
+    if (routeLaunchDraft) {
+      routeLaunchDraft.aircraftId = plane.id;
+      // Prefer product step so player can set frequency on the new metal
+      if (routeLaunchStep < 2) routeLaunchStep = 2;
+    }
+    renderEconomy();
+    renderFleet();
+    if (routeLaunchDraft && $('route-launch-modal')?.classList.contains('active')) {
+      renderRouteLaunchModal();
+    } else {
+      renderAll();
+    }
+    pushEvent(
+      `${ac.name} ready — assigned to your Studio draft. One plane, one place: this airframe is free for the new market.`,
+      'good'
+    );
+    return plane;
   }
 
   function suggestFareForPair(originIata, destIata, acTypeId) {
@@ -9655,13 +10037,16 @@
       simulatingDemandDepth -= 1;
     }
     if (singleFlight) {
-      // demandForRoute() returns the route's TOTAL daily demand pool, independent of
-      // how many flights operate today — it has no notion of "this one leg's share."
-      // Without dividing here, every leg of a >1x/day route computes load as if it
-      // alone served the whole day's demand, inflating pax/revenue on the hour clock
-      // for any route flying more than once per day.
-      const legsToday = Math.max(1, flightsPerDayForRoute(route));
-      demand = demand / legsToday;
+      // demandForRoute() returns a *daily* demand pool (not per-leg). Day+ path
+      // sells that against seats * (frequency_week/7) every calendar day.
+      // Hour path only flies on scheduled days, so allocate the *weekly* pool
+      // evenly across frequency_week legs:
+      //   demand_per_leg = daily_demand * 7 / frequency_week
+      // Using demand / legsToday is only equivalent when frequency is a multiple
+      // of 7 (always the same legs/day). For 1–6×/wk sparse schedules it under-
+      // books vs Day+ (thin markets could earn ~14–43% of Day+ weekly pax).
+      const freq = Math.max(1, route.frequency_week || 1);
+      demand = (demand * 7) / freq;
     }
     let rawLoad = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const prod = routeProduct(routeProductId(route));
@@ -13137,18 +13522,41 @@
   }
 
   function routeStudioProductStepHtml(d) {
-    const freqCap = launchFrequencyCap(d);
+    const rawCap = launchFrequencyCap(d);
+    // Keep a usable freq field even when metal is full (player will lease more hours).
+    const freqCap = rawCap > 0 ? rawCap : Math.max(7, d.freq || 7);
     const returnExists = (state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
     const metalCoach = routeMetalCoachHtml(d.origin, d.dest, d.freq, d.fare, {
       aircraftId: d.aircraftId,
     });
+    const honesty = planeAssignmentHonestyHtml(d.origin, d.dest, d.aircraftId, d.freq);
+    const fleetShop = routeStudioFleetShopHtml(d);
     const fleetEmpty = !state.fleet.length;
+    const plane = d.aircraftId ? state.fleet.find((f) => f.id === d.aircraftId) : null;
+    const maxOnPlane =
+      plane && d.origin && d.dest
+        ? maxFrequencyForAircraft(plane.id, d.origin, d.dest, plane.type)
+        : 0;
+    const routesOnPlane = plane
+      ? (state.routes || []).filter((r) => r.aircraft_id === plane.id)
+      : [];
+    const newCity =
+      plane &&
+      d.origin &&
+      d.dest &&
+      routesOnPlane.length > 0 &&
+      (!routesOnPlane.some((r) => r.origin === d.origin || r.dest === d.origin) ||
+        !routesOnPlane.some((r) => r.origin === d.dest || r.dest === d.dest));
+    const needSecond =
+      fleetEmpty || maxOnPlane < (d.freq || 7) || newCity || routesOnPlane.length >= 2;
     return `<div class="studio-step-body" data-studio-step="2">
       <header class="studio-step-head">
         <p class="studio-kicker">Step 2 · Product &amp; ops</p>
         <h2>${d.origin || '—'} → ${d.dest || '—'}</h2>
-        <p class="studio-lead">Frequency and aircraft shape capacity and cost more than price alone. More flights win share; the wrong metal burns cash. The coach below shows what seat counts work on this pair.</p>
+        <p class="studio-lead">Frequency and aircraft shape capacity and cost. <b>One plane can only be in one place at a time</b> — hours chain through the day with turnarounds. Opening a new city (or stacking frequency) often means leasing a second airframe.</p>
       </header>
+      ${honesty}
+      ${needSecond ? fleetShop : `<details class="studio-fleet-shop-details"><summary>Need another plane? Lease / buy here (without leaving Studio)</summary>${fleetShop}</details>`}
       ${metalCoach}
       <div id="rl-availability">${availabilityPanelHtml(
         routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq),
@@ -13157,8 +13565,13 @@
       <div id="rl-limits">${launchLimitsStripHtml(d)}</div>
       <div class="studio-product-grid">
         <label class="studio-field studio-field-wide">
-          <span>Aircraft ${fleetEmpty ? '<em class="muted">(none yet — lease above)</em>' : ''}</span>
+          <span>Aircraft ${fleetEmpty ? '<em class="muted">(lease above — stays in Studio)</em>' : ''}</span>
           <select id="rl-aircraft">${fleetOptionsHtml(d.aircraftId, d.origin, d.dest)}</select>
+          ${
+            plane
+              ? `<em class="muted studio-field-hint"><button type="button" class="linkish" data-view-plane-sched="${plane.id}">View this plane's schedule</button> · max ~${maxOnPlane}/wk free on this pair</em>`
+              : ''
+          }
         </label>
         <label class="studio-field studio-field-wide">
           <span>Flight product</span>
@@ -14151,11 +14564,21 @@
         `purchased ${ac.name} (${seatCount} seats · ${densNote} · comfort ${comfortLabel}).`
       );
     }
+    const newId = state.fleet.length ? state.fleet[state.fleet.length - 1].id : null;
     fleetPending = null;
     fleetShopOpen = false;
     saveGame();
+    // If Studio is open, re-select metal and stay there
+    if (routeLaunchDraft && $('route-launch-modal')?.classList.contains('active')) {
+      if (newId) routeLaunchDraft.aircraftId = newId;
+      renderEconomy();
+      renderFleet();
+      renderRouteLaunchModal();
+      return newId;
+    }
     renderAll();
     switchTab('fleet');
+    return newId;
   }
 
   function validateOpenRoute(origin, dest, aircraftId, freq) {
