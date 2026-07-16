@@ -1992,6 +1992,74 @@
   }
   .studio-intel-stat span { display: block; font-size: 0.64rem; margin-bottom: 3px; }
   .studio-intel-stat strong { font-size: 0.92rem; color: #fff; }
+  .studio-intel-wide { grid-column: 1 / -1; }
+  .studio-airport-hint {
+    margin: -6px 0 12px;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .metal-coach {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(0, 200, 150, 0.28);
+    background: linear-gradient(145deg, rgba(0, 40, 36, 0.55), rgba(6, 16, 28, 0.75));
+  }
+  .metal-coach-compact {
+    border-color: rgba(255, 209, 102, 0.28);
+    background: linear-gradient(145deg, rgba(40, 32, 8, 0.4), rgba(6, 16, 28, 0.7));
+  }
+  .metal-coach-kicker {
+    margin: 0 0 6px;
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .metal-coach-head {
+    margin: 0 0 10px;
+    font-size: 0.84rem;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .metal-coach-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .metal-coach-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.6fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(80, 130, 180, 0.22);
+    background: rgba(4, 12, 22, 0.55);
+    font-size: 0.74rem;
+  }
+  @media (max-width: 640px) {
+    .metal-coach-row { grid-template-columns: 1fr; gap: 2px; }
+  }
+  .metal-coach-row.via-good { border-color: rgba(0, 200, 150, 0.4); }
+  .metal-coach-row.via-ok { border-color: rgba(125, 211, 252, 0.35); }
+  .metal-coach-row.via-warn { border-color: rgba(255, 176, 32, 0.4); }
+  .metal-coach-row.via-bad { border-color: rgba(255, 92, 74, 0.35); opacity: 0.88; }
+  .metal-coach-row-main { display: flex; flex-direction: column; gap: 1px; }
+  .metal-coach-row-main strong { color: #fff; font-size: 0.8rem; }
+  .metal-coach-row-fit { color: var(--text); line-height: 1.35; }
+  .metal-coach-row-meta { text-align: right; white-space: nowrap; }
+  .metal-coach-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .metal-coach-cta .btn { font-size: 0.78rem; }
+  .ap-dot-network { filter: drop-shadow(0 0 3px rgba(0, 228, 168, 0.45)); }
   .studio-suggest-label {
     font-size: 0.72rem;
     text-transform: uppercase;
@@ -3936,6 +4004,6 @@
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
 <script src="/static/runway/economics.js?v=82"></script>
-<script src="/static/runway/game.js?v=88"></script>
+<script src="/static/runway/game.js?v=89"></script>
 </body>
 </html>

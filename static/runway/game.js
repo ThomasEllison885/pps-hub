@@ -1569,37 +1569,95 @@
     return `${ap.iata} — ${ap.city}`;
   }
 
+  /** City-first label for people who know the city, not the code. */
+  function airportCityCodeLabel(ap) {
+    return `${ap.city} (${ap.iata})`;
+  }
+
   function sortedAirports() {
     return [...bootstrap.airports].sort((a, b) => a.iata.localeCompare(b.iata));
   }
 
+  /** Airports where the player has a gate or scheduled flights (easier map targets). */
+  function playerServiceAirportSet() {
+    const set = new Set();
+    if (!state) return set;
+    (state.gates || []).forEach((g) => {
+      if (g && g.airport) set.add(g.airport);
+    });
+    (state.routes || []).forEach((r) => {
+      if (r.origin) set.add(r.origin);
+      if (r.dest) set.add(r.dest);
+    });
+    return set;
+  }
+
+  function airportHasPlayerService(iata) {
+    if (!state || !iata) return false;
+    if (hasGateAt(iata)) return true;
+    return (state.routes || []).some((r) => r.origin === iata || r.dest === iata);
+  }
+
+  /**
+   * Resolve typed airport search: code, "DAY — Dayton", "Dayton (DAY)", or city/name.
+   * Prefers exact code, then exact city, then starts-with, then includes.
+   */
   function resolveAirportQuery(q) {
     if (!q) return null;
     const raw = String(q).trim();
     if (!raw) return null;
     const t = raw.toLowerCase();
+
+    // Exact IATA
     const exact = bootstrap.airports.find((a) => a.iata.toLowerCase() === t);
     if (exact) return exact;
+
+    // "DAY — Dayton" / "DAY - Dayton" / "DAY–Dayton"
     const dashParts = raw.split(/\s*[—–-]\s*/);
-    if (dashParts[0] && dashParts[0].length >= 3) {
+    if (dashParts[0] && dashParts[0].trim().length >= 3) {
       const head = dashParts[0].trim().slice(0, 3).toLowerCase();
       const byDash = bootstrap.airports.find((a) => a.iata.toLowerCase() === head);
       if (byDash) return byDash;
     }
+
+    // "Dayton (DAY)" / "Dayton, OH (DAY)"
+    const parenCode = t.match(/\(([a-z0-9]{3})\)\s*$/);
+    if (parenCode) {
+      const byParen = bootstrap.airports.find((a) => a.iata.toLowerCase() === parenCode[1]);
+      if (byParen) return byParen;
+    }
+
+    // Leading 3-letter code token
     const m = t.match(/^([a-z0-9]{3})\b/);
     if (m) {
       const byCode = bootstrap.airports.find((a) => a.iata.toLowerCase() === m[1]);
       if (byCode) return byCode;
     }
-    return (
-      bootstrap.airports.find(
-        (a) =>
-          a.city.toLowerCase().includes(t) ||
-          a.name.toLowerCase().includes(t) ||
-          `${a.iata} ${a.city}`.toLowerCase().includes(t) ||
-          `${a.iata} — ${a.city}`.toLowerCase().includes(t)
-      ) || null
-    );
+
+    // Ranked text match on city / name / combined labels
+    let best = null;
+    let bestScore = -1;
+    bootstrap.airports.forEach((a) => {
+      const city = (a.city || '').toLowerCase();
+      const name = (a.name || '').toLowerCase();
+      const state = (a.state || '').toLowerCase();
+      const code = a.iata.toLowerCase();
+      const label = `${code} — ${city}`;
+      const cityCode = `${city} (${code})`;
+      let score = 0;
+      if (city === t || name === t) score = 100;
+      else if (city.startsWith(t) || name.startsWith(t)) score = 80;
+      else if (cityCode === t || label === t) score = 95;
+      else if (cityCode.startsWith(t) || label.startsWith(t)) score = 75;
+      else if (city.includes(t) || name.includes(t)) score = 50;
+      else if (label.includes(t) || cityCode.includes(t) || `${code} ${city}`.includes(t)) score = 40;
+      else if (state && t.includes(state) && city.includes(t.replace(state, '').trim())) score = 35;
+      if (score > bestScore) {
+        bestScore = score;
+        best = a;
+      }
+    });
+    return bestScore >= 35 ? best : null;
   }
 
   function defaultRouteOrigin() {
@@ -1608,9 +1666,20 @@
     return 'DAY';
   }
 
+  /**
+   * Dual datalist options so typing either "DAY" or "Dayton" surfaces the airport.
+   * Browsers match against option value — city-first helps non-aviation users.
+   */
   function airportDatalistHtml() {
     return sortedAirports()
-      .map((a) => `<option value="${airportLabel(a)}">${a.name}${a.state ? ` (${a.state})` : ''}</option>`)
+      .map((a) => {
+        const stateBit = a.state ? ` · ${a.state}` : '';
+        const nameBit = a.name || '';
+        return (
+          `<option value="${airportLabel(a)}">${nameBit}${stateBit}</option>` +
+          `<option value="${airportCityCodeLabel(a)}">${nameBit}${stateBit} · code ${a.iata}</option>`
+        );
+      })
       .join('');
   }
 
@@ -8722,6 +8791,7 @@
   }
 
   function recommendAircraftTypeForPair(originIata, destIata) {
+    // Fast heuristic for bulk suggestions; Studio uses scoreAircraftTypesForPair for full fit.
     const o = airport(originIata);
     const d = airport(destIata);
     if (!o || !d) return 'e175';
@@ -8739,6 +8809,189 @@
       if (ac && dist <= ac.range_nm) return tid;
     }
     return 'e175';
+  }
+
+  /**
+   * Score every aircraft type against a city pair: range, seats, and estimated load.
+   * Surfaces “~70 seats works / 180 is too much” dynamically for Route Studio.
+   */
+  function scoreAircraftTypesForPair(originIata, destIata, freq, fare) {
+    const o = airport(originIata);
+    const d = airport(destIata);
+    if (!o || !d) return [];
+    const dist = haversineNm(o.lat, o.lon, d.lat, d.lon);
+    const useFreq = freq || (dist < 350 ? 14 : 7);
+    const results = [];
+    Object.keys(bootstrap.aircraft_types || {}).forEach((tid) => {
+      const ac = aircraftType(tid);
+      if (!ac) return;
+      const seats = ac.seats_max != null ? ac.seats_max : ac.seats;
+      const seatsMin = ac.seats_min != null ? ac.seats_min : seats;
+      const seatsMax = seats;
+      const inRange = dist <= (ac.range_nm || 0);
+      const useFare = fare || suggestFareForPair(originIata, destIata, tid);
+      let via = { load: 0, dailyPax: 0, label: 'Out of range', tier: 'bad' };
+      if (inRange) {
+        via = estimateRouteViability(originIata, destIata, tid, useFreq, useFare, null);
+      }
+      let fitLabel = '';
+      let fitTier = 'bad';
+      let score = -100;
+      if (!inRange) {
+        fitLabel = `Out of range (${Math.round(dist)} nm > ${ac.range_nm} nm)`;
+        score = -100 - seats * 0.01;
+      } else if (via.load >= 0.72) {
+        fitLabel = `Strong fit · ${seatsMin}–${seatsMax} seats · ~${Math.round(via.load * 100)}% load`;
+        fitTier = 'good';
+        score = via.load * 100 + 12;
+      } else if (via.load >= 0.45) {
+        fitLabel = `Works · ${seatsMin}–${seatsMax} seats · ~${Math.round(via.load * 100)}% load`;
+        fitTier = 'ok';
+        score = via.load * 90 + 4;
+      } else if (via.load >= 0.22) {
+        if (seats >= 150) {
+          fitLabel = `Too much aircraft · ${seatsMax}-seat metal for this market (~${Math.round(via.load * 100)}% load)`;
+          fitTier = 'bad';
+          score = via.load * 35 - 28;
+        } else {
+          fitLabel = `Thin · ${seatsMin}–${seatsMax} seats · ~${Math.round(via.load * 100)}% load`;
+          fitTier = 'warn';
+          score = via.load * 50;
+        }
+      } else if (seats >= 100) {
+        fitLabel = `Way too big · ${seatsMax} seats empties on this route (~${Math.round(via.load * 100)}% load)`;
+        fitTier = 'bad';
+        score = via.load * 15 - 45;
+      } else {
+        fitLabel = `Very thin demand for ${seatsMin}–${seatsMax} seats (~${Math.round(via.load * 100)}% load)`;
+        fitTier = 'bad';
+        score = via.load * 25 - 8;
+      }
+      const ownedCount = (state && state.fleet ? state.fleet : []).filter((f) => f.type === tid).length;
+      if (ownedCount && inRange) score += 4;
+      results.push({
+        typeId: tid,
+        name: ac.name,
+        seats,
+        seatsMin,
+        seatsMax,
+        rangeNm: ac.range_nm,
+        inRange,
+        load: via.load || 0,
+        dailyPax: via.dailyPax || 0,
+        label: via.label,
+        fitLabel,
+        fitTier,
+        score,
+        ownedCount,
+        leaseMonthly: ac.lease_monthly || 0,
+        purchase: ac.purchase || 0,
+      });
+    });
+    results.sort((a, b) => b.score - a.score);
+    return results;
+  }
+
+  /**
+   * Dynamic metal coach: which seat bands work, and lease/buy CTA when fleet is empty/wrong.
+   */
+  function routeMetalCoachHtml(origin, dest, freq, fare, opts) {
+    opts = opts || {};
+    if (!origin || !dest || origin === dest) return '';
+    const ranked = scoreAircraftTypesForPair(origin, dest, freq, fare);
+    if (!ranked.length) return '';
+    const workable = ranked.filter((r) => r.inRange && (r.fitTier === 'good' || r.fitTier === 'ok'));
+    const best = workable[0] || ranked.find((r) => r.inRange) || ranked[0];
+    const seatLo = workable.length
+      ? Math.min(...workable.map((r) => r.seatsMin))
+      : best.seatsMin;
+    const seatHi = workable.length
+      ? Math.max(...workable.map((r) => r.seatsMax))
+      : best.seatsMax;
+    const tooBig = ranked.filter((r) => r.inRange && r.fitTier === 'bad' && r.seats >= 100);
+    const fleet = state && state.fleet ? state.fleet : [];
+    const fleetOk = fleet.filter((f) => {
+      const row = ranked.find((r) => r.typeId === f.type);
+      return row && row.inRange && row.fitTier !== 'bad';
+    });
+    const selectedPlane = opts.aircraftId
+      ? fleet.find((f) => f.id === opts.aircraftId)
+      : null;
+    const selectedRow = selectedPlane
+      ? ranked.find((r) => r.typeId === selectedPlane.type)
+      : null;
+
+    let headline = '';
+    let cta = '';
+    if (!fleet.length) {
+      headline = `No plane yet — this pair wants roughly <b>${seatLo}–${seatHi} seats</b>. Best metal: <b>${best.name}</b> (${best.seatsMin}–${best.seatsMax}).`;
+      cta = `<div class="metal-coach-cta">
+        <button type="button" class="btn studio-primary" data-metal-lease="${best.typeId}">Lease ${best.name} → Fleet</button>
+        <button type="button" class="btn secondary" data-metal-buy="${best.typeId}">Buy instead</button>
+      </div>`;
+    } else if (!fleetOk.length) {
+      headline = `Your fleet is a poor fit for ${origin}–${dest}. Market wants <b>${seatLo}–${seatHi} seats</b>; recommend <b>${best.name}</b>.`;
+      cta = `<div class="metal-coach-cta">
+        <button type="button" class="btn studio-primary" data-metal-lease="${best.typeId}">Lease recommended metal</button>
+      </div>`;
+    } else if (selectedRow && selectedRow.fitTier === 'bad') {
+      headline = `Selected plane is <b>${selectedRow.fitLabel.toLowerCase()}</b>. Switch to ~${seatLo}–${seatHi} seats (${best.name}) or add one.`;
+      if (!fleetOk.some((f) => f.type === best.typeId)) {
+        cta = `<div class="metal-coach-cta">
+          <button type="button" class="btn secondary" data-metal-lease="${best.typeId}">Lease ${best.name}</button>
+        </div>`;
+      }
+    } else {
+      headline = `This route handles about <b>${seatLo}–${seatHi} seats</b> well${
+        tooBig.length
+          ? ` · ${tooBig.map((r) => r.seatsMax).join('/')}‑seat jets are usually too much`
+          : ''
+      }.`;
+    }
+
+    const rows = ranked
+      .map((r) => {
+        const inFleet = r.ownedCount
+          ? `<em class="muted">${r.ownedCount} in fleet</em>`
+          : `<em class="muted">not owned</em>`;
+        const leaseHint = r.ownedCount
+          ? ''
+          : ` · lease ${fmtMoney(r.leaseMonthly)}/mo`;
+        return `<div class="metal-coach-row via-${r.fitTier}">
+          <div class="metal-coach-row-main">
+            <strong>${r.name}</strong>
+            <span class="muted">${r.seatsMin}–${r.seatsMax} seats · ${r.rangeNm} nm</span>
+          </div>
+          <div class="metal-coach-row-fit">${r.fitLabel}${leaseHint}</div>
+          <div class="metal-coach-row-meta">${inFleet}</div>
+        </div>`;
+      })
+      .join('');
+
+    const compact = opts.compact
+      ? `<p class="metal-coach-head">${headline}</p>${cta}`
+      : `<p class="metal-coach-head">${headline}</p>
+        <div class="metal-coach-grid">${rows}</div>
+        ${cta}`;
+
+    return `<div class="metal-coach ${opts.compact ? 'metal-coach-compact' : ''}" data-metal-coach="1">
+      <p class="metal-coach-kicker">Aircraft fit · dynamic for this pair</p>
+      ${compact}
+    </div>`;
+  }
+
+  function openFleetShopForType(typeId, mode) {
+    try {
+      softCloseRouteStudio();
+    } catch (e) {
+      /* studio may already be closed */
+    }
+    switchTab('fleet');
+    selectFleetOffer(typeId, mode || 'lease');
+    pushEvent(
+      `Fleet shop: ${mode === 'buy' ? 'buy' : 'lease'} recommended metal for your Studio route draft.`,
+      'neutral'
+    );
   }
 
   function suggestFareForPair(originIata, destIata, acTypeId) {
@@ -12757,41 +13010,61 @@
           ? `<span class="studio-pill bad">Lease a gate at ${d.origin} first</span>`
           : '';
     let marketIntel = '';
+    let metalCoach = '';
     if (d.origin && d.dest && oAp && dAp) {
       const dist = Math.round(haversineNm(oAp.lat, oAp.lon, dAp.lat, dAp.lon));
       const plane = state.fleet.find((f) => f.id === d.aircraftId) || state.fleet[0];
       const acType = plane ? plane.type : recommendAircraftTypeForPair(d.origin, d.dest);
       const via = estimateRouteViability(d.origin, d.dest, acType, d.freq || 7, d.fare, plane && plane.id);
       const market = marketFareForPair(d.origin, d.dest, acType);
+      const ranked = scoreAircraftTypesForPair(d.origin, d.dest, d.freq || 7, d.fare || market);
+      const best = ranked.find((r) => r.inRange && (r.fitTier === 'good' || r.fitTier === 'ok')) || ranked[0];
+      const seatHint = best
+        ? `${best.seatsMin}–${best.seatsMax} seat metal`
+        : '—';
       marketIntel = `<div class="studio-intel">
         <div class="studio-intel-stat"><span class="muted">Distance</span><strong>${dist} nm</strong></div>
         <div class="studio-intel-stat"><span class="muted">Market fare</span><strong>$${market}</strong></div>
         <div class="studio-intel-stat"><span class="muted">Est. demand</span><strong>~${via.dailyPax} pax/day</strong></div>
         <div class="studio-intel-stat"><span class="muted">Est. load</span><strong>${(via.load * 100).toFixed(0)}%</strong></div>
+        <div class="studio-intel-stat studio-intel-wide"><span class="muted">Aircraft that fits</span><strong>${seatHint}${
+          best ? ` · ${best.name}` : ''
+        }</strong></div>
       </div>`;
+      metalCoach = routeMetalCoachHtml(d.origin, d.dest, d.freq || 7, d.fare || market, {
+        compact: true,
+        aircraftId: d.aircraftId,
+      });
     }
     return `<div class="studio-step-body" data-studio-step="1">
       <header class="studio-step-head">
         <p class="studio-kicker">Step 1 · Market</p>
         <h2>Where do you want to fly?</h2>
-        <p class="studio-lead">Choose origin and destination. This is a <b>network decision</b> — not just a fare slider. Demand, gates, and competitors all start here.</p>
+        <p class="studio-lead">Choose origin and destination. Type a <b>city name</b> or <b>airport code</b> — both work. This is a <b>network decision</b>, not just a fare slider.</p>
         ${gateNote}
       </header>
       <datalist id="studio-airport-list">${airportDatalistHtml()}</datalist>
       <div class="studio-pair-grid">
         <label class="studio-field">
           <span>Origin (your gate)</span>
-          <input type="text" id="rl-origin-search" list="studio-airport-list" placeholder="DAY — Dayton" value="${oLabel}">
+          <input type="text" id="rl-origin-search" list="studio-airport-list" autocomplete="off"
+            placeholder="Dayton or DAY" value="${oLabel}"
+            aria-describedby="rl-airport-search-hint">
           <input type="hidden" id="rl-origin-code" value="${d.origin || ''}">
         </label>
         <div class="studio-pair-arrow" aria-hidden="true">→</div>
         <label class="studio-field">
           <span>Destination</span>
-          <input type="text" id="rl-dest-search" list="studio-airport-list" placeholder="CVG — Cincinnati" value="${dLabel}">
+          <input type="text" id="rl-dest-search" list="studio-airport-list" autocomplete="off"
+            placeholder="Cincinnati or CVG" value="${dLabel}">
           <input type="hidden" id="rl-dest-code" value="${d.dest || ''}">
         </label>
       </div>
+      <p id="rl-airport-search-hint" class="studio-field-hint studio-airport-hint">
+        Type <b>city</b> (e.g. Dayton) or <b>code</b> (DAY). Suggestions list both formats.
+      </p>
       ${marketIntel}
+      ${metalCoach}
       <div id="rl-studio-suggestions" class="studio-suggestions"></div>
     </div>`;
   }
@@ -12799,12 +13072,17 @@
   function routeStudioProductStepHtml(d) {
     const freqCap = launchFrequencyCap(d);
     const returnExists = (state.routes || []).some((r) => r.origin === d.dest && r.dest === d.origin);
+    const metalCoach = routeMetalCoachHtml(d.origin, d.dest, d.freq, d.fare, {
+      aircraftId: d.aircraftId,
+    });
+    const fleetEmpty = !state.fleet.length;
     return `<div class="studio-step-body" data-studio-step="2">
       <header class="studio-step-head">
         <p class="studio-kicker">Step 2 · Product &amp; ops</p>
         <h2>${d.origin || '—'} → ${d.dest || '—'}</h2>
-        <p class="studio-lead">Frequency and aircraft shape capacity and cost more than price alone. More flights win share; the wrong metal burns cash.</p>
+        <p class="studio-lead">Frequency and aircraft shape capacity and cost more than price alone. More flights win share; the wrong metal burns cash. The coach below shows what seat counts work on this pair.</p>
       </header>
+      ${metalCoach}
       <div id="rl-availability">${availabilityPanelHtml(
         routeAvailabilityContext(d.origin, d.dest, d.aircraftId, d.freq),
         { title: 'Capacity check' }
@@ -12812,7 +13090,7 @@
       <div id="rl-limits">${launchLimitsStripHtml(d)}</div>
       <div class="studio-product-grid">
         <label class="studio-field studio-field-wide">
-          <span>Aircraft</span>
+          <span>Aircraft ${fleetEmpty ? '<em class="muted">(none yet — lease above)</em>' : ''}</span>
           <select id="rl-aircraft">${fleetOptionsHtml(d.aircraftId, d.origin, d.dest)}</select>
         </label>
         <label class="studio-field studio-field-wide">
@@ -13350,6 +13628,18 @@
     });
     overlay.querySelectorAll('[data-studio-goto]').forEach((btn) => {
       btn.addEventListener('click', () => setRouteStudioStep(+btn.dataset.studioGoto));
+    });
+    overlay.querySelectorAll('[data-metal-lease]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openFleetShopForType(btn.getAttribute('data-metal-lease'), 'lease');
+      });
+    });
+    overlay.querySelectorAll('[data-metal-buy]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        openFleetShopForType(btn.getAttribute('data-metal-buy'), 'buy');
+      });
     });
     bindJudgmentResearchButtons(overlay);
     bindFareChartControls(overlay);
@@ -14550,6 +14840,26 @@
   function setupMapboxLayers() {
     if (!mapboxMap) return;
     if (mapboxMap.getSource('airports')) {
+      // Hot-upgrade: add hit layer if this session loaded before the feature existed
+      if (!mapboxMap.getLayer('airports-hit-layer') && mapboxMap.getLayer('airports-layer')) {
+        try {
+          mapboxMap.addLayer(
+            {
+              id: 'airports-hit-layer',
+              type: 'circle',
+              source: 'airports',
+              paint: {
+                'circle-radius': ['get', 'hitRadius'],
+                'circle-color': '#ffffff',
+                'circle-opacity': 0.01,
+              },
+            },
+            'airports-layer'
+          );
+        } catch (e) {
+          /* layer may already exist or style not ready */
+        }
+      }
       ensureMapboxAircraftLayer();
       return;
     }
@@ -14626,6 +14936,17 @@
         'circle-stroke-color': '#00e4a8',
         'circle-stroke-width': 2,
         'circle-stroke-opacity': ['get', 'haloOpacity'],
+      },
+    });
+    // Wide invisible hit targets — network airports (gates / flights) get priority radius
+    mapboxMap.addLayer({
+      id: 'airports-hit-layer',
+      type: 'circle',
+      source: 'airports',
+      paint: {
+        'circle-radius': ['get', 'hitRadius'],
+        'circle-color': '#ffffff',
+        'circle-opacity': 0.01,
       },
     });
     mapboxMap.addLayer({
@@ -14777,12 +15098,23 @@
       drawMap();
       fitMapToManagedArea();
 
-      mapboxMap.on('click', 'airports-layer', (ev) => {
+      const clickAirport = (ev) => {
         if (ev.features && ev.features[0] && ev.features[0].properties) {
-          selectedRouteId = null;
-          selectAirport(ev.features[0].properties.iata);
+          // Prefer network airports when hits overlap
+          const feats = ev.features.slice().sort((a, b) => {
+            const an = a.properties && a.properties.networkAirport ? 1 : 0;
+            const bn = b.properties && b.properties.networkAirport ? 1 : 0;
+            return bn - an;
+          });
+          const pick = feats[0];
+          if (pick && pick.properties && pick.properties.iata) {
+            selectedRouteId = null;
+            selectAirport(pick.properties.iata);
+          }
         }
-      });
+      };
+      mapboxMap.on('click', 'airports-hit-layer', clickAirport);
+      mapboxMap.on('click', 'airports-layer', clickAirport);
       const clickRoute = (ev) => {
         if (ev.features && ev.features[0] && ev.features[0].properties) {
           const rid = ev.features[0].properties.routeId;
@@ -14801,27 +15133,39 @@
         className: 'map-ap-popup',
         maxWidth: '260px',
       });
-      mapboxMap.on('mouseenter', 'airports-layer', () => {
+      const apCursorOn = () => {
         if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'pointer';
-      });
-      mapboxMap.on('mousemove', 'airports-layer', (ev) => {
+      };
+      const apCursorOff = () => {
+        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
+        apPopup.remove();
+      };
+      const apMove = (ev) => {
         if (!ev.features || !ev.features[0]) return;
-        const p = ev.features[0].properties || {};
-        const coords = ev.features[0].geometry.coordinates.slice();
+        const feats = ev.features.slice().sort((a, b) => {
+          const an = a.properties && a.properties.networkAirport ? 1 : 0;
+          const bn = b.properties && b.properties.networkAirport ? 1 : 0;
+          return bn - an;
+        });
+        const p = feats[0].properties || {};
+        const coords = feats[0].geometry.coordinates.slice();
         const tip = p.tip || `${p.iata} · ${p.oppLabel || ''}`;
+        const netTag = p.networkAirport ? ' · your network' : '';
         apPopup
           .setLngLat(coords)
           .setHTML(
-            `<div class="map-ap-popup-inner"><strong>${p.iata}</strong> · ${p.oppLabel || 'Market'}` +
+            `<div class="map-ap-popup-inner"><strong>${p.iata}</strong> · ${p.oppLabel || 'Market'}${netTag}` +
               (p.oppScore != null ? ` · ${p.oppScore}/100` : '') +
               `<br><span class="muted">${String(tip).replace(/^[^—]*—\s*/, '')}</span></div>`
           )
           .addTo(mapboxMap);
-      });
-      mapboxMap.on('mouseleave', 'airports-layer', () => {
-        if (mapboxMap) mapboxMap.getCanvas().style.cursor = 'grab';
-        apPopup.remove();
-      });
+      };
+      mapboxMap.on('mouseenter', 'airports-hit-layer', apCursorOn);
+      mapboxMap.on('mouseenter', 'airports-layer', apCursorOn);
+      mapboxMap.on('mousemove', 'airports-hit-layer', apMove);
+      mapboxMap.on('mousemove', 'airports-layer', apMove);
+      mapboxMap.on('mouseleave', 'airports-hit-layer', apCursorOff);
+      mapboxMap.on('mouseleave', 'airports-layer', apCursorOff);
       const routePopup = new mapboxgl.Popup({
         closeButton: false,
         closeOnClick: false,
@@ -15105,6 +15449,7 @@
     const scale = Math.max(0, Math.min(1, Math.log10(1 + pax * 3) / 2.2));
 
     const owned = state && hasGateAt(ap.iata);
+    const hasService = airportHasPlayerService(ap.iata);
     const util = owned ? gateUtilizationAt(ap.iata) : null;
     const underCap = util && (util.underutilized || util.idle);
 
@@ -15120,6 +15465,11 @@
       tip = underCap
         ? `${util.remaining} deps/wk open — add frequency or a new market from here.`
         : 'Your operation. Expand carefully if gate is tight.';
+    } else if (hasService) {
+      tier = 'network';
+      fill = '#3dd6a5';
+      label = 'Your network';
+      tip = 'You fly here — click for airport detail and connections.';
     } else if (underserved >= 0.55 && fareOpp >= 0.4) {
       tier = 'gold';
       fill = '#ffd166';
@@ -15150,8 +15500,9 @@
     const score = Math.round((underserved * 0.45 + fareOpp * 0.35 + scale * 0.2) * 100);
     // Size: market scale primary; opportunity bumps radius slightly
     let size = 3.6 + scale * 5.2 + underserved * 1.4 + fareOpp * 0.8;
-    if (owned) size = Math.max(size, 6.2);
-    if (selectedAirport === ap.iata) size = Math.max(size, 7);
+    if (owned) size = Math.max(size, 6.8);
+    if (hasService) size = Math.max(size, 6.4);
+    if (selectedAirport === ap.iata) size = Math.max(size, 7.5);
 
     return {
       score,
@@ -15165,6 +15516,7 @@
       scale,
       owned: !!owned,
       underCap: !!underCap,
+      hasService: !!hasService,
     };
   }
 
@@ -15206,16 +15558,24 @@
         });
       }
 
+      // Larger invisible hit radius for gates / scheduled airports (easier desktop + mobile taps)
+      const networkBoost = owned || style.hasService;
+      const hitRadius = networkBoost
+        ? Math.max(r + 14, isCoarsePointer() ? 22 : 18)
+        : Math.max(r + 8, isCoarsePointer() ? 16 : 12);
+
       airportFeatures.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates: [ap.lon, ap.lat] },
         properties: {
           iata: ap.iata,
           radius: r,
+          hitRadius,
+          networkAirport: !!networkBoost,
           fill: style.fill,
           stroke: style.stroke,
           strokeWidth: style.strokeWidth,
-          showLabel: owned || selected || labelAll || style.tier === 'gold',
+          showLabel: owned || style.hasService || selected || labelAll || style.tier === 'gold',
           showCapBadge: !!owned && !!util,
           capLabel,
           capSub,
@@ -15531,7 +15891,13 @@
 
     const labelAll = isRegionalMapKey(activeMapKey);
     html += '<g class="map-airports">';
-    bootstrap.airports.forEach((ap) => {
+    // Network airports (gates / flights) drawn last so larger hit targets win overlaps
+    const apDrawList = [...bootstrap.airports].sort((a, b) => {
+      const an = airportHasPlayerService(a.iata) || hasGateAt(a.iata) ? 1 : 0;
+      const bn = airportHasPlayerService(b.iata) || hasGateAt(b.iata) ? 1 : 0;
+      return an - bn;
+    });
+    apDrawList.forEach((ap) => {
       const p = projectMap(ap.lat, ap.lon);
       const owned = state && hasGateAt(ap.iata);
       const selected = selectedAirport === ap.iata;
@@ -15545,10 +15911,17 @@
         const halo = r + 3 + share * 8;
         html += `<circle cx="${p.x}" cy="${p.y}" r="${halo}" fill="none" stroke="rgba(0,228,168,${0.15 + share * 0.45})" stroke-width="2" class="ap-share-ring"/>`;
       }
-      if (isCoarsePointer()) {
-        html += `<circle cx="${p.x}" cy="${p.y}" r="${Math.max(18, r + 10)}" fill="transparent" class="ap-dot-hit" data-iata="${ap.iata}"/>`;
-      }
-      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${style.strokeWidth}" class="ap-dot" data-iata="${ap.iata}" style="cursor:pointer"><title>${style.title.replace(/"/g, "'")}</title></circle>`;
+      // Always draw hit targets; enlarge airports with gates or scheduled flights
+      const networkAp = owned || style.hasService;
+      const hitR = networkAp
+        ? Math.max(isCoarsePointer() ? 24 : 20, r + 14)
+        : Math.max(isCoarsePointer() ? 16 : 12, r + 8);
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${hitR}" fill="transparent" class="ap-dot-hit${
+        networkAp ? ' ap-dot-hit-network' : ''
+      }" data-iata="${ap.iata}" data-network="${networkAp ? '1' : '0'}"/>`;
+      html += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${style.strokeWidth}" class="ap-dot${
+        networkAp ? ' ap-dot-network' : ''
+      }" data-iata="${ap.iata}" style="cursor:pointer"><title>${style.title.replace(/"/g, "'")}</title></circle>`;
       if (owned && util) {
         const capClass = util.pct < 50 ? 'low' : '';
         html += `<text x="${p.x}" y="${p.y - 10}" text-anchor="middle" class="map-cap-badge ${capClass}">${Math.round(util.pct)}%</text>`;
@@ -15556,7 +15929,7 @@
           html += `<text x="${p.x}" y="${p.y - 18}" text-anchor="middle" class="map-cap-badge" fill="#a8c4e0" font-size="7">${util.remaining} open</text>`;
         }
       }
-      if (owned || selected || labelAll || style.tier === 'gold') {
+      if (owned || style.hasService || selected || labelAll || style.tier === 'gold') {
         html += `<text x="${p.x + 8}" y="${p.y + 4}" fill="#f0f8ff" font-size="${labelAll ? 11 : 10}" font-weight="700" style="paint-order:stroke;stroke:#041018;stroke-width:3px">${ap.iata}</text>`;
       }
     });
@@ -18392,7 +18765,18 @@
 
   function fleetOptionsHtml(selectedId, origin, dest) {
     if (!state.fleet.length) {
-      return '<option value="">— add aircraft in Fleet tab —</option>';
+      return '<option value="">— lease a plane (see fit coach above) —</option>';
+    }
+    let fitByType = null;
+    if (origin && dest && origin !== dest) {
+      try {
+        fitByType = {};
+        scoreAircraftTypesForPair(origin, dest).forEach((r) => {
+          fitByType[r.typeId] = r;
+        });
+      } catch (e) {
+        fitByType = null;
+      }
     }
     return state.fleet
       .map((f) => {
@@ -18402,11 +18786,21 @@
         const cap = planeWeeklyBlockHoursCapacity(f);
         const used = planeWeeklyBlockHoursUsed(f.id);
         const hrNote = `${fmtHours(used)}/${fmtHours(cap)} hr/wk`;
+        const seats = fleetSeatCount(f);
+        let fitNote = '';
+        if (fitByType && fitByType[f.type]) {
+          const row = fitByType[f.type];
+          if (!row.inRange) fitNote = ' · OUT OF RANGE';
+          else if (row.fitTier === 'bad') fitNote = ' · too big/thin';
+          else if (row.fitTier === 'good') fitNote = ' · strong fit';
+          else if (row.fitTier === 'ok') fitNote = ' · works';
+          else if (row.fitTier === 'warn') fitNote = ' · thin';
+        }
         const routeNote =
           origin && dest
             ? ` · +${maxFrequencyForAircraft(f.id, origin, dest, f.type)}/wk`
             : ` · ${fmtHours(Math.max(0, cap - used))} hr open`;
-        return `<option value="${f.id}"${sel}>${label} (${fleetSeatCount(f)} seats · ${hrNote}${routeNote})</option>`;
+        return `<option value="${f.id}"${sel}>${label} (${seats} seats · ${hrNote}${routeNote}${fitNote})</option>`;
       })
       .join('');
   }
