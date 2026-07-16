@@ -239,5 +239,67 @@ assert(pair >= 4 && pair < 30, `CMH-DAY imputed pair ${pair}`);
 // Cancel threshold present (non-established only in game; established never cancels)
 assert(cfg.cancel_load_threshold > 0 && cfg.cancel_load_threshold <= 0.15, `cancel threshold ${cfg.cancel_load_threshold}`);
 
+// ── Hour-clock schedule + Slow vs Day+ demand parity ─────────────────
+assert(typeof E.flightsPerDayForFrequency === 'function', 'flightsPerDayForFrequency exported');
+assert(typeof E.demandPerLegFromDaily === 'function', 'demandPerLegFromDaily exported');
+assert(typeof E.weeklyPaxDayModel === 'function', 'weeklyPaxDayModel exported');
+assert(typeof E.weeklyPaxHourModel === 'function', 'weeklyPaxHourModel exported');
+
+// Weekly sum of flightsPerDayForRoute math == frequency for freq 1–14 (any phase)
+for (let freq = 1; freq <= 14; freq++) {
+  for (const phase of [0, 1, 3, 6]) {
+    let sum = 0;
+    for (let day = 0; day < 7; day++) {
+      sum += E.flightsPerDayForFrequency(freq, day, phase);
+    }
+    assert(sum === freq, `freq ${freq} phase ${phase} week sum ${sum} === ${freq}`);
+  }
+  // Also stable across week offsets (days 7–13)
+  let sum2 = 0;
+  for (let day = 7; day < 14; day++) {
+    sum2 += E.flightsPerDayForFrequency(freq, day, 2);
+  }
+  assert(sum2 === freq, `freq ${freq} second week sum ${sum2}`);
+}
+// Sparse schedules must fly some days (old Math.round(freq/7) was always 0 for ≤3)
+assert(E.flightsPerDayForFrequency(1, 0, 0) + E.flightsPerDayForFrequency(1, 1, 0) +
+  E.flightsPerDayForFrequency(1, 2, 0) + E.flightsPerDayForFrequency(1, 3, 0) +
+  E.flightsPerDayForFrequency(1, 4, 0) + E.flightsPerDayForFrequency(1, 5, 0) +
+  E.flightsPerDayForFrequency(1, 6, 0) === 1, '1x/wk flies exactly once');
+assert(E.flightsPerDayForFrequency(7, 0, 0) === 1, '7x/wk = 1/day');
+assert(E.flightsPerDayForFrequency(14, 3, 0) === 2, '14x/wk = 2/day');
+
+// demandPerLeg = daily * 7 / freq (not daily / legsToday)
+assert(Math.abs(E.demandPerLegFromDaily(70, 7) - 70) < 1e-9, '7x/wk leg demand = daily');
+assert(Math.abs(E.demandPerLegFromDaily(70, 14) - 35) < 1e-9, '14x/wk leg demand = daily/2');
+assert(Math.abs(E.demandPerLegFromDaily(30, 3) - 70) < 1e-9, '3x/wk leg demand = daily*7/3');
+
+// Weekly pax: Slow (hour allocation) matches Day+ for thin + fat demand
+const acSeats = 76;
+const loadCap = 0.92;
+for (const demand of [10, 30, 80, 200]) {
+  for (const freq of [1, 2, 3, 5, 7, 10, 14]) {
+    const dayPax = E.weeklyPaxDayModel(demand, acSeats, freq, loadCap);
+    const hourPax = E.weeklyPaxHourModel(demand, acSeats, freq, loadCap);
+    assert(
+      Math.abs(dayPax - hourPax) < 0.05,
+      `weekly pax match dem=${demand} f=${freq}: day=${dayPax} hour=${hourPax}`
+    );
+  }
+}
+// Thin 1x/wk must not collapse to ~1/7 of Day+ (old legsToday bug)
+const thinDay = E.weeklyPaxDayModel(10, acSeats, 1, loadCap);
+const thinHour = E.weeklyPaxHourModel(10, acSeats, 1, loadCap);
+assert(thinHour > thinDay * 0.95, `thin 1x/wk hour ${thinHour} ≈ day ${thinDay}`);
+// Saturated demand is seat-capped the same way
+const fatDay = E.weeklyPaxDayModel(500, acSeats, 3, loadCap);
+const fatHour = E.weeklyPaxHourModel(500, acSeats, 3, loadCap);
+assert(Math.abs(fatDay - fatHour) < 0.05, `fat 3x/wk day ${fatDay} hour ${fatHour}`);
+assert(Math.abs(fatDay - acSeats * loadCap * 3) < 0.05, `fat 3x/wk ≈ 3 * seats * loadCap`);
+
+// Phase hash is stable
+assert(E.routeWeekPhaseFromId('ga-r1') === E.routeWeekPhaseFromId('ga-r1'), 'phase stable');
+assert(E.routeWeekPhaseFromId('a') >= 0 && E.routeWeekPhaseFromId('a') < 7, 'phase in 0..6');
+
 console.log(`\nEconomics tests: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -875,6 +875,40 @@
   }
   .hud-pnl-diag.open { display: flex; }
   .hud-pnl-diag .btn { font-size: 0.68rem; padding: 4px 8px; margin-left: auto; }
+  #hud-slow-honesty {
+    display: none;
+    margin: 0 0 6px;
+  }
+  #hud-slow-honesty .hud-slow-honesty,
+  .hud-slow-honesty {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(80, 130, 180, 0.35);
+    background: rgba(8, 20, 36, 0.75);
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text);
+  }
+  .hud-slow-honesty.diverge {
+    border-color: rgba(255, 176, 32, 0.45);
+    background: rgba(40, 28, 6, 0.55);
+  }
+  .hud-slow-kicker {
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-size: 0.62rem;
+    color: var(--gold);
+  }
+  .hud-slow-bits { color: var(--text); }
+  .hud-slow-note { font-size: 0.66rem; }
+  @media (max-width: 900px) {
+    .hud-slow-note { display: none; }
+  }
   .pnl-diagnosis {
     margin-top: 10px;
     padding: 10px;
@@ -4147,7 +4181,7 @@
 
 <script>window.RUNWAY_BOOTSTRAP = {{ bootstrap_json | safe }};</script>
 <script>window.RUNWAY_MAPBOX_TOKEN = {{ mapbox_token | tojson }};</script>
-<script src="/static/runway/economics.js?v=82"></script>
-<script src="/static/runway/game.js?v=91"></script>
+<script src="/static/runway/economics.js?v=83"></script>
+<script src="/static/runway/game.js?v=92"></script>
 </body>
 </html>

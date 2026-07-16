@@ -295,6 +295,70 @@
     return Math.min(loadCap, demand / Math.max(dailySeats, 1));
   }
 
+  /**
+   * Stable 0–6 phase from a route id so routes with the same frequency don't all
+   * place their "extra" weekday flights on the same calendar day.
+   */
+  function routeWeekPhaseFromId(id) {
+    const s = String(id || '');
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 7;
+    return h;
+  }
+
+  /**
+   * How many legs fly on calendar day `day` for weekly frequency `freq`.
+   * Bresenham-style distribution: sum over any 7 consecutive days == freq.
+   * (Replaces Math.round(freq/7) which zeroes freq ≤ 3.)
+   */
+  function flightsPerDayForFrequency(freq, day, phase) {
+    const f = Math.max(0, Math.floor(+freq || 0));
+    if (f <= 0) return 0;
+    const base = Math.floor(f / 7);
+    const extra = f - base * 7;
+    if (extra <= 0) return base;
+    const ph = phase != null ? phase : 0;
+    const d = day != null ? day : 0;
+    const dow = ((d + ph) % 7 + 7) % 7;
+    const hasExtra = Math.floor(((dow + 1) * extra) / 7) > Math.floor((dow * extra) / 7);
+    return base + (hasExtra ? 1 : 0);
+  }
+
+  /**
+   * Hour-clock single-leg demand share of the *daily* demand pool.
+   * Must use weekly allocation (daily * 7 / freq), not demand / legsToday —
+   * otherwise sparse schedules under-book vs Day+.
+   */
+  function demandPerLegFromDaily(dailyDemand, frequencyWeek) {
+    const freq = Math.max(1, frequencyWeek || 1);
+    return ((+dailyDemand || 0) * 7) / freq;
+  }
+
+  /**
+   * Weekly pax under Day+ model: every day sells against seats * (freq/7).
+   */
+  function weeklyPaxDayModel(dailyDemand, seats, frequencyWeek, loadCap) {
+    const freq = Math.max(0, frequencyWeek || 0);
+    if (freq <= 0 || seats <= 0) return 0;
+    const cap = loadCap != null ? loadCap : 0.92;
+    const dailySeats = seats * (freq / 7);
+    const load = Math.min(cap, (+dailyDemand || 0) / Math.max(dailySeats, 1));
+    return load * dailySeats * 7;
+  }
+
+  /**
+   * Weekly pax under Slow/hour model with correct per-leg demand allocation.
+   * Flies `freq` legs/week; each gets demandPerLegFromDaily.
+   */
+  function weeklyPaxHourModel(dailyDemand, seats, frequencyWeek, loadCap) {
+    const freq = Math.max(0, frequencyWeek || 0);
+    if (freq <= 0 || seats <= 0) return 0;
+    const cap = loadCap != null ? loadCap : 0.92;
+    const perLeg = demandPerLegFromDaily(dailyDemand, freq);
+    const load = Math.min(cap, perLeg / Math.max(seats, 1));
+    return load * seats * freq;
+  }
+
   global.RunwayEconomics = {
     DEFAULTS,
     mergeConfig,
@@ -305,5 +369,10 @@
     hubMaturityFactors,
     computeMarketCapture,
     estimateLoadFromDemand,
+    routeWeekPhaseFromId,
+    flightsPerDayForFrequency,
+    demandPerLegFromDaily,
+    weeklyPaxDayModel,
+    weeklyPaxHourModel,
   };
 })(typeof window !== 'undefined' ? window : global);

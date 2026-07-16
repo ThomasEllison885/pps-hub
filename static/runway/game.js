@@ -3049,8 +3049,8 @@
   // ── Live aircraft ops (hour clock + board + map) ─────────────────────
 
   function routeWeekPhase(route) {
-    // Stable per-route offset (0-6) derived from the route id, so routes with the
-    // same frequency don't all cluster their "extra" flight on the same weekday.
+    const E = RunwayEcon();
+    if (E && E.routeWeekPhaseFromId) return E.routeWeekPhaseFromId((route && route.id) || '');
     const id = (route && route.id) || '';
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 7;
@@ -3058,21 +3058,21 @@
   }
 
   /**
-   * How many legs of this route fly TODAY on the hour clock. A flat
-   * Math.round(frequency_week/7) rounds anything <=3/wk down to zero — those
-   * routes would never fly at all on Slow. Instead, distribute frequency_week
-   * flights evenly across the 7-day week (Bresenham-style) so every served
-   * route still totals exactly frequency_week flights per week, just spread
-   * across specific days instead of an equal fractional amount every day.
+   * How many legs of this route fly TODAY on the hour clock.
+   * Pure math lives in RunwayEconomics.flightsPerDayForFrequency (tested).
    */
   function flightsPerDayForRoute(route, dayOverride) {
     const freq = Math.max(0, route.frequency_week || 0);
     if (freq <= 0) return 0;
-    const base = Math.floor(freq / 7);
-    const extra = freq - base * 7; // 0..6 leftover flights to distribute across the week
-    if (extra <= 0) return base;
-    const day = dayOverride != null ? dayOverride : state.day || 0;
+    const day = dayOverride != null ? dayOverride : (state && state.day) || 0;
     const phase = routeWeekPhase(route);
+    const E = RunwayEcon();
+    if (E && E.flightsPerDayForFrequency) {
+      return E.flightsPerDayForFrequency(freq, day, phase);
+    }
+    const base = Math.floor(freq / 7);
+    const extra = freq - base * 7;
+    if (extra <= 0) return base;
     const dow = ((day + phase) % 7 + 7) % 7;
     const hasExtraToday = Math.floor(((dow + 1) * extra) / 7) > Math.floor((dow * extra) / 7);
     return base + (hasExtraToday ? 1 : 0);
@@ -3358,6 +3358,30 @@
   }
 
   /**
+   * Unified day economics.
+   * mode:
+   *   'batch'     — full-network day sim (Day+ / Week / Month / Year)
+   *   'live-legs' — books already recorded on ops_day (Slow hour clock)
+   *   'preview'   — batch with commit:false (Reports / HUD estimates)
+   */
+  function runDayEconomics(opts) {
+    opts = opts || {};
+    const mode = opts.mode || 'batch';
+    if (mode === 'live-legs') {
+      if (!state.ops_day || state.ops_day.day !== state.day) {
+        ensureOpsDayBucket();
+      }
+      const fleetDay = fleetMonthlyCosts() / 30;
+      const gateDay = gateLeaseMonthly() / 30;
+      const mktDay = marketingMonthly() / 30;
+      const fixed = fleetDay + gateDay + mktDay;
+      return buildEconFromOpsDay(fixed);
+    }
+    const commit = mode === 'preview' ? false : !!opts.commit;
+    return simulateDayEconomics({ commit, ...(opts.simOpts || {}) });
+  }
+
+  /**
    * Close a day that was played on the hour clock: variable cash already booked per leg;
    * charge fixed once, flush route history, roll metrics — do NOT re-sim all routes.
    * Call while state.day is still the day being closed (before increment).
@@ -3377,7 +3401,7 @@
       ops.fixedApplied = true;
     }
     const interest = accrueCashInterest(1);
-    const econ = buildEconFromOpsDay(fixed);
+    const econ = runDayEconomics({ mode: 'live-legs' });
     state.daily_pnl = econ.pnl + interest;
     // Cheap metrics rollup (no second full-network resim) — must run before
     // flushRouteOpsToHistory() clears route.ops_today.
@@ -10037,16 +10061,13 @@
       simulatingDemandDepth -= 1;
     }
     if (singleFlight) {
-      // demandForRoute() returns a *daily* demand pool (not per-leg). Day+ path
-      // sells that against seats * (frequency_week/7) every calendar day.
-      // Hour path only flies on scheduled days, so allocate the *weekly* pool
-      // evenly across frequency_week legs:
-      //   demand_per_leg = daily_demand * 7 / frequency_week
-      // Using demand / legsToday is only equivalent when frequency is a multiple
-      // of 7 (always the same legs/day). For 1–6×/wk sparse schedules it under-
-      // books vs Day+ (thin markets could earn ~14–43% of Day+ weekly pax).
+      // Allocate weekly pool across frequency_week legs (see RunwayEconomics.demandPerLegFromDaily).
       const freq = Math.max(1, route.frequency_week || 1);
-      demand = (demand * 7) / freq;
+      const E = RunwayEcon();
+      demand =
+        E && E.demandPerLegFromDaily
+          ? E.demandPerLegFromDaily(demand, freq)
+          : (demand * 7) / freq;
     }
     let rawLoad = Math.min(0.92, demand / Math.max(dailySeats, 1));
     const prod = routeProduct(routeProductId(route));
@@ -10834,21 +10855,30 @@
     const labels = isMobileLayout()
       ? {
           pause: 'Paused',
-          slow: '1-hour steps · live board',
-          day: '1 day / tick',
+          slow: '1h live legs · ops friction',
+          day: '1 day · batch P&L',
           week: '1 week / tick',
           month: '1 month / tick',
           year: '1 year / tick',
         }
       : {
           pause: 'Paused',
-          slow: '1 hour / tick — watch planes on the map',
-          day: '1 day / tick — full day economics',
-          week: '1 week / tick — alerts will pause & slow you',
-          month: '1 month / tick — alerts will pause & slow you',
-          year: '365 days / tick — alerts still pause mid-year',
+          slow: '1 hour / tick — live legs, ferries & misses (not Day+ batch P&L)',
+          day: '1 day / tick — full day batch economics',
+          week: '1 week / tick — batch P&L · alerts pause you',
+          month: '1 month / tick — batch P&L · alerts pause you',
+          year: '365 days / tick — batch P&L · alerts still pause mid-year',
         };
     hint.textContent = labels[speedId] || '';
+  }
+
+  /** True if this speed uses hour-leg books (ops friction) vs batch day sim. */
+  function isLiveLegsSpeed(speedId) {
+    return speedId === 'slow';
+  }
+
+  function isBatchDaySpeed(speedId) {
+    return speedId === 'day' || speedId === 'week' || speedId === 'month' || speedId === 'year';
   }
 
   /**
@@ -10881,11 +10911,11 @@
     if (!state || state.game_over || n <= 0) return 0;
     let ran = 0;
     for (let i = 0; i < n; i++) {
-      // Day+ speeds: full-day economics (not hour-leg books)
+      // Day+ speeds: batch full-day economics via runDayEconomics (not hour-leg books)
       state.ops_day = null;
       state.day += 1;
       ran += 1;
-      const econ = simulateDayEconomics({ commit: true });
+      const econ = runDayEconomics({ mode: 'batch', commit: true });
       const interest = accrueCashInterest(1);
       state.daily_pnl = econ.pnl + interest;
       state.cash += econ.pnl;
@@ -11271,7 +11301,7 @@
    */
   function verifyReportingIntegrity() {
     const issues = [];
-    const econ = simulateDayEconomics({ commit: false });
+    const econ = runDayEconomics({ mode: 'preview' });
     if (econ.check) {
       if (Math.abs(econ.check.revParts - econ.dayRev) > 1.5) {
         issues.push(`Rev parts ${econ.check.revParts.toFixed(0)} ≠ dayRev ${econ.dayRev.toFixed(0)}`);
@@ -11414,6 +11444,31 @@
       state.ff_year_confirmed = true;
       saveGame();
     }
+
+    // Don't mix Slow (live legs) and Day+ (batch) without an honest note —
+    // ops friction (missed legs, ferries) means P&L is not identical.
+    const prevEcon = state._last_econ_speed || null;
+    const nextEcon = isLiveLegsSpeed(speedId)
+      ? 'slow'
+      : isBatchDaySpeed(speedId)
+        ? 'batch'
+        : null;
+    if (
+      nextEcon &&
+      prevEcon &&
+      prevEcon !== nextEcon &&
+      !state._speed_mix_noted
+    ) {
+      state._speed_mix_noted = true;
+      pushEvent(
+        nextEcon === 'slow'
+          ? 'Switched to <b>Slow</b>: P&amp;L is booked from real legs (ferries, misses, turnarounds). Day+ batch estimates can disagree — HUD shows both when they diverge.'
+          : 'Switched to <b>Day+</b> batch economics: full-day re-sim, no live missed-leg friction. Slow-mode board books can differ even on the same schedule.',
+        'neutral'
+      );
+    }
+    if (nextEcon) state._last_econ_speed = nextEcon;
+
     if (speedId !== 'pause') speedBeforePause = speedId;
     state.speed = speedId;
     if (tickTimer) clearInterval(tickTimer);
@@ -11433,6 +11488,56 @@
       btn.classList.toggle('active', btn.dataset.speed === speedId);
     });
     updateSpeedHintLabel(speedId);
+    try {
+      renderHud();
+    } catch (e) {
+      /* HUD optional mid-init */
+    }
+  }
+
+  /**
+   * On Slow: compare live booked day (legs so far) vs Day+ batch estimate.
+   * Surfaces missed legs / ferries when the two diverge.
+   */
+  function hudSlowOpsHonestyHtml() {
+    if (!state || state.speed !== 'slow') return '';
+    const ops = state.ops_day && state.ops_day.day === state.day ? state.ops_day : null;
+    const bookedLive = opsDayLivePnl();
+    let dayEst = null;
+    try {
+      dayEst = runDayEconomics({ mode: 'preview' });
+    } catch (e) {
+      dayEst = null;
+    }
+    if (!dayEst) return '';
+    const dayPnl = dayEst.pnl != null ? dayEst.pnl : 0;
+    const legsMissed = ops ? ops.legsMissed || 0 : 0;
+    const ferries = ops ? ops.ferries || 0 : 0;
+    const legsBooked = ops ? ops.legsBooked || 0 : 0;
+    const diverge =
+      Math.abs(bookedLive - dayPnl) > 75 || legsMissed > 0 || ferries > 0;
+    const hour = state.hour != null ? state.hour : 6;
+    const bits = [];
+    bits.push(
+      `Booked today <b class="${bookedLive >= 0 ? '' : 'danger'}">${fmtMoney(bookedLive)}</b>`
+    );
+    bits.push(`Day+ est. <b class="${dayPnl >= 0 ? '' : 'danger'}">${fmtMoney(dayPnl)}</b>`);
+    if (legsBooked || legsMissed || ferries) {
+      bits.push(
+        `${legsBooked} leg${legsBooked === 1 ? '' : 's'}${
+          ferries ? ` · ${ferries} ferry` : ''
+        }${legsMissed ? ` · <span class="danger">${legsMissed} missed</span>` : ''}`
+      );
+    }
+    bits.push(`${formatHourClock(hour)}`);
+    const note = diverge
+      ? 'Live legs include ferries &amp; misses — not the same as Day+ batch.'
+      : 'Live books tracking Day+ estimate.';
+    return `<div class="hud-slow-honesty${diverge ? ' diverge' : ''}" title="Slow uses live leg books; Day+ re-sims the full day without ops friction.">
+      <span class="hud-slow-kicker">Slow ops</span>
+      <span class="hud-slow-bits">${bits.join(' · ')}</span>
+      <span class="muted hud-slow-note">${note}</span>
+    </div>`;
   }
 
   function setupMobileDock() {
@@ -18202,6 +18307,29 @@
     else if (pnl < 0) setStatPillTone('hud-pill-pnl', 'danger');
     else setStatPillTone('hud-pill-pnl', null);
 
+    // Slow ops honesty: booked legs vs Day+ batch estimate
+    let slowStrip = $('hud-slow-honesty');
+    if (!slowStrip) {
+      slowStrip = document.createElement('div');
+      slowStrip.id = 'hud-slow-honesty';
+      const primary = document.querySelector('.hud-primary');
+      if (primary && primary.parentNode) {
+        primary.parentNode.insertBefore(slowStrip, primary.nextSibling);
+      }
+    }
+    if (state.speed === 'slow' && (state.routes || []).length) {
+      try {
+        slowStrip.innerHTML = hudSlowOpsHonestyHtml();
+        slowStrip.style.display = slowStrip.innerHTML ? '' : 'none';
+      } catch (e) {
+        slowStrip.innerHTML = '';
+        slowStrip.style.display = 'none';
+      }
+    } else {
+      slowStrip.innerHTML = '';
+      slowStrip.style.display = 'none';
+    }
+
     // Red P&L strip under HUD when losing
     let diagStrip = $('hud-pnl-diag');
     if (!diagStrip) {
@@ -18488,17 +18616,52 @@
     try {
       integrity = verifyReportingIntegrity();
     } catch (err) {
-      integrity = { ok: false, issues: [String(err && err.message ? err.message : err)] };
+      // Catch path must still supply econ/hubs so section bodies can render.
+      let econ = null;
+      let hubs = [];
+      try {
+        econ = runDayEconomics({ mode: 'preview' });
+      } catch (e2) {
+        try {
+          econ = simulateDayEconomics({ commit: false });
+        } catch (e3) {
+          econ = null;
+        }
+      }
+      try {
+        hubs = allHubScorecards();
+      } catch (e4) {
+        hubs = [];
+      }
+      integrity = {
+        ok: false,
+        issues: [String(err && err.message ? err.message : err)],
+        econ,
+        hubs,
+      };
+    }
+    if (!integrity.econ) {
+      try {
+        integrity.econ = runDayEconomics({ mode: 'preview' });
+      } catch (e) {
+        integrity.econ = null;
+      }
+    }
+    if (!integrity.hubs) {
+      try {
+        integrity.hubs = allHubScorecards();
+      } catch (e) {
+        integrity.hubs = [];
+      }
     }
     const integHtml = integrity.ok
       ? '<p class="report-integrity ok">✓ Numbers check out — rev/var/fixed parts, hub nets, and fleet leases reconcile.</p>'
-      : `<p class="report-integrity bad">⚠ Integrity: ${integrity.issues
+      : `<p class="report-integrity bad">⚠ Integrity: ${(integrity.issues || [])
           .slice(0, 4)
           .map((i) => String(i).replace(/</g, '&lt;'))
           .join(' · ')}</p>`;
 
-    // Reuse verifyReportingIntegrity()'s own econ/hubs computation instead of each
-    // section independently re-running simulateDayEconomics()/allHubScorecards().
+    // Reuse integrity econ/hubs (with fallbacks above) instead of each section re-running sims.
     const body =
       section === 'hubs'
         ? reportsSectionHubs(integrity.hubs)
