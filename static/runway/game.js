@@ -1959,18 +1959,16 @@
   }
 
   /**
-   * Dual datalist options so typing either "DAY" or "Dayton" surfaces the airport.
-   * Browsers match against option value — city-first helps non-aviation users.
+   * One option per airport. Value carries both city and code ("Dayton (DAY)") so a single
+   * entry surfaces whether the player types the city or the code — browsers substring-match
+   * against the option value, and resolveAirportQuery() parses either back to the airport.
    */
   function airportDatalistHtml() {
     return sortedAirports()
       .map((a) => {
         const stateBit = a.state ? ` · ${a.state}` : '';
         const nameBit = a.name || '';
-        return (
-          `<option value="${airportLabel(a)}">${nameBit}${stateBit}</option>` +
-          `<option value="${airportCityCodeLabel(a)}">${nameBit}${stateBit} · code ${a.iata}</option>`
-        );
+        return `<option value="${airportCityCodeLabel(a)}">${nameBit}${stateBit}</option>`;
       })
       .join('');
   }
@@ -3636,6 +3634,7 @@
     // shifting dep hours forward and stranding planes with empty "planned" sets.
     rebuildAircraftDaySchedule(false);
     const h = state.hour == null ? 6 : state.hour;
+    const departedThisHour = [];
 
     state.fleet.forEach((plane) => {
       ensurePlaneTelemetry(plane);
@@ -3745,12 +3744,16 @@
           plane.block_hours_today = (plane.block_hours_today || 0) + bh;
           pushEvent(
             `<b>${plane.id}</b> departed ${leg.origin}→${leg.dest}${leg.type === 'ferry' ? ' (ferry)' : ''} · ETA ${formatHourClock(arrH)}.`,
-            leg.type === 'ferry' ? 'bad' : 'good'
+            leg.type === 'ferry' ? 'bad' : 'flight'
           );
+          if (leg.type !== 'ferry') {
+            departedThisHour.push({ plane: plane.id, origin: leg.origin, dest: leg.dest, eta: formatHourClock(arrH) });
+          }
           break;
         }
       }
     });
+    if (departedThisHour.length) showFlightTicker(departedThisHour);
   }
 
   /** After a full day economy tick: place metal at end of planned day and refresh schedule. */
@@ -7968,6 +7971,7 @@
       renderRouteReviewModal();
       return;
     }
+    const health = diagnoseRouteHealth(route);
     backfillRouteForecast(route);
     ensureRouteStats(route);
     const hist = route.history || [];
@@ -8060,11 +8064,20 @@
       </tr>`;
     };
 
+    const fixHtml =
+      health && health.severity !== 'ok'
+        ? `<div class="route-review-fix ${health.severity === 'critical' ? 'route-review-fix-critical' : 'route-review-fix-watch'}">
+            <b>${health.title}</b>
+            <ul class="route-review-fix-reasons">${(health.reasons || []).map((r) => `<li>${r}</li>`).join('')}</ul>
+            <button type="button" class="btn route-review-fix-btn" data-focus-route-tune="${route.id}">Adjust fare, frequency, aircraft &amp; marketing ↓</button>
+          </div>`
+        : '';
     overlay.innerHTML = `
       <div class="route-review-card" role="dialog" aria-modal="true">
         <button type="button" class="btn secondary route-review-close" data-route-review-close>← Back to routes</button>
         <p class="decision-kicker">Route review</p>
         <h2>${route.origin} → ${route.dest}</h2>
+        ${fixHtml}
         <p class="muted" style="font-size:0.76rem;line-height:1.45;margin-bottom:12px;">
           ${oAp ? oAp.city : route.origin} to ${dAp ? dAp.city : route.dest}
           ${dist != null ? ` · ${dist} nm` : ''}
@@ -8139,9 +8152,27 @@
     overlay.classList.add('active');
     document.body.classList.add('route-review-active');
     overlay.querySelector('[data-route-review-close]')?.addEventListener('click', closeRouteReview);
+    overlay.querySelector('[data-focus-route-tune]')?.addEventListener('click', () => {
+      focusRouteTuneControls(route.id);
+    });
     overlay.onclick = (e) => {
       if (e.target === overlay) closeRouteReview();
     };
+  }
+
+  /** Close the review modal and land the player on the actual editable levers for a route. */
+  function focusRouteTuneControls(routeId) {
+    closeRouteReview();
+    switchTab('routes');
+    setTimeout(() => {
+      const card = document.querySelector(`.route-card[data-route-id="${routeId}"]`);
+      if (!card) return;
+      const details = card.querySelector('.route-card-tune');
+      if (details) details.open = true;
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('route-card-highlight');
+      setTimeout(() => card.classList.remove('route-card-highlight'), 2200);
+    }, 60);
   }
 
   function openRouteReview(routeId) {
@@ -9120,6 +9151,21 @@
     stack.appendChild(el);
     setTimeout(() => el.remove(), 4200);
     while (stack.children.length > 3) stack.removeChild(stack.firstChild);
+  }
+
+  let flightTickerTimer = null;
+  /** Quiet, non-stacking indicator for routine departures — replaces itself instead of piling up. */
+  function showFlightTicker(departures) {
+    const el = document.getElementById('flight-ticker');
+    if (!el || !departures || !departures.length) return;
+    const first = departures[0];
+    const extra = departures.length - 1;
+    el.innerHTML = extra > 0
+      ? `✈ <b>${first.plane}</b> ${first.origin}→${first.dest} +${extra} more departed this hour`
+      : `✈ <b>${first.plane}</b> ${first.origin}→${first.dest} · ETA ${first.eta}`;
+    el.classList.add('show');
+    clearTimeout(flightTickerTimer);
+    flightTickerTimer = setTimeout(() => el.classList.remove('show'), 2200);
   }
 
   /** Monthly interest accrual on a loan (balance-sheet / P&L). */
@@ -19446,7 +19492,7 @@
           health && health.severity === 'critical'
             ? `<button type="button" class="btn route-primary-cta" data-route-review="${route.id}">Fix route</button>`
             : !hasRet && routeProductId(route) !== 'tag'
-              ? `<button type="button" class="btn route-primary-cta" data-route-review="${route.id}">Add return</button>`
+              ? `<button type="button" class="btn route-primary-cta" data-add-return="${route.id}">Add return</button>`
               : freqHeadroom >= 2
                 ? `<button type="button" class="btn secondary route-primary-cta" data-bump-freq="${route.id}" data-bump-delta="${Math.min(3, freqHeadroom)}">+freq</button>`
                 : `<button type="button" class="btn secondary route-primary-cta" data-route-review="${route.id}">Review</button>`;
@@ -19489,6 +19535,11 @@
           ${routeHealthBannerHtml(health)}
           <div class="route-card-footer-actions">
             ${primaryCta}
+            ${
+              route.frequency_week > 1
+                ? `<button type="button" class="btn secondary" onclick="Runway.adjustRouteFrequency('${route.id}', -1)" title="Fly less often — frees up aircraft hours (e.g. for a return leg)">−freq</button>`
+                : ''
+            }
             <button type="button" class="btn secondary route-review-btn" data-route-review="${route.id}">Trends</button>
           </div>
           <details class="ap-more route-card-tune">
@@ -20070,7 +20121,7 @@
     const el = $('tab-events');
     if (!el) return;
     el.innerHTML = `<ul class="list">${state.events.map((e) => {
-      const cls = e.tier === 'good' ? 'log-good' : e.tier === 'bad' ? 'log-bad' : e.tier === 'milestone' ? 'log-milestone' : '';
+      const cls = e.tier === 'good' || e.tier === 'flight' ? 'log-good' : e.tier === 'bad' ? 'log-bad' : e.tier === 'milestone' ? 'log-milestone' : '';
       return `<li class="${cls}"><span class="muted">${fmtDate(e.day)}</span> ${e.msg}</li>`;
     }).join('')}</ul>`;
   }
@@ -20951,6 +21002,15 @@
           sugBtn.dataset.autoLaunch === 'true',
           sugBtn.dataset.aircraftId || ''
         );
+        return;
+      }
+      const addReturnBtn = e.target.closest('[data-add-return]');
+      if (addReturnBtn) {
+        e.preventDefault();
+        const route = routeById(addReturnBtn.dataset.addReturn);
+        if (route) {
+          openRouteLaunchModal(route.dest, route.origin, route.aircraft_id, route.frequency_week, route.fare);
+        }
         return;
       }
       const reviewBtn = e.target.closest('[data-route-review]');
