@@ -18179,7 +18179,9 @@
     if (!ctx) return;
     if (opsGuideCollapsed === null) {
       const early = ctx.step >= 1 && ctx.step <= 5;
-      opsGuideCollapsed = !(early || ctx.tone === 'warn' || ctx.profit || isLearningMode());
+      // Auto-open for onboarding steps and genuine warnings only — routine
+      // profit nudges stay collapsed behind "Show" instead of greeting you open.
+      opsGuideCollapsed = !(early || ctx.tone === 'warn' || isLearningMode());
     }
     const collapsedClass = opsGuideCollapsed ? ' collapsed' : '';
     const toneClass = ctx.tone === 'good' ? ' ops-guide-good' : ctx.tone === 'warn' ? ' ops-guide-warn' : '';

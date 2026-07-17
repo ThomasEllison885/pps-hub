@@ -1314,13 +1314,13 @@
   }
   .game-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+    grid-template-columns: minmax(0, 1.25fr) minmax(260px, 320px);
     align-items: start;
     min-height: 72vh;
     gap: 0;
   }
   @media (min-width: 1100px) {
-    .game-layout { grid-template-columns: minmax(0, 1.55fr) minmax(300px, 360px); }
+    .game-layout { grid-template-columns: minmax(0, 2fr) minmax(280px, 320px); }
   }
   @media (max-width: 900px) {
     .game-layout {
@@ -3329,6 +3329,11 @@
     line-height: 1.45;
   }
   .ops-guide.collapsed .ops-guide-body { display: none; }
+  .ops-guide-body {
+    max-height: 170px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
   .ops-guide-head {
     display: flex;
     align-items: center;
