@@ -517,7 +517,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Exposure required: opportunity, discovery, site visit, estimate/proposal, award, PPM, mobilization, '
                 'active job, change orders, callbacks, punch/close-out',
                 'Post-project debrief after each partner project — lessons learned and decision-making review',
-                '[TO DOCUMENT] Criteria for when a PSC is cleared for independent client-facing work',
+                '[TO DOCUMENT] When is a new PSC ready for solo client work?',
             ],
             'manager_1on1': (
                 '45-minute kickoff: name your mentor consultant, list the first 3–5 partner projects in Monday.com, '
@@ -569,7 +569,7 @@ PSC_COMPANY_OPERATIONS = {
                     'See docs/PRODUCTION_BOARD_REFERENCE.md.'
                 ),
                 MONDAY_AT_PPS['handoff_at_award'],
-                '[TO DOCUMENT] Naming conventions for properties, contacts, and deals',
+                '[TO DOCUMENT] How do we name properties, contacts, and deals in Monday?',
                 MONDAY_AT_PPS['psc_focus']['hygiene'],
             ],
             'manager_1on1': (
@@ -627,7 +627,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Punch list and close-out walkthrough — who attends, what gets documented',
                 'PSC leads: relationship, scope narrative, client communication, site visit quality',
                 'PM/production lead: crew schedule, Trade Partner coordination, field execution',
-                '[TO DOCUMENT] Callback and warranty handoff at close-out',
+                '[TO DOCUMENT] At close-out, how do callbacks and warranty hand off?',
             ],
             'manager_1on1': (
                 '45-minute session: trace one real job on Monday.com and in Hub history from site visit to '
@@ -668,7 +668,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Scope decisions: what is in, what is excluded, alternatives (e.g. one coat vs. two), who supplies materials',
                 'Proposal review = coaching on decision-making, not just formatting',
                 'Hub Proposal Generator + estimators + Scope Library — tools apply after evaluation is sound',
-                '[TO DOCUMENT] Standard site-visit checklist by trade',
+                '[TO DOCUMENT] Site visit checklist by main trade — what must you capture?',
             ],
             'manager_1on1': (
                 '60-minute session: walk a recent site visit or hub proposal. Manager narrates how they identified the issue, '
@@ -716,7 +716,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Escalate scope uncertainty before the client sees a proposal',
                 'Hub pricing defaults are starting points — final numbers confirmed with Tony/PM for context',
                 'Quality bar: proposal reviewed in conversation with client; PPS voice; no unconfirmed schedule promises',
-                '[TO DOCUMENT] Central reference for common unit costs by trade',
+                '[TO DOCUMENT] Where do we look up typical unit costs by trade?',
             ],
             'manager_1on1': (
                 '60-minute session: open a recent estimate or proposal in Hub history. Manager narrates every '
@@ -757,7 +757,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Tony/leadership: pricing exceptions, major client escalations, proposal sign-off when assigned',
                 'Loop in PM before: promising dates, pricing beyond proposal, scope not documented, resident complaints on site',
                 'Simple guides for: pricing support, callbacks, change orders, concealed conditions',
-                '[TO DOCUMENT] After-hours and urgent site escalation path',
+                '[TO DOCUMENT] After hours or urgent site issue — who do you call?',
             ],
             'manager_1on1': (
                 '30-minute scenario session: three situations — callback, change order, client wants price today. '
@@ -791,13 +791,13 @@ PSC_COMPANY_OPERATIONS = {
                 'scope discussions, and site coordination alongside your mentor — not in isolation.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] How we find and recruit new Trade Partners',
-                '[TO DOCUMENT] Vetting criteria — insurance, references, trade quality, responsiveness',
+                '[TO DOCUMENT] How do we find and recruit new Trade Partners?',
+                '[TO DOCUMENT] What must a Trade Partner have before we use them (insurance, quality, etc.)?',
                 'Trade Partner Scope = crew-ready language; PSC does not promise scope production has not confirmed',
                 'Scheduling and 48-hour resident notice — PM/production lead; PSC communicates to client',
-                '[TO DOCUMENT] QC expectations and payment triggers',
+                '[TO DOCUMENT] When do we pay a Trade Partner, and what QC is required first?',
                 'Include new PSC in Trade Partner site visits and estimate conversations during partner projects',
-                '[TO DOCUMENT] Preferred Trade Partner reference — trade, contact, specialty',
+                '[TO DOCUMENT] Preferred Trade Partners by trade — who and specialty?',
             ],
             'manager_1on1': (
                 '45-minute session: review one Trade Partner Scope document and the Monday.com/production '
@@ -837,7 +837,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Copy PM/production on schedule, scope, and complaint threads; ownership on major investment decisions',
                 'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Tony/manager',
                 'Never to client without PM/manager review: production dates, pricing outside proposal, scope commitments',
-                '[TO DOCUMENT] Communication examples library by phase (templates in progress)',
+                '[TO DOCUMENT] Sample client update for one phase (award, delay, or close-out)?',
             ],
             'manager_1on1': (
                 '30-minute role-play: proposal review call, schedule delay conversation, and resident complaint '
@@ -876,7 +876,7 @@ PSC_COMPANY_OPERATIONS = {
                 'PSC role: acknowledge promptly, coordinate through PM, document with photos, no blame language to client',
                 'Internal: log in Monday.com, assign field owner, track to resolution',
                 'Warranty language: PPS labor vs. manufacturer — do not improvise; use documented trade language',
-                '[TO DOCUMENT] Standard callback intake and close-out checklist',
+                '[TO DOCUMENT] Callback from first call to closed — what are the steps?',
                 'Use completed callbacks as partner-project learning — debrief what communication worked',
             ],
             'manager_1on1': (
@@ -910,12 +910,12 @@ PSC_COMPANY_OPERATIONS = {
                 'compiled from leadership and field experience.'
             ),
             'sop_placeholders': [
-                '[TO DOCUMENT] Promising schedule or scope production has not confirmed',
-                '[TO DOCUMENT] Under-documenting site visits (photos, access, phasing)',
-                '[TO DOCUMENT] Sending proposals cold without a review conversation',
-                '[TO DOCUMENT] Letting Monday.com hygiene slip in the first 30 days',
-                '[TO DOCUMENT] Bypassing PM on site or client issues',
-                '[TO DOCUMENT] Using generic contractor language instead of PPS voice',
+                '[TO DOCUMENT] Instead of promising schedule/scope without PM — what do you do?',
+                '[TO DOCUMENT] Site visit under-documented — what photos/notes are required?',
+                '[TO DOCUMENT] Why never send a proposal cold, and what do you do instead?',
+                '[TO DOCUMENT] Monday hygiene first 30 days — what must stay current?',
+                '[TO DOCUMENT] When must you involve the PM on site or client issues?',
+                '[TO DOCUMENT] PPS voice vs generic contractor speak — give one rewrite?',
             ],
             'manager_1on1': (
                 '30-minute debrief: manager shares top mistakes they have seen from new PSCs. '
@@ -938,6 +938,80 @@ PSC_COMPANY_OPERATIONS = {
                     'text': (
                         'Three sentences: what you will always do, what you will never do, '
                         'and who you will ask before committing. Share with your manager.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_market_expansion',
+            'title': 'New Market Expansion — The Pure Way Formula',
+            'assigned_week': 4,
+            'summary': (
+                'PPS grows hub-and-spoke: Cincinnati/Dayton is the main office; new cities are spokes until they earn footing. '
+                'Every PSC should understand the formula — even if you never launch a city yourself — because it is how we '
+                'protect margin, capacity, and client trust when we leave home turf. Full playbook: business-intel/strategy/'
+                'PPS_New_Market_Expansion_Playbook.md (leadership).'
+            ),
+            'sop_placeholders': [
+                'Main office stays Cincinnati/Dayton — new markets use Ohio standards (PPM, Hub, voice), not a second culture',
+                'Anchor first: national client (Morgan-type) soft commitment before hire; year-one base target $750K–$1M; '
+                'below ~$500K committed written work = no launch',
+                'Apartments are the entry wedge; condo/HOA and commercial follow once the market is established',
+                'Financial gates before spend: company ICC toward $500K, revenue on plan, PM capacity free '
+                '(e.g. major guarantee work complete) — expansion is not a cash bandage',
+                'Drive time within ~2 hours of Cincinnati/Dayton applies to initial launch only; '
+                'after proof of concept (typically Month 6 green gate) the range can expand',
+                'Roles (no dual commanders): Adam owns anchor relationship and city sequencing; market lead owns day-to-day '
+                'sales/PM and non-anchor BD; Tony (VP Sales) is available for support — PSC training standards, culture, '
+                'condo/board motion later — he does not run the Morgan anchor lane or compete for city sequencing; '
+                'Trey/Production owns PPM quality and traveling Trade Partner bench; Stephanie owns credit checks, '
+                'invoicing terms, and market P&L vs budget; Thomas owns go/no-go gates and capital',
+                'Trade Partner bench before volume: 3–5 local partners per core trade + Ohio travelers + company-wide '
+                'traveling bench; scorecard quality/schedule/price in Monday.com',
+                'Margin floor 28% blended; AR discipline from day one (credit-check, clear terms, watch DSO) — '
+                'new-market enthusiasm is how bad receivables get born',
+                'Gates over gut: formal reviews Month 3 / 6 / 9 / 12 with pre-agreed green/red and pull-back plan',
+                'Earn-trust motion still applies: small maintenance/repair scopes before large CapEx in a new city',
+            ],
+            'manager_1on1': (
+                '30–45 minutes with VP Sales (Tony) or assigned mentor: walk the expansion formula, who owns what '
+                '(Adam vs market lead vs Tony support), and what a PSC must never do in a new market '
+                '(cold-send proposals, skip PPM, promise schedule without production, chase volume without a TP bench).'
+            ),
+            'items': [
+                {
+                    'id': 'ops_expansion_read',
+                    'title': 'Learn the formula',
+                    'text': (
+                        'Read the SOP bullets above. Write the one-sentence model in your own words: '
+                        'anchor → market lead (sales+PM) → apartments first → Trade Partner bench before volume.'
+                    ),
+                },
+                {
+                    'id': 'ops_expansion_roles',
+                    'title': 'Role map — clear ownership',
+                    'text': (
+                        'Draw a simple responsibility map for a new city: Adam (national anchor), market lead '
+                        '(local delivery + non-anchor), Tony (support: training, standards, condo motion when ready), '
+                        'Trey (production), Stephanie (AR/credit), leadership (go/no-go). Note one place a new PSC '
+                        'would escalate to the wrong person if they skipped this map.'
+                    ),
+                },
+                {
+                    'id': 'ops_expansion_gates',
+                    'title': 'Gates over gut',
+                    'text': (
+                        'List the Month 6 green and red criteria from memory (or notes). '
+                        'Explain why pre-agreed kill criteria protect the company better than “give it another quarter.”'
+                    ),
+                },
+                {
+                    'id': 'ops_expansion_1on1',
+                    'title': 'Manager 1:1 — expansion briefing',
+                    'text': (
+                        'Complete the expansion 1:1 with Tony or your mentor. Confirm how the team works together: '
+                        'Adam leads national-anchor relationships; Tony supports training, standards, and later '
+                        'condo/board diversification; the market lead runs local day-to-day work.'
                     ),
                 },
             ],
@@ -1256,6 +1330,15 @@ PSC_TRAINING_WEEKS = [
             {'type': 'video', 'url': 'https://www.youtube.com/watch?v=gLRIW64ZcOo', 'title': '5 Tips for Handling Complaints'},
         ],
         'pps_focus': [
+            {
+                'id': 'w4_focus_ops_expansion',
+                'title': 'Company Operations — New Market Expansion formula',
+                'text': (
+                    'Complete the New Market Expansion module in PPS Company Operations. '
+                    'Know the hub-and-spoke model, anchor-first gate, and who owns what '
+                    '(Adam = anchor; Tony = support for training/standards/condo motion — not a second city commander).'
+                ),
+            },
             {
                 'id': 'w4_lifecycle_review',
                 'title': 'Project lifecycle — Proposal review with client',

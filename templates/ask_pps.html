@@ -230,8 +230,13 @@
         if (btn) btn.disabled = false;
         return;
       }
-      const detail = (data.psc_candidates || 0) + ' PSC, ' + (data.feedback_candidates || 0) + ' feedback, ' + (data.audit_candidates || 0) + ' audit';
-      msg.textContent = 'Added ' + (data.created || 0) + ' (' + detail + ') — reloading…';
+      const detail = (data.psc_candidates || 0) + ' PSC, '
+        + (data.feedback_candidates || 0) + ' feedback, '
+        + (data.pm_candidates || 0) + ' PM, '
+        + (data.audit_candidates || 0) + ' audit';
+      msg.textContent = 'Created ' + (data.created || 0)
+        + ', updated ' + (data.updated || 0)
+        + ' (' + detail + ') — reloading…';
       msg.className = 'msg ok';
       setTimeout(function() { window.location.reload(); }, 600);
     } catch (e) {

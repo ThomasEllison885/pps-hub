@@ -585,112 +585,65 @@ PSC_MODULE_FIELD_ROLE = {
     'ops_market_expansion': 'consultant',
 }
 
+# Short field prompts — keep under ~120 chars. Roles: consultant = PSC/sales, pm = production.
+# PSC training may include production overlap; PM training stays production-first (little/no sales).
 KNOWLEDGE_AUDIT_GAPS = [
-    (
-        'audit:ppm',
-        'production_process',
-        'pm',
-        'How does the Pre-Project Meeting (PPM) actually run — who attends, the agenda, '
-        'and what must be confirmed before mobilization?',
-    ),
-    (
-        'audit:change_orders',
-        'production_process',
-        'pm',
-        'Walk through a change order from discovery to approval — who documents it, '
-        'who signs off, and how the client hears about it?',
-    ),
-    (
-        'audit:closeout',
-        'production_process',
-        'pm',
-        'What is the punch list and close-out handoff — who walks with whom, and what '
-        'must be documented before the job is done?',
-    ),
-    (
-        'audit:proposal_review',
-        'sales_process',
-        'consultant',
-        'Before a proposal goes to a client, what review steps happen — who reads it, '
-        'what gets checked, and what is never sent cold?',
-    ),
-    (
-        'audit:warranty',
-        'trades',
-        'consultant',
-        'How do we explain roofing (or trade) warranty language to clients — PPS labor vs '
-        'manufacturer, and what qualifies?',
-    ),
+    ('audit:ppm', 'production_process', 'pm',
+     'PPM: who attends, what gets confirmed, and when is it required?'),
+    ('audit:change_orders', 'production_process', 'pm',
+     'Change order: who documents, who approves, who tells the client?'),
+    ('audit:closeout', 'production_process', 'pm',
+     'Punch / close-out: who walks, what must be done before the job is done?'),
+    ('audit:proposal_review', 'sales_process', 'consultant',
+     'Before a proposal goes out — who reviews it, and what is never sent cold?'),
+    ('audit:warranty', 'trades', 'consultant',
+     'How do you explain warranty to a client (PPS labor vs manufacturer)?'),
+    ('audit:fixed_vs_tm', 'production_process', 'pm',
+     'When is fixed-price required vs T&M / hourly? What goes wrong with open-ended hourly?'),
+    ('audit:takeoff_save', 'production_process', 'any',
+     'What takeoff details must be saved so production can run the job if we win later?'),
+    ('audit:include_exclude', 'sales_process', 'consultant',
+     'What belongs in Included vs Excluded on a proposal (production uses this to sell the job)?'),
 ]
 
-# PSC curriculum feedback (Rachel Farler, 2026) — themes beyond [TO DOCUMENT] bullets
+# PSC curriculum themes (Rachel + ops). Short prompts for team capture.
 PSC_FEEDBACK_GAPS = [
-    (
-        'pscfb:partner_mentor',
-        'training_core_values',
-        'consultant',
-        'How is a mentor consultant chosen for partner-project onboarding, and what makes a good partner project for a new PSC?',
-    ),
-    (
-        'pscfb:partner_progressive',
-        'training_core_values',
-        'consultant',
-        'How does responsibility actually shift from observe → participate → lead on partner projects? Give a real example.',
-    ),
-    (
-        'pscfb:partner_debrief',
-        'training_core_values',
-        'consultant',
-        'What should a post-project debrief cover after a partner project milestone — and who runs it?',
-    ),
-    (
-        'pscfb:comm_standards',
-        'sales_process',
-        'consultant',
-        'What are the standard client communication touchpoints by project phase (site visit through close-out)?',
-    ),
-    (
-        'pscfb:difficult_convos',
-        'sales_process',
-        'consultant',
-        'How should a PSC handle a schedule delay conversation with a property manager — what do you say first?',
-    ),
-    (
-        'pscfb:eval_checklist',
-        'sales_process',
-        'consultant',
-        'What do you always capture on a site visit before scoping (photos, measurements, unknowns, access, phasing)?',
-    ),
-    (
-        'pscfb:ownership_guide',
-        'company_operations',
-        'consultant',
-        'For pricing support, callbacks, change orders, and concealed conditions — who owns the decision vs. who gets looped in?',
-    ),
-    (
-        'pscfb:pricing_inputs',
-        'sales_process',
-        'consultant',
-        'What information must a PSC gather so a PM can build an accurate production price (not just hub defaults)?',
-    ),
-    (
-        'pscfb:tp_reference',
-        'production_process',
-        'pm',
-        'Who are our go-to Trade Partners by trade, and how do you decide which partner to use on a job?',
-    ),
-    (
-        'pscfb:callback_intake',
-        'production_process',
-        'pm',
-        'Walk through callback/warranty intake — who logs it, who talks to the client, and how it gets resolved.',
-    ),
-    (
-        'pscfb:graduation_ready',
-        'training_core_values',
-        'consultant',
-        'What tells you a new PSC is ready for independent client-facing work — concrete signs, not just weeks completed?',
-    ),
+    ('pscfb:partner_mentor', 'training_core_values', 'consultant',
+     'Who picks a mentor for a new PSC, and what makes a good partner project?'),
+    ('pscfb:partner_progressive', 'training_core_values', 'consultant',
+     'How does a new PSC move from observe → participate → lead? Real example.'),
+    ('pscfb:partner_debrief', 'training_core_values', 'consultant',
+     'After a partner project, what does the debrief cover — and who runs it?'),
+    ('pscfb:comm_standards', 'sales_process', 'consultant',
+     'Client touchpoints by phase — list them from site visit through close-out.'),
+    ('pscfb:difficult_convos', 'sales_process', 'consultant',
+     'Schedule delay with a property manager — what do you say first?'),
+    ('pscfb:eval_checklist', 'sales_process', 'consultant',
+     'Site visit before scoping: what do you always capture?'),
+    ('pscfb:ownership_guide', 'company_operations', 'consultant',
+     'Pricing, callbacks, change orders, concealed conditions — who owns each?'),
+    ('pscfb:pricing_inputs', 'sales_process', 'consultant',
+     'What must a PSC gather so a PM can price the job accurately?'),
+    ('pscfb:tp_reference', 'production_process', 'pm',
+     'Go-to Trade Partners by trade — who, and how do you choose?'),
+    ('pscfb:callback_intake', 'production_process', 'pm',
+     'Callback intake: who logs it, who calls the client, how does it close?'),
+    ('pscfb:graduation_ready', 'training_core_values', 'consultant',
+     'Signs a new PSC is ready for solo client work (not just weeks completed).'),
+]
+
+# PM training gaps (production only — no sales process).
+PM_TRAINING_GAPS = [
+    ('pmfb:contacts', 'production_process', 'pm',
+     'Where do you find preferred Trade Partner and vendor contacts?'),
+    ('pmfb:route', 'production_process', 'pm',
+     'How do you build a weekly route (site vs desk time)?'),
+    ('pmfb:tp_scripts', 'production_process', 'pm',
+     'Trade Partner call/text examples: award, mid-job, punch.'),
+    ('pmfb:expectations', 'production_process', 'pm',
+     'PM non-negotiables: response time, photos, board hygiene, escalation.'),
+    ('pmfb:time_budget', 'production_process', 'pm',
+     'Sample week: how do you split site time vs estimating/email/Updates?'),
 ]
 
 
@@ -849,6 +802,23 @@ def _topic_documented(cur, topic):
     return cur.fetchone() is not None
 
 
+def _prompt_question_from_topic(topic):
+    """Turn a [TO DOCUMENT] topic into a short dashboard prompt."""
+    t = (topic or '').strip()
+    t = re.sub(r'\s+', ' ', t)
+    if not t:
+        return t
+    if t.endswith('?'):
+        return t
+    # Already a full prompt without ?
+    if t[:1].isupper() and any(t.lower().startswith(w) for w in (
+        'how ', 'what ', 'when ', 'who ', 'where ', 'why ', 'list ', 'walk ',
+        'signs ', 'give ', 'name ',
+    )):
+        return t if t.endswith('?') else t + '?'
+    return f'{t}?'
+
+
 def discover_psc_training_gaps(get_db_fn):
     """PSC Company Operations [TO DOCUMENT] bullets not yet in the knowledge base."""
     _, _, _, _, company_operations = get_training_curriculum()
@@ -867,15 +837,15 @@ def discover_psc_training_gaps(get_db_fn):
                 if '[TO DOCUMENT]' not in sop:
                     continue
                 topic = re.sub(r'^\[TO DOCUMENT\]\s*', '', sop).strip()
+                # Drop parenthetical clutter from training SOPs
+                topic = re.sub(r'\s*\([^)]*templates? in progress\)\s*', '', topic, flags=re.I)
+                topic = topic.strip(' .')
                 if _topic_documented(cur, topic):
                     continue
                 ref = f'psc:{module_id}:{i}'
                 gaps.append({
                     'source_ref': ref,
-                    'question': (
-                        f'PSC Training gap — {module_title}: {topic}? '
-                        f'(Document for onboarding; field reality may differ from leadership intent.)'
-                    ),
+                    'question': _prompt_question_from_topic(topic),
                     'category': category,
                     'field_role': field_role,
                     'module_title': module_title,
@@ -947,7 +917,7 @@ def discover_psc_feedback_gaps(get_db_fn):
                 continue
             gaps.append({
                 'source_ref': ref,
-                'question': f'PSC feedback gap: {question}',
+                'question': question.strip(),
                 'category': category,
                 'field_role': field_role,
                 'topic': question,
@@ -973,13 +943,39 @@ def discover_knowledge_audit_gaps(get_db_fn):
                 continue
             gaps.append({
                 'source_ref': ref,
-                'question': f'Knowledge gap: {question}',
+                'question': question.strip(),
                 'category': category,
                 'field_role': field_role,
             })
         cur.close()
     except Exception as e:
         print(f'Ask PPS discover audit gaps error: {e}')
+    finally:
+        conn.close()
+    return gaps
+
+
+def discover_pm_training_gaps(get_db_fn):
+    """PM training capture prompts (production-only)."""
+    conn = get_db_fn()
+    if not conn:
+        return []
+    gaps = []
+    try:
+        cur = conn.cursor()
+        for ref, category, field_role, question in PM_TRAINING_GAPS:
+            if _topic_documented(cur, question):
+                continue
+            gaps.append({
+                'source_ref': ref,
+                'question': question.strip(),
+                'category': category,
+                'field_role': field_role,
+                'topic': question,
+            })
+        cur.close()
+    except Exception as e:
+        print(f'Ask PPS discover PM training gaps error: {e}')
     finally:
         conn.close()
     return gaps
@@ -1007,41 +1003,77 @@ def _gap_source_type(source_ref):
         return 'psc_gap'
     if source_ref.startswith('pscfb:'):
         return 'psc_feedback'
+    if source_ref.startswith('pmfb:'):
+        return 'pm_training'
     if source_ref.startswith('audit:'):
         return 'audit_gap'
     return 'curator'
 
 
+def _priority_for_ref(source_ref):
+    if not source_ref:
+        return 5
+    if source_ref.startswith('psc:'):
+        return 12
+    if source_ref.startswith('pscfb:') or source_ref.startswith('pmfb:'):
+        return 11
+    if source_ref.startswith('audit:'):
+        return 10
+    return 9
+
+
 def sync_identified_gap_prompts(get_db_fn, created_by, assign_to=None, bank_mode=True):
-    """Create prompts for all identified gaps. bank_mode=True → field prompts by role (assign PSCs later)."""
+    """Create/refresh prompts for identified gaps. bank_mode=True → field prompts by role.
+
+    Re-wording: if an open prompt already exists for source_ref, updates question text
+    so shorter prompts ship without wiping the bank.
+    """
     conn = get_db_fn()
     if not conn:
         return {'ok': False, 'error': 'Database unavailable'}
     psc_gaps = discover_psc_training_gaps(get_db_fn)
     feedback_gaps = discover_psc_feedback_gaps(get_db_fn)
     audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
-    all_gaps = psc_gaps + feedback_gaps + audit_gaps
+    pm_gaps = discover_pm_training_gaps(get_db_fn)
+    all_gaps = psc_gaps + feedback_gaps + audit_gaps + pm_gaps
     created = 0
+    updated = 0
     skipped = 0
     perspective = 'field' if bank_mode and not assign_to else 'policy'
     try:
         cur = conn.cursor()
         for gap in all_gaps:
             ref = gap['source_ref']
-            if _prompt_exists_by_ref(cur, ref):
+            q = (gap.get('question') or '').strip()
+            if not q:
                 skipped += 1
                 continue
-            priority = 12 if ref.startswith('psc:') else (11 if ref.startswith('pscfb:') else 9)
+            if _prompt_exists_by_ref(cur, ref):
+                cur.execute(
+                    '''UPDATE knowledge_prompts
+                       SET question = %s,
+                           category = %s,
+                           target_role = %s,
+                           updated_at = NOW()
+                       WHERE source_ref = %s AND status = 'open'
+                         AND question IS DISTINCT FROM %s''',
+                    (q, gap['category'], gap.get('field_role', 'any'), ref, q),
+                )
+                if cur.rowcount:
+                    updated += 1
+                else:
+                    skipped += 1
+                continue
             _create_prompt(
                 cur,
-                gap['question'],
+                q,
                 gap['category'],
                 gap.get('field_role', 'any'),
                 perspective,
                 _gap_source_type(ref),
                 created_by,
                 target_user_key=assign_to,
-                priority=priority,
+                priority=_priority_for_ref(ref),
                 source_ref=ref,
             )
             created += 1
@@ -1056,10 +1088,12 @@ def sync_identified_gap_prompts(get_db_fn, created_by, assign_to=None, bank_mode
     return {
         'ok': True,
         'created': created,
+        'updated': updated,
         'skipped': skipped,
         'psc_candidates': len(psc_gaps),
         'feedback_candidates': len(feedback_gaps),
         'audit_candidates': len(audit_gaps),
+        'pm_candidates': len(pm_gaps),
     }
 
 
@@ -1153,21 +1187,19 @@ def sync_thin_category_prompts(get_db_fn, created_by):
     created = 0
     prompts_by_category = {
         'production_process': (
-            'Walk us through a typical mobilization — who does what from PPM through '
-            'first day on site?',
+            'Typical mobilization: who does what from PPM through first day on site?',
             'pm',
         ),
         'sales_process': (
-            'From first client contact to awarded proposal — what are the real steps '
-            'you follow today?',
+            'First contact to awarded proposal — what steps do you actually take?',
             'consultant',
         ),
         'company_operations': (
-            'What is one operations habit or handoff that keeps jobs from slipping?',
+            'One habit or handoff that keeps jobs from slipping?',
             'any',
         ),
         'trades': (
-            'For your main trade focus — what do new PMs or consultants get wrong most often?',
+            'Your main trade: what do new people get wrong most often?',
             'any',
         ),
     }
@@ -1872,11 +1904,13 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         psc_gaps = []
         feedback_gaps = []
         audit_gaps = []
+        pm_gaps = []
         psc_gap_modules = []
         try:
             psc_gaps = discover_psc_training_gaps(get_db_fn)
             feedback_gaps = discover_psc_feedback_gaps(get_db_fn)
             audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
+            pm_gaps = discover_pm_training_gaps(get_db_fn)
             if curator:
                 psc_gap_modules = group_psc_gaps_for_display(psc_gaps)
         except Exception as e:
@@ -1908,10 +1942,14 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             psc_gap_preview=len(psc_gaps),
             feedback_gap_preview=len(feedback_gaps),
             audit_gap_preview=len(audit_gaps),
-            identified_gap_total=len(psc_gaps) + len(feedback_gaps) + len(audit_gaps),
+            pm_gap_preview=len(pm_gaps),
+            identified_gap_total=(
+                len(psc_gaps) + len(feedback_gaps) + len(audit_gaps) + len(pm_gaps)
+            ),
             psc_gap_modules=psc_gap_modules,
             feedback_gaps=feedback_gaps,
             audit_gaps=audit_gaps,
+            pm_gaps=pm_gaps,
             consultant_assignees=get_consultant_assignees(users),
             open_prompt_count=open_prompt_count,
         )
