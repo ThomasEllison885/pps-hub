@@ -7,9 +7,12 @@
 {% include '_pwa_head.html' %}
 <title>PPS Hub · Ask PPS</title>
 <style>
-  .main { max-width: 720px; margin: 0 auto; padding: 24px 18px 60px; }
+  .main { max-width: 720px; margin: 0 auto; padding: 24px 18px 80px; }
   .page-title { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark-blue); margin-bottom: 4px; }
-  .page-sub { font-size: 14px; color: #888; margin-bottom: 20px; line-height: 1.5; }
+  .page-sub { font-size: 14px; color: #888; margin-bottom: 16px; line-height: 1.5; }
+  .top-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .top-actions .ask-btn { text-decoration: none; display: inline-block; }
+  .ask-btn.secondary { background: #eee; color: #333; }
   .ask-card { background: white; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 18px; margin-bottom: 16px; }
   .ask-row { display: flex; gap: 8px; }
   .ask-input { flex: 1; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 16px; font-family: 'DM Sans', sans-serif; }
@@ -26,38 +29,22 @@
   .hist-q { font-size: 14px; font-weight: 600; color: var(--dark-blue); }
   .hist-a { font-size: 13px; color: #666; margin-top: 6px; line-height: 1.5; }
   .hist-meta { font-size: 11px; color: #aaa; margin-top: 6px; }
-  .link-btn { background: none; border: none; color: var(--blue); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; margin-top: 12px; }
-  .suggest-panel { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
-  .suggest-panel.open { display: block; }
-  .suggest-panel label { display: block; font-size: 12px; font-weight: 600; color: var(--dark-blue); margin: 10px 0 4px; }
-  .suggest-panel input, .suggest-panel select, .suggest-panel textarea {
-    width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 8px;
-    font-size: 14px; font-family: 'DM Sans', sans-serif;
-  }
-  .suggest-panel textarea { min-height: 100px; resize: vertical; }
   .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
   .msg.err { color: #c00; }
   .msg.ok { color: #2e7d32; }
   .prompt-card { border-left: 4px solid var(--blue); }
-  .prompt-tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #666; background: var(--light-bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; margin-bottom: 8px; }
   .prompt-q { font-size: 16px; font-weight: 600; color: var(--dark-blue); line-height: 1.45; margin-bottom: 12px; }
   .prompt-answer { width: 100%; min-height: 110px; padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; resize: vertical; margin-bottom: 10px; }
-  .lookup-head { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 10px; }
-  .gap-browse { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 20px; }
-  .gap-browse > p { font-size: 13px; color: #666; line-height: 1.5; margin: 0 0 14px; }
-  .gap-module { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; }
-  .gap-module summary { cursor: pointer; padding: 12px 14px; font-size: 14px; font-weight: 600; color: var(--dark-blue); background: var(--light-bg); list-style: none; }
-  .gap-module summary::-webkit-details-marker { display: none; }
-  .gap-module ul { margin: 0; padding: 10px 14px 12px 32px; font-size: 14px; color: var(--gray); line-height: 1.55; }
-  .gap-module li { margin-bottom: 6px; }
-  .gap-module .hint { font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
-  .gap-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
-  .gap-actions a { font-size: 13px; font-weight: 600; color: var(--blue); text-decoration: none; }
   .prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .btn-skip { background: #eee; color: #555; }
-  .prompt-assign { margin-top: 10px; padding: 10px; background: var(--light-bg); border-radius: 8px; font-size: 13px; }
-  .prompt-assign select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; margin-right: 8px; }
-  .prompt-readonly { font-size: 13px; color: #888; margin: 0; }
+  .lookup-head { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 10px; }
+  .recommend-card { border-left: 4px solid var(--gold, #B8922A); scroll-margin-top: 24px; }
+  .recommend-card label { display: block; font-size: 13px; font-weight: 600; color: var(--dark-blue); margin-bottom: 8px; }
+  .recommend-card textarea {
+    width: 100%; min-height: 88px; padding: 12px 14px; border: 1.5px solid var(--border);
+    border-radius: 8px; font-size: 15px; font-family: 'DM Sans', sans-serif; resize: vertical; margin-bottom: 10px;
+  }
+  #answer-queue { scroll-margin-top: 20px; }
 </style>
 </head>
 <body>
@@ -73,101 +60,37 @@
 </header>
 
 <div class="main">
-  <h1 class="page-title">Ask PPS</h1>
-  <p class="page-sub">Help us document how PPS really operates. Answer a prompt below — field answers from the team matter most. Lookup is secondary while the knowledge base grows.</p>
+  <h1 class="page-title">Help document PPS</h1>
+  <p class="page-sub">
+    Answer a few short questions about how we actually work. Answers are saved under your name.
+    Skip anything you don’t know.
+  </p>
 
-  {% if is_curator and (psc_gap_modules or feedback_gaps or audit_gaps) %}
-  <div class="section-head">Identified gaps ({{ identified_gap_total }})</div>
-  <div class="gap-browse">
-    <p>
-      <strong>{{ psc_gap_preview }}</strong> PSC Training [TO DOCUMENT] blanks,
-      <strong>{{ feedback_gap_preview }}</strong> Rachel Farler feedback themes, and
-      <strong>{{ audit_gap_preview }}</strong> cross-cutting questions are missing from the knowledge base.
-      {% if open_prompt_count %}<strong>{{ open_prompt_count }}</strong> open prompts in the bank.{% endif %}
-      Expand each section below — then push to the field bank or answer yourself.
-    </p>
-    {% for mod in psc_gap_modules %}
-    <details class="gap-module" open>
-      <summary>{{ mod.module_title }} <span class="hint">· {{ mod.topics|length }} gaps · suggest {{ mod.field_role or 'any' }}</span></summary>
-      <ul>
-        {% for item in mod.topics %}
-        <li>{{ item.topic }}</li>
-        {% endfor %}
-      </ul>
-    </details>
+  <div class="top-actions">
+    <button type="button" class="ask-btn" id="jumpToQuestions">Answer questions ↓</button>
+    <button type="button" class="ask-btn secondary" id="jumpToRecommend">Suggest a question ↓</button>
+  </div>
+
+  <div id="answer-queue">
+    {% if prompts %}
+    <div class="section-head">Your questions{% if prompts|length > 1 %} ({{ prompts|length }}){% endif %}</div>
+    {% for p in prompts %}
+    <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}">
+      <div class="prompt-q">{{ p.question }}</div>
+      <textarea class="prompt-answer" placeholder="How does this actually work on your jobs?"></textarea>
+      <div class="prompt-actions">
+        <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>
+        <button type="button" class="ask-btn btn-skip prompt-skip-btn">Skip for now</button>
+      </div>
+      <div class="msg prompt-msg"></div>
+    </div>
     {% endfor %}
-    {% if feedback_gaps %}
-    <details class="gap-module">
-      <summary>PSC feedback themes <span class="hint">· {{ feedback_gaps|length }} gaps</span></summary>
-      <ul>
-        {% for g in feedback_gaps %}
-        <li>{{ g.topic }}</li>
-        {% endfor %}
-      </ul>
-    </details>
-    {% endif %}
-    {% if audit_gaps %}
-    <details class="gap-module">
-      <summary>Cross-cutting knowledge <span class="hint">· {{ audit_gaps|length }} gaps</span></summary>
-      <ul>
-        {% for g in audit_gaps %}
-        <li>{{ g.question|replace('Knowledge gap: ', '') }}</li>
-        {% endfor %}
-      </ul>
-    </details>
-    {% endif %}
-    <div class="gap-actions">
-      <button type="button" class="ask-btn" id="bankGapsBtn">Push gaps → field bank</button>
-      <button type="button" class="ask-btn btn-skip" id="reloadGapsBtn">Load gaps → my queue</button>
-      <a href="/admin/ask-pps">Assign or manage prompts →</a>
-    </div>
-    <div class="msg" id="reloadGapsMsg"></div>
-  </div>
-  {% endif %}
-
-  {% if prompts %}
-  <div class="section-head">Your answer queue{% if prompts|length > 1 %} ({{ prompts|length }} waiting){% endif %}</div>
-  {% for p in prompts %}
-  <div class="ask-card prompt-card" data-prompt-id="{{ p.id }}" data-can-answer="{{ '1' if p.can_answer else '0' }}">
-    <span class="prompt-tag">{{ 'Field team' if p.perspective == 'field' else 'Leadership intent' }}{% if p.field_role_hint %} · suggest {{ p.field_role_hint }}{% endif %}{% if p.target_user_display %} · {{ p.target_user_display }}{% endif %}</span>
-    <div class="prompt-q">{{ p.question }}</div>
-    {% if p.can_answer %}
-    <textarea class="prompt-answer" placeholder="How does this actually work on your jobs?"></textarea>
-    <div class="prompt-actions">
-      <button type="button" class="ask-btn prompt-submit-btn">Submit answer</button>
-      <button type="button" class="ask-btn btn-skip prompt-skip-btn">Skip for now</button>
-    </div>
-    {% elif is_curator %}
-    <p class="prompt-readonly">Not in your queue — assign to a consultant or PM below.</p>
-    <div class="prompt-assign">
-      <select class="prompt-assign-user">
-        <option value="">— by role —</option>
-        {% for u in consultant_assignees %}
-        <option value="{{ u.key }}">{{ u.display }}{% if u.title %} ({{ u.title }}){% endif %}</option>
-        {% endfor %}
-      </select>
-      <select class="prompt-assign-role">
-        <option value="consultant">Consultants</option>
-        <option value="pm">PMs</option>
-        <option value="any">Anyone</option>
-      </select>
-      <button type="button" class="ask-btn prompt-assign-btn">Assign</button>
-    </div>
     {% else %}
-    <p class="prompt-readonly">Waiting for the right person to answer.</p>
+    <div class="ask-card">
+      <p style="font-size:14px;color:#888;margin:0;">No questions waiting for you right now. You can still look something up or suggest a question below.</p>
+    </div>
     {% endif %}
-    <div class="msg prompt-msg"></div>
   </div>
-  {% endfor %}
-  {% elif is_curator %}
-  <div class="ask-card">
-    <p style="font-size:14px;color:#888;margin:0;">Your answer queue is empty — you may have answered everything above, or topics are already documented. Use <strong>Refresh my answer queue</strong> if you expected more.</p>
-  </div>
-  {% else %}
-  <div class="ask-card">
-    <p style="font-size:14px;color:#888;margin:0;">No prompts waiting for you right now.</p>
-  </div>
-  {% endif %}
 
   <div class="lookup-head">Look something up</div>
   <div class="ask-card">
@@ -176,21 +99,6 @@
       <button type="button" class="ask-btn" id="askBtn">Ask</button>
     </div>
     <div class="msg" id="askMsg"></div>
-    <button type="button" class="link-btn" id="suggestToggle">Suggest knowledge →</button>
-    <div class="suggest-panel" id="suggestPanel">
-      <label>Category</label>
-      <select id="suggestCat">
-        {% for c in categories %}
-        <option value="{{ c }}">{{ c.replace('_', ' ').title() }}</option>
-        {% endfor %}
-      </select>
-      <label>Title</label>
-      <input type="text" id="suggestTitle" maxlength="200" placeholder="Short, specific title">
-      <label>Content</label>
-      <textarea id="suggestContent" maxlength="5000" placeholder="What should the team know?"></textarea>
-      <button type="button" class="ask-btn" id="suggestBtn" style="margin-top:12px;">Send for review</button>
-      <div class="msg" id="suggestMsg"></div>
-    </div>
   </div>
 
   <div class="answer-card" id="answerCard">
@@ -199,7 +107,7 @@
   </div>
 
   {% if recent %}
-  <div class="section-head">Your recent questions</div>
+  <div class="section-head">Your recent lookups</div>
   {% for r in recent %}
   <div class="hist-item">
     <div class="hist-q">{{ r.question }}</div>
@@ -208,65 +116,43 @@
   </div>
   {% endfor %}
   {% endif %}
+
+  <div class="section-head">Suggest a question</div>
+  <div class="ask-card recommend-card" id="recommend-question">
+    <label for="recommendInput">What should we ask the team next?</label>
+    <p style="font-size:13px;color:#888;margin:0 0 10px;line-height:1.45;">
+      Got a gap in how we document the work? Propose a short question others can answer.
+    </p>
+    <textarea id="recommendInput" maxlength="400" placeholder="Example: When do we require a deposit on material-heavy jobs?"></textarea>
+    <button type="button" class="ask-btn" id="recommendBtn">Submit question</button>
+    <div class="msg" id="recommendMsg"></div>
+  </div>
 </div>
 
 <script>
 (function() {
-  async function loadIdentifiedGaps(body, btn) {
-    const msg = document.getElementById('reloadGapsMsg');
-    if (btn) btn.disabled = true;
-    msg.textContent = 'Loading…';
-    msg.className = 'msg';
-    try {
-      const res = await fetch('/api/ask-pps/load-identified-gaps', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {}),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        msg.textContent = data.error || 'Could not load.';
-        msg.className = 'msg err';
-        if (btn) btn.disabled = false;
-        return;
-      }
-      const detail = (data.psc_candidates || 0) + ' PSC, '
-        + (data.feedback_candidates || 0) + ' feedback, '
-        + (data.pm_candidates || 0) + ' PM, '
-        + (data.audit_candidates || 0) + ' audit';
-      msg.textContent = 'Created ' + (data.created || 0)
-        + ', updated ' + (data.updated || 0)
-        + ' (' + detail + ') — reloading…';
-      msg.className = 'msg ok';
-      setTimeout(function() { window.location.reload(); }, 600);
-    } catch (e) {
-      msg.textContent = 'Network error.';
-      msg.className = 'msg err';
-      if (btn) btn.disabled = false;
-    }
+  function scrollToId(id) {
+    var el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  const bankBtn = document.getElementById('bankGapsBtn');
-  if (bankBtn) {
-    bankBtn.addEventListener('click', function() {
-      loadIdentifiedGaps({ bank_mode: true }, bankBtn);
-    });
-  }
-  const reloadBtn = document.getElementById('reloadGapsBtn');
-  if (reloadBtn) {
-    reloadBtn.addEventListener('click', function() {
-      loadIdentifiedGaps({ bank_mode: false, assign_to: '{{ session.user_key|e }}' }, reloadBtn);
-    });
-  }
+  document.getElementById('jumpToQuestions').addEventListener('click', function() {
+    scrollToId('answer-queue');
+  });
+  document.getElementById('jumpToRecommend').addEventListener('click', function() {
+    scrollToId('recommend-question');
+    var ta = document.getElementById('recommendInput');
+    if (ta) setTimeout(function() { ta.focus(); }, 350);
+  });
 
-  const qInput = document.getElementById('questionInput');
-  const askBtn = document.getElementById('askBtn');
-  const askMsg = document.getElementById('askMsg');
-  const answerCard = document.getElementById('answerCard');
-  const answerText = document.getElementById('answerText');
-  const sourcesLine = document.getElementById('sourcesLine');
+  var qInput = document.getElementById('questionInput');
+  var askBtn = document.getElementById('askBtn');
+  var askMsg = document.getElementById('askMsg');
+  var answerCard = document.getElementById('answerCard');
+  var answerText = document.getElementById('answerText');
+  var sourcesLine = document.getElementById('sourcesLine');
 
   async function doAsk() {
-    const question = (qInput.value || '').trim();
+    var question = (qInput.value || '').trim();
     if (question.length < 3) {
       askMsg.textContent = 'Enter a question (at least 3 characters).';
       askMsg.className = 'msg err';
@@ -276,14 +162,14 @@
     askMsg.textContent = 'Thinking…';
     askMsg.className = 'msg';
     try {
-      const res = await fetch('/api/ask-pps/ask', {
+      var res = await fetch('/api/ask-pps/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question: question }),
       });
-      const data = await res.json();
+      var data = await res.json();
       if (!res.ok || data.success === false) {
-        askMsg.textContent = data.error || 'Something went wrong. Please try again or contact Thomas.';
+        askMsg.textContent = data.error || 'Something went wrong.';
         askMsg.className = 'msg err';
         return;
       }
@@ -293,7 +179,7 @@
       answerText.textContent = data.answer || '';
       sourcesLine.textContent = data.sources && data.sources.length
         ? 'Sources: ' + data.sources.join(', ')
-        : (data.answered ? '' : 'Gap logged — a curator will add this to the knowledge base.');
+        : (data.answered ? '' : 'Not documented yet — we logged the gap.');
     } catch (e) {
       askMsg.textContent = 'Network error. Try again.';
       askMsg.className = 'msg err';
@@ -309,64 +195,39 @@
 
   document.querySelectorAll('.prompt-skip-btn').forEach(function(btn) {
     btn.addEventListener('click', async function() {
-      const card = btn.closest('.prompt-card');
-      const msgEl = card.querySelector('.prompt-msg');
+      var card = btn.closest('.prompt-card');
+      var msgEl = card.querySelector('.prompt-msg');
       btn.disabled = true;
       msgEl.textContent = 'Skipping…';
       msgEl.className = 'msg';
       try {
-        const res = await fetch('/api/ask-pps/prompt-skip', {
+        var res = await fetch('/api/ask-pps/prompt-skip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt_id: parseInt(card.dataset.promptId, 10) }),
         });
-        const data = await res.json();
+        var data = await res.json();
         if (!res.ok || !data.success) {
           msgEl.textContent = data.error || 'Could not skip.';
           msgEl.className = 'msg err';
           btn.disabled = false;
           return;
         }
-        card.style.opacity = '0.5';
-        msgEl.textContent = 'Skipped — reload for next prompt.';
-        msgEl.className = 'msg ok';
-      } catch (e) {
-        msgEl.textContent = 'Network error.';
-        msgEl.className = 'msg err';
-        btn.disabled = false;
-      }
-    });
-  });
-
-  document.querySelectorAll('.prompt-assign-btn').forEach(function(btn) {
-    btn.addEventListener('click', async function() {
-      const card = btn.closest('.prompt-card');
-      const msgEl = card.querySelector('.prompt-msg');
-      const targetUser = card.querySelector('.prompt-assign-user')?.value || '';
-      const targetRole = card.querySelector('.prompt-assign-role')?.value || 'consultant';
-      btn.disabled = true;
-      msgEl.textContent = 'Assigning…';
-      msgEl.className = 'msg';
-      try {
-        const res = await fetch('/api/ask-pps/prompt-assign', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt_id: parseInt(card.dataset.promptId, 10),
-            target_user_key: targetUser || null,
-            target_role: targetRole,
-            perspective: 'field',
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.success) {
-          msgEl.textContent = data.error || 'Could not assign.';
-          msgEl.className = 'msg err';
+        if (data.next_prompt && data.next_prompt.question) {
+          card.dataset.promptId = data.next_prompt.id;
+          card.querySelector('.prompt-q').textContent = data.next_prompt.question;
+          var ta = card.querySelector('.prompt-answer');
+          if (ta) { ta.value = ''; ta.disabled = false; }
+          var sub = card.querySelector('.prompt-submit-btn');
+          if (sub) sub.disabled = false;
+          msgEl.textContent = 'Skipped. Next question loaded.';
+          msgEl.className = 'msg ok';
           btn.disabled = false;
-          return;
+        } else {
+          card.style.opacity = '0.55';
+          msgEl.textContent = 'Skipped. No more in your queue — reload for more.';
+          msgEl.className = 'msg ok';
         }
-        msgEl.textContent = 'Assigned — they will see it on their Ask PPS page.';
-        msgEl.className = 'msg ok';
       } catch (e) {
         msgEl.textContent = 'Network error.';
         msgEl.className = 'msg err';
@@ -377,9 +238,9 @@
 
   document.querySelectorAll('.prompt-submit-btn').forEach(function(btn) {
     btn.addEventListener('click', async function() {
-      const card = btn.closest('.prompt-card');
-      const answer = (card.querySelector('.prompt-answer')?.value || '').trim();
-      const msgEl = card.querySelector('.prompt-msg');
+      var card = btn.closest('.prompt-card');
+      var answer = (card.querySelector('.prompt-answer')?.value || '').trim();
+      var msgEl = card.querySelector('.prompt-msg');
       if (answer.length < 10) {
         msgEl.textContent = 'Please share at least a sentence or two.';
         msgEl.className = 'msg err';
@@ -389,24 +250,33 @@
       msgEl.textContent = 'Saving…';
       msgEl.className = 'msg';
       try {
-        const res = await fetch('/api/ask-pps/prompt-answer', {
+        var res = await fetch('/api/ask-pps/prompt-answer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt_id: parseInt(card.dataset.promptId, 10),
-            answer,
+            answer: answer,
           }),
         });
-        const data = await res.json();
+        var data = await res.json();
         if (!res.ok || !data.success) {
           msgEl.textContent = data.error || 'Could not save.';
           msgEl.className = 'msg err';
           btn.disabled = false;
           return;
         }
-        msgEl.textContent = data.message || 'Thanks — sent for review.';
+        msgEl.textContent = data.message || 'Thanks — saved under your name.';
         msgEl.className = 'msg ok';
-        card.querySelector('.prompt-answer').disabled = true;
+        if (data.next_prompt && data.next_prompt.question) {
+          card.dataset.promptId = data.next_prompt.id;
+          card.querySelector('.prompt-q').textContent = data.next_prompt.question;
+          var ta = card.querySelector('.prompt-answer');
+          if (ta) { ta.value = ''; ta.disabled = false; }
+          btn.disabled = false;
+          msgEl.textContent = 'Saved. Next question ready.';
+        } else {
+          card.querySelector('.prompt-answer').disabled = true;
+        }
       } catch (e) {
         msgEl.textContent = 'Network error. Try again.';
         msgEl.className = 'msg err';
@@ -415,31 +285,39 @@
     });
   });
 
-  document.getElementById('suggestToggle').addEventListener('click', function() {
-    document.getElementById('suggestPanel').classList.toggle('open');
-  });
-
-  document.getElementById('suggestBtn').addEventListener('click', async function() {
-    const msg = document.getElementById('suggestMsg');
-    const body = {
-      category: document.getElementById('suggestCat').value,
-      title: document.getElementById('suggestTitle').value.trim(),
-      content: document.getElementById('suggestContent').value.trim(),
-    };
-    const res = await fetch('/api/ask-pps/suggest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    if (data.success) {
-      msg.textContent = 'Sent for curator review.';
-      msg.className = 'msg ok';
-      document.getElementById('suggestTitle').value = '';
-      document.getElementById('suggestContent').value = '';
-    } else {
-      msg.textContent = data.error || 'Could not send.';
+  document.getElementById('recommendBtn').addEventListener('click', async function() {
+    var btn = this;
+    var msg = document.getElementById('recommendMsg');
+    var question = (document.getElementById('recommendInput').value || '').trim();
+    if (question.length < 8) {
+      msg.textContent = 'Write a short question (at least a few words).';
       msg.className = 'msg err';
+      return;
+    }
+    btn.disabled = true;
+    msg.textContent = 'Sending…';
+    msg.className = 'msg';
+    try {
+      var res = await fetch('/api/ask-pps/recommend-question', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: question }),
+      });
+      var data = await res.json();
+      if (!res.ok || !data.success) {
+        msg.textContent = data.error || 'Could not save.';
+        msg.className = 'msg err';
+        btn.disabled = false;
+        return;
+      }
+      msg.textContent = data.message || 'Thanks — added for the team.';
+      msg.className = 'msg ok';
+      document.getElementById('recommendInput').value = '';
+    } catch (e) {
+      msg.textContent = 'Network error.';
+      msg.className = 'msg err';
+    } finally {
+      btn.disabled = false;
     }
   });
 
@@ -448,5 +326,6 @@
   {% endif %}
 })();
 </script>
+{% include '_pwa_scripts.html' ignore missing %}
 </body>
 </html>

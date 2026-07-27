@@ -1896,63 +1896,82 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @app.route('/ask-pps')
     @require_login
     def ask_pps_page():
+        """Field-facing Ask PPS only (same experience for everyone, including curators)."""
         user_key = session['user_key']
         user_role = session.get('role', '')
         q = (request.args.get('q') or '').strip()
         recent = get_recent_questions(get_db_fn, user_key)
-        curator = is_curator(user_key)
-        psc_gaps = []
-        feedback_gaps = []
-        audit_gaps = []
-        pm_gaps = []
-        psc_gap_modules = []
-        try:
-            psc_gaps = discover_psc_training_gaps(get_db_fn)
-            feedback_gaps = discover_psc_feedback_gaps(get_db_fn)
-            audit_gaps = discover_knowledge_audit_gaps(get_db_fn)
-            pm_gaps = discover_pm_training_gaps(get_db_fn)
-            if curator:
-                psc_gap_modules = group_psc_gaps_for_display(psc_gaps)
-        except Exception as e:
-            print(f'Ask PPS page gap discovery error: {e}')
+        # Same queue rules as dashboard — no curator “see everything / assign” UI.
         prompts = get_prompts_for_user(
             get_db_fn, users, user_key, user_role,
-            include_all_for_curator=curator,
+            include_all_for_curator=False,
         )
-        open_prompt_count = 0
-        try:
-            conn_cnt = get_db_fn()
-            if conn_cnt:
-                cur_cnt = conn_cnt.cursor()
-                cur_cnt.execute("SELECT COUNT(*) FROM knowledge_prompts WHERE status = 'open'")
-                open_prompt_count = cur_cnt.fetchone()[0]
-                cur_cnt.close()
-                conn_cnt.close()
-        except Exception:
-            pass
+        # Only show prompts this user can answer
+        prompts = [p for p in prompts if p.get('can_answer')]
         return render_template(
             'ask_pps.html',
             initial_question=q,
             recent=recent,
             categories=CATEGORIES,
             prompts=prompts,
-            prompt_target_roles=PROMPT_TARGET_ROLES,
-            prompt_perspectives=PROMPT_PERSPECTIVES,
-            is_curator=curator,
-            psc_gap_preview=len(psc_gaps),
-            feedback_gap_preview=len(feedback_gaps),
-            audit_gap_preview=len(audit_gaps),
-            pm_gap_preview=len(pm_gaps),
-            identified_gap_total=(
-                len(psc_gaps) + len(feedback_gaps) + len(audit_gaps) + len(pm_gaps)
-            ),
-            psc_gap_modules=psc_gap_modules,
-            feedback_gaps=feedback_gaps,
-            audit_gaps=audit_gaps,
-            pm_gaps=pm_gaps,
-            consultant_assignees=get_consultant_assignees(users),
-            open_prompt_count=open_prompt_count,
         )
+
+    @app.route('/api/ask-pps/recommend-question', methods=['POST'])
+    @require_login
+    def api_ask_pps_recommend_question():
+        """Anyone can suggest a short question for the team capture bank."""
+        user_key = session['user_key']
+        data = request.get_json(silent=True) or {}
+        question = (data.get('question') or '').strip()
+        if len(question) < 8:
+            return jsonify({'success': False, 'error': 'Write a short question (a few words).'}), 400
+        if len(question) > 400:
+            return jsonify({'success': False, 'error': 'Keep it under 400 characters.'}), 400
+        if not question.endswith('?'):
+            question = question.rstrip('. ') + '?'
+        display = _display(users, user_key)
+        conn = get_db_fn()
+        if not conn:
+            return jsonify({'success': False, 'error': 'Database unavailable.'}), 500
+        try:
+            cur = conn.cursor()
+            # Open prompt for the bank (anyone can answer) + pending note for review trail
+            _create_prompt(
+                cur,
+                question,
+                'general',
+                'any',
+                'field',
+                'user_recommend',
+                user_key,
+                priority=8,
+                source_ref=f'user:{user_key}:{int(time.time())}',
+            )
+            _insert_entry(
+                cur,
+                'general',
+                f'Recommended question — {display}',
+                (
+                    f'Suggested by: {display} ({user_key})\n'
+                    f'Question: {question}\n\n'
+                    'Added to the open prompt bank for the team to answer.'
+                ),
+                'team_contribution',
+                author_key=user_key,
+                status='pending',
+            )
+            conn.commit()
+            cur.close()
+        except Exception as e:
+            conn.rollback()
+            print(f'Ask PPS recommend question error: {e}')
+            return jsonify({'success': False, 'error': 'Could not save question.'}), 500
+        finally:
+            conn.close()
+        return jsonify({
+            'success': True,
+            'message': 'Thanks — added for the team to answer.',
+        })
 
     @app.route('/api/ask-pps/ask', methods=['POST'])
     @require_login
@@ -2168,8 +2187,14 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
 
     @app.route('/admin/ask-pps')
     @require_login
-    @require_ask_pps_curator
     def admin_ask_pps():
+        """Admin curation UI parked — redirect to field Ask PPS (restore later if needed)."""
+        return redirect(url_for('ask_pps_page'))
+
+    @app.route('/admin/ask-pps/_legacy')
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_legacy():
         data = get_admin_data(get_db_fn, users)
         assignable_users = sorted(
             [

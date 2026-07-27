@@ -182,9 +182,7 @@
   <div class="pps-header-right">
     <span class="pps-header-user">{{ user.display }}</span>
     {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
-    {% if is_ask_pps_curator %}
-    <a href="/admin/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_open_gaps > 0 %}<span class="pps-header-badge">{{ ask_pps_open_gaps }}</span>{% endif %}</a>
-    {% endif %}
+    <a href="/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_prompt_queue > 0 %}<span class="pps-header-badge">{{ ask_pps_prompt_queue }}</span>{% endif %}</a>
     {% if session.get('role') == 'admin' %}
     <a href="/admin/feedback" class="pps-btn-header">Feedback{% if unread_feedback > 0 %}<span class="pps-header-badge">{{ unread_feedback }}</span>{% endif %}</a>
     <a href="/admin" class="pps-btn-header primary">Admin</a>
