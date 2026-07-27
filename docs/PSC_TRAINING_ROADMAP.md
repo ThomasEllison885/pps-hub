@@ -18,6 +18,8 @@
 | **Callbacks / warranty** | New module: service recovery, documentation, communication role. |
 | **Continuous learning** | Week 12 graduation + post-grad coaching commitment. |
 | **Meta copy** | Program description emphasizes judgment, communication, partner projects. |
+| **New market expansion** | Company Ops module (Week 4): hub-and-spoke formula, gates, RACI (Adam anchor / Tony support / Thomas go-no-go). Aligns with leadership playbook. |
+| **Pure Way + Proposal Generator craft** | Core values Pure Way section; full `ops_proposal_generator` module (New Standard); Weeks 0–4 focus retargeted; sales proposal tool expanded. See `PSC_PROPOSAL_CRAFT_MODULE.md`. |
 
 ## Rachel's top three priorities — status
 
@@ -63,5 +65,6 @@
 | Production / callback / Trade Partner SOPs | Trey |
 | Hub tools, Ask PPS, training content | Thomas |
 | Monday.com workflows | Thomas + Tony |
+| New market expansion formula (training + culture) | Tony supports; Adam owns anchor sequencing; Thomas gates capital |
 
-*Last updated: July 2026*
+*Last updated: July 2026 — Proposal Generator craft + Pure Way through-line*

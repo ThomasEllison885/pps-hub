@@ -8,11 +8,13 @@ PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
     'subtitle': 'Property Solutions Consultant Training Program',
     'description': (
-        'A 12-week program (Weeks 0–12) built around judgment and communication — not just construction knowledge. '
-        'You will partner with an experienced consultant on real projects, learn how PPS evaluates scope and earns trust, '
-        'and use the Hub and Monday.com for consistency while developing the decision-making clients rely on. '
-        'Company operations modules run Weeks 0–3 before trade depth ramps up. '
-        'The 4 Disciplines of Execution runs Weeks 9–12 — the densest read. '
+        'A 12-week program (Weeks 0–12) built around judgment, client trust, and proposal craft — not just trade videos. '
+        'The Pure Way (Trust · Quality · Results) is the standard behind every decision: commercial multifamily quality, '
+        'honest scopes, and work that leads to the next award. '
+        'You will partner with an experienced consultant on real projects, learn to evaluate work on site, and use the '
+        'Proposal Generator as the system of record for how PPS writes and wins work. '
+        'Company operations and Proposal Generator craft run Weeks 0–4 alongside apartment trade depth. '
+        'The 4 Disciplines of Execution runs Weeks 9–12. '
         'Enrolled when you start — not tied to any specific past hire.'
     ),
     'duration_weeks': 12,
@@ -81,9 +83,10 @@ FOUR_DX_WEEKLY = [
 PSC_CORE_VALUES = {
     'title': 'Mission, Values & PPS Voice',
     'intro': (
-        'Start with the PSC role and mindset — then values and voice. This is training, not a document to memorize. '
+        'Start with the PSC role, The Pure Way, then values and voice. This is training, not a document to memorize. '
         'Work through each activity before your first client-facing assignment. The Proposal Generator applies PPS voice; '
-        'these exercises teach you how to evaluate projects, communicate with every stakeholder, and represent PPS on site.'
+        'these exercises teach you how to evaluate projects, communicate with every stakeholder, and represent PPS on site. '
+        'Trust · Quality · Results is a through-line for judgment — not a slogan to paste into every conversation.'
     ),
     'sections': [
         {
@@ -119,6 +122,47 @@ PSC_CORE_VALUES = {
                     'text': (
                         'Describe what exceptional ownership looks like on: a delayed mobilization, a resident complaint, '
                         'and a scope question you cannot answer on site. Your manager coaches tone and escalation — not scripts.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'cv_pure_way',
+            'title': 'The Pure Way — Trust · Quality · Results',
+            'content': (
+                'The Pure Way is how we decide, not a phrase we force into every sentence. '
+                'Tagline on formal proposals and footers only (Trust. Quality. Results.™). '
+                'Day to day: commercial multifamily / cap-ex standard — professional, durable, clean — not luxury residential finish. '
+                'TRUST — do what you said; honest include/exclude; no dates production has not confirmed; '
+                '48-hour notice; stop work, photo, written approval on extras. '
+                'QUALITY — right prep and systems for the trade; daily cleanup; punch before invoice. '
+                'RESULTS — jobs finish, get paid, and earn the next award (clear small scopes often open CapEx). '
+                'Brand line for credentials: Improving People. Improving Property.'
+            ),
+            'activities': [
+                {
+                    'id': 'cv_pure_way_map',
+                    'title': 'Map one job to Pure Way',
+                    'text': (
+                        'Pick a live or recent partner-project job. Write one bullet each: how we built trust with the client, '
+                        'what quality looked like on site (commercial standard), and what result we needed (close, invoice, next work). '
+                        'Review with your manager — challenge fluff.'
+                    ),
+                },
+                {
+                    'id': 'cv_pure_way_tradeoff',
+                    'title': 'Commercial quality vs luxury',
+                    'text': (
+                        'In one short paragraph, explain to a property manager what "high quality" means at PPS for exterior paint '
+                        'or roofing without promising custom-home millwork. Manager signs off that your bar is commercial and clear.'
+                    ),
+                },
+                {
+                    'id': 'cv_pure_way_breach',
+                    'title': 'When Pure Way is broken',
+                    'text': (
+                        'List three field behaviors that break trust, quality, or results (e.g. invoice before punch, vague excludes, '
+                        'promised start date with no PM). For each, write the Pure Way replacement behavior.'
                     ),
                 },
             ],
@@ -428,18 +472,43 @@ PSC_SALES_TRAINING = {
             'items': [
                 {
                     'id': 'sales_prop_tool_1',
-                    'title': 'Generate, then refine',
-                    'text': 'Use the Proposal Generator for PPS-standard language, then adjust for client context. Submit before/after edits via the Comparison Tool to improve our voice guide.',
+                    'title': 'Generator first — then judgment',
+                    'text': (
+                        'Complete Company Operations → Proposal Generator Craft. Use the generator for every live proposal '
+                        'unless your manager approves an exception. Craft lives in your form inputs; polish in Word.'
+                    ),
                 },
                 {
                     'id': 'sales_prop_tool_2',
                     'title': 'Scope to investment',
-                    'text': 'Help clients see scope as protecting their asset — not just a line-item cost. Use "investment" language and deferred-risk framing on condo work.',
+                    'text': (
+                        'Help clients see scope as protecting their asset — not just a line-item cost. '
+                        'Use investment language and deferred-risk framing on condo work; clinical operational framing on apartments.'
+                    ),
                 },
                 {
                     'id': 'sales_prop_tool_3',
                     'title': 'Walk the client through it',
-                    'text': 'Never email a proposal cold without context. Schedule a review call or meeting. Highlight phasing, warranties, and what happens at mobilization (PPM).',
+                    'text': (
+                        'Never email a proposal cold without context. Schedule a review call or meeting. '
+                        'Highlight issue → outcome, what is excluded, investment, and what happens at mobilization (PPM).'
+                    ),
+                },
+                {
+                    'id': 'sales_prop_tool_4',
+                    'title': 'Earn trust scopes → CapEx',
+                    'text': (
+                        'Identify one small, clear scope that builds trust with a target account (concrete, soffit, single deck, '
+                        'gutter repair). Document how you will use it to open larger CapEx — without over-promising the big job early.'
+                    ),
+                },
+                {
+                    'id': 'sales_prop_tool_5',
+                    'title': 'Comparison feeds the company',
+                    'text': (
+                        'After your first real client proposal edit, run Proposal Comparison. '
+                        'One submitted improvement is required before you are cleared for independent proposals.'
+                    ),
                 },
             ],
         },
@@ -739,6 +808,143 @@ PSC_COMPANY_OPERATIONS = {
                     'text': (
                         'Find a recent proposal in hub history. Identify scope language, unit counts, '
                         'investment framing, and warranty terms. Be ready to explain how scope became a proposal.'
+                    ),
+                },
+            ],
+        },
+        {
+            'id': 'ops_proposal_generator',
+            'title': 'Proposal Generator Craft (New Standard)',
+            'assigned_week': 1,
+            'summary': (
+                'The Proposal Generator is the new standard for how PPS writes proposals — not freeform Word from a '
+                'copied old file. You still own judgment: what is failing, what is in/out of scope, pricing mode, '
+                'and field notes. The tool owns company voice, structure, terms, and consistency. '
+                'Goal: a document a PM can sell to a Trade Partner and a client can sign without rewriting the whole scope. '
+                'Pure Way through-line: honest scopes (trust), commercial quality language (quality), clear path to award (results).'
+            ),
+            'sop_placeholders': [
+                'Old Way = copy past Word; New Way = Hub form + Claude PPS voice + named Word styles + vault + proposal number',
+                'Consultant owns: client, property type, issue/outcome, trade details, scope notes, site observations, pricing mode/lines, warranties',
+                'Tool owns: PPS voice, active "PPS will…", short vs comprehensive structure, terms, Investment Summary, optional Site Observations rewrite',
+                'Short template = default most jobs; Comprehensive = typically $100k+ or relationship/board-heavy wins (Why PPS pillars)',
+                'Material responsibility: PPS supplies / owner supplies / unspecified — must match opening labor-materials language',
+                'Pricing modes: fixed total, multi-option (do not sum options), open/T&M (service call + rates, no fake fixed total)',
+                'Scope notes must feed include/exclude, unit rates (e.g. decking per sheet), T&M thresholds, access, 48-hour notice',
+                'Site observations: raw field notes only; tool rewrites — never invent findings; leave blank to omit section',
+                'Always review live with client — never cold-send; edit in Word then run Proposal Comparison',
+                'Production-ready test: can a PM who never walked the site sell this to a Trade Partner?',
+                'Number format {INITIALS}{YY}{XXX} from Hub sequence; U/U2 culture = regenerate or save revised vault copy thoughtfully',
+            ],
+            'manager_1on1': (
+                '75-minute session: open Proposal Generator together. Walk short vs comprehensive, goals on/off, '
+                'one fixed-price job and one multi-option or T&M example. Generate a practice proposal from real field notes '
+                '(do not send). Manager grades: judgment in the form fields, not pretty Word alone.'
+            ),
+            'items': [
+                {
+                    'id': 'ops_pg_old_vs_new',
+                    'title': 'Old Way vs New Way',
+                    'text': (
+                        'Write five bullets: what the old copy-paste Word process did well, and five the generator improves '
+                        '(voice, speed, vault, numbers, training). Note one craft skill you still must bring from the field. '
+                        'Review with your manager.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_form_map',
+                    'title': 'Map the seven form steps',
+                    'text': (
+                        'Open Proposal Generator (do not send). List each step 1–7 in your own words and who the input protects '
+                        '(client, production, you). Screenshot or note where property type and template type live.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_short_vs_full',
+                    'title': 'Short vs comprehensive',
+                    'text': (
+                        'With your manager, decide template for: (a) $4k concrete walk, (b) $45k hallway package, '
+                        '(c) $150k multi-building paint, (d) condo board CapEx. Write one sentence why for each. '
+                        'Remember: Comprehensive adds Why PPS (including Trust. Quality. Results.™ as a pillar) — not for every job.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_issue_outcome',
+                    'title': 'Issue → outcome (Goals)',
+                    'text': (
+                        'On a partner project, draft Existing Issue and Intended Outcome before opening the generator. '
+                        'Issue = what is failing / risk. Outcome = end state only (no "we will supply materials" in outcome). '
+                        'Manager edits once for commercial clarity.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_scope_notes',
+                    'title': 'Scope notes that production can use',
+                    'text': (
+                        'For one trade (paint, roof, deck, gutter, or concrete), write scope notes that include: '
+                        'include list, exclude list, material responsibility, any unit rate (e.g. sheathing $/sheet), '
+                        'access/dumpster/parking, notice to residents, and one option if relevant. '
+                        'Paste into generator practice and read the output for missing excludes.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_site_obs',
+                    'title': 'Site observations (raw → voice)',
+                    'text': (
+                        'From a real walk, write 5–8 raw field bullets (no marketing). Generate with Site Observations filled. '
+                        'Confirm the section opens in PPS voice, only states what you wrote, and omits inventing a visit date '
+                        'you did not record. Leave blank on a second generate and confirm the section disappears.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_pricing_modes',
+                    'title': 'Pricing modes: fixed / multi-option / open',
+                    'text': (
+                        'Create three mini pricing plans for the same property problem: fixed package, multi-option '
+                        '(e.g. one coat vs two / repair vs replace), and open/T&M diagnostic. '
+                        'Note when each builds trust and when each destroys margin. Manager confirms before you use open mode live.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_generate_practice',
+                    'title': 'Generate a full practice proposal',
+                    'text': (
+                        'Using partner-project notes, generate a real practice proposal (Short or Comprehensive as agreed). '
+                        'Download .docx. Highlight in yellow anything you would change before a client sees it. '
+                        'Do not email the client.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_comparison',
+                    'title': 'Proposal Comparison habit',
+                    'text': (
+                        'Edit your practice proposal in Word (scope clarity, exclude, product name, or condo tone). '
+                        'Run Proposal Comparison on the dashboard with original vs edited. '
+                        'Submit one concrete voice/scope improvement for the company guide.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_production_ready',
+                    'title': 'Production-ready handoff test',
+                    'text': (
+                        'Give your practice proposal to a PM or your manager. Ask: "Could you sell this to a Trade Partner '
+                        'without calling me?" Capture every gap (address, exclude, unit rate, access). Fix notes and regenerate once.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_live_review',
+                    'title': 'Never cold-send — review conversation',
+                    'text': (
+                        'Role-play walking a client through a generated proposal: goals, scope phases, investment, next step. '
+                        'Script three questions you ask them. Manager grades for clarity and no over-promise on schedule.'
+                    ),
+                },
+                {
+                    'id': 'ops_pg_pure_way_check',
+                    'title': 'Pure Way check on a draft',
+                    'text': (
+                        'On your practice proposal, mark one place each that builds trust, signals commercial quality, '
+                        'and drives a result (award/next step). If any pillar is missing, revise scope notes and regenerate.'
                     ),
                 },
             ],
@@ -1073,7 +1279,10 @@ PSC_ONBOARDING = {
             'id': 'w0_add_proposal',
             'type': 'tool',
             'title': 'Walk through the Proposal Generator',
-            'text': 'Generate a practice proposal (do not send to client). Study how PPS voice, scopes, and property type work together.',
+            'text': (
+                'Open Proposal Generator (do not send). Click through all steps. Note short vs comprehensive, property type, '
+                'and where scope notes and site observations go. Full craft module starts Week 1 — this is orientation only.'
+            ),
         },
         {
             'id': 'w0_add_ppm',
@@ -1113,8 +1322,11 @@ PSC_ONBOARDING = {
         },
         {
             'id': 'w0_focus_core',
-            'title': 'Complete Mission, Values & PPS Voice activities',
-            'text': 'Finish every training activity above — not just the mission statement — before Week 1.',
+            'title': 'Complete Mission, Values, Pure Way & PPS Voice',
+            'text': (
+                'Finish every training activity above — including The Pure Way (Trust · Quality · Results) — '
+                'before Week 1. Pure Way is judgment, not a slogan to paste into proposals.'
+            ),
         },
         {
             'id': 'w0_focus_vocab',
@@ -1123,8 +1335,8 @@ PSC_ONBOARDING = {
         },
     ],
     'manager_checkin': (
-        'Confirm Week 0 complete — especially Company Operations (Monday.com + lifecycle) — '
-        'before starting trade-specific training.'
+        'Confirm Week 0 complete — Pure Way map, Company Operations (Monday.com + lifecycle), partner projects started — '
+        'before trade-specific training. Proposal Generator Craft begins Week 1.'
     ),
 }
 
@@ -1160,18 +1372,18 @@ PSC_TRAINING_WEEKS = [
         'pps_focus': [
             {
                 'id': 'w1_focus_ops',
-                'title': 'Company Operations — How PPS estimates',
+                'title': 'Company Operations — Estimates + Proposal Generator Craft',
                 'text': (
-                    'Complete the How PPS Estimates module in PPS Company Operations before the trade focus below. '
-                    'Manager 1:1 and hub proposal review are required.'
+                    'Complete How PPS Estimates and start Proposal Generator Craft (Old vs New, form map, short vs full, '
+                    'issue → outcome). Manager 1:1 on the generator is required this week or Week 2.'
                 ),
             },
             {
                 'id': 'w1_focus_proposal',
-                'title': 'Estimating track — Step 1: Read a proposal',
+                'title': 'Proposal craft — painting scope notes',
                 'text': (
-                    'Find a recent painting proposal in hub history. Identify scope language, unit counts, '
-                    'investment framing, and warranty terms. Be ready to explain how scope becomes a proposal.'
+                    'For a real or shadow painting job, write generator-ready scope notes: include, exclude, coats, product, '
+                    'access, 48-hour notice. Generate a practice Short proposal (do not send). Yellow-highlight edits you still need.'
                 ),
             },
             {
@@ -1180,7 +1392,10 @@ PSC_TRAINING_WEEKS = [
                 'text': 'On site, photograph 3 examples of paint failure (peeling, chalking, lap marks). Note likely cause.',
             },
         ],
-        'manager_checkin': 'Can you explain prep vs. finish coat to a property manager in plain language?',
+        'manager_checkin': (
+            'Can you explain prep vs finish coat in plain language, and walk me through your practice painting proposal '
+            'like you would a property manager?'
+        ),
     },
     {
         'week': 2,
@@ -1217,24 +1432,27 @@ PSC_TRAINING_WEEKS = [
         'pps_focus': [
             {
                 'id': 'w2_focus_ops',
-                'title': 'Company Operations — Trade Partners',
+                'title': 'Company Operations — Trade Partners + proposal craft',
                 'text': (
-                    'Complete the Trade Partners module in PPS Company Operations this week — '
-                    'manager 1:1, Trade Partner Scope review, and production shadow required.'
+                    'Complete Trade Partners (1:1 + TPS review + shadow). Continue Proposal Generator Craft: '
+                    'scope notes that production can use, site observations raw→voice, pricing modes.'
                 ),
             },
             {
                 'id': 'w2_lifecycle_site',
-                'title': 'Project lifecycle — Site visit',
+                'title': 'Project lifecycle — Site visit → generator inputs',
                 'text': (
-                    'Shadow a site visit end-to-end. Note what the consultant captures (photos, measurements, failure modes, '
-                    'access, phasing) and how that feeds Monday.com and the Site Visit Report.'
+                    'Shadow a site visit end-to-end. Capture photos, measurements, failure modes, access, phasing. '
+                    'Same day: turn notes into generator fields (issue/outcome, scope notes, site observations) — do not send.'
                 ),
             },
             {
                 'id': 'w2_focus_tps',
                 'title': 'Understand Trade Partner Scope handoff',
-                'text': 'After shadowing a roof job, review the Trade Partner Scope document for that trade. Note crew-ready language.',
+                'text': (
+                    'After shadowing a roof or gutter job, review Trade Partner Scope for that trade. '
+                    'Compare to your generator proposal: would production have enough include/exclude and unit rates?'
+                ),
             },
         ],
         'manager_checkin': (
@@ -1274,24 +1492,27 @@ PSC_TRAINING_WEEKS = [
         'pps_focus': [
             {
                 'id': 'w3_focus_ops',
-                'title': 'Company Operations — Client comms & common mistakes',
+                'title': 'Company Operations — Client comms, mistakes, proposal craft',
                 'text': (
-                    'Complete Client Communication & Escalation and Common PSC Mistakes modules '
-                    'in PPS Company Operations. Manager 1:1 role-play required.'
+                    'Complete Client Communication & Escalation and Common PSC Mistakes. Finish Proposal Generator Craft '
+                    'items: full practice generate, Proposal Comparison, production-ready handoff test, Pure Way check.'
                 ),
             },
             {
                 'id': 'w3_lifecycle_proposal',
-                'title': 'Project lifecycle — Site visit to proposal',
+                'title': 'Project lifecycle — Site visit to generated proposal',
                 'text': (
-                    'With your manager, trace one real job from site visit notes to a generated proposal. '
-                    'Identify what transferred and what the consultant refined before the client saw it.'
+                    'Trace one real job from site notes through Proposal Generator to .docx. '
+                    'What transferred cleanly? What did you still edit? Would a PM sell this to a Trade Partner cold?'
                 ),
             },
             {
                 'id': 'w3_focus_objections',
                 'title': 'Practice objection handling',
-                'text': 'Role-play: "Your price is higher than the last vendor." Use the Sales Objections video and PPS Sales Training module.',
+                'text': (
+                    'Role-play: "Your price is higher than the last vendor." Defend scope quality and process '
+                    '(Pure Way: trust + quality + results) without inventing a discount. Use Sales Objections module.'
+                ),
             },
         ],
         'manager_checkin': (
@@ -1341,15 +1562,15 @@ PSC_TRAINING_WEEKS = [
             },
             {
                 'id': 'w4_lifecycle_review',
-                'title': 'Project lifecycle — Proposal review with client',
+                'title': 'Project lifecycle — Live proposal review',
                 'text': (
-                    'Shadow or role-play a proposal review with a property manager. Note how PPS walks through scope, '
-                    'phasing, investment language, and next steps — never a cold email send.'
+                    'Shadow or role-play walking a *generator* proposal with a property manager: issue → outcome, '
+                    'includes/excludes, investment, next step. Never cold-send. Complete sales_prop_tool_3 + ops_pg_live_review if not done.'
                 ),
             },
             {
                 'id': 'w4_focus_scope_edit',
-                'title': 'Estimating track — Step 2: Refine scope language',
+                'title': 'Proposal craft — refine & compare',
                 'text': (
                     'Generate a practice apartment proposal, then edit three scope lines to better fit the property '
                     '(phasing, resident disruption, concealed conditions). Manager reviews before you check this off.'
