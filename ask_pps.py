@@ -705,21 +705,97 @@ def _prompt_role_weight(user_key, user_role, prompt):
     return 1.0
 
 
+def _prompt_diversity_bucket(prompt):
+    """Group related prompts so we can interleave topics (avoid 4× Monday.com in a row)."""
+    ref = (prompt.get('source_ref') or '').strip()
+    if ref.startswith('psc:'):
+        parts = ref.split(':')
+        if len(parts) >= 2 and parts[1]:
+            return f'psc:{parts[1]}'  # training module id (ops_monday, ops_lifecycle, …)
+    if ref.startswith('pscfb:'):
+        parts = ref.split(':')
+        return f'pscfb:{parts[1]}' if len(parts) >= 2 else 'pscfb'
+    if ref.startswith('pmfb:'):
+        parts = ref.split(':')
+        return f'pmfb:{parts[1]}' if len(parts) >= 2 else 'pmfb'
+    if ref.startswith('audit:'):
+        parts = ref.split(':')
+        return f'audit:{parts[1]}' if len(parts) >= 2 else 'audit'
+    if ref.startswith('user:'):
+        return 'user_recommend'
+
+    q = (prompt.get('question') or '').lower()
+    # Keyword buckets for thin_category / legacy rows without source_ref structure
+    if 'monday' in q:
+        return 'kw:monday'
+    if 'trade partner' in q or 'subcontractor' in q or re.search(r'\bsubs?\b', q):
+        return 'kw:trade_partner'
+    if 'ppm' in q or 'pre-project' in q or 'mobiliz' in q:
+        return 'kw:ppm'
+    if 'callback' in q or 'warranty' in q:
+        return 'kw:callback'
+    if 'proposal' in q:
+        return 'kw:proposal'
+    if 'site visit' in q or 'takeoff' in q:
+        return 'kw:site_visit'
+    if 'change order' in q or 't&m' in q or 'hourly' in q:
+        return 'kw:change_order'
+    cat = (prompt.get('category') or 'general').strip() or 'general'
+    return f'cat:{cat}'
+
+
 def _weighted_shuffle_prompts(prompts, user_key, user_role):
-    """Order prompts so higher role-weight items are more often near the front,
-    but still randomized so two PSCs rarely share the exact same order."""
+    """Role-weighted random order, then interleave by topic bucket for variety.
+
+    Without interleaving, a pure shuffle still often serves several Monday.com /
+    same-module prompts in a row when that module is a large share of the bank.
+    """
     if not prompts:
         return []
-    scored = []
+
+    # 1) Score each prompt (role weight) and sort randomly within that weight
+    by_bucket = {}
     for p in prompts:
         w = _prompt_role_weight(user_key, user_role, p)
         if w <= 0:
             continue
-        # Power-of-random: higher weight → smaller key → earlier position
         key = random.random() ** (1.0 / w)
-        scored.append((key, p))
-    scored.sort(key=lambda x: x[0])
-    return [p for _, p in scored]
+        bucket = _prompt_diversity_bucket(p)
+        by_bucket.setdefault(bucket, []).append((key, p))
+
+    for bucket, items in by_bucket.items():
+        items.sort(key=lambda x: x[0])
+        by_bucket[bucket] = [p for _, p in items]
+
+    # 2) Round-robin across buckets so consecutive questions differ in topic
+    #    Re-shuffle bucket order each pass so no fixed "module A always first".
+    result = []
+    while by_bucket:
+        buckets = list(by_bucket.keys())
+        random.shuffle(buckets)
+        # Prefer buckets that still have items; take one per bucket per pass
+        emptied = []
+        for b in buckets:
+            if not by_bucket.get(b):
+                emptied.append(b)
+                continue
+            result.append(by_bucket[b].pop(0))
+            if not by_bucket[b]:
+                emptied.append(b)
+        for b in emptied:
+            by_bucket.pop(b, None)
+
+    # 3) Light anti-clump pass: if two adjacent share a bucket (only possible when
+    #    a bucket had the only remaining items), try a single swap with a later item.
+    for i in range(len(result) - 1):
+        if _prompt_diversity_bucket(result[i]) != _prompt_diversity_bucket(result[i + 1]):
+            continue
+        for j in range(i + 2, min(i + 8, len(result))):
+            if _prompt_diversity_bucket(result[j]) != _prompt_diversity_bucket(result[i]):
+                result[i + 1], result[j] = result[j], result[i + 1]
+                break
+
+    return result
 
 
 def _perspective_label(perspective):
