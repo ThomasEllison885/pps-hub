@@ -19,12 +19,32 @@ def allowed_redirect_bases():
     return {b for b in bases if b}
 
 
+# Paths that must never be used as post-login "next" destinations — they cause
+# Safari "too many redirects" loops (login → next=login → login → …).
+_AUTH_LOOP_PATHS = (
+    '/login',
+    '/logout',
+    '/change-password',
+    '/forgot-password',
+    '/reset-password',
+)
+
+
 def safe_next_url(url):
     if not url:
         return None
     url = url.strip()
+    # Relative path on this hub
+    if url.startswith('/') and not url.startswith('//'):
+        path = url.split('?', 1)[0]
+        if path == '/' or any(path == p or path.startswith(p + '/') for p in _AUTH_LOOP_PATHS):
+            return None
+        return url
     for base in allowed_redirect_bases():
         if url == base or url.startswith(base + '/'):
+            path = urllib.parse.urlparse(url).path or '/'
+            if path == '/' or any(path == p or path.startswith(p + '/') for p in _AUTH_LOOP_PATHS):
+                return None
             return url
     return None
 

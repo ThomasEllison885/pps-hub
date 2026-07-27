@@ -1138,7 +1138,12 @@ def require_login(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('user_key'):
-            return redirect(url_for('login', next=request.url))
+            # Prefer a clean relative next so mobile Safari doesn't loop on full
+            # auth URLs (login?next=login?next=…).
+            nxt = safe_next_url(request.full_path if request.query_string else request.path)
+            if nxt:
+                return redirect(url_for('login', next=nxt))
+            return redirect(url_for('login'))
         if session.get('must_change_password') and request.endpoint not in ('change_password', 'logout'):
             return redirect(url_for('change_password'))
         return f(*args, **kwargs)
@@ -2575,6 +2580,7 @@ def index():
 
 def _post_login_redirect():
     nxt = safe_next_url(session.pop('login_next', None) or request.args.get('next', ''))
+    # Never send a logged-in user back into the login screen (redirect loop).
     if nxt:
         return redirect(nxt)
     return redirect(url_for('dashboard'))
@@ -2770,14 +2776,17 @@ def _no_store_html(template_name, **ctx):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_key'):
+        # Already signed in — never bounce through /login as a "next" target
         return _post_login_redirect()
 
     next_url = safe_next_url(request.args.get('next', ''))
     if next_url:
         session['login_next'] = next_url
 
-    # GET: show form (and any one-shot flash from a failed POST)
-    if request.method == 'GET':
+    # GET and HEAD: show form (and any one-shot flash from a failed POST).
+    # HEAD must not fall through to POST logic — that 302-looped some mobile/Safari
+    # prefetches and "too many redirects" errors after a wrong password.
+    if request.method in ('GET', 'HEAD'):
         error = session.pop('login_flash_error', None) or None
         success = session.pop('login_flash_success', None) or None
         selected_user = session.pop('login_flash_user', '') or ''
