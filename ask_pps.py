@@ -745,55 +745,54 @@ def _prompt_diversity_bucket(prompt):
 
 
 def _weighted_shuffle_prompts(prompts, user_key, user_role):
-    """Role-weighted random order, then interleave by topic bucket for variety.
+    """Role-weighted pick order with hard topic-bucket separation.
 
-    Without interleaving, a pure shuffle still often serves several Monday.com /
-    same-module prompts in a row when that module is a large share of the bank.
+    Role weights still control *how often* a matching-role prompt wins the next
+    slot (PSC → consultant prompts, PM → production). Diversity penalties break
+    up same-topic runs (e.g. four Monday.com questions in a row) without
+    flattening role preference.
     """
     if not prompts:
         return []
 
-    # 1) Score each prompt (role weight) and sort randomly within that weight
-    by_bucket = {}
+    remaining = []
     for p in prompts:
         w = _prompt_role_weight(user_key, user_role, p)
         if w <= 0:
             continue
-        key = random.random() ** (1.0 / w)
-        bucket = _prompt_diversity_bucket(p)
-        by_bucket.setdefault(bucket, []).append((key, p))
+        remaining.append({
+            'p': p,
+            'w': float(w),
+            'bucket': _prompt_diversity_bucket(p),
+        })
+    if not remaining:
+        return []
 
-    for bucket, items in by_bucket.items():
-        items.sort(key=lambda x: x[0])
-        by_bucket[bucket] = [p for _, p in items]
-
-    # 2) Round-robin across buckets so consecutive questions differ in topic
-    #    Re-shuffle bucket order each pass so no fixed "module A always first".
     result = []
-    while by_bucket:
-        buckets = list(by_bucket.keys())
-        random.shuffle(buckets)
-        # Prefer buckets that still have items; take one per bucket per pass
-        emptied = []
-        for b in buckets:
-            if not by_bucket.get(b):
-                emptied.append(b)
-                continue
-            result.append(by_bucket[b].pop(0))
-            if not by_bucket[b]:
-                emptied.append(b)
-        for b in emptied:
-            by_bucket.pop(b, None)
-
-    # 3) Light anti-clump pass: if two adjacent share a bucket (only possible when
-    #    a bucket had the only remaining items), try a single swap with a later item.
-    for i in range(len(result) - 1):
-        if _prompt_diversity_bucket(result[i]) != _prompt_diversity_bucket(result[i + 1]):
-            continue
-        for j in range(i + 2, min(i + 8, len(result))):
-            if _prompt_diversity_bucket(result[j]) != _prompt_diversity_bucket(result[i]):
-                result[i + 1], result[j] = result[j], result[i + 1]
-                break
+    recent_buckets = []  # last few chosen buckets
+    while remaining:
+        best_i = 0
+        best_score = -1.0
+        for i, item in enumerate(remaining):
+            # Stochastic role weight (higher w → more likely to win this slot)
+            score = item['w'] * (0.15 + random.random())
+            b = item['bucket']
+            # Strong anti-clump: same as last pick almost never wins
+            if recent_buckets and b == recent_buckets[-1]:
+                score *= 0.05
+            # Soft penalty if same bucket appeared in last 3
+            elif b in recent_buckets[-3:]:
+                score *= 0.25
+            elif b in recent_buckets[-5:]:
+                score *= 0.55
+            if score > best_score:
+                best_score = score
+                best_i = i
+        chosen = remaining.pop(best_i)
+        result.append(chosen['p'])
+        recent_buckets.append(chosen['bucket'])
+        if len(recent_buckets) > 8:
+            recent_buckets = recent_buckets[-8:]
 
     return result
 
@@ -1936,31 +1935,80 @@ def get_admin_data(get_db_fn, users):
         conn.close()
 
 
-def get_digest_line(get_db_fn, start, end):
+def get_digest_line(get_db_fn, start, end, users=None):
+    """Multi-line Ask PPS block for the daily digest (prompt answers are primary)."""
+    users = users or {}
     conn = get_db_fn()
     if not conn:
         return None
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Team capture answers in the report window
         cur.execute(
-            '''SELECT COUNT(*) FROM ask_pps_questions
+            '''SELECT user_key, COUNT(*) AS cnt
+               FROM knowledge_prompt_answers
+               WHERE created_at >= %s AND created_at < %s
+               GROUP BY user_key
+               ORDER BY cnt DESC, user_key''',
+            (start, end),
+        )
+        answer_rows = cur.fetchall() or []
+        total_answers = sum(int(r['cnt'] or 0) for r in answer_rows)
+
+        # Recommended questions added to the bank
+        cur.execute(
+            '''SELECT COUNT(*) AS cnt FROM knowledge_prompts
+               WHERE source_type = 'user_recommend'
+                 AND created_at >= %s AND created_at < %s''',
+            (start, end),
+        )
+        recommended = int((cur.fetchone() or {}).get('cnt') or 0)
+
+        # Lookups (search box) — secondary
+        cur.execute(
+            '''SELECT COUNT(*) AS cnt FROM ask_pps_questions
                WHERE created_at >= %s AND created_at < %s''',
             (start, end),
         )
-        questions = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM ask_pps_questions WHERE gap_status = 'open'")
-        open_gaps = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM knowledge_prompts WHERE status = 'open'")
-        open_prompts = cur.fetchone()[0]
+        lookups = int((cur.fetchone() or {}).get('cnt') or 0)
+
+        cur.execute("SELECT COUNT(*) AS cnt FROM knowledge_prompts WHERE status = 'open'")
+        open_prompts = int((cur.fetchone() or {}).get('cnt') or 0)
+
+        # Distinct people who still have unanswered open prompts they can match is heavy;
+        # just report bank size.
         cur.close()
-        if questions == 0 and open_gaps == 0 and open_prompts == 0:
+
+        if total_answers == 0 and recommended == 0 and lookups == 0 and open_prompts == 0:
             return None
-        parts = [f'{questions} question{"s" if questions != 1 else ""} yesterday']
-        if open_gaps:
-            parts.append(f'{open_gaps} open gap{"s" if open_gaps != 1 else ""}')
+
+        lines = ['ASK PPS']
+        if total_answers:
+            lines.append(
+                f'  Prompt answers: {total_answers} '
+                f'from {len(answer_rows)} person{"s" if len(answer_rows) != 1 else ""}'
+            )
+            for r in answer_rows:
+                name = _display(users, r['user_key'])
+                n = int(r['cnt'] or 0)
+                lines.append(f'    · {name}: {n}')
+        else:
+            lines.append('  Prompt answers: 0')
+
+        if recommended:
+            lines.append(
+                f'  Questions suggested by team: {recommended}'
+            )
+        if lookups:
+            lines.append(
+                f'  Knowledge lookups: {lookups}'
+            )
         if open_prompts:
-            parts.append(f'{open_prompts} open prompt{"s" if open_prompts != 1 else ""}')
-        return 'Ask PPS: ' + ', '.join(parts) + '.'
+            lines.append(
+                f'  Open prompts still in bank: {open_prompts}'
+            )
+
+        return '\n'.join(lines)
     except Exception as e:
         print(f'Ask PPS digest error: {e}')
         return None

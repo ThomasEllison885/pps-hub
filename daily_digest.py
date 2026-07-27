@@ -544,7 +544,9 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
         lines.append('')
 
     if ask_pps_line:
-        lines.extend(['', ask_pps_line])
+        lines.append('')
+        # ask_pps_line may be multi-line (prompt answers by person)
+        lines.extend(ask_pps_line.splitlines())
     lines.append('')
     lines.append('Sent automatically at midnight US/Eastern. Reply not monitored.')
 
@@ -591,6 +593,20 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
             f'<p style="margin:0;color:#64748b;font-size:13px;">{escape(", ".join(quiet))}</p></div>'
         )
 
+    ask_pps_html = ''
+    if ask_pps_line:
+        body_lines = ask_pps_line.splitlines()
+        if body_lines and body_lines[0].strip().upper() == 'ASK PPS':
+            body_lines = body_lines[1:]
+        ask_body = '\n'.join(body_lines).strip()
+        ask_pps_html = (
+            '<div style="margin:18px 0 0;padding:12px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;">'
+            '<div style="font-size:11px;font-weight:700;color:#004C8C;letter-spacing:0.06em;'
+            'text-transform:uppercase;margin-bottom:8px;">Ask PPS</div>'
+            f'<pre style="margin:0;font-family:inherit;font-size:13px;color:#334155;'
+            f'white-space:pre-wrap;line-height:1.5;">{escape(ask_body)}</pre></div>'
+        )
+
     html_body = f'''
     <div style="font-family:Arial,sans-serif;max-width:620px;margin:0 auto;">
       <div style="background:#004C8C;padding:20px 24px;border-radius:8px 8px 0 0;">
@@ -603,7 +619,7 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
         <p style="margin:0 0 12px;font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;">By person</p>
         {"".join(person_blocks)}
         {quiet_html}
-        {f'<p style="margin:16px 0 0;font-size:13px;color:#334155;">{escape(ask_pps_line)}</p>' if ask_pps_line else ''}
+        {ask_pps_html}
         <p style="margin:20px 0 0;color:#94a3b8;font-size:11px;">Sent automatically at midnight US/Eastern.</p>
       </div>
     </div>
@@ -653,7 +669,7 @@ def run_daily_digest(get_db, users, format_template_label, send_email_fn, force=
     ask_pps_line = None
     try:
         import ask_pps
-        ask_pps_line = ask_pps.get_digest_line(get_db, start, end)
+        ask_pps_line = ask_pps.get_digest_line(get_db, start, end, users=users)
     except Exception as e:
         print(f'Ask PPS digest line error: {e}')
 
