@@ -2,6 +2,7 @@
 
 import json
 import os
+import random
 import re
 import time
 from datetime import date, datetime
@@ -567,6 +568,7 @@ PSC_MODULE_CATEGORY = {
     'ops_client_comms': 'sales_process',
     'ops_callbacks': 'production_process',
     'ops_common_mistakes': 'training_core_values',
+    'ops_market_expansion': 'company_operations',
 }
 
 PSC_MODULE_FIELD_ROLE = {
@@ -580,6 +582,7 @@ PSC_MODULE_FIELD_ROLE = {
     'ops_client_comms': 'consultant',
     'ops_callbacks': 'pm',
     'ops_common_mistakes': 'consultant',
+    'ops_market_expansion': 'consultant',
 }
 
 KNOWLEDGE_AUDIT_GAPS = [
@@ -713,20 +716,81 @@ def _user_matches_prompt(user_key, user_role, prompt):
         return True
     if target == 'curator':
         return is_curator(user_key)
+    # Admin / office can answer any open field prompt (team capture sessions)
+    if user_role in ('admin', 'office_manager') and target in (
+        'consultant', 'pm', 'office_manager', 'any',
+    ):
+        return True
     return user_role == target
+
+
+def _prompt_role_weight(user_key, user_role, prompt):
+    """Higher weight = more likely to appear first for this user.
+
+    PSC → consultant questions near the top; PM → pm questions; others equal random.
+    """
+    if prompt.get('target_user_key') == user_key:
+        return 100.0
+    target = prompt.get('target_role') or 'any'
+    if user_role == 'consultant':
+        if target == 'consultant':
+            return 10.0
+        if target == 'any':
+            return 3.5
+        if target == 'pm':
+            return 0.6
+        return 0.4
+    if user_role == 'pm':
+        if target == 'pm':
+            return 10.0
+        if target == 'any':
+            return 3.5
+        if target == 'consultant':
+            return 0.6
+        return 0.4
+    # admin, office_manager, etc. — true equal random across the pool they can see
+    return 1.0
+
+
+def _weighted_shuffle_prompts(prompts, user_key, user_role):
+    """Order prompts so higher role-weight items are more often near the front,
+    but still randomized so two PSCs rarely share the exact same order."""
+    if not prompts:
+        return []
+    scored = []
+    for p in prompts:
+        w = _prompt_role_weight(user_key, user_role, p)
+        if w <= 0:
+            continue
+        # Power-of-random: higher weight → smaller key → earlier position
+        key = random.random() ** (1.0 / w)
+        scored.append((key, p))
+    scored.sort(key=lambda x: x[0])
+    return [p for _, p in scored]
 
 
 def _perspective_label(perspective):
     return 'How we actually do it (field)' if perspective == 'field' else 'Leadership intent (policy)'
 
 
-def _format_prompt_entry_content(question, answer, perspective, display_name, hub_role):
+def _format_prompt_entry_content(question, answer, perspective, display_name, hub_role,
+                                 user_key=None, email=None):
+    """Always stamp who answered so curators know the source without guessing."""
     header = _perspective_label(perspective)
-    role_note = f'{display_name}'
+    who = (display_name or user_key or 'Unknown').strip()
+    bits = [who]
     if hub_role:
-        role_note += f', {hub_role}'
+        bits.append(str(hub_role))
+    if user_key:
+        bits.append(f'hub:{user_key}')
+    if email:
+        bits.append(email)
+    stamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
     return (
-        f'{header} — {role_note}:\n{answer.strip()}\n\n'
+        f'Submitted by: {" · ".join(bits)}\n'
+        f'Submitted at: {stamp}\n'
+        f'{header}\n\n'
+        f'{answer.strip()}\n\n'
         f'Prompt: {question.strip()}'
     )
 
@@ -1163,6 +1227,20 @@ def _enrich_prompt_row(row, users, user_key):
     return row
 
 
+def ensure_field_prompt_bank(get_db_fn, created_by='system'):
+    """Make sure the open prompt bank has identified-gap questions for team capture.
+
+    Idempotent — skips refs that already exist. Safe to call from dashboard loads.
+    """
+    try:
+        return sync_identified_gap_prompts(
+            get_db_fn, created_by, assign_to=None, bank_mode=True,
+        )
+    except Exception as e:
+        print(f'Ask PPS ensure prompt bank error: {e}')
+        return {'ok': False, 'error': str(e)}
+
+
 def get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=None, include_all_for_curator=False):
     if limit is None:
         limit = 200
@@ -1184,31 +1262,43 @@ def get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=None, incl
                         WHERE s.prompt_id = p.id AND s.user_key = %s
                       ) AS skipped_by_me
                FROM knowledge_prompts p
-               WHERE p.status = 'open'
-               ORDER BY
-                 CASE WHEN EXISTS (
-                   SELECT 1 FROM knowledge_prompt_skips s
-                   WHERE s.prompt_id = p.id AND s.user_key = %s
-                 ) THEN 1 ELSE 0 END,
-                 CASE WHEN p.target_user_key = %s THEN 0 ELSE 1 END,
-                 p.priority DESC,
-                 p.created_at ASC''',
-            (user_key, user_key, user_key, user_key),
+               WHERE p.status = 'open' ''',
+            (user_key, user_key),
         )
         rows = cur.fetchall()
         cur.close()
-        matched = []
+        assigned = []
+        pool = []
         for row in rows:
             if not include_all_for_curator or not is_curator(user_key):
                 if not _user_matches_prompt(user_key, user_role, row):
                     continue
             if row.get('answered_by_me'):
                 continue
+            # Skipped prompts go to the back of the deck (still answerable later)
             _enrich_prompt_row(row, users, user_key)
             row['can_answer'] = _user_matches_prompt(user_key, user_role, row)
-            matched.append(row)
-            if limit and len(matched) >= limit:
-                break
+            if row.get('target_user_key') == user_key and not row.get('skipped_by_me'):
+                assigned.append(row)
+            else:
+                pool.append(row)
+
+        # Assigned-to-you first (stable), then role-weighted random for everyone else
+        assigned.sort(key=lambda r: (-(r.get('priority') or 0), r.get('created_at') or ''))
+        shuffled = _weighted_shuffle_prompts(
+            [p for p in pool if not p.get('skipped_by_me')],
+            user_key,
+            user_role,
+        )
+        # Soft-include skipped at the very end so a 30-min blitz can still cycle
+        skipped = _weighted_shuffle_prompts(
+            [p for p in pool if p.get('skipped_by_me')],
+            user_key,
+            user_role,
+        )
+        matched = assigned + shuffled + skipped
+        if limit:
+            matched = matched[:limit]
         return matched
     except Exception as e:
         print(f'Ask PPS user prompts error: {e}')
@@ -1246,16 +1336,12 @@ def skip_prompt(get_db_fn, users, user_key, user_role, prompt_id):
         conn.close()
 
     nxt = get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=1)
-    next_prompt = None
-    if nxt:
-        p = nxt[0]
-        next_prompt = {
-            'id': p['id'],
-            'question': p['question'],
-            'perspective': p['perspective'],
-            'field_role_hint': p.get('field_role_hint'),
-        }
-    return {'success': True, 'next_prompt': next_prompt}, 200
+    next_prompt = _serialize_prompt_for_client(nxt[0]) if nxt else None
+    return {
+        'success': True,
+        'next_prompt': next_prompt,
+        'remaining': len(get_prompts_for_user(get_db_fn, users, user_key, user_role)),
+    }, 200
 
 
 def get_consultant_assignees(users):
@@ -1271,7 +1357,28 @@ def get_consultant_assignees(users):
 
 def get_next_prompt_for_user(get_db_fn, users, user_key, user_role):
     prompts = get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=1)
+    if not prompts:
+        # Seed bank from identified gaps so team capture sessions always have questions
+        ensure_field_prompt_bank(get_db_fn, created_by=user_key or 'system')
+        # Also thin-category prompts when KB is sparse
+        try:
+            sync_thin_category_prompts(get_db_fn, user_key or 'system')
+        except Exception as e:
+            print(f'Ask PPS thin seed on next-prompt: {e}')
+        prompts = get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=1)
     return prompts[0] if prompts else None
+
+
+def _serialize_prompt_for_client(prompt):
+    if not prompt:
+        return None
+    return {
+        'id': prompt['id'],
+        'question': prompt['question'],
+        'perspective': prompt.get('perspective') or 'field',
+        'field_role_hint': prompt.get('field_role_hint'),
+        'target_role': prompt.get('target_role'),
+    }
 
 
 def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answer):
@@ -1297,12 +1404,22 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
             return {'success': False, 'error': 'This prompt is not assigned to you.'}, 403
 
         display = _display(users, user_key)
-        hub_role = users.get(user_key, {}).get('title', user_role)
-        title = prompt['question'][:120]
-        if len(prompt['question']) > 120:
-            title += '…'
+        user_def = users.get(user_key, {}) or {}
+        hub_role = user_def.get('title') or user_role
+        email = user_def.get('email') or ''
+        # Title leads with who answered so admin Pending list is obvious at a glance
+        short_q = prompt['question'][:90]
+        if len(prompt['question']) > 90:
+            short_q += '…'
+        title = f'{display}: {short_q}'
         content = _format_prompt_entry_content(
-            prompt['question'], answer, prompt['perspective'], display, hub_role,
+            prompt['question'],
+            answer,
+            prompt['perspective'],
+            display,
+            hub_role,
+            user_key=user_key,
+            email=email,
         )
         _insert_entry(
             cur, prompt['category'], title, content, 'prompt_response',
@@ -1332,9 +1449,18 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
         if perspective == 'field'
         else 'Policy note saved — curators may still want field confirmation.'
     )
+    nxt = get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=1)
+    next_prompt = _serialize_prompt_for_client(nxt[0]) if nxt else None
     return {
         'success': True,
-        'message': f'Thanks — sent for curator review. {perspective_note}',
+        'message': (
+            f'Thanks, {display} — your answer was saved under your name for curator review. '
+            f'{perspective_note}'
+        ),
+        'submitted_by': display,
+        'submitted_by_key': user_key,
+        'next_prompt': next_prompt,
+        'remaining': len(get_prompts_for_user(get_db_fn, users, user_key, user_role)),
     }, 200
 
 
