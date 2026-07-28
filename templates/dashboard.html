@@ -298,26 +298,6 @@
             <div class="tool-meta">Open →</div>
           </a>
           {% endif %}
-
-          {% if pm_training_open %}
-          <a href="/pm-training" class="pps-tool-card">
-            <div class="pps-tool-icon">🔧</div>
-            <div class="pps-tool-name">PM Training</div>
-            <div class="pps-tool-desc">Production onboarding — board, routes, Trade Partners, materials, callbacks. Open to everyone while we refine it.</div>
-            <span class="tool-badge" style="background:#FFF8E1;color:#E65100;border-color:#FFE082;">Under construction</span>
-            {% if pm_training_stats %}<span class="tool-badge">{{ pm_training_stats.pct }}% yours</span>{% endif %}
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
-          {% if pm_training_oversight %}
-          <a href="/pm-training/oversight" class="pps-tool-card">
-            <div class="pps-tool-icon">📋</div>
-            <div class="pps-tool-name">PM Training Accountability</div>
-            <div class="pps-tool-desc">Enroll, week sign-offs, feedback (Trey / admin).</div>
-            <span class="tool-badge">Oversight</span>
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
         </div>
       </div>
     </details>
