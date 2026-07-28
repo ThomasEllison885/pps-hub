@@ -338,27 +338,6 @@
     </div>
   </div>
 
-  <div class="section">
-    <h2>Q&A log</h2>
-    <div class="section-body" style="overflow-x:auto;">
-      <table>
-        <tr><th>Who</th><th>Question</th><th>Answered</th><th>Flag</th></tr>
-        {% for row in log or [] %}
-        <tr>
-          <td>{{ row.display_name }}</td>
-          <td>{{ row.question[:80] }}{% if row.question|length > 80 %}…{% endif %}</td>
-          <td>{{ 'Yes' if row.answered else 'Gap' }}</td>
-          <td>
-            {% if not row.flagged %}
-            <form method="post" action="{{ url_for('admin_ask_pps_flag', q_id=row.id) }}"><button class="btn btn-muted">Flag</button></form>
-            {% else %}Flagged{% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-      </table>
-    </div>
-  </div>
-
   <div class="section" id="knowledge-manager">
     <h2>Knowledge manager</h2>
     <div class="section-body" style="overflow-x:auto;">
@@ -385,6 +364,34 @@
         </tr>
         {% endfor %}
       </table>
+
+      <details style="margin-top:22px;border-top:1px solid var(--border);padding-top:16px;">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-blue);">
+          Q&amp;A log — lookup history (not team capture answers)
+        </summary>
+        <p style="font-size:12px;color:#888;margin:10px 0 12px;line-height:1.45;">
+          People who used “Look something up” / Ask. Gaps here are unanswered searches — different from Pending contributions above.
+        </p>
+        <div style="overflow-x:auto;">
+          <table>
+            <tr><th>Who</th><th>Question</th><th>Answered</th><th>Flag</th></tr>
+            {% for row in log or [] %}
+            <tr>
+              <td>{{ row.display_name }}</td>
+              <td>{{ row.question[:80] }}{% if row.question|length > 80 %}…{% endif %}</td>
+              <td>{{ 'Yes' if row.answered else 'Gap' }}</td>
+              <td>
+                {% if not row.flagged %}
+                <form method="post" action="{{ url_for('admin_ask_pps_flag', q_id=row.id) }}"><button class="btn btn-muted" type="submit">Flag</button></form>
+                {% else %}Flagged{% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" style="color:#aaa;">No lookup history yet.</td></tr>
+            {% endfor %}
+          </table>
+        </div>
+      </details>
     </div>
   </div>
 </div>
