@@ -259,8 +259,13 @@ def init_tables(cur):
         pass
 
 
-def create_user_notification(get_db_fn, user_key, kind, title, body, related_entry_id=None):
-    """Persist an in-app notification for the user (survives until they dismiss it)."""
+def create_user_notification(get_db_fn, user_key, kind, title, body, related_entry_id=None,
+                             dedupe=True):
+    """Persist an in-app notification for the user (survives until they dismiss it).
+
+    When dedupe=True and related_entry_id is set, skip insert if the same user/kind/entry
+    already has a notification (blocks double-click / network retry spam).
+    """
     if not user_key or not title:
         return None
     conn = get_db_fn()
@@ -268,6 +273,17 @@ def create_user_notification(get_db_fn, user_key, kind, title, body, related_ent
         return None
     try:
         cur = conn.cursor()
+        if dedupe and related_entry_id is not None:
+            cur.execute(
+                '''SELECT id FROM hub_user_notifications
+                   WHERE user_key = %s AND kind = %s AND related_entry_id = %s
+                   LIMIT 1''',
+                (user_key, kind, related_entry_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                cur.close()
+                return existing[0]
         cur.execute(
             '''INSERT INTO hub_user_notifications
                (user_key, kind, title, body, related_entry_id)
@@ -2855,9 +2871,9 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_login
     @require_ask_pps_curator
     def admin_ask_pps_approve(entry_id):
+        """Publish pending → active once. Double-submit does not re-notify."""
         conn = get_db_fn()
-        author_key = None
-        entry_title = None
+        transitioned = None  # row only when status was pending
         if conn:
             try:
                 cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -2866,27 +2882,24 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                        SET status = 'active', updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(title, '') || ' ' || coalesce(content, ''))
-                       WHERE id = %s
+                       WHERE id = %s AND status = 'pending'
                        RETURNING author_key, title''',
                     (entry_id,),
                 )
-                row = cur.fetchone()
-                if row:
-                    author_key = row.get('author_key')
-                    entry_title = row.get('title')
+                transitioned = cur.fetchone()
                 conn.commit()
                 cur.close()
             except Exception as e:
                 print(f'Ask PPS approve error: {e}')
             finally:
                 conn.close()
-        if author_key:
+        if transitioned and transitioned.get('author_key'):
             try:
                 notify_ask_pps_approved(
                     get_db_fn,
-                    author_key,
-                    _display(users, author_key),
-                    entry_title,
+                    transitioned['author_key'],
+                    _display(users, transitioned['author_key']),
+                    transitioned.get('title'),
                     entry_id=entry_id,
                 )
             except Exception as e:
@@ -2902,7 +2915,9 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             try:
                 cur = conn.cursor()
                 cur.execute(
-                    "UPDATE knowledge_entries SET status = 'archived', updated_at = NOW() WHERE id = %s",
+                    '''UPDATE knowledge_entries
+                       SET status = 'archived', updated_at = NOW()
+                       WHERE id = %s AND status = 'pending' ''',
                     (entry_id,),
                 )
                 conn.commit()
@@ -2914,11 +2929,10 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         return redirect(url_for('admin_ask_pps') + '#pending-contributions')
 
     @app.route('/admin/ask-pps/pending/<int:entry_id>/edit', methods=['POST'])
-    @app.route('/admin/ask-pps/pending/<int:entry_id>/edit-approve', methods=['POST'])
     @require_login
     @require_ask_pps_curator
     def admin_ask_pps_edit_pending(entry_id):
-        """Save answer body (+ optional category). Question/title stay non-editable.
+        """Save answer body (+ optional category). Stays pending — does not publish.
         Never overwrites original_content (first team submission)."""
         category = (request.form.get('category') or 'general').strip()
         content = _extract_answer_body((request.form.get('content') or '').strip())
@@ -2963,7 +2977,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                            updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(%s, '') || ' ' || coalesce(%s, ''))
-                       WHERE id = %s''',
+                       WHERE id = %s AND status = 'pending' ''',
                     (category, title, content, prior_body or content, title, content, entry_id),
                 )
                 conn.commit()
