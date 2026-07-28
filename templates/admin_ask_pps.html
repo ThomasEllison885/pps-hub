@@ -11,8 +11,12 @@
   .page-title { font-family: 'DM Serif Display', serif; font-size: 28px; color: var(--dark-blue); }
   .stats { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 28px; }
   .stat { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; min-width: 120px; }
+  a.stat { text-decoration: none; color: inherit; display: block; transition: border-color 0.15s, box-shadow 0.15s; }
+  a.stat:hover { border-color: var(--blue); box-shadow: 0 2px 8px rgba(0,40,80,0.08); }
+  a.stat:hover .n { color: var(--blue); }
   .stat .n { font-size: 24px; font-weight: 700; color: var(--dark-blue); }
   .stat .l { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
+  #pending-contributions { scroll-margin-top: 80px; }
   .section { background: white; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; overflow: hidden; }
   .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dark-blue); padding: 14px 18px; background: var(--light-bg); border-bottom: 1px solid var(--border); margin: 0; }
   .section-body { padding: 16px 18px; }
@@ -55,7 +59,10 @@
   <div class="stats">
     <div class="stat"><div class="n">{{ open_gaps or 0 }}</div><div class="l">Open gaps</div></div>
     <div class="stat"><div class="n">{{ open_prompts or 0 }}</div><div class="l">Open prompts</div></div>
-    <div class="stat"><div class="n">{{ pending_cnt or 0 }}</div><div class="l">Pending</div></div>
+    <a class="stat" href="#pending-contributions" title="Jump to submitted answers waiting for review">
+      <div class="n">{{ pending_cnt or 0 }}</div>
+      <div class="l">Pending</div>
+    </a>
     {% for w in week_counts or [] %}
     <div class="stat"><div class="n">{{ w.cnt }}</div><div class="l">{{ w.display_name }} this week</div></div>
     {% endfor %}
@@ -214,16 +221,36 @@
     </div>
   </div>
 
-  <div class="section">
-    <h2>Pending contributions</h2>
+  <div class="section" id="pending-contributions">
+    <h2>Pending contributions — submitted answers</h2>
     <div class="section-body">
+      <p style="font-size:13px;color:#666;margin:0 0 14px;line-height:1.5;">
+        Team answers land here. <strong>Save edit</strong> updates the draft only (stays pending).
+        <strong>Approve as-is</strong> is what publishes into Ask PPS.
+      </p>
+      {% if recently_activated %}
+      <div style="margin-bottom:18px;padding:12px;border:1px solid #f0d0a0;background:#fffaf0;border-radius:8px;">
+        <div style="font-size:12px;font-weight:700;color:var(--dark-blue);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.06em;">
+          Recently published (undo accidental approve)
+        </div>
+        {% for r in recently_activated %}
+        <div class="pending" style="background:white;margin-bottom:8px;">
+          <div class="meta">{{ r.author_display or r.author_key or '—' }} · {{ r.category }} · {{ r.status }}{% if r.updated_at %} · {{ r.updated_at.strftime('%b %d %H:%M') if r.updated_at else '' }}{% endif %}</div>
+          <div class="q">{{ r.title }}</div>
+          <form method="post" action="{{ url_for('admin_ask_pps_return_pending', entry_id=r.id) }}">
+            <button type="submit" class="btn btn-primary">Return to pending</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% if pending %}
       {% for p in pending %}
       <div class="pending">
         <div class="meta">{{ p.author_display or p.author_key }} · {{ p.category }}</div>
         <div class="q">{{ p.title }}</div>
         <div style="font-size:13px;white-space:pre-wrap;margin-bottom:10px;">{{ p.content }}</div>
-        <form method="post" action="{{ url_for('admin_ask_pps_edit_approve', entry_id=p.id) }}">
+        <form method="post" action="{{ url_for('admin_ask_pps_edit_pending', entry_id=p.id) }}">
           <label>Category</label>
           <select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
           <label>Title</label>
@@ -231,7 +258,7 @@
           <label>Content</label>
           <textarea name="content">{{ p.content }}</textarea>
           <div class="btn-row">
-            <button type="submit" class="btn btn-primary">Edit & approve</button>
+            <button type="submit" class="btn btn-primary">Save edit</button>
           </div>
         </form>
         <div class="btn-row">
@@ -282,9 +309,12 @@
     </div>
   </div>
 
-  <div class="section">
+  <div class="section" id="knowledge-manager">
     <h2>Knowledge manager</h2>
     <div class="section-body" style="overflow-x:auto;">
+      <p style="font-size:13px;color:#666;margin:0 0 12px;line-height:1.5;">
+        Active entries are what Ask PPS can use. <strong>Return to pending</strong> undoes an approve so you can re-edit.
+      </p>
       <table>
         <tr><th>Category</th><th>Title</th><th>Status</th><th>Actions</th></tr>
         {% for k in knowledge or [] %}
@@ -293,7 +323,14 @@
           <td>{{ k.title }}</td>
           <td>{{ k.status }}</td>
           <td>
-            <form method="post" action="{{ url_for('admin_ask_pps_archive_entry', entry_id=k.id) }}"><button class="btn btn-muted">Archive</button></form>
+            <div class="btn-row">
+              {% if k.status == 'active' %}
+              <form method="post" action="{{ url_for('admin_ask_pps_return_pending', entry_id=k.id) }}">
+                <button class="btn btn-primary" type="submit">Return to pending</button>
+              </form>
+              {% endif %}
+              <form method="post" action="{{ url_for('admin_ask_pps_archive_entry', entry_id=k.id) }}"><button class="btn btn-muted" type="submit">Archive</button></form>
+            </div>
           </td>
         </tr>
         {% endfor %}

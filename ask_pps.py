@@ -1914,12 +1914,31 @@ def get_admin_data(get_db_fn, users):
         cur.execute("SELECT COUNT(*) AS cnt FROM knowledge_prompts WHERE status = 'open'")
         open_prompts = cur.fetchone()['cnt']
 
+        # Recent actives (e.g. accidental approve) — easy Return to pending
+        cur.execute(
+            '''SELECT k.*, u.display_name AS author_display
+               FROM knowledge_entries k
+               LEFT JOIN hub_users u ON u.user_key = k.author_key
+               WHERE k.status = 'active'
+                 AND (
+                   k.source_type = 'prompt_response'
+                   OR k.updated_at >= NOW() - INTERVAL '7 days'
+                 )
+               ORDER BY k.updated_at DESC NULLS LAST, k.id DESC
+               LIMIT 12'''
+        )
+        recently_activated = cur.fetchall()
+        for r in recently_activated:
+            if not r.get('author_display'):
+                r['author_display'] = _display(users, r.get('author_key'))
+
         cur.close()
         return {
             'gaps': gaps,
             'pending': pending,
             'log': log,
             'knowledge': knowledge,
+            'recently_activated': recently_activated,
             'week_counts': week_counts,
             'open_gaps': open_gaps,
             'pending_cnt': pending_cnt,
@@ -2434,7 +2453,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 print(f'Ask PPS approve error: {e}')
             finally:
                 conn.close()
-        return redirect(url_for('admin_ask_pps'))
+        return redirect(url_for('admin_ask_pps') + '#pending-contributions')
 
     @app.route('/admin/ask-pps/pending/<int:entry_id>/reject', methods=['POST'])
     @require_login
@@ -2454,24 +2473,26 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 print(f'Ask PPS reject error: {e}')
             finally:
                 conn.close()
-        return redirect(url_for('admin_ask_pps'))
+        return redirect(url_for('admin_ask_pps') + '#pending-contributions')
 
+    @app.route('/admin/ask-pps/pending/<int:entry_id>/edit', methods=['POST'])
     @app.route('/admin/ask-pps/pending/<int:entry_id>/edit-approve', methods=['POST'])
     @require_login
     @require_ask_pps_curator
-    def admin_ask_pps_edit_approve(entry_id):
+    def admin_ask_pps_edit_pending(entry_id):
+        """Save category/title/content only — stays pending until Approve."""
         category = (request.form.get('category') or 'general').strip()
         title = (request.form.get('title') or '').strip()
         content = (request.form.get('content') or '').strip()
         if category not in CATEGORIES:
-            return redirect(url_for('admin_ask_pps'))
+            return redirect(url_for('admin_ask_pps') + '#pending-contributions')
         conn = get_db_fn()
         if conn:
             try:
                 cur = conn.cursor()
                 cur.execute(
                     '''UPDATE knowledge_entries
-                       SET category = %s, title = %s, content = %s, status = 'active',
+                       SET category = %s, title = %s, content = %s, status = 'pending',
                            updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(%s, '') || ' ' || coalesce(%s, ''))
@@ -2481,10 +2502,33 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 conn.commit()
                 cur.close()
             except Exception as e:
-                print(f'Ask PPS edit approve error: {e}')
+                print(f'Ask PPS edit pending error: {e}')
             finally:
                 conn.close()
-        return redirect(url_for('admin_ask_pps'))
+        return redirect(url_for('admin_ask_pps') + '#pending-contributions')
+
+    @app.route('/admin/ask-pps/entry/<int:entry_id>/return-pending', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_return_pending(entry_id):
+        """Move an active (or archived) entry back to pending for re-review."""
+        conn = get_db_fn()
+        if conn:
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    '''UPDATE knowledge_entries
+                       SET status = 'pending', updated_at = NOW()
+                       WHERE id = %s''',
+                    (entry_id,),
+                )
+                conn.commit()
+                cur.close()
+            except Exception as e:
+                print(f'Ask PPS return-pending error: {e}')
+            finally:
+                conn.close()
+        return redirect(url_for('admin_ask_pps') + '#pending-contributions')
 
     @app.route('/admin/ask-pps/entry', methods=['POST'])
     @require_login
