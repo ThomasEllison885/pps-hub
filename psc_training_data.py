@@ -443,6 +443,16 @@ PSC_SALES_TRAINING = {
                     'title': 'Own your database',
                     'text': 'Every contact, property, and follow-up date lives in Monday.com. A CRM is only as good as what you put into it.',
                 },
+                {
+                    'id': 'sales_pipe_5',
+                    'title': 'One-time hits vs. real commercial',
+                    'text': (
+                        'A one-time job with no next job — small residential-style work, a single old contact reaching out — '
+                        'is not worth chasing if it is small dollar and high-effort-to-standard. Past hotels, senior living, '
+                        'and real commercial relationships are worth pursuing even if new. Test: is there a next job here, '
+                        'or is this the only one?'
+                    ),
+                },
             ],
         },
         {
@@ -510,6 +520,16 @@ PSC_SALES_TRAINING = {
                         'One submitted improvement is required before you are cleared for independent proposals.'
                     ),
                 },
+                {
+                    'id': 'sales_prop_tool_6',
+                    'title': 'The comprehensive path — the harder proposal',
+                    'text': (
+                        'Build one full Comprehensive-template proposal (not Standard) end to end for a real or practice '
+                        'commercial/large-scope job. Comprehensive proposals need more PPS-story and credentialing language '
+                        'than Standard ones — get Tony to review this one specifically before you are cleared to send a '
+                        'comprehensive proposal to a client solo.'
+                    ),
+                },
             ],
         },
         {
@@ -530,6 +550,16 @@ PSC_SALES_TRAINING = {
                     'id': 'sales_obj_3',
                     'title': 'Gatekeepers & brush-offs',
                     'text': 'Be respectful, persistent, and concise. Ask for the right person. Follow up on a schedule, not when you "get around to it."',
+                },
+                {
+                    'id': 'sales_obj_4',
+                    'title': 'Bid-platform Q&A visibility',
+                    'text': (
+                        "On platforms like Vayner/Morgan's bidding system, any question you ask in the platform is often "
+                        'visible to every invited bidder — that is by design, so all bidders answer the same RFP. Be '
+                        'thoughtful about what you reveal in a platform question; call the property contact directly for '
+                        'anything you do not want competitors to see.'
+                    ),
                 },
             ],
         },

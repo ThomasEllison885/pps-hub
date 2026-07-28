@@ -17,14 +17,19 @@ PM_TRAINING_MANAGER = 'trey_hollmeyer'
 PM_TRAINING_META = {
     'title': 'PM Onboarding',
     'subtitle': 'Project Manager Training Program',
-    'status': 'seed',
-    'description': (
-        'A structured onboarding path for new Project Managers — shadowing first, then building a '
-        'personal operating system for routes, Trade Partner communication, and time on site vs. desk work. '
-        'Monday.com is shared with PSCs — they learn pipeline Monday in PSC Training (ops_monday, Week 0); '
-        'PM Week 1 deep-dives the Production Board (post-award). Validate with Trey before going live.'
+    'status': 'under_construction',
+    'under_construction': True,
+    'under_construction_note': (
+        'Under construction — content and Hub tracking are live for review. '
+        'Expect refinements with Trey and senior PMs. Progress you check off is saved.'
     ),
-    'duration_weeks': 2,
+    'description': (
+        'A structured onboarding path for Project Managers — shadowing first, then building a '
+        'personal operating system for routes, Trade Partners, materials discipline, callbacks, '
+        'and time on site vs. desk work. Monday.com is shared with PSCs — they learn pipeline Monday '
+        'in PSC Training; PM Week 1 deep-dives the Production Board (post-award).'
+    ),
+    'duration_weeks': 4,
     'reference_docs': [
         'docs/PRODUCTION_BOARD_REFERENCE.md',
         'production_board_reference.py',
@@ -219,7 +224,7 @@ PM_TRAINING_WEEKS = [
         ],
         'pps_focus': [
             {
-                'title': 'Draft your Week-3 operating plan',
+                'title': 'Draft your Week-2 operating plan',
                 'text': (
                     'Present your route sketch, Production Board morning routine, Trade Partner contact habit, '
                     'and a sample weekly calendar (site blocks vs. desk blocks) to your manager. '
@@ -230,6 +235,115 @@ PM_TRAINING_WEEKS = [
         'manager_checkin': (
             'Do you have a workable route, a Production Board morning habit, a Trade Partner contact rhythm, '
             'and protected time for estimates and email — not just firefighting on site?'
+        ),
+    },
+    {
+        'week': 3,
+        'title': 'Trade Partners & Materials Discipline',
+        'topic_summary': (
+            'You inherit the Trade Partner relationship at handoff — PSC vetted them for the sale, '
+            'you run them day-to-day. This week is QC standards, payment triggers, and getting '
+            'materials on site at the right time, not too early and not too late.'
+        ),
+        'shadowing': [
+            'Shadow a Trade Partner mobilization from schedule confirmation through first-day site walk.',
+            'Sit in on one payment-request decision — who requests it (you or the Consultant) and how it gets tagged in Monday.',
+        ],
+        'additional': [
+            {
+                'title': 'Trade Partner payment requests — who does it',
+                'text': (
+                    'Either the PM or the Consultant can submit a Trade Partner payment request — the requirement '
+                    'is that you tag the other person on it. Tagging means you can search Monday by project and '
+                    'see every payment request tied to that job, and everyone tagged gets the email confirming '
+                    'the Trade Partner was paid. This came directly from the team via Ask PPS — it is the standard, '
+                    'not a suggestion. (Source: field capture Jul 2026.)'
+                ),
+            },
+            {
+                'title': 'QC before you pay',
+                'text': (
+                    '[TO DOCUMENT] — pull the QC checklist from the PSC-side Trade Partner SOP '
+                    '(ops_trade_partners in psc_training_data.py) and confirm with Trey which items are PM sign-off '
+                    'vs. PSC sign-off before a Trade Partner invoice gets approved.'
+                ),
+            },
+            {
+                'title': 'Just-in-time materials — the rule',
+                'text': (
+                    'Do not order stock materials months before a job starts just to get it off your plate. '
+                    'For commodity items you keep on hand (filters, common fixtures, standard fasteners), order '
+                    'close to mobilization. For specialized or long-lead one-offs (custom light fixtures, '
+                    'special-order doors, anything with a multi-week lead time), order right away — those are the '
+                    'items that cause delays. Rule of thumb straight from Thomas: "don\'t order the stuff you have '
+                    'stock of just to have it sitting there — order the stragglers first."'
+                ),
+            },
+            {
+                'title': 'Warehouse vs. site delivery',
+                'text': (
+                    'Where possible, use the supplier as the warehouse (e.g. Home Depot) and get materials delivered '
+                    'straight to site instead of staging them at the PPS shop and hauling twice. Ask your mentor '
+                    'which trades/vendors currently support this.'
+                ),
+            },
+        ],
+        'pps_focus': [
+            {
+                'title': "Audit one upcoming job's materials plan",
+                'text': (
+                    'Pick a job in Needs Scheduled or Scheduled. List every material needed, mark each as '
+                    '"stock — order at mobilization" or "specialized — order now," and check whether it is already '
+                    'ordered. Flag any specialized item that is not yet on order.'
+                ),
+            },
+        ],
+        'manager_checkin': (
+            'Walk me through a Trade Partner payment request you tagged correctly, and tell me which materials '
+            'on your current jobs are stock vs. specialized — and whether the specialized ones are already ordered.'
+        ),
+    },
+    {
+        'week': 4,
+        'title': 'Callbacks, Warranty & Quality Standard',
+        'topic_summary': (
+            'Call Backs/Warranty is one of the largest dollar groups on the whole Production Board. '
+            'How you handle it — speed, documentation, tone — protects trust as much as the original job did.'
+        ),
+        'shadowing': [
+            'Shadow one callback from first report to close, including the client-facing update if one goes out.',
+        ],
+        'additional': [
+            {
+                'title': 'Your role on a callback',
+                'text': (
+                    'Acknowledge promptly, document with photos before anything else happens, and get it logged in '
+                    'Monday with a field owner assigned. No blame language internally or to the client — PPS labor '
+                    'vs. manufacturer warranty is a documented distinction, not something to improvise on-site. '
+                    '(Keep language aligned with PSC Training ops_callbacks — same story to the client.)'
+                ),
+            },
+            {
+                'title': 'PM expectations one-pager',
+                'text': (
+                    '[TO DOCUMENT] — response-time standard, photo documentation standard, and escalation path '
+                    '(Consultant vs. Trey vs. leadership). Draft with Trey and senior PMs before this goes live — '
+                    'flagged as high-impact in docs/PM_TRAINING_ROADMAP.md.'
+                ),
+            },
+        ],
+        'pps_focus': [
+            {
+                'title': 'Service recovery draft',
+                'text': (
+                    'Draft a short client-facing update for a hypothetical warranty callback (schedule TBD, findings '
+                    'pending). Mentor coaches tone — proactive, accountable, no over-promising.'
+                ),
+            },
+        ],
+        'manager_checkin': (
+            'Walk me through a callback from your jobs — what you documented, who you looped in, and how you '
+            'closed the loop with the client.'
         ),
     },
 ]
@@ -276,3 +390,31 @@ def get_pm_training_item_ids():
         if week_data.get('checkin_id'):
             ids.append(week_data['checkin_id'])
     return ids
+
+
+def count_pm_trackable_items():
+    return len(get_pm_training_item_ids())
+
+
+def get_pm_week_item_ids():
+    """Map week number -> list of trainee item IDs for that week."""
+    _, weeks = get_pm_training_curriculum()
+    result = {}
+    for week_data in weeks:
+        w = week_data['week']
+        ids = []
+        for s in week_data.get('shadowing', []):
+            ids.append(s['id'] if isinstance(s, dict) else s)
+        for a in week_data.get('additional', []):
+            ids.append(a['id'])
+        for f in week_data.get('pps_focus', []):
+            ids.append(f['id'])
+        if week_data.get('checkin_id'):
+            ids.append(week_data['checkin_id'])
+        result[w] = ids
+    return result
+
+
+def get_pm_week_checkin_questions():
+    _, weeks = get_pm_training_curriculum()
+    return {w['week']: (w.get('manager_checkin') or '') for w in weeks}

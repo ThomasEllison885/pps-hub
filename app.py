@@ -15,6 +15,11 @@ from psc_training_data import (
     get_suggested_roleplay_ids, segment_color,
     ROLEPLAY_DAILY_GRADE_LIMIT, ROLEPLAY_DAILY_TURN_LIMIT,
 )
+from pm_training_data import (
+    PM_TRAINING_META, PM_TRAINING_MANAGER, get_pm_training_curriculum,
+    get_pm_training_item_ids, count_pm_trackable_items, get_pm_week_item_ids,
+    get_pm_week_checkin_questions,
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -1040,6 +1045,66 @@ def init_db():
     except Exception:
         pass
 
+    # PM training (mirror of PSC — separate item-id namespace)
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pm_training_progress (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            item_id VARCHAR(100) NOT NULL,
+            completed BOOLEAN DEFAULT FALSE,
+            completed_at TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_key, item_id)
+        )
+    ''')
+    try:
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_pm_training_user ON pm_training_progress(user_key)")
+    except Exception:
+        pass
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pm_training_notes (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            week_num INTEGER NOT NULL,
+            notes TEXT,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_key, week_num)
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pm_training_feedback (
+            id SERIAL PRIMARY KEY,
+            user_key VARCHAR(100) NOT NULL,
+            display_name VARCHAR(255) NOT NULL,
+            week_num INTEGER,
+            message TEXT NOT NULL,
+            feedback_type VARCHAR(50) DEFAULT 'improvement',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            read_by_admin BOOLEAN DEFAULT FALSE
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pm_training_enrollment (
+            user_key VARCHAR(100) PRIMARY KEY,
+            enrolled_at TIMESTAMP DEFAULT NOW(),
+            enrolled_by VARCHAR(100),
+            manager_key VARCHAR(100) NOT NULL DEFAULT 'trey_hollmeyer',
+            target_weeks INTEGER DEFAULT 4,
+            last_activity_at TIMESTAMP,
+            graduated_at TIMESTAMP,
+            active BOOLEAN DEFAULT TRUE
+        )
+    ''')
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pm_training_manager_signoffs (
+            user_key VARCHAR(100) NOT NULL,
+            week_num INTEGER NOT NULL,
+            signed_by VARCHAR(100) NOT NULL,
+            signed_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_key, week_num)
+        )
+    ''')
+
     ask_pps.init_tables(cur)
 
     # Seed users with default password if configured
@@ -1912,6 +1977,367 @@ def compute_psc_training_stats(user_key):
         'signed_weeks': signed_weeks,
         'total_weeks': len(week_map),
     }
+
+
+def get_pm_training_progress(user_key):
+    """Return {item_id: True} for completed PM training items."""
+    progress = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return progress
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT item_id FROM pm_training_progress WHERE user_key = %s AND completed = TRUE',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            progress[row['item_id']] = True
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM training progress read error: {e}")
+    return progress
+
+
+def save_pm_training_progress(user_key, progress_dict):
+    """Upsert completed flags. Open to all logged-in users (under-construction rollout)."""
+    if not isinstance(progress_dict, dict):
+        return False
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        for item_id, completed in progress_dict.items():
+            item_id = str(item_id)[:100]
+            done = bool(completed)
+            cur.execute('''
+                INSERT INTO pm_training_progress (user_key, item_id, completed, completed_at, updated_at)
+                VALUES (%s, %s, %s, CASE WHEN %s THEN NOW() ELSE NULL END, NOW())
+                ON CONFLICT (user_key, item_id)
+                DO UPDATE SET
+                    completed = EXCLUDED.completed,
+                    completed_at = CASE WHEN EXCLUDED.completed THEN COALESCE(pm_training_progress.completed_at, NOW()) ELSE NULL END,
+                    updated_at = NOW()
+            ''', (user_key, item_id, done, done))
+        conn.commit()
+        cur.close()
+        conn.close()
+        touch_pm_training_activity(user_key)
+        return True
+    except Exception as e:
+        print(f"PM training progress save error: {e}")
+        return False
+
+
+def can_pm_training_oversight(user_key):
+    """Admin and Production Manager (Trey) track PM training progress."""
+    user = USERS.get(user_key, {})
+    if user.get('role') == 'admin':
+        return True
+    return user_key == PM_TRAINING_MANAGER
+
+
+def is_pm_training_enrolled(user_key):
+    """Optional formal enrollment. Module is open to everyone; enrollment is for accountability tracking."""
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT 1 FROM pm_training_enrollment WHERE user_key = %s AND active = TRUE AND graduated_at IS NULL',
+            (user_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return bool(row)
+    except Exception as e:
+        print(f"PM enrollment check error: {e}")
+        return False
+
+
+def get_pm_enrollment(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM pm_training_enrollment WHERE user_key = %s', (user_key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return row
+    except Exception:
+        return None
+
+
+def list_pm_enrolled_trainees():
+    rows = []
+    try:
+        conn = get_db()
+        if not conn:
+            return rows
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('''
+            SELECT * FROM pm_training_enrollment
+            WHERE active = TRUE AND graduated_at IS NULL
+            ORDER BY enrolled_at DESC
+        ''')
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM enrollment list error: {e}")
+    result = []
+    for row in rows:
+        key = row['user_key']
+        u = USERS.get(key, {})
+        result.append({
+            **dict(row),
+            'display': u.get('display', row.get('display_name') or key),
+        })
+    return result
+
+
+def enroll_pm_trainee(user_key, enrolled_by, manager_key=None):
+    if user_key not in USERS:
+        return False, 'Unknown user'
+    mgr = manager_key or PM_TRAINING_MANAGER
+    try:
+        conn = get_db()
+        if not conn:
+            return False, 'Database unavailable'
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO pm_training_enrollment
+            (user_key, enrolled_by, manager_key, enrolled_at, active, graduated_at, last_activity_at, target_weeks)
+            VALUES (%s, %s, %s, NOW(), TRUE, NULL, NOW(), 4)
+            ON CONFLICT (user_key) DO UPDATE SET
+                enrolled_by = EXCLUDED.enrolled_by,
+                manager_key = EXCLUDED.manager_key,
+                enrolled_at = NOW(),
+                active = TRUE,
+                graduated_at = NULL,
+                last_activity_at = NOW(),
+                target_weeks = 4
+        ''', (user_key, enrolled_by, mgr))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True, None
+    except Exception as e:
+        print(f"PM enroll error: {e}")
+        return False, str(e)
+
+
+def graduate_pm_trainee(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            UPDATE pm_training_enrollment
+            SET graduated_at = NOW(), active = FALSE, last_activity_at = NOW()
+            WHERE user_key = %s
+        ''', (user_key,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PM graduate error: {e}")
+        return False
+
+
+def unenroll_pm_trainee(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'UPDATE pm_training_enrollment SET active = FALSE WHERE user_key = %s',
+            (user_key,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PM unenroll error: {e}")
+        return False
+
+
+def touch_pm_training_activity(user_key):
+    try:
+        conn = get_db()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute(
+            'UPDATE pm_training_enrollment SET last_activity_at = NOW() WHERE user_key = %s AND active = TRUE',
+            (user_key,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception:
+        pass
+
+
+def get_pm_training_notes(user_key):
+    notes = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return notes
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT week_num, notes FROM pm_training_notes WHERE user_key = %s',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            notes[row['week_num']] = row['notes'] or ''
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM training notes read error: {e}")
+    return notes
+
+
+def save_pm_training_notes(user_key, week_num, notes_text):
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO pm_training_notes (user_key, week_num, notes, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_key, week_num)
+            DO UPDATE SET notes = EXCLUDED.notes, updated_at = NOW()
+        ''', (user_key, int(week_num), notes_text or ''))
+        conn.commit()
+        cur.close()
+        conn.close()
+        touch_pm_training_activity(user_key)
+        return True
+    except Exception as e:
+        print(f"PM training notes save error: {e}")
+        return False
+
+
+def submit_pm_training_feedback(user_key, display_name, message, week_num=None, feedback_type='improvement'):
+    if not message or not message.strip():
+        return False
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO pm_training_feedback
+            (user_key, display_name, week_num, message, feedback_type)
+            VALUES (%s, %s, %s, %s, %s)
+        ''', (user_key, display_name, week_num, message.strip(), feedback_type))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"PM training feedback error: {e}")
+        return False
+
+
+def get_pm_manager_signoffs(user_key):
+    signoffs = {}
+    try:
+        conn = get_db()
+        if not conn:
+            return signoffs
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT week_num, signed_by, signed_at FROM pm_training_manager_signoffs WHERE user_key = %s',
+            (user_key,),
+        )
+        for row in cur.fetchall():
+            signer = row['signed_by']
+            signoffs[row['week_num']] = {
+                'signed_by': signer,
+                'signed_at': row['signed_at'],
+                'signed_by_display': USERS.get(signer, {}).get('display', signer),
+            }
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM manager signoffs read error: {e}")
+    return signoffs
+
+
+def compute_pm_training_stats(user_key):
+    progress = get_pm_training_progress(user_key)
+    week_map = get_pm_week_item_ids()
+    signoffs = get_pm_manager_signoffs(user_key)
+    checkins = get_pm_week_checkin_questions()
+    total = count_pm_trackable_items()
+    all_ids = get_pm_training_item_ids()
+    done = sum(1 for i in all_ids if progress.get(i))
+    week_pcts = []
+    for week_num in sorted(week_map.keys()):
+        ids = week_map[week_num]
+        w_done = sum(1 for i in ids if progress.get(i))
+        w_total = len(ids)
+        trainee_pct = round((w_done / w_total) * 100) if w_total else 0
+        manager_signed = week_num in signoffs
+        entry = {
+            'week': week_num,
+            'done': w_done,
+            'total': w_total,
+            'trainee_pct': trainee_pct,
+            'manager_signed': manager_signed,
+            'ready_for_signoff': trainee_pct == 100 and not manager_signed,
+            'pct': 100 if manager_signed and trainee_pct == 100 else trainee_pct,
+            'checkin': checkins.get(week_num, ''),
+        }
+        if manager_signed:
+            entry['signed_by_display'] = signoffs[week_num]['signed_by_display']
+            entry['signed_at'] = signoffs[week_num]['signed_at']
+        week_pcts.append(entry)
+    pct = round((done / total) * 100) if total else 0
+    signed_weeks = sum(1 for w in week_pcts if w['manager_signed'] and w['trainee_pct'] == 100)
+    return {
+        'done': done,
+        'total': total,
+        'pct': pct,
+        'week_pcts': week_pcts,
+        'signed_weeks': signed_weeks,
+        'total_weeks': len(week_map),
+    }
+
+
+def list_pm_training_feedback(limit=50):
+    rows = []
+    try:
+        conn = get_db()
+        if not conn:
+            return rows
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('''
+            SELECT * FROM pm_training_feedback
+            ORDER BY submitted_at DESC
+            LIMIT %s
+        ''', (limit,))
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM feedback list error: {e}")
+    return rows
+
 
 
 def can_access_psc_roleplay(user_key):
@@ -3116,6 +3542,10 @@ def dashboard():
     if psc_training_enrolled:
         psc_training_stats = compute_psc_training_stats(user_key)
     psc_training_oversight = can_psc_training_oversight(user_key)
+    # PM training: open to everyone (under construction); progress optional
+    pm_training_stats = compute_pm_training_stats(user_key)
+    pm_training_oversight = can_pm_training_oversight(user_key)
+    pm_training_open = True
     unread_feedback = 0
     unread_diffs = 0
     pricing_summary = None
@@ -3152,6 +3582,9 @@ def dashboard():
         psc_training_stats=psc_training_stats,
         psc_training_enrolled=psc_training_enrolled,
         psc_training_oversight=psc_training_oversight,
+        pm_training_stats=pm_training_stats,
+        pm_training_oversight=pm_training_oversight,
+        pm_training_open=pm_training_open,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
@@ -5534,6 +5967,191 @@ def admin_site_visits():
     except Exception as e:
         print(f"Admin site visits error: {e}")
     return render_template('admin_site_visits.html', rows=rows)
+
+
+@app.route('/pm-training')
+@require_login
+def pm_training():
+    """PM onboarding module — open to all logged-in users while under construction."""
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    enrollment = get_pm_enrollment(user_key) or {}
+    manager = USERS.get(enrollment.get('manager_key') or PM_TRAINING_MANAGER, {})
+    meta, weeks = get_pm_training_curriculum()
+    progress = get_pm_training_progress(user_key)
+    notes = get_pm_training_notes(user_key)
+    stats = compute_pm_training_stats(user_key)
+    week_status = {wp['week']: wp for wp in stats['week_pcts']}
+    return render_template(
+        'pm_training.html',
+        meta=meta,
+        weeks=weeks,
+        total_items=count_pm_trackable_items(),
+        progress_json=json.dumps(progress),
+        notes_json=json.dumps(notes),
+        enrollment=enrollment,
+        manager=manager,
+        stats=stats,
+        week_status=week_status,
+        user=user,
+        under_construction=True,
+    )
+
+
+@app.route('/api/pm-training/progress', methods=['GET', 'POST'])
+@require_login
+def pm_training_progress_api():
+    user_key = session['user_key']
+    if request.method == 'GET':
+        return jsonify({'progress': get_pm_training_progress(user_key)})
+    data = request.get_json(silent=True) or {}
+    progress = data.get('progress', {})
+    if not isinstance(progress, dict):
+        return jsonify({'error': 'Invalid progress data'}), 400
+    ok = save_pm_training_progress(user_key, progress)
+    if not ok:
+        return jsonify({'error': 'Could not save progress'}), 500
+    return jsonify({'success': True, 'stats': compute_pm_training_stats(user_key)})
+
+
+@app.route('/api/pm-training/notes', methods=['GET', 'POST'])
+@require_login
+def pm_training_notes_api():
+    user_key = session['user_key']
+    if request.method == 'GET':
+        return jsonify({'notes': get_pm_training_notes(user_key)})
+    data = request.get_json(silent=True) or {}
+    week_num = data.get('week')
+    if week_num is None:
+        return jsonify({'error': 'week required'}), 400
+    notes_text = data.get('notes', '')
+    ok = save_pm_training_notes(user_key, week_num, notes_text)
+    if not ok:
+        return jsonify({'error': 'Could not save notes'}), 500
+    return jsonify({'success': True})
+
+
+@app.route('/api/pm-training/feedback', methods=['POST'])
+@require_login
+def pm_training_feedback_api():
+    user_key = session['user_key']
+    user = USERS.get(user_key, {})
+    data = request.get_json(silent=True) or {}
+    message = (data.get('message') or '').strip()
+    if not message:
+        return jsonify({'error': 'Message required'}), 400
+    week_num = data.get('week')
+    if week_num is not None and week_num != '':
+        try:
+            week_num = int(week_num)
+        except (TypeError, ValueError):
+            week_num = None
+    else:
+        week_num = None
+    feedback_type = (data.get('type') or 'improvement').strip()[:50]
+    ok = submit_pm_training_feedback(
+        user_key,
+        user.get('display', user_key),
+        message,
+        week_num=week_num,
+        feedback_type=feedback_type,
+    )
+    if not ok:
+        return jsonify({'error': 'Could not submit feedback'}), 500
+    return jsonify({'success': True})
+
+
+@app.route('/pm-training/oversight')
+@require_login
+def pm_training_oversight():
+    user_key = session['user_key']
+    if not can_pm_training_oversight(user_key):
+        return redirect(url_for('dashboard'))
+    trainees = list_pm_enrolled_trainees()
+    trainee_rows = []
+    for t in trainees:
+        key = t['user_key']
+        stats = compute_pm_training_stats(key)
+        trainee_rows.append({**t, 'stats': stats})
+    # Everyone can open the module; also list recent progress users not formally enrolled
+    enrollable = sorted(
+        [{'key': k, 'display': v.get('display', k), 'role': v.get('role', '')}
+         for k, v in USERS.items()],
+        key=lambda u: u['display'],
+    )
+    return render_template(
+        'pm_training_oversight.html',
+        trainees=trainee_rows,
+        enrollable=enrollable,
+        feedback=list_pm_training_feedback(),
+        manager_name=USERS.get(PM_TRAINING_MANAGER, {}).get('display', 'Production Manager'),
+        is_admin=(USERS.get(user_key, {}).get('role') == 'admin'),
+        under_construction=True,
+    )
+
+
+@app.route('/admin/pm-training')
+@require_login
+def admin_pm_training():
+    return redirect(url_for('pm_training_oversight'))
+
+
+@app.route('/api/pm-training/signoff', methods=['POST'])
+@require_login
+def pm_training_signoff_api():
+    user_key = session['user_key']
+    if not can_pm_training_oversight(user_key):
+        return jsonify({'error': 'Not authorized'}), 403
+    data = request.get_json(silent=True) or {}
+    trainee_key = (data.get('user_key') or '').strip()
+    try:
+        week_num = int(data.get('week'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'week required'}), 400
+    if not trainee_key:
+        return jsonify({'error': 'user_key required'}), 400
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 500
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO pm_training_manager_signoffs (user_key, week_num, signed_by, signed_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_key, week_num)
+            DO UPDATE SET signed_by = EXCLUDED.signed_by, signed_at = NOW()
+        ''', (trainee_key, week_num, user_key))
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"PM signoff error: {e}")
+        return jsonify({'error': 'Could not sign off'}), 500
+    return jsonify({'success': True, 'stats': compute_pm_training_stats(trainee_key)})
+
+
+@app.route('/api/pm-training/enroll', methods=['POST'])
+@require_login
+def pm_training_enroll_api():
+    user_key = session['user_key']
+    if not can_pm_training_oversight(user_key):
+        return jsonify({'error': 'Not authorized'}), 403
+    data = request.get_json(silent=True) or {}
+    target_key = (data.get('user_key') or '').strip()
+    action = (data.get('action') or 'enroll').strip()
+    if not target_key:
+        return jsonify({'error': 'user_key required'}), 400
+    if action == 'unenroll':
+        ok = unenroll_pm_trainee(target_key)
+        return jsonify({'success': bool(ok)})
+    if action == 'graduate':
+        ok = graduate_pm_trainee(target_key)
+        return jsonify({'success': bool(ok)})
+    ok, err = enroll_pm_trainee(target_key, user_key, data.get('manager_key'))
+    if not ok:
+        return jsonify({'error': err or 'Could not enroll'}), 400
+    return jsonify({'success': True})
+
 
 
 @app.route('/psc-training')

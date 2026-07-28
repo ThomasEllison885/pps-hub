@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · PM Training Accountability</title>
+<style>
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:960px; margin:0 auto; padding:36px 24px 60px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:28px; color:var(--dark-blue); margin-bottom:4px; }
+  .page-sub { font-size:14px; color:#888; margin-bottom:20px; line-height:1.55; }
+  .uc-banner { background:#FFF8E1; border:1.5px solid #FFE082; border-radius:10px; padding:14px 16px; margin-bottom:20px; font-size:14px; color:#6D4C00; line-height:1.55; }
+  .card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin-bottom:24px; }
+  .card-pad { padding:18px 20px; }
+  .section-head { font-size:12px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:14px; padding-bottom:8px; border-bottom:1.5px solid var(--border); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:var(--dark-blue); padding:12px 16px; background:var(--light-bg); border-bottom:1.5px solid var(--border); }
+  td { padding:12px 16px; border-bottom:1px solid #f0f4f8; font-size:14px; vertical-align:middle; }
+  .bar-track { height:8px; background:#eef4f9; border-radius:4px; overflow:hidden; margin-bottom:4px; min-width:100px; }
+  .bar-fill { height:100%; background:linear-gradient(90deg,var(--dark-blue),var(--blue)); border-radius:4px; }
+  .week-dots { display:flex; gap:4px; flex-wrap:wrap; }
+  .week-dot { width:22px; height:22px; border-radius:50%; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; border:1.5px solid var(--border); color:#aaa; background:white; }
+  .week-dot.done { background:#E8F5E9; border-color:#81C784; color:#2E7D32; }
+  .week-dot.ready { background:#E3F2FD; border-color:#64B5F6; color:#1565C0; cursor:pointer; }
+  .week-dot.partial { background:#FFF8E1; border-color:#FFD54F; color:#E65100; }
+  .enroll-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .enroll-row select { padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; min-width:220px; }
+  .btn { background:var(--dark-blue); color:white; border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-outline { background:white; color:var(--dark-blue); border:1.5px solid var(--border); }
+  .btn-sm { padding:5px 10px; font-size:11px; margin-left:4px; }
+  .feedback-item { background:var(--light-bg); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:8px; }
+  .empty { color:#bbb; font-size:13px; padding:20px; text-align:center; }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">PM Accountability</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/pm-training" class="pps-btn-header">Open module</a>
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="uc-banner"><strong>Under construction.</strong> PM Training is open to the whole team for review. Formal enrollment below is optional for accountability tracking. Owner: <strong>{{ manager_name }}</strong>.</div>
+
+  <div class="page-title">PM Training Accountability</div>
+  <p class="page-sub">Anyone can open the module and check off items. Use enrollment when you want formal week sign-offs for a hire.</p>
+
+  <div class="section-head">Enroll for accountability tracking</div>
+  <div class="card card-pad">
+    <div class="enroll-row">
+      <select id="enrollUser">
+        <option value="">Select person…</option>
+        {% for u in enrollable %}
+        <option value="{{ u.key }}">{{ u.display }} ({{ u.role }})</option>
+        {% endfor %}
+      </select>
+      <button class="btn" type="button" onclick="enroll()">Enroll</button>
+    </div>
+  </div>
+
+  <div class="section-head">Enrolled trainees</div>
+  <div class="card">
+    {% if trainees %}
+    <table>
+      <tr><th>Person</th><th>Progress</th><th>Weeks</th><th></th></tr>
+      {% for t in trainees %}
+      <tr>
+        <td><strong>{{ t.display }}</strong><div style="font-size:11px;color:#aaa;">{{ t.user_key }}</div></td>
+        <td>
+          <div class="bar-track"><div class="bar-fill" style="width:{{ t.stats.pct }}%"></div></div>
+          <span style="font-size:12px;color:#888;">{{ t.stats.pct }}% · {{ t.stats.done }}/{{ t.stats.total }}</span>
+        </td>
+        <td>
+          <div class="week-dots">
+            {% for w in t.stats.week_pcts %}
+            <div class="week-dot {% if w.manager_signed and w.trainee_pct == 100 %}done{% elif w.ready_for_signoff %}ready{% elif w.trainee_pct > 0 %}partial{% endif %}"
+                 title="Week {{ w.week }}: {{ w.trainee_pct }}%"
+                 {% if w.ready_for_signoff %}onclick="signoff('{{ t.user_key }}', {{ w.week }})"{% endif %}>{{ w.week }}</div>
+            {% endfor %}
+          </div>
+        </td>
+        <td>
+          <button class="btn btn-outline btn-sm" type="button" onclick="graduate('{{ t.user_key }}')">Graduate</button>
+          <button class="btn btn-outline btn-sm" type="button" onclick="unenroll('{{ t.user_key }}')">Unenroll</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">No formal enrollments yet. Module is still open to everyone.</div>
+    {% endif %}
+  </div>
+
+  <div class="section-head">Feedback</div>
+  <div class="card card-pad">
+    {% if feedback %}
+      {% for f in feedback %}
+      <div class="feedback-item">
+        <div style="font-size:11px;color:#aaa;margin-bottom:6px;">{{ f.display_name }}{% if f.week_num %} · Week {{ f.week_num }}{% endif %} · {{ f.submitted_at }}</div>
+        <div style="font-size:14px;line-height:1.5;">{{ f.message }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="empty">No feedback yet.</div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+async function enroll() {
+  const key = document.getElementById('enrollUser').value;
+  if (!key) return;
+  const r = await fetch('/api/pm-training/enroll', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key: key, action: 'enroll' }),
+  });
+  const d = await r.json();
+  if (d.success) location.reload();
+  else alert(d.error || 'Failed');
+}
+async function unenroll(key) {
+  if (!confirm('Unenroll this person?')) return;
+  const r = await fetch('/api/pm-training/enroll', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key: key, action: 'unenroll' }),
+  });
+  if ((await r.json()).success) location.reload();
+}
+async function graduate(key) {
+  if (!confirm('Mark graduated?')) return;
+  const r = await fetch('/api/pm-training/enroll', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key: key, action: 'graduate' }),
+  });
+  if ((await r.json()).success) location.reload();
+}
+async function signoff(userKey, week) {
+  if (!confirm('Sign off Week ' + week + '?')) return;
+  const r = await fetch('/api/pm-training/signoff', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_key: userKey, week }),
+  });
+  if ((await r.json()).success) location.reload();
+  else alert('Sign-off failed');
+}
+</script>
+</body>
+</html>
