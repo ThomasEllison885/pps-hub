@@ -470,12 +470,11 @@ document.querySelectorAll('.pending[data-entry-id]').forEach(function(card) {
     });
   }
 });
-// Deep-link #pending-123 → open that card's editor after jump
+// Deep-link #pending-123 → scroll to card only (do NOT re-open editor after Save)
 if (location.hash && location.hash.indexOf('#pending-') === 0) {
   var target = document.querySelector(location.hash);
-  if (target) {
-    var btn = target.querySelector('.btn-open-edit');
-    if (btn) btn.click();
+  if (target && target.scrollIntoView) {
+    target.scrollIntoView({ block: 'start' });
   }
 }
 </script>
