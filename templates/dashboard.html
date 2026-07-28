@@ -122,6 +122,22 @@
   }
   .user-notif-dismiss:hover { background: var(--light-bg); }
 
+  .dash-preview-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    background: #1e3a5f; color: #d4e4f4; border-radius: var(--radius); padding: 12px 16px;
+    margin-bottom: 18px; box-shadow: var(--shadow);
+  }
+  .dash-preview-bar strong { color: #ffd166; }
+  .dash-preview-bar p { font-size: 13px; margin: 2px 0 0; color: #9bb8d4; line-height: 1.4; }
+  .dash-preview-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dash-preview-actions a {
+    font-size: 12px; font-weight: 600; text-decoration: none; padding: 7px 12px; border-radius: 6px;
+    border: 1px solid #3d5a80; color: #d4e4f4; background: transparent;
+  }
+  .dash-preview-actions a:hover { background: #2a4a6f; }
+  .dash-preview-actions a.active { background: #00c896; color: #042; border-color: #00c896; }
+  .dash-preview-actions a.exit { background: white; color: #1e3a5f; border-color: white; }
+
   .feedback-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px; }
   .feedback-section .pps-tool-card { height: 100%; }
   /* Feedback card */
@@ -198,7 +214,7 @@
     <span class="pps-header-user">{{ user.display }}</span>
     {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
     <a href="/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_prompt_queue > 0 %}<span class="pps-header-badge">{{ ask_pps_prompt_queue }}</span>{% endif %}</a>
-    {% if session.get('role') == 'admin' %}
+    {% if real_is_admin or session.get('role') == 'admin' %}
     <a href="/admin/feedback" class="pps-btn-header">Feedback{% if unread_feedback > 0 %}<span class="pps-header-badge">{{ unread_feedback }}</span>{% endif %}</a>
     <a href="/admin" class="pps-btn-header primary">Admin</a>
     {% endif %}
@@ -209,10 +225,41 @@
 
 <div class="main">
 
+  {% if real_is_admin %}
+  <div class="dash-preview-bar">
+    <div>
+      {% if dash_preview %}
+      <div>Viewing as <strong>{{ dash_preview.label }}</strong></div>
+      <p>{{ dash_preview.blurb }} Layout only — your real login permissions still apply when you open tools.</p>
+      {% else %}
+      <div><strong>Role preview</strong></div>
+      <p>See the dashboard the way a standard sales person or PM sees it (both tool sections open for field roles).</p>
+      {% endif %}
+    </div>
+    <div class="dash-preview-actions">
+      <a href="/dashboard?view_as=sales" class="{% if dash_preview and dash_preview.mode == 'sales' %}active{% endif %}">Sales / PSC</a>
+      <a href="/dashboard?view_as=pm" class="{% if dash_preview and dash_preview.mode == 'pm' %}active{% endif %}">PM</a>
+      {% if dash_preview %}
+      <a href="/dashboard" class="exit">Exit preview</a>
+      {% else %}
+      <a href="/dashboard" class="active">My view</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="greeting">
     <div class="greeting-time" id="greetingTime"></div>
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
-    <p>Sales and production tools — organized for your role.</p>
+    <p>
+      {% if dash_preview and dash_preview.mode == 'sales' %}
+      Sales view: proposals, clients, training — plus Production tools open below.
+      {% elif dash_preview and dash_preview.mode == 'pm' %}
+      PM view: production tools first — Sales tools available; no admin or oversight cards.
+      {% else %}
+      Sales and production tools — both sections open so you can reach either lane.
+      {% endif %}
+    </p>
   </div>
 
   {% if user_notifications %}

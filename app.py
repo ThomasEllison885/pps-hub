@@ -3521,9 +3521,88 @@ def dashboard():
             conn_tps.close()
     except Exception as e:
         print(f"Recent activity error: {e}")
-    is_admin = (user.get('role') == 'admin')
-    user_role = user.get('role', '')
-    date_events = get_date_events(user_key, is_admin=is_admin)
+    real_is_admin = (user.get('role') == 'admin')
+    real_role = user.get('role', '')
+
+    # Admin role-preview: dashboard layout only (does not change login/session permissions)
+    view_as = (request.args.get('view_as') or '').strip().lower()
+    if not real_is_admin:
+        view_as = ''
+    if view_as not in ('sales', 'pm', ''):
+        view_as = ''
+
+    if view_as == 'sales':
+        # Archetype: standard PSC (consultant) — both tool lanes open
+        is_admin = False
+        user_role = 'consultant'
+        team_view = False
+        team_view_scope = None
+        # Typical sales tool access: one consultant book
+        accessible_consultants = {
+            k: CONSULTANTS[k]
+            for k in ('andy_potts',)
+            if k in CONSULTANTS
+        } or {k: v for k, v in list(CONSULTANTS.items())[:1]}
+        psc_training_enrolled = True  # show training card as a normal enrolled PSC would
+        psc_training_stats = compute_psc_training_stats(user_key)  # your progress while previewing
+        psc_training_oversight = False
+        pm_training_oversight = False
+        pricing_summary = None
+        unread_feedback = 0
+        unread_diffs = 0
+        dash_preview = {
+            'mode': 'sales',
+            'label': 'Standard Sales / PSC',
+            'blurb': 'Dashboard as a typical Property Solutions Consultant sees it — Sales and Production both open.',
+        }
+    elif view_as == 'pm':
+        # Archetype: standard PM — both tool lanes open
+        is_admin = False
+        user_role = 'pm'
+        team_view = False
+        team_view_scope = None
+        # Typical PM proposal access is limited (paired consultant)
+        accessible_consultants = {
+            k: CONSULTANTS[k]
+            for k in ('rachel_farler',)
+            if k in CONSULTANTS
+        } or {k: v for k, v in list(CONSULTANTS.items())[:1]}
+        psc_training_enrolled = False
+        psc_training_stats = None
+        psc_training_oversight = False
+        pm_training_oversight = False  # standard PM is not Trey
+        pricing_summary = None
+        unread_feedback = 0
+        unread_diffs = 0
+        dash_preview = {
+            'mode': 'pm',
+            'label': 'Standard Project Manager',
+            'blurb': 'Dashboard as a typical PM sees it — Production first, Sales available, no admin/oversight cards.',
+        }
+    else:
+        is_admin = real_is_admin
+        user_role = real_role
+        team_view = user.get('team_view', False)
+        team_view_scope = user.get('team_view_scope')
+        psc_training_enrolled = is_psc_training_enrolled(user_key)
+        psc_training_stats = (
+            compute_psc_training_stats(user_key) if psc_training_enrolled else None
+        )
+        psc_training_oversight = can_psc_training_oversight(user_key)
+        pm_training_oversight = can_pm_training_oversight(user_key)
+        unread_feedback = 0
+        unread_diffs = 0
+        pricing_summary = None
+        if is_admin:
+            unread_feedback, unread_diffs = _admin_inbox_counts()
+            pricing_summary = _pricing_summary_for_dashboard()
+        dash_preview = None
+
+    # Sales and Production both open by default for field roles (and admin)
+    sales_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
+    production_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
+
+    date_events = get_date_events(user_key, is_admin=real_is_admin and not view_as)
     recent_feed = _build_dashboard_recent_feed(
         recent_proposals,
         recent_ppms,
@@ -3533,25 +3612,9 @@ def dashboard():
         recent_gutter_estimates,
         recent_painting_estimates,
     )
-    sales_lane_open = user_role in ('consultant', 'office_manager', 'admin')
-    production_lane_open = user_role in ('pm', 'office_manager', 'admin')
-    team_view = user.get('team_view', False)
-    team_view_scope = user.get('team_view_scope')
-    psc_training_stats = None
-    psc_training_enrolled = is_psc_training_enrolled(user_key)
-    if psc_training_enrolled:
-        psc_training_stats = compute_psc_training_stats(user_key)
-    psc_training_oversight = can_psc_training_oversight(user_key)
-    # PM training: open to everyone (under construction); progress optional
+    # PM training: open to everyone (under construction)
     pm_training_stats = compute_pm_training_stats(user_key)
-    pm_training_oversight = can_pm_training_oversight(user_key)
     pm_training_open = True
-    unread_feedback = 0
-    unread_diffs = 0
-    pricing_summary = None
-    if is_admin:
-        unread_feedback, unread_diffs = _admin_inbox_counts()
-        pricing_summary = _pricing_summary_for_dashboard()
     # Field Ask PPS only on dashboard — same queue rules for everyone (no curator admin UI).
     ask_pps_prompt = ask_pps.get_next_prompt_for_user(get_db, USERS, user_key, user_role)
     ask_pps_prompt_queue = len(
@@ -3559,18 +3622,23 @@ def dashboard():
             get_db, USERS, user_key, user_role, include_all_for_curator=False,
         )
     )
-    user_notifications = ask_pps.get_unread_notifications(get_db, user_key)
+    user_notifications = (
+        [] if view_as else ask_pps.get_unread_notifications(get_db, user_key)
+    )
     return render_template(
         'dashboard.html',
         user=user,
         user_key=user_key,
         user_role=user_role,
+        real_role=real_role,
+        real_is_admin=real_is_admin,
+        dash_preview=dash_preview,
         ask_pps_prompt=ask_pps_prompt,
         ask_pps_prompt_queue=ask_pps_prompt_queue,
         user_notifications=user_notifications,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
-        admin_lane_open=is_admin,
+        admin_lane_open=is_admin and not view_as,
         team_view=team_view,
         team_view_scope=team_view_scope,
         consultants=accessible_consultants,
