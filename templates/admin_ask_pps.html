@@ -17,6 +17,25 @@
   .stat .n { font-size: 24px; font-weight: 700; color: var(--dark-blue); }
   .stat .l { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; }
   #pending-contributions { scroll-margin-top: 80px; }
+  [id^="pending-"] { scroll-margin-top: 80px; }
+  .answer-print {
+    font-size: 14px; line-height: 1.55; white-space: pre-wrap; color: #222;
+    background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 10px;
+  }
+  .original-box {
+    font-size: 12px; color: #555; margin: 0 0 12px;
+    border-left: 3px solid #ccc; padding: 8px 12px; background: #fafafa; border-radius: 0 6px 6px 0;
+  }
+  .original-box summary { cursor: pointer; font-weight: 600; color: var(--dark-blue); }
+  .original-body { white-space: pre-wrap; margin-top: 8px; line-height: 1.5; }
+  .edit-panel {
+    display: none; margin-top: 12px; padding: 14px; border: 1.5px solid var(--blue);
+    border-radius: 8px; background: #f7fbff;
+  }
+  .edit-panel.is-open { display: block; }
+  .pending.is-editing .answer-print { opacity: 0.45; }
+  .pending.is-editing .view-actions { display: none; }
   .section { background: white; border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 24px; overflow: hidden; }
   .section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dark-blue); padding: 14px 18px; background: var(--light-bg); border-bottom: 1px solid var(--border); margin: 0; }
   .section-body { padding: 16px 18px; }
@@ -225,8 +244,9 @@
     <h2>Pending contributions — submitted answers</h2>
     <div class="section-body">
       <p style="font-size:13px;color:#666;margin:0 0 14px;line-height:1.5;">
-        Team answers land here. <strong>Save edit</strong> updates the draft only (stays pending).
-        <strong>Approve as-is</strong> is what publishes into Ask PPS.
+        Answers show as read-only until you press <strong>Edit</strong> — that opens her text in an editable box.
+        <strong>Save</strong> keeps it pending. <strong>Approve</strong> publishes to Ask PPS.
+        The original submission is always kept for reference.
       </p>
       {% if recently_activated %}
       <div style="margin-bottom:18px;padding:12px;border:1px solid #f0d0a0;background:#fffaf0;border-radius:8px;">
@@ -246,25 +266,45 @@
       {% endif %}
       {% if pending %}
       {% for p in pending %}
-      <div class="pending">
+      <div class="pending" id="pending-{{ p.id }}" data-entry-id="{{ p.id }}">
         <div class="meta">{{ p.author_display or p.author_key }} · {{ p.category }}</div>
         <div class="q">{{ p.title }}</div>
-        <div style="font-size:13px;white-space:pre-wrap;margin-bottom:10px;">{{ p.content }}</div>
-        <form method="post" action="{{ url_for('admin_ask_pps_edit_pending', entry_id=p.id) }}">
+        <div class="answer-print">{{ p.content }}</div>
+        {% if p.original_answer and p.original_answer != p.content %}
+        <details class="original-box">
+          <summary>Original submission (unchanged)</summary>
+          <div class="original-body">{{ p.original_answer }}</div>
+        </details>
+        {% elif p.original_answer %}
+        <details class="original-box">
+          <summary>Original submission on file</summary>
+          <div class="original-body">{{ p.original_answer }}</div>
+        </details>
+        {% endif %}
+        <div class="btn-row view-actions">
+          <button type="button" class="btn btn-primary btn-open-edit">Edit</button>
+          <form method="post" action="{{ url_for('admin_ask_pps_approve', entry_id=p.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-muted">Approve</button>
+          </form>
+          <form method="post" action="{{ url_for('admin_ask_pps_reject', entry_id=p.id) }}" style="display:inline;">
+            <button type="submit" class="btn btn-muted">Reject</button>
+          </form>
+        </div>
+        <form class="edit-panel" method="post" action="{{ url_for('admin_ask_pps_edit_pending', entry_id=p.id) }}">
           <label>Category</label>
           <select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
           <label>Title</label>
           <input name="title" value="{{ p.title }}">
-          <label>Content</label>
-          <textarea name="content">{{ p.content }}</textarea>
+          <label>Answer (editable)</label>
+          <textarea name="content" rows="12" required>{{ p.edit_body }}</textarea>
+          <p style="font-size:12px;color:#666;margin:8px 0 0;">
+            Saving updates the published draft only. Original submission above stays on file.
+          </p>
           <div class="btn-row">
-            <button type="submit" class="btn btn-primary">Save edit</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+            <button type="button" class="btn btn-muted btn-cancel-edit">Cancel</button>
           </div>
         </form>
-        <div class="btn-row">
-          <form method="post" action="{{ url_for('admin_ask_pps_approve', entry_id=p.id) }}"><button class="btn btn-muted">Approve as-is</button></form>
-          <form method="post" action="{{ url_for('admin_ask_pps_reject', entry_id=p.id) }}"><button class="btn btn-muted">Reject</button></form>
-        </div>
       </div>
       {% endfor %}
       {% else %}
@@ -406,6 +446,38 @@ document.getElementById('syncThinBtn').addEventListener('click', async function(
     ? 'Thin-category prompts +' + (data.created || 0) + '. Reload page.'
     : (data.error || 'Sync failed.');
 });
+
+// Pending: Edit opens answer into editable fields; Cancel closes without save
+document.querySelectorAll('.pending[data-entry-id]').forEach(function(card) {
+  var panel = card.querySelector('.edit-panel');
+  var openBtn = card.querySelector('.btn-open-edit');
+  var cancelBtn = card.querySelector('.btn-cancel-edit');
+  if (!panel || !openBtn) return;
+  openBtn.addEventListener('click', function() {
+    card.classList.add('is-editing');
+    panel.classList.add('is-open');
+    var ta = panel.querySelector('textarea[name="content"]');
+    if (ta) {
+      ta.focus();
+      // Place caret at start of answer body for quick rewrite
+      try { ta.setSelectionRange(0, 0); } catch (e) {}
+    }
+  });
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', function() {
+      card.classList.remove('is-editing');
+      panel.classList.remove('is-open');
+    });
+  }
+});
+// Deep-link #pending-123 → open that card's editor after jump
+if (location.hash && location.hash.indexOf('#pending-') === 0) {
+  var target = document.querySelector(location.hash);
+  if (target) {
+    var btn = target.querySelector('.btn-open-edit');
+    if (btn) btn.click();
+  }
+}
 </script>
 </body>
 </html>

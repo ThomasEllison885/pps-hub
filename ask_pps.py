@@ -165,6 +165,30 @@ def init_tables(cur):
         cur.execute(
             "ALTER TABLE ask_pps_questions ADD COLUMN IF NOT EXISTS gap_summary TEXT"
         )
+        # Immutable first submission (team wording) — never overwrite on curator edit
+        cur.execute(
+            "ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS original_content TEXT"
+        )
+        cur.execute(
+            '''UPDATE knowledge_entries
+               SET original_content = content
+               WHERE original_content IS NULL AND content IS NOT NULL'''
+        )
+        # Prefer raw prompt answer text when we still have the link
+        cur.execute(
+            '''UPDATE knowledge_entries k
+               SET original_content = a.answer
+               FROM knowledge_prompt_answers a
+               WHERE a.entry_id = k.id
+                 AND a.answer IS NOT NULL
+                 AND a.answer <> ''
+                 AND (
+                   k.original_content IS NULL
+                   OR k.original_content = k.content
+                 )
+                 AND k.source_type = 'prompt_response'
+                 AND length(a.answer) < length(coalesce(k.content, ''))'''
+        )
         cur.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_prompts (
                 id SERIAL PRIMARY KEY,
@@ -221,13 +245,16 @@ def _tsv_sql():
     return "to_tsvector('english', coalesce(title,'') || ' ' || coalesce(content,''))"
 
 
-def _insert_entry(cur, category, title, content, source_type, author_key=None, status='active'):
+def _insert_entry(cur, category, title, content, source_type, author_key=None, status='active',
+                  original_content=None):
+    """Insert knowledge row. original_content freezes the first submission (defaults to content)."""
+    orig = original_content if original_content is not None else content
     cur.execute(
         '''INSERT INTO knowledge_entries
-           (category, title, content, source_type, author_key, status, search_tsv)
-           VALUES (%s, %s, %s, %s, %s, %s,
+           (category, title, content, source_type, author_key, status, original_content, search_tsv)
+           VALUES (%s, %s, %s, %s, %s, %s, %s,
                    to_tsvector('english', coalesce(%s, '') || ' ' || coalesce(%s, '')))''',
-        (category, title, content, source_type, author_key, status, title, content),
+        (category, title, content, source_type, author_key, status, orig, title, content),
     )
 
 
@@ -1533,6 +1560,7 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
         _insert_entry(
             cur, prompt['category'], title, content, 'prompt_response',
             author_key=user_key, status='pending',
+            original_content=answer,  # raw team answer only — frozen for curator reference
         )
         cur.execute('SELECT id FROM knowledge_entries ORDER BY id DESC LIMIT 1')
         entry_id = cur.fetchone()['id']
@@ -1868,9 +1896,11 @@ def get_admin_data(get_db_fn, users):
             g['display_name'] = _display(users, g['user_key'])
 
         cur.execute(
-            '''SELECT k.*, u.display_name AS author_display
+            '''SELECT k.*, u.display_name AS author_display,
+                      a.answer AS prompt_raw_answer
                FROM knowledge_entries k
                LEFT JOIN hub_users u ON u.user_key = k.author_key
+               LEFT JOIN knowledge_prompt_answers a ON a.entry_id = k.id
                WHERE k.status = 'pending'
                ORDER BY k.created_at DESC'''
         )
@@ -1878,6 +1908,14 @@ def get_admin_data(get_db_fn, users):
         for p in pending:
             if not p.get('author_display'):
                 p['author_display'] = _display(users, p.get('author_key'))
+            # Prefer frozen original, then raw prompt answer, then full content
+            p['original_answer'] = (
+                (p.get('original_content') or '').strip()
+                or (p.get('prompt_raw_answer') or '').strip()
+                or (p.get('content') or '').strip()
+            )
+            # Body shown for editing: current content (may already be curator-edited)
+            p['edit_body'] = (p.get('content') or '').strip()
 
         cur.execute(
             '''SELECT * FROM ask_pps_questions ORDER BY created_at DESC LIMIT 200'''
@@ -2480,19 +2518,25 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_login
     @require_ask_pps_curator
     def admin_ask_pps_edit_pending(entry_id):
-        """Save category/title/content only — stays pending until Approve."""
+        """Save category/title/content only — stays pending until Approve.
+        Never overwrites original_content (first team submission)."""
         category = (request.form.get('category') or 'general').strip()
         title = (request.form.get('title') or '').strip()
         content = (request.form.get('content') or '').strip()
-        if category not in CATEGORIES:
-            return redirect(url_for('admin_ask_pps') + '#pending-contributions')
+        if category not in CATEGORIES or len(content) < 3:
+            return redirect(url_for('admin_ask_pps') + f'#pending-{entry_id}')
         conn = get_db_fn()
         if conn:
             try:
                 cur = conn.cursor()
+                # Freeze original on first save if still empty
                 cur.execute(
                     '''UPDATE knowledge_entries
-                       SET category = %s, title = %s, content = %s, status = 'pending',
+                       SET category = %s,
+                           title = %s,
+                           content = %s,
+                           status = 'pending',
+                           original_content = COALESCE(original_content, content),
                            updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(%s, '') || ' ' || coalesce(%s, ''))
@@ -2505,7 +2549,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 print(f'Ask PPS edit pending error: {e}')
             finally:
                 conn.close()
-        return redirect(url_for('admin_ask_pps') + '#pending-contributions')
+        return redirect(url_for('admin_ask_pps') + f'#pending-{entry_id}')
 
     @app.route('/admin/ask-pps/entry/<int:entry_id>/return-pending', methods=['POST'])
     @require_login
