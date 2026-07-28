@@ -3122,28 +3122,18 @@ def dashboard():
     if is_admin:
         unread_feedback, unread_diffs = _admin_inbox_counts()
         pricing_summary = _pricing_summary_for_dashboard()
-    is_ask_pps_curator = ask_pps.is_curator(user_key)
-    ask_pps_open_gaps = 0
-    if is_ask_pps_curator:
-        try:
-            conn_ask = get_db()
-            if conn_ask:
-                cur_ask = conn_ask.cursor()
-                cur_ask.execute("SELECT COUNT(*) FROM ask_pps_questions WHERE gap_status = 'open'")
-                ask_pps_open_gaps = cur_ask.fetchone()[0]
-                cur_ask.close()
-                conn_ask.close()
-        except Exception as e:
-            print(f'Ask PPS dashboard count error: {e}')
+    # Field Ask PPS only on dashboard — same queue rules for everyone (no curator admin UI).
     ask_pps_prompt = ask_pps.get_next_prompt_for_user(get_db, USERS, user_key, user_role)
-    ask_pps_prompt_queue = len(ask_pps.get_prompts_for_user(get_db, USERS, user_key, user_role))
+    ask_pps_prompt_queue = len(
+        ask_pps.get_prompts_for_user(
+            get_db, USERS, user_key, user_role, include_all_for_curator=False,
+        )
+    )
     return render_template(
         'dashboard.html',
         user=user,
         user_key=user_key,
         user_role=user_role,
-        is_ask_pps_curator=is_ask_pps_curator,
-        ask_pps_open_gaps=ask_pps_open_gaps,
         ask_pps_prompt=ask_pps_prompt,
         ask_pps_prompt_queue=ask_pps_prompt_queue,
         sales_lane_open=sales_lane_open,
@@ -4117,6 +4107,7 @@ def admin():
         'storage_remaining_mb': int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024)),
     }
     system_health = {'ok': False, 'checks': []}
+    ask_pps_pending_cnt = 0
     try:
         conn = get_db()
         if conn:
@@ -4142,6 +4133,13 @@ def admin():
                 client_count = cur.fetchone()['cnt']
             except Exception:
                 pass
+            try:
+                cur.execute(
+                    "SELECT COUNT(*) AS c FROM knowledge_entries WHERE status = 'pending'"
+                )
+                ask_pps_pending_cnt = cur.fetchone()['c'] or 0
+            except Exception:
+                ask_pps_pending_cnt = 0
             cur.close()
             conn.close()
     except Exception as e:
@@ -4186,6 +4184,7 @@ def admin():
     return render_template('admin.html', users=rows, all_proposals=all_proposals,
                            all_ppms=all_ppms, all_subscopes=all_subscopes,
                            unread_feedback=unread_feedback,
+                           ask_pps_pending_cnt=ask_pps_pending_cnt,
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
                            breakdown=breakdown, vault=vault,

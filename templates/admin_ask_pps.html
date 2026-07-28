@@ -41,12 +41,17 @@
   </a>
   <div class="pps-header-right">
     <a href="/admin" class="pps-btn-header">Admin</a>
-    <a href="/ask-pps" class="pps-btn-header">Ask PPS</a>
+    <a href="/ask-pps" class="pps-btn-header">Field Ask PPS</a>
+    <a href="/dashboard" class="pps-btn-header">Dashboard</a>
   </div>
 </header>
 
 <div class="main">
   <h1 class="page-title">Ask PPS — Knowledge Curation</h1>
+  <p style="font-size:13px;color:#666;margin:0 0 8px;line-height:1.5;">
+    Review pending team answers here. Dashboard and <a href="/ask-pps" style="color:var(--blue);font-weight:600;">Field Ask PPS</a>
+    stay the same for everyone (including you).
+  </p>
   <div class="stats">
     <div class="stat"><div class="n">{{ open_gaps or 0 }}</div><div class="l">Open gaps</div></div>
     <div class="stat"><div class="n">{{ open_prompts or 0 }}</div><div class="l">Open prompts</div></div>

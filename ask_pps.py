@@ -2311,16 +2311,8 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                 conn.close()
         return redirect(url_for('admin_ask_pps'))
 
-    @app.route('/admin/ask-pps')
-    @require_login
-    def admin_ask_pps():
-        """Admin curation UI parked — redirect to field Ask PPS (restore later if needed)."""
-        return redirect(url_for('ask_pps_page'))
-
-    @app.route('/admin/ask-pps/_legacy')
-    @require_login
-    @require_ask_pps_curator
-    def admin_ask_pps_legacy():
+    def _render_ask_pps_admin():
+        """Curation UI — admin/curator only. Field Ask PPS stays at /ask-pps for everyone."""
         data = get_admin_data(get_db_fn, users)
         assignable_users = sorted(
             [
@@ -2342,6 +2334,20 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             prompt_target_roles=PROMPT_TARGET_ROLES,
             **data,
         )
+
+    @app.route('/admin/ask-pps')
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps():
+        """Knowledge curation (pending answers, gaps, prompts). Not the field Ask PPS UI."""
+        return _render_ask_pps_admin()
+
+    @app.route('/admin/ask-pps/_legacy')
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_legacy():
+        """Old bookmark → same curation page."""
+        return redirect(url_for('admin_ask_pps'))
 
     @app.route('/admin/ask-pps/seed', methods=['POST'])
     @require_login
