@@ -3129,6 +3129,7 @@ def dashboard():
             get_db, USERS, user_key, user_role, include_all_for_curator=False,
         )
     )
+    user_notifications = ask_pps.get_unread_notifications(get_db, user_key)
     return render_template(
         'dashboard.html',
         user=user,
@@ -3136,6 +3137,7 @@ def dashboard():
         user_role=user_role,
         ask_pps_prompt=ask_pps_prompt,
         ask_pps_prompt_queue=ask_pps_prompt_queue,
+        user_notifications=user_notifications,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
         admin_lane_open=is_admin,

@@ -237,8 +237,153 @@ def init_tables(cur):
                 PRIMARY KEY (prompt_id, user_key)
             )
         ''')
+        # In-app thank-yous for Ask PPS (submit + approve) — shown until dismissed / next logins
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS hub_user_notifications (
+                id SERIAL PRIMARY KEY,
+                user_key TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                related_entry_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                read_at TIMESTAMP
+            )
+        ''')
+        cur.execute(
+            '''CREATE INDEX IF NOT EXISTS idx_hub_user_notifications_unread
+               ON hub_user_notifications(user_key, created_at DESC)
+               WHERE read_at IS NULL'''
+        )
     except Exception:
         pass
+
+
+def create_user_notification(get_db_fn, user_key, kind, title, body, related_entry_id=None):
+    """Persist an in-app notification for the user (survives until they dismiss it)."""
+    if not user_key or not title:
+        return None
+    conn = get_db_fn()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''INSERT INTO hub_user_notifications
+               (user_key, kind, title, body, related_entry_id)
+               VALUES (%s, %s, %s, %s, %s)
+               RETURNING id''',
+            (user_key, kind, title[:200], (body or '')[:2000], related_entry_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        return row[0] if row else None
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f'create_user_notification error: {e}')
+        return None
+    finally:
+        conn.close()
+
+
+def get_unread_notifications(get_db_fn, user_key, limit=20):
+    if not user_key:
+        return []
+    conn = get_db_fn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT id, kind, title, body, related_entry_id, created_at
+               FROM hub_user_notifications
+               WHERE user_key = %s AND read_at IS NULL
+               ORDER BY created_at DESC
+               LIMIT %s''',
+            (user_key, limit),
+        )
+        rows = cur.fetchall() or []
+        cur.close()
+        return rows
+    except Exception as e:
+        print(f'get_unread_notifications error: {e}')
+        return []
+    finally:
+        conn.close()
+
+
+def mark_notification_read(get_db_fn, user_key, notification_id):
+    if not user_key or not notification_id:
+        return False
+    conn = get_db_fn()
+    if not conn:
+        return False
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            '''UPDATE hub_user_notifications
+               SET read_at = NOW()
+               WHERE id = %s AND user_key = %s AND read_at IS NULL''',
+            (notification_id, user_key),
+        )
+        conn.commit()
+        ok = cur.rowcount > 0
+        cur.close()
+        return ok
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        print(f'mark_notification_read error: {e}')
+        return False
+    finally:
+        conn.close()
+
+
+def notify_ask_pps_submitted(get_db_fn, user_key, display_name, question, entry_id=None):
+    short_q = (question or 'your question').strip()
+    if len(short_q) > 100:
+        short_q = short_q[:97] + '…'
+    first = (display_name or 'there').split()[0]
+    create_user_notification(
+        get_db_fn,
+        user_key,
+        kind='ask_pps_submitted',
+        title=f'Thank you, {first}',
+        body=(
+            f'We received your Ask PPS answer about “{short_q}”. '
+            'It is saved under your name for review. Thanks for helping document how PPS works.'
+        ),
+        related_entry_id=entry_id,
+    )
+
+
+def notify_ask_pps_approved(get_db_fn, user_key, display_name, title_or_question, entry_id=None):
+    if not user_key:
+        return
+    label = (title_or_question or 'your answer').strip()
+    # Titles often look like "Name: question…" — strip leading "Name: "
+    if ': ' in label:
+        label = label.split(': ', 1)[-1]
+    if len(label) > 100:
+        label = label[:97] + '…'
+    first = (display_name or 'there').split()[0]
+    create_user_notification(
+        get_db_fn,
+        user_key,
+        kind='ask_pps_approved',
+        title=f'Thank you, {first} — your answer is live',
+        body=(
+            f'Your Ask PPS contribution about “{label}” was approved and added to the knowledge base. '
+            'Thank you for taking the time to share how we work.'
+        ),
+        related_entry_id=entry_id,
+    )
 
 
 def _tsv_sql():
@@ -1572,6 +1717,7 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
             (prompt_id, user_key, answer, entry_id),
         )
         perspective = prompt['perspective']
+        prompt_question = prompt['question']
         conn.commit()
         cur.close()
     except Exception as e:
@@ -1581,6 +1727,14 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
     finally:
         conn.close()
 
+    # Persistent thank-you (shows on dashboard until dismissed / next logins)
+    try:
+        notify_ask_pps_submitted(
+            get_db_fn, user_key, display, prompt_question, entry_id=entry_id,
+        )
+    except Exception as e:
+        print(f'Ask PPS submit notify error: {e}')
+
     perspective_note = (
         'Field answers help us document how work really gets done.'
         if perspective == 'field'
@@ -1588,11 +1742,13 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
     )
     nxt = get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=1)
     next_prompt = _serialize_prompt_for_client(nxt[0]) if nxt else None
+    first = display.split()[0] if display else 'there'
     return {
         'success': True,
         'message': (
-            f'Thanks, {display} — your answer was saved under your name for curator review. '
-            f'{perspective_note}'
+            f'Thank you, {first}! Your answer was saved under your name for review. '
+            f'{perspective_note} '
+            'You’ll also see a thank-you on your dashboard until you dismiss it.'
         ),
         'submitted_by': display,
         'submitted_by_key': user_key,
@@ -2265,6 +2421,13 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         )
         return jsonify(payload), status
 
+    @app.route('/api/notifications/<int:notification_id>/dismiss', methods=['POST'])
+    @require_login
+    def api_dismiss_notification(notification_id):
+        user_key = session['user_key']
+        ok = mark_notification_read(get_db_fn, user_key, notification_id)
+        return jsonify({'success': bool(ok)})
+
     @app.route('/admin/ask-pps/prompts/sync-gaps', methods=['POST'])
     @require_login
     @require_ask_pps_curator
@@ -2474,23 +2637,41 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_ask_pps_curator
     def admin_ask_pps_approve(entry_id):
         conn = get_db_fn()
+        author_key = None
+        entry_title = None
         if conn:
             try:
-                cur = conn.cursor()
+                cur = conn.cursor(cursor_factory=RealDictCursor)
                 cur.execute(
                     '''UPDATE knowledge_entries
                        SET status = 'active', updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(title, '') || ' ' || coalesce(content, ''))
-                       WHERE id = %s''',
+                       WHERE id = %s
+                       RETURNING author_key, title''',
                     (entry_id,),
                 )
+                row = cur.fetchone()
+                if row:
+                    author_key = row.get('author_key')
+                    entry_title = row.get('title')
                 conn.commit()
                 cur.close()
             except Exception as e:
                 print(f'Ask PPS approve error: {e}')
             finally:
                 conn.close()
+        if author_key:
+            try:
+                notify_ask_pps_approved(
+                    get_db_fn,
+                    author_key,
+                    _display(users, author_key),
+                    entry_title,
+                    entry_id=entry_id,
+                )
+            except Exception as e:
+                print(f'Ask PPS approve notify error: {e}')
         return redirect(url_for('admin_ask_pps') + '#pending-contributions')
 
     @app.route('/admin/ask-pps/pending/<int:entry_id>/reject', methods=['POST'])

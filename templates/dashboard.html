@@ -107,6 +107,21 @@
   .act-meta { font-size: 12px; color: #888; }
   .empty-state { color: #bbb; font-size: 13px; padding: 12px 0; text-align: center; }
 
+  .user-notif {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
+    background: #E8F5E9; border: 1px solid #A5D6A7; border-radius: var(--radius);
+    padding: 14px 16px; margin-bottom: 10px; box-shadow: var(--shadow);
+  }
+  .user-notif.approved { background: #E3F2FD; border-color: #90CAF9; }
+  .user-notif-title { font-size: 14px; font-weight: 700; color: var(--dark-blue); margin-bottom: 4px; }
+  .user-notif-body { font-size: 13px; color: #444; line-height: 1.5; }
+  .user-notif-dismiss {
+    flex-shrink: 0; border: none; background: white; color: var(--dark-blue);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px;
+    font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'DM Sans', sans-serif;
+  }
+  .user-notif-dismiss:hover { background: var(--light-bg); }
+
   .feedback-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 28px; }
   .feedback-section .pps-tool-card { height: 100%; }
   /* Feedback card */
@@ -199,6 +214,20 @@
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
     <p>Sales and production tools — organized for your role.</p>
   </div>
+
+  {% if user_notifications %}
+  <div id="userNotifications" style="margin-bottom: 22px;">
+    {% for n in user_notifications %}
+    <div class="user-notif {% if n.kind == 'ask_pps_approved' %}approved{% endif %}" data-notif-id="{{ n.id }}">
+      <div>
+        <div class="user-notif-title">{{ n.title }}</div>
+        <div class="user-notif-body">{{ n.body }}</div>
+      </div>
+      <button type="button" class="user-notif-dismiss" data-notif-id="{{ n.id }}">Got it</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   {% if date_events %}
   {% for event in date_events %}
@@ -616,6 +645,22 @@ const recentProposals = [
       `${greet} · ${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getDate()}`;
   }
   setGreeting();
+
+  // Ask PPS thank-you / approval notifications (persist until Got it)
+  document.querySelectorAll('.user-notif-dismiss').forEach(function(btn) {
+    btn.addEventListener('click', async function() {
+      var id = btn.getAttribute('data-notif-id');
+      var card = btn.closest('.user-notif');
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        await fetch('/api/notifications/' + id + '/dismiss', { method: 'POST' });
+      } catch (e) { /* still hide locally */ }
+      if (card) card.remove();
+      var wrap = document.getElementById('userNotifications');
+      if (wrap && !wrap.querySelector('.user-notif')) wrap.remove();
+    });
+  });
 
   const recentPPMs = [
     {% for p in recent_ppms %}

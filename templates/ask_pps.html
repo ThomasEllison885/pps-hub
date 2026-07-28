@@ -265,7 +265,7 @@
           btn.disabled = false;
           return;
         }
-        msgEl.textContent = data.message || 'Thanks — saved under your name.';
+        msgEl.textContent = data.message || 'Thank you — saved under your name for review.';
         msgEl.className = 'msg ok';
         if (data.next_prompt && data.next_prompt.question) {
           card.dataset.promptId = data.next_prompt.id;
@@ -273,7 +273,8 @@
           var ta = card.querySelector('.prompt-answer');
           if (ta) { ta.value = ''; ta.disabled = false; }
           btn.disabled = false;
-          msgEl.textContent = 'Saved. Next question ready.';
+          // Keep thank-you visible; briefly note next question is ready
+          msgEl.textContent = (data.message || 'Thank you — saved for review.') + ' Next question is ready below.';
         } else {
           card.querySelector('.prompt-answer').disabled = true;
         }
