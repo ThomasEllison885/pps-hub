@@ -880,7 +880,7 @@ def _prompt_role_weight(user_key, user_role, prompt):
 
 
 def _prompt_diversity_bucket(prompt):
-    """Group related prompts so we can interleave topics (avoid 4× Monday.com in a row)."""
+    """Fine-grained topic id (module / keyword / category)."""
     ref = (prompt.get('source_ref') or '').strip()
     if ref.startswith('psc:'):
         parts = ref.split(':')
@@ -899,8 +899,7 @@ def _prompt_diversity_bucket(prompt):
         return 'user_recommend'
 
     q = (prompt.get('question') or '').lower()
-    # Keyword buckets for thin_category / legacy rows without source_ref structure
-    if 'monday' in q:
+    if 'monday' in q or 'production board' in q:
         return 'kw:monday'
     if 'trade partner' in q or 'subcontractor' in q or re.search(r'\bsubs?\b', q):
         return 'kw:trade_partner'
@@ -918,55 +917,138 @@ def _prompt_diversity_bucket(prompt):
     return f'cat:{cat}'
 
 
-def _weighted_shuffle_prompts(prompts, user_key, user_role):
-    """Role-weighted pick order with hard topic-bucket separation.
+def _prompt_topic_family(prompt):
+    """Coarse family for interleave — Monday.com / Production Board is one family.
 
-    Role weights still control *how often* a matching-role prompt wins the next
-    slot (PSC → consultant prompts, PM → production). Diversity penalties break
-    up same-topic runs (e.g. four Monday.com questions in a row) without
-    flattening role preference.
+    Fine buckets alone still let ops_monday + kw:monday + 'production board'
+    questions clump as different buckets. Family groups those together.
+    """
+    bucket = _prompt_diversity_bucket(prompt)
+    ref = (prompt.get('source_ref') or '').strip().lower()
+    q = (prompt.get('question') or '').lower()
+    title = (prompt.get('title') or '').lower()
+    blob = f'{q} {title} {ref} {bucket}'
+
+    if (
+        'monday' in blob
+        or 'production board' in blob
+        or bucket == 'kw:monday'
+        or bucket == 'psc:ops_monday'
+        or ref.startswith('psc:ops_monday')
+    ):
+        return 'family:monday'
+
+    # Module-level family for other PSC training chunks
+    if bucket.startswith('psc:'):
+        return bucket
+    if bucket.startswith('pscfb:') or bucket.startswith('pmfb:'):
+        return bucket
+    if bucket.startswith('audit:'):
+        return bucket
+    if bucket.startswith('kw:'):
+        return bucket
+    return bucket
+
+
+def _weighted_shuffle_prompts(prompts, user_key, user_role):
+    """Role-weighted deck: break topic families into piles, shuffle each, interleave.
+
+    Rules:
+    - Re-randomize every call (page open / next question).
+    - Monday.com + Production Board share family:monday — at most ONE in the first 3.
+    - Opening slot prefers a non-monday family when any exists.
+    - No two consecutive from the same family when alternatives remain.
+    - Role weights still bias which family wins a free slot.
     """
     if not prompts:
         return []
 
-    remaining = []
+    # Entropy per page open (not deterministic by user)
+    random.shuffle(list(range(3)))  # burn a little RNG if anything else seeded
+
+    items = []
     for p in prompts:
         w = _prompt_role_weight(user_key, user_role, p)
         if w <= 0:
             continue
-        remaining.append({
+        items.append({
             'p': p,
             'w': float(w),
+            'family': _prompt_topic_family(p),
             'bucket': _prompt_diversity_bucket(p),
         })
-    if not remaining:
+    if not items:
         return []
 
+    # Split into family piles; shuffle within each pile
+    piles = {}
+    for item in items:
+        piles.setdefault(item['family'], []).append(item)
+    for fam in piles:
+        random.shuffle(piles[fam])
+
     result = []
-    recent_buckets = []  # last few chosen buckets
-    while remaining:
-        best_i = 0
+    recent_families = []
+    monday_in_opening = 0
+    OPENING = 3
+
+    def _eligible_families(pos, relax=False):
+        out = []
+        for fam, pile in piles.items():
+            if not pile:
+                continue
+            if not relax:
+                # Hard: only one monday-family item in first OPENING slots
+                if pos < OPENING and fam == 'family:monday' and monday_in_opening >= 1:
+                    continue
+                # Hard: never open the deck with monday if anything else exists
+                if pos == 0 and fam == 'family:monday':
+                    non_monday = any(
+                        f != 'family:monday' and piles[f]
+                        for f in piles
+                    )
+                    if non_monday:
+                        continue
+                # Hard: no back-to-back same family when other piles have cards
+                if recent_families and fam == recent_families[-1]:
+                    others = any(f != fam and piles[f] for f in piles)
+                    if others:
+                        continue
+            out.append(fam)
+        return out
+
+    while any(piles[f] for f in piles):
+        pos = len(result)
+        families = _eligible_families(pos, relax=False)
+        if not families:
+            families = _eligible_families(pos, relax=True)
+        if not families:
+            break
+
+        best_fam = None
         best_score = -1.0
-        for i, item in enumerate(remaining):
-            # Stochastic role weight (higher w → more likely to win this slot)
-            score = item['w'] * (0.15 + random.random())
-            b = item['bucket']
-            # Strong anti-clump: same as last pick almost never wins
-            if recent_buckets and b == recent_buckets[-1]:
-                score *= 0.05
-            # Soft penalty if same bucket appeared in last 3
-            elif b in recent_buckets[-3:]:
-                score *= 0.25
-            elif b in recent_buckets[-5:]:
-                score *= 0.55
+        for fam in families:
+            head = piles[fam][0]
+            score = head['w'] * (0.25 + random.random())
+            # Soft: family used in last 2 picks
+            if fam in recent_families[-2:]:
+                score *= 0.2
+            elif fam in recent_families[-4:]:
+                score *= 0.5
+            # Soft: slightly prefer less-represented families still holding cards
+            remaining_in_fam = len(piles[fam])
+            score *= 1.0 + 0.05 * min(remaining_in_fam, 6)
             if score > best_score:
                 best_score = score
-                best_i = i
-        chosen = remaining.pop(best_i)
+                best_fam = fam
+
+        chosen = piles[best_fam].pop(0)
         result.append(chosen['p'])
-        recent_buckets.append(chosen['bucket'])
-        if len(recent_buckets) > 8:
-            recent_buckets = recent_buckets[-8:]
+        recent_families.append(best_fam)
+        if len(recent_families) > 10:
+            recent_families = recent_families[-10:]
+        if pos < OPENING and best_fam == 'family:monday':
+            monday_in_opening += 1
 
     return result
 
@@ -1691,36 +1773,27 @@ def get_prompts_for_user(get_db_fn, users, user_key, user_role, limit=None, incl
         )
         rows = cur.fetchall()
         cur.close()
-        assigned = []
-        pool = []
+        active = []
+        skipped_pool = []
         for row in rows:
             if not include_all_for_curator or not is_curator(user_key):
                 if not _user_matches_prompt(user_key, user_role, row):
                     continue
             if row.get('answered_by_me'):
                 continue
-            # Skipped prompts go to the back of the deck (still answerable later)
             _enrich_prompt_row(row, users, user_key)
             row['can_answer'] = _user_matches_prompt(user_key, user_role, row)
-            if row.get('target_user_key') == user_key and not row.get('skipped_by_me'):
-                assigned.append(row)
+            if row.get('skipped_by_me'):
+                skipped_pool.append(row)
             else:
-                pool.append(row)
+                # Assigned + bank together so assigned monday items cannot pin the top
+                active.append(row)
 
-        # Assigned-to-you first (stable), then role-weighted random for everyone else
-        assigned.sort(key=lambda r: (-(r.get('priority') or 0), r.get('created_at') or ''))
-        shuffled = _weighted_shuffle_prompts(
-            [p for p in pool if not p.get('skipped_by_me')],
-            user_key,
-            user_role,
-        )
+        # Full diversify shuffle every page open (not stable by priority / created_at)
+        shuffled = _weighted_shuffle_prompts(active, user_key, user_role)
         # Soft-include skipped at the very end so a 30-min blitz can still cycle
-        skipped = _weighted_shuffle_prompts(
-            [p for p in pool if p.get('skipped_by_me')],
-            user_key,
-            user_role,
-        )
-        matched = assigned + shuffled + skipped
+        skipped = _weighted_shuffle_prompts(skipped_pool, user_key, user_role)
+        matched = shuffled + skipped
         if limit:
             matched = matched[:limit]
         return matched
