@@ -975,26 +975,169 @@ def _perspective_label(perspective):
     return 'How we actually do it (field)' if perspective == 'field' else 'Leadership intent (policy)'
 
 
+def _prompt_entry_title(question, display_name, max_len=120):
+    """Title = question first; append submitter name only if it fits."""
+    q = (question or '').strip()
+    name = (display_name or '').strip()
+    if not q:
+        return (name or 'Answer')[:max_len]
+    if name:
+        sep = ' — '
+        if len(q) + len(sep) + len(name) <= max_len:
+            return f'{q}{sep}{name}'
+    if len(q) <= max_len:
+        return q
+    return q[: max_len - 1] + '…'
+
+
+def _is_stamped_prompt_content(text):
+    t = (text or '').strip()
+    return t.startswith('Submitted by:') or t.startswith('Submitted at:')
+
+
+def _extract_answer_body(content, original_content=None, prompt_raw=None):
+    """Return only the team answer text (strip legacy stamp header / Prompt trailer)."""
+    for candidate in (prompt_raw, original_content):
+        if not candidate:
+            continue
+        c = str(candidate).strip()
+        if not c or _is_stamped_prompt_content(c):
+            continue
+        if c.startswith('Prompt:'):
+            continue
+        # raw answer should not end with the prompt block
+        if '\n\nPrompt:' in c:
+            c = c.split('\n\nPrompt:')[0].strip()
+        return c
+
+    text = (content or '').strip()
+    if not text:
+        return ''
+
+    if _is_stamped_prompt_content(text):
+        if '\n\nPrompt:' in text:
+            text = text.split('\n\nPrompt:')[0].strip()
+        lines = text.split('\n')
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+            if line.startswith('Submitted by:') or line.startswith('Submitted at:'):
+                i += 1
+                continue
+            if line in (
+                'How we actually do it (field)',
+                'Leadership intent (policy)',
+            ):
+                i += 1
+                while i < len(lines) and not lines[i].strip():
+                    i += 1
+                break
+            if not line:
+                i += 1
+                continue
+            break
+        return '\n'.join(lines[i:]).strip()
+
+    if '\n\nPrompt:' in text:
+        return text.split('\n\nPrompt:')[0].strip()
+    return text
+
+
+def _question_from_legacy_title(title, author_display=None):
+    """If title is old 'Name: question' form, return the question part."""
+    t = (title or '').strip()
+    if not t:
+        return ''
+    name = (author_display or '').strip()
+    if name and t.startswith(name + ': '):
+        return t[len(name) + 2 :].strip()
+    # Common display-name prefix before first ': '
+    if ': ' in t and not t.lower().startswith('http'):
+        left, right = t.split(': ', 1)
+        # Only treat as legacy name prefix when left side looks like a short person name
+        if left and len(left) <= 40 and '?' not in left and not left.startswith('Q'):
+            # Prefer when author matches; otherwise if right looks like a question
+            if (name and left == name) or right.strip().endswith('?') or len(right) > len(left):
+                if name and left != name and not right.strip().endswith('?'):
+                    return ''
+                return right.strip()
+    return ''
+
+
+def _display_question_for_entry(row):
+    """Best-effort question text for review UI."""
+    q = (row.get('prompt_question') or '').strip()
+    if q:
+        return q
+    q = _question_from_legacy_title(row.get('title'), row.get('author_display'))
+    if q:
+        return q
+    # New titles are already question-first (optional " — Name")
+    t = (row.get('title') or '').strip()
+    if ' — ' in t:
+        # last segment might be name
+        left, right = t.rsplit(' — ', 1)
+        if right and len(right) <= 40 and '?' not in right:
+            return left.strip()
+    return t
+
+
+def _normalize_pending_prompt_entry(cur, row, users):
+    """
+    Rewrite pending prompt_response rows that still use stamp body / Name: title
+    into question-first title + answer-only content. Leave already-clean rows alone.
+    """
+    if (row.get('source_type') or '') != 'prompt_response':
+        return row
+    content = (row.get('content') or '').strip()
+    title = (row.get('title') or '').strip()
+    author = row.get('author_display') or _display(users, row.get('author_key'))
+    body = _extract_answer_body(
+        content,
+        original_content=row.get('original_content'),
+        prompt_raw=row.get('prompt_raw_answer'),
+    )
+    question = _display_question_for_entry(row)
+    new_title = _prompt_entry_title(question, author) if question else title
+    needs_content = body and body != content
+    needs_title = new_title and new_title != title
+    needs_original = body and not (row.get('original_content') or '').strip()
+    if not (needs_content or needs_title or needs_original):
+        return row
+    try:
+        cur.execute(
+            '''UPDATE knowledge_entries
+               SET content = %s,
+                   title = %s,
+                   original_content = COALESCE(NULLIF(original_content, ''), %s),
+                   updated_at = NOW(),
+                   search_tsv = to_tsvector('english',
+                       coalesce(%s, '') || ' ' || coalesce(%s, ''))
+               WHERE id = %s AND status = 'pending' ''',
+            (
+                body if needs_content else content,
+                new_title if needs_title else title,
+                body,
+                new_title if needs_title else title,
+                body if needs_content else content,
+                row['id'],
+            ),
+        )
+        if needs_content:
+            row['content'] = body
+        if needs_title:
+            row['title'] = new_title
+        if needs_original:
+            row['original_content'] = body
+    except Exception as e:
+        print(f'normalize pending prompt entry error: {e}')
+    return row
+
+
 def _format_prompt_entry_content(question, answer, perspective, display_name, hub_role,
                                  user_key=None, email=None):
-    """Always stamp who answered so curators know the source without guessing."""
-    header = _perspective_label(perspective)
-    who = (display_name or user_key or 'Unknown').strip()
-    bits = [who]
-    if hub_role:
-        bits.append(str(hub_role))
-    if user_key:
-        bits.append(f'hub:{user_key}')
-    if email:
-        bits.append(email)
-    stamp = datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
-    return (
-        f'Submitted by: {" · ".join(bits)}\n'
-        f'Submitted at: {stamp}\n'
-        f'{header}\n\n'
-        f'{answer.strip()}\n\n'
-        f'Prompt: {question.strip()}'
-    )
+    """Legacy helper — new submissions store answer text only. Kept for any old callers."""
+    return (answer or '').strip()
 
 
 def _prompt_exists_for_gap(cur, gap_id, perspective):
@@ -1685,27 +1828,13 @@ def submit_prompt_answer(get_db_fn, users, user_key, user_role, prompt_id, answe
             return {'success': False, 'error': 'This prompt is not assigned to you.'}, 403
 
         display = _display(users, user_key)
-        user_def = users.get(user_key, {}) or {}
-        hub_role = user_def.get('title') or user_role
-        email = user_def.get('email') or ''
-        # Title leads with who answered so admin Pending list is obvious at a glance
-        short_q = prompt['question'][:90]
-        if len(prompt['question']) > 90:
-            short_q += '…'
-        title = f'{display}: {short_q}'
-        content = _format_prompt_entry_content(
-            prompt['question'],
-            answer,
-            prompt['perspective'],
-            display,
-            hub_role,
-            user_key=user_key,
-            email=email,
-        )
+        # Title: question first; name only if it fits. Content: answer body only.
+        title = _prompt_entry_title(prompt['question'], display)
+        content = (answer or '').strip()
         _insert_entry(
             cur, prompt['category'], title, content, 'prompt_response',
             author_key=user_key, status='pending',
-            original_content=answer,  # raw team answer only — frozen for curator reference
+            original_content=content,  # freeze raw team answer
         )
         cur.execute('SELECT id FROM knowledge_entries ORDER BY id DESC LIMIT 1')
         entry_id = cur.fetchone()['id']
@@ -2053,10 +2182,12 @@ def get_admin_data(get_db_fn, users):
 
         cur.execute(
             '''SELECT k.*, u.display_name AS author_display,
-                      a.answer AS prompt_raw_answer
+                      a.answer AS prompt_raw_answer,
+                      p.question AS prompt_question
                FROM knowledge_entries k
                LEFT JOIN hub_users u ON u.user_key = k.author_key
                LEFT JOIN knowledge_prompt_answers a ON a.entry_id = k.id
+               LEFT JOIN knowledge_prompts p ON p.id = a.prompt_id
                WHERE k.status = 'pending'
                ORDER BY k.created_at DESC'''
         )
@@ -2064,14 +2195,29 @@ def get_admin_data(get_db_fn, users):
         for p in pending:
             if not p.get('author_display'):
                 p['author_display'] = _display(users, p.get('author_key'))
-            # Prefer frozen original, then raw prompt answer, then full content
-            p['original_answer'] = (
-                (p.get('original_content') or '').strip()
-                or (p.get('prompt_raw_answer') or '').strip()
-                or (p.get('content') or '').strip()
+            # Normalize legacy stamp / Name: title into clean form (pending only)
+            p = _normalize_pending_prompt_entry(cur, p, users)
+            body = _extract_answer_body(
+                p.get('content'),
+                original_content=p.get('original_content'),
+                prompt_raw=p.get('prompt_raw_answer'),
             )
-            # Body shown for editing: current content (may already be curator-edited)
-            p['edit_body'] = (p.get('content') or '').strip()
+            original = _extract_answer_body(
+                p.get('original_content') or p.get('prompt_raw_answer') or p.get('content'),
+                original_content=p.get('original_content'),
+                prompt_raw=p.get('prompt_raw_answer'),
+            )
+            p['display_question'] = _display_question_for_entry(p)
+            p['display_title'] = _prompt_entry_title(
+                p['display_question'], p.get('author_display')
+            ) if p.get('display_question') else (p.get('title') or '')
+            p['answer_body'] = body
+            p['original_answer'] = original
+            p['edit_body'] = body
+        try:
+            conn.commit()
+        except Exception:
+            pass
 
         cur.execute(
             '''SELECT * FROM ask_pps_questions ORDER BY created_at DESC LIMIT 200'''
@@ -2699,30 +2845,53 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
     @require_login
     @require_ask_pps_curator
     def admin_ask_pps_edit_pending(entry_id):
-        """Save category/title/content only — stays pending until Approve.
+        """Save answer body (+ optional category). Question/title stay non-editable.
         Never overwrites original_content (first team submission)."""
         category = (request.form.get('category') or 'general').strip()
-        title = (request.form.get('title') or '').strip()
-        content = (request.form.get('content') or '').strip()
+        content = _extract_answer_body((request.form.get('content') or '').strip())
         if category not in CATEGORIES or len(content) < 3:
             return redirect(url_for('admin_ask_pps') + f'#pending-{entry_id}')
         conn = get_db_fn()
         if conn:
             try:
-                cur = conn.cursor()
-                # Freeze original on first save if still empty
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute(
+                    '''SELECT k.title, k.author_key, k.original_content, k.content,
+                              a.answer AS prompt_raw_answer, p.question AS prompt_question
+                       FROM knowledge_entries k
+                       LEFT JOIN knowledge_prompt_answers a ON a.entry_id = k.id
+                       LEFT JOIN knowledge_prompts p ON p.id = a.prompt_id
+                       WHERE k.id = %s''',
+                    (entry_id,),
+                )
+                row = cur.fetchone() or {}
+                author = _display(users, row.get('author_key'))
+                question = (row.get('prompt_question') or '').strip() or _question_from_legacy_title(
+                    row.get('title'), author
+                ) or _display_question_for_entry({
+                    'title': row.get('title'),
+                    'author_display': author,
+                    'prompt_question': row.get('prompt_question'),
+                })
+                title = _prompt_entry_title(question, author) if question else (row.get('title') or 'Answer')
+                # Freeze pre-edit body as original if missing
+                prior_body = _extract_answer_body(
+                    row.get('content'),
+                    original_content=row.get('original_content'),
+                    prompt_raw=row.get('prompt_raw_answer'),
+                )
                 cur.execute(
                     '''UPDATE knowledge_entries
                        SET category = %s,
                            title = %s,
                            content = %s,
                            status = 'pending',
-                           original_content = COALESCE(original_content, content),
+                           original_content = COALESCE(NULLIF(original_content, ''), %s),
                            updated_at = NOW(),
                            search_tsv = to_tsvector('english',
                                coalesce(%s, '') || ' ' || coalesce(%s, ''))
                        WHERE id = %s''',
-                    (category, title, content, title, content, entry_id),
+                    (category, title, content, prior_body or content, title, content, entry_id),
                 )
                 conn.commit()
                 cur.close()

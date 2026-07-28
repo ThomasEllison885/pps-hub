@@ -23,6 +23,17 @@
     background: var(--light-bg); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px 14px; margin-bottom: 10px;
   }
+  .pending-question {
+    font-size: 17px; font-weight: 700; color: var(--dark-blue); line-height: 1.4;
+    margin: 0 0 6px;
+  }
+  .pending-by {
+    font-size: 12px; color: #666; margin-bottom: 12px;
+  }
+  .answer-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+    color: #888; margin-bottom: 6px;
+  }
   .original-box {
     font-size: 12px; color: #555; margin: 0 0 12px;
     border-left: 3px solid #ccc; padding: 8px 12px; background: #fafafa; border-radius: 0 6px 6px 0;
@@ -244,9 +255,9 @@
     <h2>Pending contributions — submitted answers</h2>
     <div class="section-body">
       <p style="font-size:13px;color:#666;margin:0 0 14px;line-height:1.5;">
-        Answers show as read-only until you press <strong>Edit</strong> — that opens her text in an editable box.
+        Question is the title (not editable). <strong>Edit</strong> opens only the answer text.
         <strong>Save</strong> keeps it pending. <strong>Approve</strong> publishes to Ask PPS.
-        The original submission is always kept for reference.
+        Original wording stays on file when you revise.
       </p>
       {% if recently_activated %}
       <div style="margin-bottom:18px;padding:12px;border:1px solid #f0d0a0;background:#fffaf0;border-radius:8px;">
@@ -267,17 +278,16 @@
       {% if pending %}
       {% for p in pending %}
       <div class="pending" id="pending-{{ p.id }}" data-entry-id="{{ p.id }}">
-        <div class="meta">{{ p.author_display or p.author_key }} · {{ p.category }}</div>
-        <div class="q">{{ p.title }}</div>
-        <div class="answer-print">{{ p.content }}</div>
-        {% if p.original_answer and p.original_answer != p.content %}
+        <div class="pending-question">{{ p.display_question or p.display_title or p.title }}</div>
+        <div class="pending-by">
+          {{ p.author_display or p.author_key or 'Unknown' }}
+          {% if p.category %} · {{ p.category }}{% endif %}
+        </div>
+        <div class="answer-label">Answer</div>
+        <div class="answer-print">{{ p.answer_body or p.content }}</div>
+        {% if p.original_answer and p.answer_body and p.original_answer != p.answer_body %}
         <details class="original-box">
           <summary>Original submission (unchanged)</summary>
-          <div class="original-body">{{ p.original_answer }}</div>
-        </details>
-        {% elif p.original_answer %}
-        <details class="original-box">
-          <summary>Original submission on file</summary>
           <div class="original-body">{{ p.original_answer }}</div>
         </details>
         {% endif %}
@@ -291,14 +301,14 @@
           </form>
         </div>
         <form class="edit-panel" method="post" action="{{ url_for('admin_ask_pps_edit_pending', entry_id=p.id) }}">
+          <div class="pending-question" style="font-size:15px;margin-bottom:10px;">{{ p.display_question or p.title }}</div>
+          <div class="pending-by" style="margin-bottom:10px;">{{ p.author_display or p.author_key }} · not editable</div>
           <label>Category</label>
           <select name="category">{% for c in categories %}<option value="{{ c }}" {% if c == p.category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
-          <label>Title</label>
-          <input name="title" value="{{ p.title }}">
           <label>Answer (editable)</label>
           <textarea name="content" rows="12" required>{{ p.edit_body }}</textarea>
           <p style="font-size:12px;color:#666;margin:8px 0 0;">
-            Saving updates the published draft only. Original submission above stays on file.
+            Only the answer is saved. Question and submitter stay fixed. Original wording remains on file.
           </p>
           <div class="btn-row">
             <button type="submit" class="btn btn-primary">Save</button>
