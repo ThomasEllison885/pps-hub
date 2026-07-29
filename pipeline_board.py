@@ -45,7 +45,7 @@ STATUS_VALUES = frozenset(s['value'] for s in STATUSES)
 STATUS_LABELS = {s['value']: s['label'] for s in STATUSES}
 
 MAX_TEXT = 500
-MAX_NOTES = 4000
+MAX_NOTES = 10000
 
 _EDITABLE_TEXT_FIELDS = ('proposal_number', 'property_name', 'address', 'project',
                          'trade_partner', 'client_contact', 'notes')

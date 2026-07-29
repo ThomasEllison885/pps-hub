@@ -30,6 +30,11 @@
   td input:focus, td select:focus, td textarea:focus { border-color:var(--blue); background:white; outline:none; }
   td.col-amount input, td.col-subpay input { text-align:right; }
   td textarea { min-height:34px; }
+  td.col-notes { min-width:320px; }
+  td.col-notes textarea {
+    min-height:64px; line-height:1.5; font-size:14px; padding:9px 10px;
+    resize:vertical; overflow-y:hidden; white-space:pre-wrap;
+  }
   .cell-editing-other { border-color:#FFB74D !important; background:#FFF8E1 !important; }
   .cell-badge { position:relative; }
   .cell-badge::after {
@@ -87,7 +92,7 @@
             <th style="width:100px;">Sub Pay</th>
             <th style="width:130px;">Trade Partner</th>
             <th style="width:140px;">Client Contact</th>
-            <th>Notes</th>
+            <th style="min-width:320px;">Notes</th>
             <th style="width:36px;"></th>
           </tr>
         </thead>
@@ -179,7 +184,7 @@ function renderRow(entry) {
   tr.appendChild(cell('subpay', `<input data-row="${entry.id}" data-field="sub_pay" type="number" step="0.01" value="${entry.sub_pay ?? ''}">`));
   tr.appendChild(cell('trade_partner', `<input data-row="${entry.id}" data-field="trade_partner" value="${escAttr(entry.trade_partner)}">`));
   tr.appendChild(cell('client_contact', `<input data-row="${entry.id}" data-field="client_contact" value="${escAttr(entry.client_contact)}">`));
-  tr.appendChild(cell('notes', `<textarea data-row="${entry.id}" data-field="notes" rows="1">${escHtml(entry.notes)}</textarea>`));
+  tr.appendChild(cell('notes', `<textarea data-row="${entry.id}" data-field="notes" rows="3">${escHtml(entry.notes)}</textarea>`));
 
   const actionsTd = document.createElement('td');
   actionsTd.className = 'row-actions';
@@ -214,6 +219,11 @@ function patchEntryInPlace(entry) {
   wireCellEvents();
 }
 
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+
 function wireCellEvents() {
   document.querySelectorAll('#board-body input, #board-body select, #board-body textarea').forEach(el => {
     el.oninput = null; el.onchange = null; el.onfocus = null; el.onblur = null;
@@ -222,6 +232,10 @@ function wireCellEvents() {
     } else {
       el.onblur = () => saveField(el);
       el.onfocus = () => announceFocus(el);
+    }
+    if (el.tagName === 'TEXTAREA') {
+      autoGrow(el);  // fit existing content immediately, not just after typing
+      el.oninput = () => autoGrow(el);
     }
   });
   document.querySelectorAll('[data-archive]').forEach(btn => {
