@@ -3,8 +3,15 @@ services:
     name: pps-hub
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 2 --timeout 120
+    # Single gevent worker for the Pipeline Board's live Socket.IO connections
+    # (cooperative concurrency; needs no Redis message queue as long as it
+    # stays one worker). GEVENT_MODE gates the monkey-patch in app.py so local
+    # `python app.py` / this same command without the env var stays plain
+    # sync/threaded and unaffected.
+    startCommand: gunicorn app:app --worker-class gevent --workers 1 --timeout 120
     envVars:
+      - key: GEVENT_MODE
+        value: "1"
       - key: SECRET_KEY
         generateValue: true
       - key: INTERNAL_API_KEY

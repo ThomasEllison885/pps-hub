@@ -326,6 +326,16 @@
             <div class="tool-meta">Open →</div>
           </a>
 
+          {% if pipeline_board_access and user_role in ('consultant', 'office_manager', 'admin') %}
+          <a href="/pipeline-board" class="pps-tool-card">
+            <div class="pps-tool-icon">🗂️</div>
+            <div class="pps-tool-name">Pipeline Board</div>
+            <div class="pps-tool-desc">Live shared proposal tracker with your PM — pricing, status, notes.</div>
+            <span class="tool-badge">Pilot</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
           {% if psc_training_enrolled %}
           <a href="/psc-training" class="pps-tool-card">
             <div class="pps-tool-icon">🎓</div>
@@ -399,6 +409,16 @@
             <div class="pps-tool-desc">Document site visits and scope compliance in the field.</div>
             <div class="tool-meta">Open →</div>
           </a>
+
+          {% if pipeline_board_access and user_role == 'pm' %}
+          <a href="/pipeline-board" class="pps-tool-card">
+            <div class="pps-tool-icon">🗂️</div>
+            <div class="pps-tool-name">Pipeline Board</div>
+            <div class="pps-tool-desc">Live shared proposal tracker with your Consultant — pricing, status, notes.</div>
+            <span class="tool-badge">Pilot</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
 
           {% if pm_training_open %}
           <a href="/pm-training" class="pps-tool-card">

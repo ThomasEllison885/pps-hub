@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Pipeline Board</title>
+<style>
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:1280px; margin:0 auto; padding:28px 20px 60px; }
+  .top-row { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:26px; color:var(--dark-blue); margin-bottom:4px; }
+  .page-sub { font-size:13px; color:#888; line-height:1.5; }
+  .back-link { font-size:13px; color:var(--blue); text-decoration:none; }
+  .status-pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; color:#888; }
+  .dot-live { width:7px; height:7px; border-radius:50%; background:#B0BEC5; display:inline-block; }
+  .dot-live.connected { background:#43A047; }
+  .card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
+  .table-scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; min-width:1100px; }
+  th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--dark-blue); padding:10px 10px; background:var(--light-bg); border-bottom:1.5px solid var(--border); white-space:nowrap; }
+  td { padding:4px 6px; border-bottom:1px solid #f0f4f8; font-size:13px; vertical-align:middle; }
+  tr.archiving td { opacity:0.35; }
+  td input, td select, td textarea {
+    width:100%; border:1.5px solid transparent; border-radius:6px; padding:7px 8px; font-family:'DM Sans',sans-serif;
+    font-size:13px; background:transparent; color:#333; resize:none;
+  }
+  td input:hover, td select:hover, td textarea:hover { border-color:var(--border); background:#fafcff; }
+  td input:focus, td select:focus, td textarea:focus { border-color:var(--blue); background:white; outline:none; }
+  td.col-amount input, td.col-subpay input { text-align:right; }
+  td textarea { min-height:34px; }
+  .cell-editing-other { border-color:#FFB74D !important; background:#FFF8E1 !important; }
+  .cell-badge { position:relative; }
+  .cell-badge::after {
+    content:attr(data-editor); position:absolute; top:-9px; left:6px; font-size:9px; font-weight:700;
+    color:#E65100; background:#FFF3E0; padding:0 4px; border-radius:4px; white-space:nowrap;
+  }
+  .status-draft { color:#888; }
+  .status-sent { color:#1565C0; }
+  .status-awarded { color:#2E7D32; font-weight:600; }
+  .status-on_hold { color:#E65100; }
+  .status-declined, .status-cancelled { color:#C62828; text-decoration:line-through; }
+  .row-actions button {
+    background:none; border:none; color:#B0BEC5; font-size:16px; cursor:pointer; padding:2px 6px;
+  }
+  .row-actions button:hover { color:#C62828; }
+  .toolbar { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-top:1.5px solid var(--border); }
+  .btn { background:var(--dark-blue); color:white; border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn:hover { background:var(--blue); }
+  .presence-row { display:flex; gap:6px; align-items:center; font-size:12px; color:#888; }
+  .presence-chip { display:inline-flex; align-items:center; gap:4px; background:#E3F2FD; color:#1565C0; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:600; }
+  .empty-state { padding:40px 20px; text-align:center; color:#aaa; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="main">
+  <div class="top-row">
+    <div>
+      <div class="page-title">Pipeline Board</div>
+      <div class="page-sub">
+        {{ consultant_display }} &amp; {{ pm_display }} — live shared proposal tracker.
+        {% if is_admin_preview %}<strong>Admin preview.</strong>{% endif %}
+      </div>
+    </div>
+    <div style="text-align:right;">
+      <a href="/dashboard" class="back-link">← Dashboard</a>
+      <div class="status-pill" style="margin-top:6px;">
+        <span class="dot-live" id="live-dot"></span>
+        <span id="live-label">Connecting…</span>
+      </div>
+      <div class="presence-row" id="presence-row"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:110px;">Proposal #</th>
+            <th style="width:150px;">Property</th>
+            <th style="width:150px;">Address</th>
+            <th style="width:180px;">Project</th>
+            <th style="width:110px;">Status</th>
+            <th style="width:100px;">Amount</th>
+            <th style="width:100px;">Sub Pay</th>
+            <th style="width:130px;">Trade Partner</th>
+            <th style="width:140px;">Client Contact</th>
+            <th>Notes</th>
+            <th style="width:36px;"></th>
+          </tr>
+        </thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </div>
+    <div class="toolbar">
+      <span style="font-size:12px;color:#aaa;" id="row-count"></span>
+      <button class="btn" id="add-row-btn">+ Add row</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const PAIR_KEY = {{ pair_key|tojson }};
+const MY_USER_KEY = {{ user_key|tojson }};
+const MY_DISPLAY = {{ user_display|tojson }};
+const STATUSES = {{ statuses|tojson }};
+const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', 'trade_partner', 'client_contact', 'notes'];
+const NUMERIC_FIELDS = ['amount', 'sub_pay'];
+
+let entries = [];
+let saveTimers = {};
+
+function fieldSelector(id, field) {
+  return `[data-row="${id}"][data-field="${field}"]`;
+}
+
+function renderRow(entry) {
+  const tr = document.createElement('tr');
+  tr.id = `row-${entry.id}`;
+
+  const cell = (field, inner) => {
+    const td = document.createElement('td');
+    td.className = `col-${field}`;
+    td.innerHTML = inner;
+    return td;
+  };
+
+  tr.appendChild(cell('proposal_number', `<input data-row="${entry.id}" data-field="proposal_number" value="${escAttr(entry.proposal_number)}">`));
+  tr.appendChild(cell('property_name', `<input data-row="${entry.id}" data-field="property_name" value="${escAttr(entry.property_name)}">`));
+  tr.appendChild(cell('address', `<input data-row="${entry.id}" data-field="address" value="${escAttr(entry.address)}">`));
+  tr.appendChild(cell('project', `<input data-row="${entry.id}" data-field="project" value="${escAttr(entry.project)}">`));
+
+  let statusOpts = STATUSES.map(s => `<option value="${s.value}" ${s.value === entry.status ? 'selected' : ''}>${s.label}</option>`).join('');
+  tr.appendChild(cell('status', `<select data-row="${entry.id}" data-field="status" class="status-${entry.status}">${statusOpts}</select>`));
+
+  tr.appendChild(cell('amount', `<input data-row="${entry.id}" data-field="amount" type="number" step="0.01" value="${entry.amount ?? ''}">`));
+  tr.appendChild(cell('subpay', `<input data-row="${entry.id}" data-field="sub_pay" type="number" step="0.01" value="${entry.sub_pay ?? ''}">`));
+  tr.appendChild(cell('trade_partner', `<input data-row="${entry.id}" data-field="trade_partner" value="${escAttr(entry.trade_partner)}">`));
+  tr.appendChild(cell('client_contact', `<input data-row="${entry.id}" data-field="client_contact" value="${escAttr(entry.client_contact)}">`));
+  tr.appendChild(cell('notes', `<textarea data-row="${entry.id}" data-field="notes" rows="1">${escHtml(entry.notes)}</textarea>`));
+
+  const actionsTd = document.createElement('td');
+  actionsTd.className = 'row-actions';
+  actionsTd.innerHTML = `<button title="Remove row" data-archive="${entry.id}">✕</button>`;
+  tr.appendChild(actionsTd);
+
+  return tr;
+}
+
+function escAttr(v) { return (v ?? '').toString().replace(/"/g, '&quot;'); }
+function escHtml(v) { return (v ?? '').toString().replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function renderAll() {
+  const body = document.getElementById('board-body');
+  body.innerHTML = '';
+  if (!entries.length) {
+    body.innerHTML = `<tr><td colspan="11"><div class="empty-state">No rows yet — click "+ Add row" to start tracking a proposal.</div></td></tr>`;
+  } else {
+    entries.forEach(e => body.appendChild(renderRow(e)));
+  }
+  document.getElementById('row-count').textContent = `${entries.length} row${entries.length === 1 ? '' : 's'}`;
+  wireCellEvents();
+}
+
+function patchEntryInPlace(entry) {
+  const idx = entries.findIndex(e => e.id === entry.id);
+  if (idx === -1) { entries.push(entry); } else { entries[idx] = entry; }
+  // Only re-render the one row so nobody's in-progress typing elsewhere is disturbed.
+  const old = document.getElementById(`row-${entry.id}`);
+  const fresh = renderRow(entry);
+  if (old) { old.replaceWith(fresh); } else { document.getElementById('board-body').appendChild(fresh); }
+  wireCellEvents();
+}
+
+function wireCellEvents() {
+  document.querySelectorAll('#board-body input, #board-body select, #board-body textarea').forEach(el => {
+    el.oninput = null; el.onchange = null; el.onfocus = null; el.onblur = null;
+    if (el.tagName === 'SELECT') {
+      el.onchange = () => saveField(el);
+    } else {
+      el.onblur = () => saveField(el);
+      el.onfocus = () => announceFocus(el);
+    }
+  });
+  document.querySelectorAll('[data-archive]').forEach(btn => {
+    btn.onclick = () => archiveRow(btn.getAttribute('data-archive'));
+  });
+}
+
+function saveField(el) {
+  const rowId = el.getAttribute('data-row');
+  const field = el.getAttribute('data-field');
+  let value = el.value;
+  fetch(`/api/pipeline-board/entries/${rowId}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({[field]: value}),
+  }).then(r => r.json()).then(data => {
+    if (data.success) { patchEntryInPlace(data.entry); }
+  });
+  clearFocus(el);
+}
+
+function announceFocus(el) {
+  const rowId = el.getAttribute('data-row');
+  const field = el.getAttribute('data-field');
+  socket.emit('cell_focus', {field: `${rowId}:${field}`});
+}
+
+function clearFocus(el) {
+  socket.emit('cell_focus', {field: null});
+}
+
+function archiveRow(rowId) {
+  const tr = document.getElementById(`row-${rowId}`);
+  if (tr) tr.classList.add('archiving');
+  fetch(`/api/pipeline-board/entries/${rowId}/archive`, {method: 'POST'})
+    .then(r => r.json()).then(data => {
+      if (data.success) { removeRowLocally(rowId); }
+    });
+}
+
+function removeRowLocally(rowId) {
+  entries = entries.filter(e => String(e.id) !== String(rowId));
+  renderAll();
+}
+
+document.getElementById('add-row-btn').onclick = () => {
+  fetch('/api/pipeline-board/entries', {method: 'POST'})
+    .then(r => r.json()).then(data => {
+      if (data.success) { entries.push(data.entry); renderAll(); }
+    });
+};
+
+// --- Socket.IO: live updates + presence ---
+const socket = io();
+socket.on('connect', () => {
+  document.getElementById('live-dot').classList.add('connected');
+  document.getElementById('live-label').textContent = 'Live';
+  socket.emit('join_pipeline_board', {pair_key: PAIR_KEY});
+});
+socket.on('disconnect', () => {
+  document.getElementById('live-dot').classList.remove('connected');
+  document.getElementById('live-label').textContent = 'Reconnecting…';
+});
+socket.on('entry_created', (entry) => { patchEntryInPlace(entry); });
+socket.on('entry_updated', (entry) => { patchEntryInPlace(entry); });
+socket.on('entry_archived', (data) => { removeRowLocally(data.id); });
+socket.on('presence_state', (people) => {
+  const others = people.filter(p => p.user_key !== MY_USER_KEY);
+  const row = document.getElementById('presence-row');
+  row.innerHTML = others.length
+    ? others.map(p => `<span class="presence-chip">👀 ${p.display}</span>`).join('')
+    : '';
+  // Clear old field-in-use highlights, then mark current ones.
+  document.querySelectorAll('.cell-editing-other').forEach(el => {
+    el.classList.remove('cell-editing-other');
+    el.parentElement.classList.remove('cell-badge');
+    el.parentElement.removeAttribute('data-editor');
+  });
+  others.forEach(p => {
+    if (!p.field) return;
+    const [rowId, field] = p.field.split(':');
+    const el = document.querySelector(fieldSelector(rowId, field));
+    if (el) {
+      el.classList.add('cell-editing-other');
+      el.parentElement.classList.add('cell-badge');
+      el.parentElement.setAttribute('data-editor', p.display);
+    }
+  });
+});
+
+// --- Initial load ---
+fetch('/api/pipeline-board/entries').then(r => r.json()).then(data => {
+  entries = data.entries || [];
+  renderAll();
+});
+</script>
+</body>
+</html>

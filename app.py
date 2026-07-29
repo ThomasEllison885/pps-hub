@@ -1,4 +1,19 @@
 import os
+
+# Must happen before any other imports (psycopg2 especially) — see
+# pipeline_board.py and the render.yaml worker-class comment. Only active
+# under the gevent gunicorn worker; local `python app.py` / `flask run` stay
+# on plain threading and are unaffected. gevent, not eventlet: eventlet is
+# now upstream-deprecated ("bugfix mode only, recommend against for new
+# projects" per its own import warning as of 2026-07) — gevent does the same
+# job (cooperative concurrency for a single worker, no Redis needed for
+# Socket.IO) and is still actively maintained.
+if os.environ.get('GEVENT_MODE', '').strip() == '1':
+    from gevent import monkey
+    monkey.patch_all()
+    from psycogreen.gevent import patch_psycopg
+    patch_psycopg()
+
 import re
 import json
 import threading
@@ -6,6 +21,8 @@ import base64
 from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
+from flask_socketio import SocketIO
+import pipeline_board
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -59,6 +76,12 @@ def _load_dotenv():
 _load_dotenv()
 
 app = Flask(__name__)
+# async_mode=None: auto-picks eventlet when installed/running under the eventlet
+# worker, falls back to plain threading for local dev — see EVENTLET_MODE above.
+# cors_allowed_origins=HUB_PUBLIC_URL: the Hub only ever talks to itself over
+# the socket (no cross-origin client) — an empty/unset value here would reject
+# the same-origin Origin header on the WebSocket handshake, so it must be set.
+socketio = SocketIO(app, async_mode=None, cors_allowed_origins=HUB_PUBLIC_URL)
 _secret = os.environ.get('SECRET_KEY', '').strip()
 if not _secret:
     print(
@@ -1106,6 +1129,7 @@ def init_db():
     ''')
 
     ask_pps.init_tables(cur)
+    pipeline_board.init_tables(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
@@ -3602,6 +3626,15 @@ def dashboard():
     sales_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
     production_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
 
+    # Pipeline Board: resolve off the *real* logged-in identity, not the
+    # admin role-preview override above — a preview shouldn't grant a pair's
+    # live data, and admin's own real role already lets them preview any pair.
+    pipeline_board_pair_key = pipeline_board.get_pair_key(USERS, user_key)
+    pipeline_board_access = bool(
+        pipeline_board_pair_key
+        and pipeline_board.can_access_board(USERS, user_key, pipeline_board_pair_key)
+    )
+
     date_events = get_date_events(user_key, is_admin=real_is_admin and not view_as)
     recent_feed = _build_dashboard_recent_feed(
         recent_proposals,
@@ -3653,6 +3686,8 @@ def dashboard():
         pm_training_stats=pm_training_stats,
         pm_training_oversight=pm_training_oversight,
         pm_training_open=pm_training_open,
+        pipeline_board_access=pipeline_board_access,
+        pipeline_board_pair_key=pipeline_board_pair_key,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
@@ -8153,7 +8188,8 @@ def logout():
 
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
+pipeline_board.register_routes(app, socketio, get_db, USERS, require_login)
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    socketio.run(app, debug=True)
