@@ -96,9 +96,14 @@
     </div>
     <div class="toolbar">
       <span style="font-size:12px;color:#aaa;" id="row-count"></span>
-      <button class="btn" id="add-row-btn">+ Add row</button>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input type="file" id="import-file-input" accept=".xlsx,.xlsm" style="display:none;">
+        <button class="btn" id="import-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Import spreadsheet</button>
+        <button class="btn" id="add-row-btn">+ Add row</button>
+      </div>
     </div>
   </div>
+  <div id="import-summary" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div>
 </div>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
@@ -112,6 +117,40 @@ const NUMERIC_FIELDS = ['amount', 'sub_pay'];
 
 let entries = [];
 let saveTimers = {};
+
+// Admin preview URLs look like /pipeline-board?pair=andy_potts — the page route
+// reads that fine, but every API call below is a separate request and needs
+// the same override threaded through, or the server can't resolve which
+// pair's board admin means and (correctly) rejects it.
+const PAIR_OVERRIDE = new URLSearchParams(window.location.search).get('pair');
+function apiUrl(path) {
+  if (!PAIR_OVERRIDE) return path;
+  return path + (path.includes('?') ? '&' : '?') + 'pair=' + encodeURIComponent(PAIR_OVERRIDE);
+}
+
+function showError(message) {
+  let bar = document.getElementById('board-error-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'board-error-bar';
+    bar.style.cssText = 'background:#FDEDEC;color:#C0392B;border:1px solid #F5B7B1;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;';
+    document.querySelector('.main').insertBefore(bar, document.querySelector('.card'));
+  }
+  bar.textContent = message;
+  bar.style.display = 'block';
+  clearTimeout(showError._t);
+  showError._t = setTimeout(() => { bar.style.display = 'none'; }, 6000);
+}
+
+function handleApiResponse(promise, onSuccess) {
+  return promise
+    .then(r => r.json().then(data => ({status: r.status, data})))
+    .then(({status, data}) => {
+      if (data && data.success) { onSuccess(data); return; }
+      showError((data && data.error) || `Request failed (${status}).`);
+    })
+    .catch(() => showError('Network error — check your connection and try again.'));
+}
 
 function fieldSelector(id, field) {
   return `[data-row="${id}"][data-field="${field}"]`;
@@ -194,13 +233,14 @@ function saveField(el) {
   const rowId = el.getAttribute('data-row');
   const field = el.getAttribute('data-field');
   let value = el.value;
-  fetch(`/api/pipeline-board/entries/${rowId}`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({[field]: value}),
-  }).then(r => r.json()).then(data => {
-    if (data.success) { patchEntryInPlace(data.entry); }
-  });
+  handleApiResponse(
+    fetch(apiUrl(`/api/pipeline-board/entries/${rowId}`), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({[field]: value}),
+    }),
+    (data) => patchEntryInPlace(data.entry),
+  );
   clearFocus(el);
 }
 
@@ -217,10 +257,10 @@ function clearFocus(el) {
 function archiveRow(rowId) {
   const tr = document.getElementById(`row-${rowId}`);
   if (tr) tr.classList.add('archiving');
-  fetch(`/api/pipeline-board/entries/${rowId}/archive`, {method: 'POST'})
-    .then(r => r.json()).then(data => {
-      if (data.success) { removeRowLocally(rowId); }
-    });
+  handleApiResponse(
+    fetch(apiUrl(`/api/pipeline-board/entries/${rowId}/archive`), {method: 'POST'}),
+    () => removeRowLocally(rowId),
+  );
 }
 
 function removeRowLocally(rowId) {
@@ -229,10 +269,43 @@ function removeRowLocally(rowId) {
 }
 
 document.getElementById('add-row-btn').onclick = () => {
-  fetch('/api/pipeline-board/entries', {method: 'POST'})
-    .then(r => r.json()).then(data => {
-      if (data.success) { entries.push(data.entry); renderAll(); }
-    });
+  handleApiResponse(
+    fetch(apiUrl('/api/pipeline-board/entries'), {method: 'POST'}),
+    (data) => { entries.push(data.entry); renderAll(); },
+  );
+};
+
+function reloadEntries() {
+  fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
+    entries = data.entries || [];
+    renderAll();
+  });
+}
+
+document.getElementById('import-btn').onclick = () => {
+  document.getElementById('import-file-input').click();
+};
+document.getElementById('import-file-input').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  const summary = document.getElementById('import-summary');
+  summary.textContent = `Importing ${file.name}…`;
+  handleApiResponse(
+    fetch(apiUrl('/api/pipeline-board/import'), {method: 'POST', body: formData}),
+    (data) => {
+      let text = `Imported ${data.imported} row${data.imported === 1 ? '' : 's'}`;
+      if (data.skipped) text += `, skipped ${data.skipped} blank row${data.skipped === 1 ? '' : 's'}`;
+      text += ' from ' + file.name + '.';
+      if (data.warnings && data.warnings.length) {
+        text += ' ' + data.warnings.join(' ');
+      }
+      summary.textContent = text;
+      reloadEntries();
+    },
+  );
+  e.target.value = '';
 };
 
 // --- Socket.IO: live updates + presence ---
@@ -249,6 +322,7 @@ socket.on('disconnect', () => {
 socket.on('entry_created', (entry) => { patchEntryInPlace(entry); });
 socket.on('entry_updated', (entry) => { patchEntryInPlace(entry); });
 socket.on('entry_archived', (data) => { removeRowLocally(data.id); });
+socket.on('board_reloaded', () => { reloadEntries(); });
 socket.on('presence_state', (people) => {
   const others = people.filter(p => p.user_key !== MY_USER_KEY);
   const row = document.getElementById('presence-row');
@@ -274,7 +348,8 @@ socket.on('presence_state', (people) => {
 });
 
 // --- Initial load ---
-fetch('/api/pipeline-board/entries').then(r => r.json()).then(data => {
+fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
+  if (!data.entries) { showError(data.error || 'Could not load the board.'); }
   entries = data.entries || [];
   renderAll();
 });

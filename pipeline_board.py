@@ -14,8 +14,10 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 "Indian Creek" property tag left in the wrong column, not a real status.
 """
 
-from datetime import datetime
+import re
+from datetime import datetime, date
 
+import openpyxl
 from flask_socketio import emit, join_room, leave_room
 from psycopg2.extras import RealDictCursor
 
@@ -222,6 +224,212 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
         return None, 'Could not save'
 
 
+def _normalize_header(h):
+    if h is None:
+        return ''
+    text = str(h).strip().lower()
+    text = text.replace('$', ' ').replace('?', ' ').replace('#', ' ')
+    text = re.sub(r'[^a-z0-9 ]+', ' ', text)
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+# Built directly from the two real sheets reviewed 2026-07-29 (Rachel Farler's
+# and another consultant's "2026 PO / Proposals" + its "Bath Tubs Simms" tab),
+# not guessed. 'notes:Label' means "keep it, just fold into Notes with this
+# label" -- used for real columns (Material Cost, Splits, batch-job dates)
+# that don't have their own schema field. Any header NOT in this map at all
+# still isn't dropped: see _map_sheet's unmapped-column fallback below.
+_HEADER_ALIASES = {
+    'po': 'proposal_number',
+    'po number': 'proposal_number',
+    'proposal number': 'proposal_number',
+    'proposal': 'proposal_number',
+    'property': 'property_name',
+    'address': 'address',
+    'project': 'project',
+    'job status': 'status',
+    'status': 'status',
+    'sent': 'sent_or_status',  # value-type sniffed: datetime -> note, text -> status
+    'amount': 'amount',
+    'cost': 'sub_pay',
+    'sub pay': 'sub_pay',
+    'material cost': 'notes:Material cost',
+    'sub': 'trade_partner',
+    'trade partner': 'trade_partner',
+    'manager': 'client_contact',  # the *client's* property manager, confirmed from real data
+    'company': 'client_contact',
+    'client contact': 'client_contact',
+    'splits': 'notes:Splits',
+    'how many': 'notes:Qty',
+    'date start': 'notes:Date start',
+    'date end': 'notes:Date end',
+    'started': 'notes:Started',
+    'done': 'notes:Done',
+    'paid out': 'notes:Paid out',
+}
+
+# Every real status value seen across both sheets, grouped. Deliberately no
+# "IC" entry -- in the sample data every "IC" row was an "Indian Creek"
+# property tag left in the wrong column, not a status (verified by checking
+# every such row was for that one property). Anything not listed here still
+# isn't lost: _normalize_status_value always preserves the raw text in Notes.
+_STATUS_KEYWORDS = {
+    'sent': {'yes', 'sent', 'proposed', 'propsed', 'verbal so far', 'online forms', 'email', 'work order'},
+    'awarded': {'complete', 'completed', 'awarded', 'scheduled'},
+    'on_hold': {'on hold', 'delayed'},
+    'cancelled': {'cancelled', 'canceled', 'not doing', 'punt', 'duplicate'},
+    'draft': {'no', 'none', 'na', 'n/a', '', '.....'},
+}
+
+
+def _normalize_status_value(raw):
+    """Best-guess enum mapping, but ALWAYS returns the original text too --
+    never silently collapse a real note ('waiting to hear from Desirae')
+    into a clean-looking status without keeping what was actually written."""
+    text = ('' if raw is None else str(raw)).strip()
+    status = 'draft'
+    for candidate, keywords in _STATUS_KEYWORDS.items():
+        if text.lower() in keywords:
+            status = candidate
+            break
+    return status, text
+
+
+def _map_sheet(ws):
+    """Map one worksheet's header row (row 1) to schema fields.
+    Returns {col_index: target}; target is a schema field name, 'status',
+    'sent_or_status', or 'notes:<label>'."""
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+    col_map = {}
+    unmapped = []
+    for i, raw_header in enumerate(header_row):
+        norm = _normalize_header(raw_header)
+        if not norm:
+            continue
+        if norm in _HEADER_ALIASES:
+            col_map[i] = _HEADER_ALIASES[norm]
+        elif i == 0:
+            # An unrecognized first column is a job title/description in both
+            # real sample sheets (e.g. "9456 Bainwoods - Soffitt / Roof
+            # Repair") -- keep it visible as Project rather than Notes.
+            col_map[i] = 'project'
+        else:
+            col_map[i] = f'notes:{raw_header}'
+            unmapped.append(str(raw_header))
+    return col_map, unmapped
+
+
+def import_workbook(get_db_fn, file_obj, pair_key, user_key):
+    """Import every sheet of an uploaded .xlsx into one pair's board.
+    Never silently drops a column — anything not recognized lands in Notes,
+    labeled with its original header, instead of being discarded."""
+    try:
+        wb = openpyxl.load_workbook(file_obj, data_only=True)
+    except Exception as e:
+        return {'success': False, 'error': f'Could not read that file as an Excel workbook: {e}'}
+
+    conn = get_db_fn()
+    if not conn:
+        return {'success': False, 'error': 'Database unavailable'}
+
+    imported = 0
+    skipped = 0
+    warnings = []
+
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT COALESCE(MAX(row_order), -1) + 1 AS next_order '
+            'FROM pipeline_board_entries WHERE pair_key = %s',
+            (pair_key,),
+        )
+        row_order = cur.fetchone()['next_order']
+
+        # Only the first sheet is treated as real tracking data. Extra tabs in
+        # these workbooks have turned out to be ad hoc scratch space (e.g. a
+        # "doodle" tab someone used to track one side project with a totally
+        # different, inconsistent shape — confirmed 2026-07-29) rather than
+        # more of the same table, so importing them blindly does more harm
+        # than good. Note it rather than silently ignore it.
+        ws = wb.worksheets[0]
+        if len(wb.worksheets) > 1:
+            skipped_titles = [s.title for s in wb.worksheets[1:]]
+            warnings.append(
+                f'Only imported the first sheet ("{ws.title}"). '
+                f'Additional tab(s) ignored: {", ".join(skipped_titles)}.'
+            )
+
+        col_map, unmapped = _map_sheet(ws)
+        if unmapped:
+            warnings.append(
+                f'Columns not recognized, kept in Notes: {", ".join(unmapped)}'
+            )
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if row is None or all(v in (None, '') for v in row):
+                continue
+            fields = {}
+            notes_parts = []
+            has_content = False
+            for i, value in enumerate(row):
+                if value is None or value == '' or i not in col_map:
+                    continue
+                target = col_map[i]
+                if target == 'sent_or_status' and isinstance(value, (datetime, date)):
+                    notes_parts.append(f'Sent: {value.strftime("%Y-%m-%d")}')
+                    has_content = True
+                elif target in ('status', 'sent_or_status'):
+                    status, raw_text = _normalize_status_value(value)
+                    fields['status'] = status
+                    notes_parts.append(f"Imported status: '{raw_text}'")
+                    has_content = True
+                elif target.startswith('notes:'):
+                    notes_parts.append(f'{target.split(":", 1)[1]}: {value}')
+                    has_content = True
+                elif target in _EDITABLE_NUMERIC_FIELDS:
+                    cleaned = _clean_numeric(value)
+                    if cleaned is not None:
+                        fields[target] = cleaned
+                        has_content = True
+                else:
+                    cleaned = _clean_text(value, MAX_TEXT)
+                    if cleaned:
+                        fields[target] = cleaned
+                        has_content = True
+
+            if not has_content:
+                skipped += 1
+                continue
+
+            if notes_parts:
+                fields['notes'] = _clean_text(' | '.join(notes_parts), MAX_NOTES)
+
+            cur.execute('''
+                INSERT INTO pipeline_board_entries
+                    (pair_key, proposal_number, property_name, address, project, status,
+                     amount, sub_pay, trade_partner, client_contact, notes, row_order,
+                     created_by, updated_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', (
+                pair_key, fields.get('proposal_number'), fields.get('property_name'),
+                fields.get('address'), fields.get('project'), fields.get('status', 'draft'),
+                fields.get('amount'), fields.get('sub_pay'), fields.get('trade_partner'),
+                fields.get('client_contact'), fields.get('notes'), row_order,
+                user_key, user_key,
+            ))
+            row_order += 1
+            imported += 1
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        conn.rollback()
+        conn.close()
+        print(f'Pipeline board import error: {e}')
+        return {'success': False, 'error': 'Could not import that file — no rows were added.'}
+
+    return {'success': True, 'imported': imported, 'skipped': skipped, 'warnings': warnings}
+
+
 def archive_entry(get_db_fn, entry_id, pair_key):
     conn = get_db_fn()
     if not conn:
@@ -249,7 +457,9 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
         user_key = session['user_key']
         pair_key = get_pair_key(users, user_key)
         if fallback_query_override_for_admin and users.get(user_key, {}).get('role') == 'admin':
-            override = (request.args.get('pair') or (request.get_json(silent=True) or {}).get('pair'))
+            override = (request.args.get('pair')
+                        or request.form.get('pair')
+                        or (request.get_json(silent=True) or {}).get('pair'))
             if override:
                 pair_key = override
         return user_key, pair_key
@@ -305,6 +515,23 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
             return jsonify({'error': err}), 400
         socketio.emit('entry_updated', entry, room=f'pipeline_{pair_key}')
         return jsonify({'success': True, 'entry': entry})
+
+    @app.route('/api/pipeline-board/import', methods=['POST'])
+    @require_login
+    def pipeline_board_import_api():
+        user_key, pair_key = _current_pair()
+        if not pair_key or not can_access_board(users, user_key, pair_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        file = request.files.get('file')
+        if not file or not file.filename:
+            return jsonify({'error': 'No file selected'}), 400
+        if not file.filename.lower().endswith(('.xlsx', '.xlsm')):
+            return jsonify({'error': 'Please upload an .xlsx (Excel) file'}), 400
+        result = import_workbook(get_db_fn, file, pair_key, user_key)
+        if not result.get('success'):
+            return jsonify(result), 400
+        socketio.emit('board_reloaded', {}, room=f'pipeline_{pair_key}')
+        return jsonify(result)
 
     @app.route('/api/pipeline-board/entries/<int:entry_id>/archive', methods=['POST'])
     @require_login
