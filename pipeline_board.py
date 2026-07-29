@@ -2,7 +2,16 @@
 
 Replaces the ad hoc shared Google Sheets each Consultant/PM pair has been keeping
 (e.g. "who's waiting on sub pricing", "did I log every proposal I sent"). One
-board per pair, live-updated for everyone viewing it via Socket.IO.
+board per pair, kept current for everyone viewing it via short client polling.
+
+Deliberately NOT Socket.IO/WebSockets (was, briefly, on 2026-07-29): that
+required the whole Hub to run on a single gevent worker, and any one
+non-cooperative blocking call anywhere in the app (Claude API, docx/xlsx
+generation) then stalled *every* request, not just this module -- a global
+Hub slowdown traced back to this module. Plain polling against the existing
+REST endpoints needs no special worker class, no monkey-patching, and cannot
+regress the rest of the Hub's performance again by construction: this module
+now has zero effect on how gunicorn runs.
 
 Pilot (2026-07-29): Andy Potts <-> Ben Ramsey, Rachel Farler <-> Derek Kidney.
 A pair's board is keyed by the *consultant's* user_key (`pair_key`) since the
@@ -15,13 +24,14 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 """
 
 import re
+import time
 from datetime import datetime, date
 
 import openpyxl
-from flask_socketio import emit, join_room, leave_room
 from psycopg2.extras import RealDictCursor
 
 PILOT_PAIR_CONSULTANTS = frozenset({'andy_potts', 'rachel_farler'})
+PRESENCE_TTL_SECONDS = 12  # no explicit "disconnect" under polling; just expire
 
 STATUSES = [
     {'value': 'draft', 'label': 'Draft'},
@@ -41,10 +51,31 @@ _EDITABLE_TEXT_FIELDS = ('proposal_number', 'property_name', 'address', 'project
                          'trade_partner', 'client_contact', 'notes')
 _EDITABLE_NUMERIC_FIELDS = ('amount', 'sub_pay')
 
-# In-memory presence: pair_key -> {sid: {'user_key', 'display', 'field'}}
+# In-memory presence, refreshed by a heartbeat call every poll cycle rather
+# than a socket connection: pair_key -> {user_key: {'display', 'field', 'ts'}}.
+# Entries older than PRESENCE_TTL_SECONDS are treated as gone -- the only way
+# to detect someone closed their tab without an explicit disconnect event.
 _presence = {}
-# sid -> pair_key, so disconnect can find which room to clean up
-_sid_pair = {}
+
+
+def _touch_presence(pair_key, user_key, display, field):
+    bucket = _presence.setdefault(pair_key, {})
+    if field:
+        bucket[user_key] = {'display': display, 'field': field, 'ts': time.time()}
+    else:
+        bucket.pop(user_key, None)
+
+
+def _live_presence(pair_key, exclude_user_key=None):
+    bucket = _presence.get(pair_key, {})
+    now = time.time()
+    stale = [k for k, v in bucket.items() if now - v['ts'] > PRESENCE_TTL_SECONDS]
+    for k in stale:
+        bucket.pop(k, None)
+    return [
+        {'user_key': k, 'display': v['display'], 'field': v['field']}
+        for k, v in bucket.items() if k != exclude_user_key
+    ]
 
 
 def init_tables(cur):
@@ -449,7 +480,7 @@ def archive_entry(get_db_fn, entry_id, pair_key):
         return False
 
 
-def register_routes(app, socketio, get_db_fn, users, require_login):
+def register_routes(app, get_db_fn, users, require_login):
     from flask import jsonify, render_template, request, session, redirect, url_for
 
     def _current_pair(fallback_query_override_for_admin=True):
@@ -494,11 +525,14 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return jsonify({'error': 'Not authorized'}), 403
         if request.method == 'GET':
-            return jsonify({'entries': list_entries(get_db_fn, pair_key), 'pair_key': pair_key})
+            return jsonify({
+                'entries': list_entries(get_db_fn, pair_key),
+                'presence': _live_presence(pair_key, exclude_user_key=user_key),
+                'pair_key': pair_key,
+            })
         entry = create_entry(get_db_fn, pair_key, user_key)
         if not entry:
             return jsonify({'error': 'Could not create row'}), 500
-        socketio.emit('entry_created', entry, room=f'pipeline_{pair_key}')
         return jsonify({'success': True, 'entry': entry})
 
     @app.route('/api/pipeline-board/entries/<int:entry_id>', methods=['POST'])
@@ -513,7 +547,6 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
         entry, err = update_entry(get_db_fn, entry_id, pair_key, user_key, fields)
         if err:
             return jsonify({'error': err}), 400
-        socketio.emit('entry_updated', entry, room=f'pipeline_{pair_key}')
         return jsonify({'success': True, 'entry': entry})
 
     @app.route('/api/pipeline-board/import', methods=['POST'])
@@ -530,7 +563,6 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
         result = import_workbook(get_db_fn, file, pair_key, user_key)
         if not result.get('success'):
             return jsonify(result), 400
-        socketio.emit('board_reloaded', {}, room=f'pipeline_{pair_key}')
         return jsonify(result)
 
     @app.route('/api/pipeline-board/entries/<int:entry_id>/archive', methods=['POST'])
@@ -542,46 +574,20 @@ def register_routes(app, socketio, get_db_fn, users, require_login):
         ok = archive_entry(get_db_fn, entry_id, pair_key)
         if not ok:
             return jsonify({'error': 'Could not remove row'}), 500
-        socketio.emit('entry_archived', {'id': entry_id}, room=f'pipeline_{pair_key}')
         return jsonify({'success': True})
 
-    # --- Socket.IO: presence only. All writes go through the REST API above
-    # and broadcast from there, so DB access always happens on the normal
-    # request path (see pipeline_board.py module docstring). ---
-
-    @socketio.on('join_pipeline_board')
-    def _on_join(data):
-        user_key = session.get('user_key')
-        if not user_key:
-            return
-        pair_key = (data or {}).get('pair_key')
+    @app.route('/api/pipeline-board/presence', methods=['POST'])
+    @require_login
+    def pipeline_board_presence_api():
+        """Heartbeat: 'I'm here, and here's what I'm editing (or nothing)'.
+        Called on focus/blur and on a timer while a cell stays focused, from
+        the poll loop in pipeline_board.html — replaces the old Socket.IO
+        join/cell_focus/disconnect events with plain polling (see module
+        docstring for why)."""
+        user_key, pair_key = _current_pair()
         if not pair_key or not can_access_board(users, user_key, pair_key):
-            return
-        room = f'pipeline_{pair_key}'
-        join_room(room)
-        _sid_pair[request.sid] = (room, pair_key)
-        _presence.setdefault(pair_key, {})[request.sid] = {
-            'user_key': user_key, 'display': _display(users, user_key), 'field': None,
-        }
-        emit('presence_state', list(_presence[pair_key].values()), room=room)
-
-    @socketio.on('cell_focus')
-    def _on_cell_focus(data):
-        entry = _sid_pair.get(request.sid)
-        if not entry:
-            return
-        room, pair_key = entry
-        field = (data or {}).get('field')
-        if request.sid in _presence.get(pair_key, {}):
-            _presence[pair_key][request.sid]['field'] = field
-        emit('presence_state', list(_presence.get(pair_key, {}).values()), room=room)
-
-    @socketio.on('disconnect')
-    def _on_disconnect():
-        entry = _sid_pair.pop(request.sid, None)
-        if not entry:
-            return
-        room, pair_key = entry
-        _presence.get(pair_key, {}).pop(request.sid, None)
-        leave_room(room)
-        emit('presence_state', list(_presence.get(pair_key, {}).values()), room=room)
+            return jsonify({'error': 'Not authorized'}), 403
+        data = request.get_json(silent=True) or {}
+        field = (data.get('field') or '').strip()[:100] or None
+        _touch_presence(pair_key, user_key, _display(users, user_key), field)
+        return jsonify({'success': True, 'presence': _live_presence(pair_key, exclude_user_key=user_key)})

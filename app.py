@@ -1,19 +1,4 @@
 import os
-
-# Must happen before any other imports (psycopg2 especially) — see
-# pipeline_board.py and the render.yaml worker-class comment. Only active
-# under the gevent gunicorn worker; local `python app.py` / `flask run` stay
-# on plain threading and are unaffected. gevent, not eventlet: eventlet is
-# now upstream-deprecated ("bugfix mode only, recommend against for new
-# projects" per its own import warning as of 2026-07) — gevent does the same
-# job (cooperative concurrency for a single worker, no Redis needed for
-# Socket.IO) and is still actively maintained.
-if os.environ.get('GEVENT_MODE', '').strip() == '1':
-    from gevent import monkey
-    monkey.patch_all()
-    from psycogreen.gevent import patch_psycopg
-    patch_psycopg()
-
 import re
 import json
 import threading
@@ -21,7 +6,6 @@ import base64
 from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
-from flask_socketio import SocketIO
 import pipeline_board
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -76,12 +60,6 @@ def _load_dotenv():
 _load_dotenv()
 
 app = Flask(__name__)
-# async_mode=None: auto-picks eventlet when installed/running under the eventlet
-# worker, falls back to plain threading for local dev — see EVENTLET_MODE above.
-# cors_allowed_origins=HUB_PUBLIC_URL: the Hub only ever talks to itself over
-# the socket (no cross-origin client) — an empty/unset value here would reject
-# the same-origin Origin header on the WebSocket handshake, so it must be set.
-socketio = SocketIO(app, async_mode=None, cors_allowed_origins=HUB_PUBLIC_URL)
 _secret = os.environ.get('SECRET_KEY', '').strip()
 if not _secret:
     print(
@@ -8188,8 +8166,8 @@ def logout():
 
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
-pipeline_board.register_routes(app, socketio, get_db, USERS, require_login)
+pipeline_board.register_routes(app, get_db, USERS, require_login)
 
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    app.run(debug=True)

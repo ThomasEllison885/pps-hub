@@ -106,7 +106,6 @@
   <div id="import-summary" style="font-size:12px;color:#888;margin-top:10px;line-height:1.5;"></div>
 </div>
 
-<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
 const PAIR_KEY = {{ pair_key|tojson }};
 const MY_USER_KEY = {{ user_key|tojson }};
@@ -116,6 +115,7 @@ const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', '
 const NUMERIC_FIELDS = ['amount', 'sub_pay'];
 
 let entries = [];
+let firstLoad = true;
 let saveTimers = {};
 
 // Admin preview URLs look like /pipeline-board?pair=andy_potts — the page route
@@ -244,14 +244,50 @@ function saveField(el) {
   clearFocus(el);
 }
 
+let currentField = null;
+
 function announceFocus(el) {
   const rowId = el.getAttribute('data-row');
   const field = el.getAttribute('data-field');
-  socket.emit('cell_focus', {field: `${rowId}:${field}`});
+  currentField = `${rowId}:${field}`;
+  sendPresence();
 }
 
 function clearFocus(el) {
-  socket.emit('cell_focus', {field: null});
+  currentField = null;
+  sendPresence();
+}
+
+function sendPresence() {
+  fetch(apiUrl('/api/pipeline-board/presence'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({field: currentField}),
+  }).then(r => r.json()).then(data => {
+    if (data.success) { renderPresence(data.presence); }
+  }).catch(() => {});
+}
+
+function renderPresence(people) {
+  const row = document.getElementById('presence-row');
+  row.innerHTML = people.length
+    ? people.map(p => `<span class="presence-chip">👀 ${p.display}</span>`).join('')
+    : '';
+  document.querySelectorAll('.cell-editing-other').forEach(el => {
+    el.classList.remove('cell-editing-other');
+    el.parentElement.classList.remove('cell-badge');
+    el.parentElement.removeAttribute('data-editor');
+  });
+  people.forEach(p => {
+    if (!p.field) return;
+    const [rowId, field] = p.field.split(':');
+    const el = document.querySelector(fieldSelector(rowId, field));
+    if (el) {
+      el.classList.add('cell-editing-other');
+      el.parentElement.classList.add('cell-badge');
+      el.parentElement.setAttribute('data-editor', p.display);
+    }
+  });
 }
 
 function archiveRow(rowId) {
@@ -275,11 +311,38 @@ document.getElementById('add-row-btn').onclick = () => {
   );
 };
 
+function mergeEntries(freshEntries) {
+  const freshIds = new Set(freshEntries.map(e => String(e.id)));
+  entries.filter(e => !freshIds.has(String(e.id))).forEach(e => {
+    const rowEl = document.getElementById(`row-${e.id}`);
+    if (!rowEl || !rowEl.contains(document.activeElement)) { removeRowLocally(e.id); }
+  });
+  freshEntries.forEach(fresh => {
+    const rowEl = document.getElementById(`row-${fresh.id}`);
+    // Never stomp a row while the local user has a field in it focused --
+    // that would wipe out an in-progress edit and jump the cursor.
+    if (rowEl && rowEl.contains(document.activeElement)) return;
+    const local = entries.find(e => String(e.id) === String(fresh.id));
+    if (!local || JSON.stringify(local) !== JSON.stringify(fresh)) { patchEntryInPlace(fresh); }
+  });
+  document.getElementById('row-count').textContent = `${entries.length} row${entries.length === 1 ? '' : 's'}`;
+}
+
 function reloadEntries() {
   fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
-    entries = data.entries || [];
-    renderAll();
+    if (!data.entries) { showError(data.error || 'Could not load the board.'); return; }
+    if (firstLoad) { firstLoad = false; entries = data.entries; renderAll(); }
+    else { mergeEntries(data.entries); }
+    if (data.presence) { renderPresence(data.presence); }
+    document.getElementById('live-dot').classList.add('connected');
+    document.getElementById('live-label').textContent = 'Live';
+  }).catch(() => {
+    document.getElementById('live-dot').classList.remove('connected');
+    document.getElementById('live-label').textContent = 'Reconnecting…';
   });
+  // Piggyback the presence heartbeat on the same timer so it doesn't expire
+  // server-side (PRESENCE_TTL_SECONDS) just because nothing new was typed.
+  if (currentField) { sendPresence(); }
 }
 
 document.getElementById('import-btn').onclick = () => {
@@ -308,51 +371,12 @@ document.getElementById('import-file-input').onchange = (e) => {
   e.target.value = '';
 };
 
-// --- Socket.IO: live updates + presence ---
-const socket = io();
-socket.on('connect', () => {
-  document.getElementById('live-dot').classList.add('connected');
-  document.getElementById('live-label').textContent = 'Live';
-  socket.emit('join_pipeline_board', {pair_key: PAIR_KEY});
-});
-socket.on('disconnect', () => {
-  document.getElementById('live-dot').classList.remove('connected');
-  document.getElementById('live-label').textContent = 'Reconnecting…';
-});
-socket.on('entry_created', (entry) => { patchEntryInPlace(entry); });
-socket.on('entry_updated', (entry) => { patchEntryInPlace(entry); });
-socket.on('entry_archived', (data) => { removeRowLocally(data.id); });
-socket.on('board_reloaded', () => { reloadEntries(); });
-socket.on('presence_state', (people) => {
-  const others = people.filter(p => p.user_key !== MY_USER_KEY);
-  const row = document.getElementById('presence-row');
-  row.innerHTML = others.length
-    ? others.map(p => `<span class="presence-chip">👀 ${p.display}</span>`).join('')
-    : '';
-  // Clear old field-in-use highlights, then mark current ones.
-  document.querySelectorAll('.cell-editing-other').forEach(el => {
-    el.classList.remove('cell-editing-other');
-    el.parentElement.classList.remove('cell-badge');
-    el.parentElement.removeAttribute('data-editor');
-  });
-  others.forEach(p => {
-    if (!p.field) return;
-    const [rowId, field] = p.field.split(':');
-    const el = document.querySelector(fieldSelector(rowId, field));
-    if (el) {
-      el.classList.add('cell-editing-other');
-      el.parentElement.classList.add('cell-badge');
-      el.parentElement.setAttribute('data-editor', p.display);
-    }
-  });
-});
-
-// --- Initial load ---
-fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
-  if (!data.entries) { showError(data.error || 'Could not load the board.'); }
-  entries = data.entries || [];
-  renderAll();
-});
+// --- Polling: no Socket.IO, no special worker class, needs nothing from
+// gunicorn beyond what every other page here already gets. See the
+// pipeline_board.py module docstring for why this replaced WebSockets. ---
+const POLL_MS = 3000;
+reloadEntries();
+setInterval(reloadEntries, POLL_MS);
 </script>
 </body>
 </html>
