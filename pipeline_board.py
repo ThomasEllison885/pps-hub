@@ -164,20 +164,55 @@ def list_entries(get_db_fn, pair_key):
         return []
 
 
+def _prefix_from_pair_key(pair_key):
+    """'andy_potts' -> 'AP', 'rachel_farler' -> 'RF' -- matches the real
+    consultant-initials + 2-digit-year + 3-digit-sequence scheme already
+    used in both source spreadsheets (AP26001, RF26102) and elsewhere in
+    the Hub (TE26xxx for Thomas). Derived from the key, not a lookup table,
+    so it keeps working for future pairs with no extra config."""
+    parts = [p for p in pair_key.split('_') if p]
+    prefix = ''.join(p[0] for p in parts[:2]).upper()
+    return prefix or 'PB'
+
+
+def _next_proposal_number(cur, pair_key):
+    """Next number in THIS pair's own sequence (independent of the Hub's
+    Proposal Generator numbering, per owner direction 2026-07-29) --
+    <prefix><year>NNN, continuing from whatever's already on the board
+    (including imported rows) rather than restarting at 001."""
+    prefix = _prefix_from_pair_key(pair_key)
+    year = f'{datetime.now().year % 100:02d}'
+    stem = f'{prefix}{year}'
+    cur.execute(
+        'SELECT proposal_number FROM pipeline_board_entries '
+        'WHERE pair_key = %s AND proposal_number IS NOT NULL',
+        (pair_key,),
+    )
+    pattern = re.compile(rf'^{re.escape(stem)}(\d+)$', re.IGNORECASE)
+    max_seq = 0
+    for row in cur.fetchall():
+        po = (row['proposal_number'] if isinstance(row, dict) else row[0]) or ''
+        m = pattern.match(po.strip())
+        if m:
+            max_seq = max(max_seq, int(m.group(1)))
+    return f'{stem}{max_seq + 1:03d}'
+
+
 def create_entry(get_db_fn, pair_key, user_key):
     conn = get_db_fn()
     if not conn:
         return None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        proposal_number = _next_proposal_number(cur, pair_key)
         cur.execute('''
             INSERT INTO pipeline_board_entries
-                (pair_key, status, row_order, created_by, updated_by)
-            VALUES (%s, 'draft',
+                (pair_key, proposal_number, status, row_order, created_by, updated_by)
+            VALUES (%s, %s, 'draft',
                 COALESCE((SELECT MAX(row_order) + 1 FROM pipeline_board_entries WHERE pair_key = %s), 0),
                 %s, %s)
             RETURNING *
-        ''', (pair_key, pair_key, user_key, user_key))
+        ''', (pair_key, proposal_number, pair_key, user_key, user_key))
         row = _row_to_dict(cur.fetchone())
         conn.commit()
         cur.close()
@@ -365,6 +400,7 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
 
     imported = 0
     skipped = 0
+    duplicates_skipped = 0
     warnings = []
 
     try:
@@ -375,6 +411,21 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
             (pair_key,),
         )
         row_order = cur.fetchone()['next_order']
+
+        # Dedup set for "skip if this PO already exists" -- checked against
+        # every entry ever created for this pair (archived or not, so a
+        # re-import can't resurrect a duplicate of something removed), and
+        # updated as we go so two identical rows within the same file (or
+        # sheet) are also caught, not just repeats across separate imports.
+        cur.execute(
+            'SELECT proposal_number FROM pipeline_board_entries '
+            'WHERE pair_key = %s AND proposal_number IS NOT NULL',
+            (pair_key,),
+        )
+        existing_pos = {
+            r['proposal_number'].strip().upper()
+            for r in cur.fetchall() if r['proposal_number']
+        }
 
         # Only the first sheet is treated as real tracking data. Extra tabs in
         # these workbooks have turned out to be ad hoc scratch space (e.g. a
@@ -434,6 +485,13 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
             if notes_parts:
                 fields['notes'] = _clean_text(' | '.join(notes_parts), MAX_NOTES)
 
+            po_key = (fields.get('proposal_number') or '').strip().upper()
+            if po_key and po_key in existing_pos:
+                duplicates_skipped += 1
+                continue
+            if po_key:
+                existing_pos.add(po_key)
+
             cur.execute('''
                 INSERT INTO pipeline_board_entries
                     (pair_key, proposal_number, property_name, address, project, status,
@@ -458,7 +516,10 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
         print(f'Pipeline board import error: {e}')
         return {'success': False, 'error': 'Could not import that file — no rows were added.'}
 
-    return {'success': True, 'imported': imported, 'skipped': skipped, 'warnings': warnings}
+    return {
+        'success': True, 'imported': imported, 'skipped': skipped,
+        'duplicates_skipped': duplicates_skipped, 'warnings': warnings,
+    }
 
 
 def archive_entry(get_db_fn, entry_id, pair_key):
