@@ -1108,6 +1108,7 @@ def init_db():
 
     ask_pps.init_tables(cur)
     pipeline_board.init_tables(cur)
+    pipeline_board.cleanup_legacy_import_notes(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()

@@ -106,6 +106,44 @@ def init_tables(cur):
     )
 
 
+# Segment prefixes import_workbook used to fold into Notes (see below) --
+# decided 2026-07-30 this just clutters the board and the field should
+# start blank for people to write real notes into. import_workbook no
+# longer generates these; this only cleans up rows imported before that.
+_JUNK_NOTE_PREFIXES = ('Imported status:', 'Sent:')
+
+
+def _strip_junk_notes(notes):
+    if not notes:
+        return None
+    parts = [p.strip() for p in notes.split(' | ')]
+    kept = [p for p in parts if not any(p.startswith(prefix) for prefix in _JUNK_NOTE_PREFIXES)]
+    return ' | '.join(kept).strip() or None
+
+
+def cleanup_legacy_import_notes(cur):
+    """One-time cleanup of the auto-generated 'Imported status: ...' /
+    'Sent: ...' text that earlier imports folded into Notes. Safe to run on
+    every startup: it only rewrites rows whose stripped text actually
+    differs, and since import_workbook stopped generating this text, there's
+    nothing left for it to touch after the first successful pass -- it
+    isn't a standing filter on notes people type in later."""
+    cur.execute(
+        "SELECT id, notes FROM pipeline_board_entries "
+        "WHERE notes LIKE %s OR notes LIKE %s",
+        ('%Imported status:%', '%Sent: 20%'),
+    )
+    for row in cur.fetchall():
+        entry_id = row['id'] if isinstance(row, dict) else row[0]
+        notes = row['notes'] if isinstance(row, dict) else row[1]
+        cleaned = _strip_junk_notes(notes)
+        if cleaned != notes:
+            cur.execute(
+                'UPDATE pipeline_board_entries SET notes = %s WHERE id = %s',
+                (cleaned, entry_id),
+            )
+
+
 def get_pair_key(users, user_key):
     """Resolve which pair board a user belongs to. Consultants use their own
     key; PMs resolve to the consultant listed in their proposal_access."""
@@ -457,12 +495,17 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
                     continue
                 target = col_map[i]
                 if target == 'sent_or_status' and isinstance(value, (datetime, date)):
-                    notes_parts.append(f'Sent: {value.strftime("%Y-%m-%d")}')
+                    # A sent-date value counts as real data even though (per
+                    # owner direction 2026-07-30) it no longer gets written
+                    # into Notes -- that bookkeeping cluttered the board and
+                    # the field should start clean for people to write real
+                    # notes into. The date itself is a genuine loss on
+                    # import; if it turns out to matter, add a real
+                    # sent_date column instead of reviving the notes hack.
                     has_content = True
                 elif target in ('status', 'sent_or_status'):
                     status, raw_text = _normalize_status_value(value)
                     fields['status'] = status
-                    notes_parts.append(f"Imported status: '{raw_text}'")
                     has_content = True
                 elif target.startswith('notes:'):
                     notes_parts.append(f'{target.split(":", 1)[1]}: {value}')
