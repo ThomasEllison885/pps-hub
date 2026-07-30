@@ -31,6 +31,18 @@ import openpyxl
 from psycopg2.extras import RealDictCursor
 
 PILOT_PAIR_CONSULTANTS = frozenset({'andy_potts', 'rachel_farler'})
+
+# The specific 1:1 working pair this board represents, keyed by consultant.
+# Deliberately NOT derived from USERS[...]['proposal_access'] -- that field
+# is a broader "who can touch this consultant's proposals" grant (e.g.
+# James Boling floats as backup PM across both Andy and Adam), not the same
+# thing as "who is this consultant's actual PM pair." Scanning proposal_access
+# picked whichever PM happened to be defined first in the USERS dict, which
+# was James, not Ben -- confirmed wrong 2026-07-30.
+PILOT_PM_FOR_CONSULTANT = {
+    'andy_potts': 'ben_ramsey',
+    'rachel_farler': 'derek_kidney',
+}
 PRESENCE_TTL_SECONDS = 12  # no explicit "disconnect" under polling; just expire
 
 STATUSES = [
@@ -605,11 +617,7 @@ def register_routes(app, get_db_fn, users, require_login):
         user_key, pair_key = _current_pair()
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return redirect(url_for('dashboard'))
-        pm_key = None
-        for k, u in users.items():
-            if u.get('role') == 'pm' and pair_key in (u.get('proposal_access') or []):
-                pm_key = k
-                break
+        pm_key = PILOT_PM_FOR_CONSULTANT.get(pair_key)
         return render_template(
             'pipeline_board.html',
             pair_key=pair_key,

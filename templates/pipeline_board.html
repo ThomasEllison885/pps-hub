@@ -18,23 +18,29 @@
   .dot-live.connected { background:#43A047; }
   .card { background:white; border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; }
   .table-scroll { overflow-x:auto; }
-  table { width:100%; border-collapse:collapse; min-width:1100px; }
-  th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--dark-blue); padding:10px 10px; background:var(--light-bg); border-bottom:1.5px solid var(--border); white-space:nowrap; }
-  td { padding:4px 6px; border-bottom:1px solid #f0f4f8; font-size:13px; vertical-align:middle; }
+  table { width:100%; border-collapse:collapse; min-width:1100px; table-layout:fixed; }
+  th { position:relative; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--dark-blue); padding:10px 14px 10px 10px; background:var(--light-bg); border-bottom:1.5px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  td { padding:4px 6px; border-bottom:1px solid #f0f4f8; font-size:13px; vertical-align:middle; overflow:hidden; }
   tr.archiving td { opacity:0.35; }
   td input, td select, td textarea {
     width:100%; border:1.5px solid transparent; border-radius:6px; padding:7px 8px; font-family:'DM Sans',sans-serif;
-    font-size:13px; background:transparent; color:#333; resize:none;
+    font-size:13px; background:transparent; color:#333; resize:none; box-sizing:border-box;
   }
   td input:hover, td select:hover, td textarea:hover { border-color:var(--border); background:#fafcff; }
   td input:focus, td select:focus, td textarea:focus { border-color:var(--blue); background:white; outline:none; }
   td.col-amount input, td.col-subpay input { text-align:right; }
   td textarea { min-height:34px; }
-  td.col-notes { min-width:160px; }
-  td.col-notes textarea {
-    min-height:64px; line-height:1.5; font-size:14px; padding:9px 10px;
-    resize:vertical; overflow-y:hidden; white-space:pre-wrap;
+  td.col-project textarea, td.col-notes textarea {
+    min-height:52px; line-height:1.5; font-size:14px; padding:9px 10px;
+    resize:vertical; overflow-y:hidden; white-space:pre-wrap; word-break:break-word;
   }
+  /* Column resize handles -- drag the right edge of any header to resize
+     that column; widths persist per browser via localStorage. */
+  .col-resize-handle {
+    position:absolute; top:0; right:0; width:8px; height:100%; cursor:col-resize;
+    z-index:2; touch-action:none;
+  }
+  .col-resize-handle:hover, .col-resize-handle.resizing { background:rgba(20,90,150,0.18); }
   .cell-editing-other { border-color:#FFB74D !important; background:#FFF8E1 !important; }
   .cell-badge { position:relative; }
   .cell-badge::after {
@@ -80,20 +86,33 @@
 
   <div class="card">
     <div class="table-scroll">
-      <table>
+      <table id="board-table">
+        <colgroup>
+          <col data-col="proposal_number" style="width:110px;">
+          <col data-col="property_name" style="width:150px;">
+          <col data-col="address" style="width:150px;">
+          <col data-col="project" style="width:260px;">
+          <col data-col="status" style="width:110px;">
+          <col data-col="amount" style="width:100px;">
+          <col data-col="subpay" style="width:100px;">
+          <col data-col="trade_partner" style="width:130px;">
+          <col data-col="client_contact" style="width:140px;">
+          <col data-col="notes" style="width:160px;">
+          <col data-col="actions" style="width:36px;">
+        </colgroup>
         <thead>
           <tr>
-            <th style="width:110px;">Proposal #</th>
-            <th style="width:150px;">Property</th>
-            <th style="width:150px;">Address</th>
-            <th style="width:180px;">Project</th>
-            <th style="width:110px;">Status</th>
-            <th style="width:100px;">Amount</th>
-            <th style="width:100px;">Sub Pay</th>
-            <th style="width:130px;">Trade Partner</th>
-            <th style="width:140px;">Client Contact</th>
-            <th style="min-width:160px;">Notes</th>
-            <th style="width:36px;"></th>
+            <th data-col="proposal_number">Proposal #<span class="col-resize-handle"></span></th>
+            <th data-col="property_name">Property<span class="col-resize-handle"></span></th>
+            <th data-col="address">Address<span class="col-resize-handle"></span></th>
+            <th data-col="project">Project<span class="col-resize-handle"></span></th>
+            <th data-col="status">Status<span class="col-resize-handle"></span></th>
+            <th data-col="amount">Amount<span class="col-resize-handle"></span></th>
+            <th data-col="subpay">Sub Pay<span class="col-resize-handle"></span></th>
+            <th data-col="trade_partner">Trade Partner<span class="col-resize-handle"></span></th>
+            <th data-col="client_contact">Client Contact<span class="col-resize-handle"></span></th>
+            <th data-col="notes">Notes<span class="col-resize-handle"></span></th>
+            <th data-col="actions"></th>
           </tr>
         </thead>
         <tbody id="board-body"></tbody>
@@ -175,7 +194,7 @@ function renderRow(entry) {
   tr.appendChild(cell('proposal_number', `<input data-row="${entry.id}" data-field="proposal_number" value="${escAttr(entry.proposal_number)}">`));
   tr.appendChild(cell('property_name', `<input data-row="${entry.id}" data-field="property_name" value="${escAttr(entry.property_name)}">`));
   tr.appendChild(cell('address', `<input data-row="${entry.id}" data-field="address" value="${escAttr(entry.address)}">`));
-  tr.appendChild(cell('project', `<input data-row="${entry.id}" data-field="project" value="${escAttr(entry.project)}">`));
+  tr.appendChild(cell('project', `<textarea data-row="${entry.id}" data-field="project" rows="2">${escHtml(entry.project)}</textarea>`));
 
   let statusOpts = STATUSES.map(s => `<option value="${s.value}" ${s.value === entry.status ? 'selected' : ''}>${s.label}</option>`).join('');
   tr.appendChild(cell('status', `<select data-row="${entry.id}" data-field="status" class="status-${entry.status}">${statusOpts}</select>`));
@@ -385,6 +404,50 @@ document.getElementById('import-file-input').onchange = (e) => {
   );
   e.target.value = '';
 };
+
+// --- Column resize: drag the right edge of any header. Widths persist per
+// browser (localStorage), not shared across people -- this is a personal
+// display preference, not board data. Independent of colgroup <col>
+// elements only, so it survives every tbody re-render from polling. ---
+const COL_WIDTH_KEY = 'pipelineBoardColWidths';
+
+function applySavedColumnWidths() {
+  const saved = JSON.parse(localStorage.getItem(COL_WIDTH_KEY) || '{}');
+  document.querySelectorAll('#board-table colgroup col[data-col]').forEach(col => {
+    const name = col.getAttribute('data-col');
+    if (saved[name]) col.style.width = saved[name] + 'px';
+  });
+}
+
+function initColumnResize() {
+  document.querySelectorAll('#board-table th[data-col] .col-resize-handle').forEach(handle => {
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      const name = handle.closest('th').getAttribute('data-col');
+      const col = document.querySelector(`#board-table colgroup col[data-col="${name}"]`);
+      if (!col) return;
+      const startX = e.clientX;
+      const startWidth = col.getBoundingClientRect().width;
+      handle.classList.add('resizing');
+      const onMove = (e2) => {
+        col.style.width = Math.max(50, Math.round(startWidth + (e2.clientX - startX))) + 'px';
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        handle.classList.remove('resizing');
+        const saved = JSON.parse(localStorage.getItem(COL_WIDTH_KEY) || '{}');
+        saved[name] = parseInt(col.style.width, 10);
+        localStorage.setItem(COL_WIDTH_KEY, JSON.stringify(saved));
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+applySavedColumnWidths();
+initColumnResize();
 
 // --- Polling: no Socket.IO, no special worker class, needs nothing from
 // gunicorn beyond what every other page here already gets. See the
