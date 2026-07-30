@@ -435,14 +435,33 @@ def _map_sheet(ws):
     return col_map, unmapped
 
 
+MAX_IMPORT_BYTES = 2 * 1024 * 1024  # 2 MB -- generous for what these sheets actually are
+MAX_IMPORT_ROWS = 2000
+
+
 def import_workbook(get_db_fn, file_obj, pair_key, user_key):
     """Import every sheet of an uploaded .xlsx into one pair's board.
     Never silently drops a column — anything not recognized lands in Notes,
-    labeled with its original header, instead of being discarded."""
+    labeled with its original header, instead of being discarded.
+
+    Size/row caps below: parsing happens on the request path under a plain
+    sync worker (see the module docstring and CLAUDE.md 'Hard-won lesson' --
+    same risk *class*, much smaller blast radius than that incident since
+    it's one request, not the whole process, but still worth a cheap guard
+    rather than trusting every future upload to stay small like today's."""
+    file_obj.seek(0, 2)
+    size = file_obj.tell()
+    file_obj.seek(0)
+    if size > MAX_IMPORT_BYTES:
+        return {'success': False, 'error': f'File is too large (max {MAX_IMPORT_BYTES // (1024*1024)}MB).'}
+
     try:
         wb = openpyxl.load_workbook(file_obj, data_only=True)
     except Exception as e:
         return {'success': False, 'error': f'Could not read that file as an Excel workbook: {e}'}
+
+    if wb.worksheets and (wb.worksheets[0].max_row or 0) > MAX_IMPORT_ROWS:
+        return {'success': False, 'error': f'Sheet has too many rows (max {MAX_IMPORT_ROWS}).'}
 
     conn = get_db_fn()
     if not conn:
