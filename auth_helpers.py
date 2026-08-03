@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 
 HUB_PUBLIC_URL = os.environ.get('HUB_PUBLIC_URL', 'https://hub.purepropsolutions.com').rstrip('/')
 PROPOSAL_URL = os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com').rstrip('/')
-PROFILE_URL = os.environ.get('PROFILE_URL', 'https://pps-profile-web.onrender.com').rstrip('/')
+# PROFILE_URL retired 2026-08-03 (personal tool archived off Hub). Do not re-add
+# without an explicit owner request — see ~/PPS Proposal/personal-storage/README.md.
 
 MAX_LOGIN_FAILURES = 5
 LOGIN_LOCKOUT_MINUTES = 15
@@ -15,7 +16,7 @@ RESET_TOKEN_TTL_HOURS = 1
 
 
 def allowed_redirect_bases():
-    bases = {HUB_PUBLIC_URL, PROPOSAL_URL, PROFILE_URL}
+    bases = {HUB_PUBLIC_URL, PROPOSAL_URL}
     return {b for b in bases if b}
 
 

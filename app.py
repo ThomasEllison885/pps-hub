@@ -25,22 +25,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from auth_helpers import (
-    HUB_PUBLIC_URL, PROPOSAL_URL, PROFILE_URL, LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES,
+    HUB_PUBLIC_URL, PROPOSAL_URL, LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES,
     safe_next_url, client_ip, record_login_attempt, is_login_locked, clear_login_failures,
     generate_sso_code, exchange_sso_code,
     create_password_reset_token, peek_password_reset_token,
     consume_password_reset_token, reset_url_for_token,
 )
 import ask_pps
-from runway_game_data import (
-    RUNWAY_OWNER,
-    RUNWAY_MAPBOX_TOKEN,
-    RUNWAY_PUBLIC_ACCESS,
-    RUNWAY_SHARE_TOKEN,
-    get_runway_bootstrap,
-)
-
-
 def _load_dotenv():
     """Load .env into os.environ (keys already set in the environment win)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -74,8 +65,8 @@ CLAUDE_API_KEY = os.environ.get('CLAUDE_API_KEY', '').strip()
 CLAUDE_MODEL = 'claude-sonnet-4-6'
 if not INTERNAL_API_KEY:
     print(
-        'WARNING: INTERNAL_API_KEY is not set — proposal/profile SSO and internal APIs '
-        'will not work until you add the same key on hub, proposal, and profile services.'
+        'WARNING: INTERNAL_API_KEY is not set — proposal SSO and internal APIs '
+        'will not work until you add the same key on hub and proposal services.'
     )
 MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', '').strip()
 
@@ -1226,46 +1217,6 @@ def require_admin(f):
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
-
-
-def _runway_share_access_granted():
-    """Optional guest link — only when both SHARE token and PUBLIC flag are on.
-
-    Route Lab is a private experiment for the owner (not Hub teammates like Ben).
-    Guest links are opt-in via env, not the default.
-    """
-    if not RUNWAY_PUBLIC_ACCESS or not RUNWAY_SHARE_TOKEN:
-        return False
-    token = (request.args.get('access') or '').strip()
-    if token and token == RUNWAY_SHARE_TOKEN:
-        session['runway_guest'] = True
-        return True
-    return bool(session.get('runway_guest'))
-
-
-def require_runway_access(f):
-    """Route Lab: owner only (or explicit public/share env for solo testing)."""
-    from functools import wraps
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        # Owner always wins when logged in
-        if session.get('user_key') == RUNWAY_OWNER:
-            return f(*args, **kwargs)
-        # Optional solo public / share — never grant other Hub users
-        if RUNWAY_PUBLIC_ACCESS and _runway_share_access_granted():
-            return f(*args, **kwargs)
-        if RUNWAY_PUBLIC_ACCESS and not RUNWAY_SHARE_TOKEN:
-            # Fully public only when intentionally enabled without a token
-            return f(*args, **kwargs)
-        if not session.get('user_key'):
-            return redirect(url_for('login', next=request.url))
-        # Logged-in Hub users who are not the owner (e.g. Ben) → dashboard only
-        return redirect(url_for('dashboard'))
-    return decorated
-
-
-# Back-compat alias
-require_runway_owner = require_runway_access
 
 
 def get_user_proposal_access(user_key):
@@ -2936,7 +2887,6 @@ def health():
         'service': 'hub',
         'hub_public_url': HUB_PUBLIC_URL,
         'proposal_url': PROPOSAL_URL,
-        'profile_url': PROFILE_URL,
         'secret_configured': os.environ.get('SECRET_KEY', '').strip() != '',
         'internal_api_configured': bool(INTERNAL_API_KEY),
         'database_configured': bool(DATABASE_URL),
@@ -3679,27 +3629,6 @@ def dashboard():
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
-    )
-
-
-@app.route('/routelab/logos')
-def routelab_logo_gallery():
-    """RouteLab logo concept gallery — static assets, no login required."""
-    return send_from_directory(
-        os.path.join(app.root_path, 'static', 'routelab'),
-        'index.html',
-    )
-
-
-@app.route('/runway')
-@app.route('/airline')
-@require_runway_access
-def runway_game():
-    """Airline startup sim — public when RUNWAY_PUBLIC_ACCESS or share token is set."""
-    return render_template(
-        'runway.html',
-        bootstrap_json=json.dumps(get_runway_bootstrap()),
-        mapbox_token=RUNWAY_MAPBOX_TOKEN,
     )
 
 
@@ -4712,8 +4641,7 @@ def admin():
                            client_count=client_count,
                            proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
                            breakdown=breakdown, vault=vault,
-                           user_definitions=USERS,
-                           runway_available=(session.get('user_key') == RUNWAY_OWNER))
+                           user_definitions=USERS)
 
 
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])
