@@ -127,6 +127,20 @@ def init_tables(cur):
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_pipeline_board_pair ON pipeline_board_entries(pair_key, archived)"
     )
+    # CREATE TABLE ... DEFAULT 'new' above is inert for the already-existing
+    # production table (Postgres no-ops the whole CREATE TABLE when the table
+    # exists) -- the real on-disk default was still 'draft' from before the
+    # 2026-08 status changes. Not a functional bug (create_entry hardcodes
+    # 'new' explicitly at every INSERT, see below), but misleading if anyone
+    # inspects the schema directly. Idempotent, like the CREATE statements
+    # above: repeating ALTER COLUMN SET DEFAULT is a no-op each time and
+    # touches zero existing rows (metadata only, no table rewrite).
+    try:
+        cur.execute(
+            "ALTER TABLE pipeline_board_entries ALTER COLUMN status SET DEFAULT 'new'"
+        )
+    except Exception:
+        pass
 
 
 # Segment prefixes import_workbook used to fold into Notes (see below) --
