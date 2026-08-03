@@ -2912,15 +2912,23 @@ def health():
                 db_ok = True
         except Exception:
             pass
-    digest_recips = []
+    # Public /health must not list recipient emails (ops detail belongs on
+    # /health/deep, which is admin-or-API-key gated). Cron only needs a 200
+    # body to wake a sleeping instance — counts and booleans are enough.
+    digest_recipient_count = 0
+    notify_recipient_count = 0
     digest_last = None
     digest_last_sent = None
     try:
         from daily_digest import digest_recipients, _load_last_run, _load_sent_date
-        digest_recips = digest_recipients()
+        digest_recipient_count = len(digest_recipients() or [])
         if db_ok:
             digest_last = _load_last_run(get_db)
             digest_last_sent = _load_sent_date(get_db)
+    except Exception:
+        pass
+    try:
+        notify_recipient_count = len(_hub_notify_recipients() or [])
     except Exception:
         pass
     return jsonify({
@@ -2941,10 +2949,10 @@ def health():
             and os.environ.get('SMTP_PASS', '').strip()
         ),
         'daily_digest_enabled': os.environ.get('DAILY_DIGEST_ENABLED', 'true').strip().lower() in ('1', 'true', 'yes'),
-        'daily_digest_recipients': digest_recips,
+        'daily_digest_recipient_count': digest_recipient_count,
         'daily_digest_last_run': digest_last,
         'daily_digest_last_sent_date': digest_last_sent,
-        'hub_notify_email': _hub_notify_recipients(),
+        'hub_notify_recipient_count': notify_recipient_count,
         'resend_configured': bool(os.environ.get('RESEND_API_KEY', '').strip()),
         'claude_configured': bool(CLAUDE_API_KEY),
     })
