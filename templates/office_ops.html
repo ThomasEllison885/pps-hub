@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office Ops · PPS Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/pps-global.css">
+  <style>
+    :root {
+      --navy: #0B1D36;
+      --blue: #1A5276;
+      --gold: #B8922A;
+      --bg: #F7F5F0;
+      --card: #fff;
+      --border: #E5E0D5;
+      --muted: #6B7280;
+      --ok: #1B7A4E;
+      --warn: #B45309;
+      --danger: #B91C1C;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: #1a1a1a; }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 18px 48px; }
+    .hero {
+      background: linear-gradient(135deg, #0B1D36 0%, #1A5276 100%);
+      color: #fff; border-radius: 16px; padding: 22px 24px; margin-bottom: 20px;
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between;
+    }
+    .hero h1 { font-family: 'DM Serif Display', serif; font-size: 1.75rem; margin: 0 0 6px; font-weight: 400; }
+    .hero p { margin: 0; opacity: 0.88; font-size: 0.95rem; line-height: 1.45; max-width: 36rem; }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 999px;
+    }
+    .grid { display: grid; gap: 16px; }
+    @media (min-width: 860px) {
+      .grid-2 { grid-template-columns: 1fr 1fr; }
+      .span-2 { grid-column: 1 / -1; }
+    }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 18px 18px 16px; box-shadow: 0 1px 2px rgba(11,29,54,0.04);
+    }
+    .card h2 {
+      margin: 0 0 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--blue);
+    }
+    .muted { color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
+    .drop {
+      border: 2px dashed #C9B896; border-radius: 12px; padding: 22px 16px; text-align: center;
+      background: #FBF8F1; transition: border-color 0.15s, background 0.15s;
+    }
+    .drop.drag { border-color: var(--gold); background: #FFF8E7; }
+    .drop strong { display: block; margin-bottom: 6px; color: var(--navy); }
+    .btn {
+      display: inline-block; border: none; border-radius: 8px; padding: 10px 16px;
+      font-weight: 700; font-size: 14px; cursor: pointer; font-family: inherit;
+    }
+    .btn-primary { background: var(--gold); color: #1a1200; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--blue); border: 1px solid var(--border); }
+    .btn-sm { padding: 7px 12px; font-size: 13px; }
+    .stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
+    .stat {
+      flex: 1 1 120px; background: #F3F6F9; border-radius: 10px; padding: 10px 12px;
+    }
+    .stat .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat .val { font-size: 1.15rem; font-weight: 700; color: var(--navy); margin-top: 2px; }
+    .stat.warn .val { color: var(--warn); }
+    .stat.danger .val { color: var(--danger); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    td { padding: 9px 6px; border-bottom: 1px solid #f0ebe3; vertical-align: top; }
+    tr.legacy td { background: #FFF8F0; }
+    .tag {
+      display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 4px; background: #FEF3C7; color: #92400E;
+    }
+    .draft-box {
+      white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; background: #FAFBFC;
+      border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: 420px; overflow: auto;
+    }
+    .toast {
+      display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+    }
+    .toast.ok { display: block; background: #ECFDF5; color: var(--ok); }
+    .toast.err { display: block; background: #FEF2F2; color: var(--danger); }
+    .file-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
+    .file-list li { padding: 6px 0; border-bottom: 1px solid #f0ebe3; display: flex; justify-content: space-between; gap: 8px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+    .note-list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); line-height: 1.5; }
+    .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <header class="pps-header">
+    <a href="/dashboard" class="pps-header-left">
+      <img src="/static/logo.png" alt="PPS" class="pps-header-logo" width="36" height="36">
+      <span class="pps-header-title">Office Ops</span>
+    </a>
+    <div class="pps-header-right">
+      <span class="pps-header-user">{{ user_display }}</span>
+      <a href="/dashboard" class="pps-btn-header">Dashboard</a>
+      <a href="/logout" class="pps-btn-header">Sign Out</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <span class="badge">Stephanie + Thomas · private</span>
+        <h1>Office Ops</h1>
+        <p>
+          Drop QuickBooks AR aging here, get a ranked collection focus list and a Numbers draft you can edit and send.
+          Nothing writes back to QuickBooks. Nothing emails itself.
+        </p>
+      </div>
+    </div>
+
+    <div class="grid grid-2">
+      <div class="card">
+        <h2>1 · Drop AR aging</h2>
+        <p class="muted" style="margin-top:0">
+          QuickBooks → Reports → <strong>A/R Aging Summary</strong> → Export Excel (or CSV).
+          Upload below — we parse and refresh this page’s brief automatically.
+        </p>
+        <div class="drop" id="drop-zone">
+          <strong>Drop file here or choose</strong>
+          <span class="muted">.xlsx or .csv · max 5 MB</span>
+          <div style="margin-top:12px">
+            <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-primary" id="pick-btn">Choose file</button>
+          </div>
+        </div>
+        <div class="toast" id="toast"></div>
+        {% if recent_files %}
+        <p class="muted" style="margin:14px 0 6px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Recent uploads</p>
+        <ul class="file-list">
+          {% for f in recent_files[:5] %}
+          <li>
+            <span>{{ f.filename }}</span>
+            <span class="muted">{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '' }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h2>2 · This week’s snapshot</h2>
+        {% if pack and pack.summary %}
+        {% set s = pack.summary %}
+        {% set g = s.grand_total %}
+        <p class="muted" style="margin:0 0 8px">
+          From <strong>{{ pack.source_filename or s.source_filename or 'upload' }}</strong>
+          {% if s.as_of_label %} · {{ s.as_of_label }}{% endif %}
+          {% if pack.created_at %} · processed {{ pack.created_at[:16].replace('T',' ') }}{% endif %}
+        </p>
+        <div class="stat-row">
+          <div class="stat"><div class="lbl">Total AR</div><div class="val money">${{ '{:,.0f}'.format(g.total) }}</div></div>
+          <div class="stat"><div class="lbl">Current</div><div class="val money">${{ '{:,.0f}'.format(g.current) }}</div></div>
+          <div class="stat warn"><div class="lbl">1–30</div><div class="val money">${{ '{:,.0f}'.format(g['1_30']) }}</div></div>
+          <div class="stat danger"><div class="lbl">91+</div><div class="val money">${{ '{:,.0f}'.format(g['91_and_over']) }}</div></div>
+        </div>
+        {% if s.bopc %}
+        <p class="muted" style="margin:10px 0 0">
+          BOPC / Bridges called out: <strong class="money">${{ '{:,.0f}'.format(s.bopc.total) }}</strong>
+          · Operating ex-BOPC (rough): <strong class="money">${{ '{:,.0f}'.format(s.operating_ex_bopc.total) }}</strong>
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="muted" style="margin:0">No AR pack yet. Upload an Aging Summary to populate totals and the chase list.</p>
+        {% endif %}
+
+        <h2 style="margin-top:18px">Coming next</h2>
+        <ul class="note-list">
+          <li>Monday Sub Info → compliance chase</li>
+          <li>Monthly Outlook sheet → full Numbers narrative</li>
+          <li>50/50 split jobs (we’ll learn your pattern)</li>
+          <li>Optional Gmail draft for one-click send prep</li>
+        </ul>
+      </div>
+
+      <div class="card span-2">
+        <h2>3 · Collection focus</h2>
+        {% if pack and pack.summary and pack.summary.chase_list %}
+        <div style="overflow-x:auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Total</th>
+                <th>Overdue</th>
+                <th>1–30</th>
+                <th>31–60</th>
+                <th>61–90</th>
+                <th>91+</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in pack.summary.chase_list[:15] %}
+              <tr class="{% if c.is_legacy_or_bopc %}legacy{% endif %}">
+                <td>
+                  {{ c.customer }}
+                  {% if c.is_legacy_or_bopc %}<span class="tag">Care</span>{% endif %}
+                </td>
+                <td class="money">${{ '{:,.0f}'.format(c.total) }}</td>
+                <td class="money">${{ '{:,.0f}'.format(c.overdue) }}</td>
+                <td class="money">${{ '{:,.0f}'.format(c['1_30']) }}</td>
+                <td class="money">${{ '{:,.0f}'.format(c['31_60']) }}</td>
+                <td class="money">${{ '{:,.0f}'.format(c['61_90']) }}</td>
+                <td class="money">${{ '{:,.0f}'.format(c['91_and_over']) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="muted" style="margin:0">Chase list appears after an AR upload.</p>
+        {% endif %}
+      </div>
+
+      <div class="card span-2">
+        <h2>4 · Numbers draft (edit &amp; send yourself)</h2>
+        <p class="muted" style="margin-top:0">
+          Skeleton for your weekly Numbers email — sales vs goal still comes from your Outlook sheet.
+          Copy, polish in email, send to Thomas / Tony as you always do.
+        </p>
+        <div class="draft-box" id="draft-box">{% if pack and pack.numbers_draft_md %}{{ pack.numbers_draft_md }}{% else %}_Upload AR aging to generate a draft._
+{% endif %}</div>
+        <div class="actions">
+          <button type="button" class="btn btn-primary btn-sm" id="copy-draft" {% if not pack or not pack.numbers_draft_md %}disabled{% endif %}>Copy draft</button>
+          <span class="muted" id="copy-status"></span>
+        </div>
+        {% if pack and pack.summary and pack.summary.notes_for_humans %}
+        <ul class="note-list" style="margin-top:14px">
+          {% for n in pack.summary.notes_for_humans %}
+          <li>{{ n }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <script>
+  const drop = document.getElementById('drop-zone');
+  const input = document.getElementById('file-input');
+  const pick = document.getElementById('pick-btn');
+  const toast = document.getElementById('toast');
+
+  function showToast(msg, ok) {
+    toast.textContent = msg;
+    toast.className = 'toast ' + (ok ? 'ok' : 'err');
+  }
+
+  pick.onclick = () => input.click();
+  input.onchange = () => {
+    if (input.files && input.files[0]) upload(input.files[0]);
+  };
+
+  ;['dragenter','dragover'].forEach(ev => {
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); });
+  });
+  ;['dragleave','drop'].forEach(ev => {
+    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); });
+  });
+  drop.addEventListener('drop', e => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) upload(f);
+  });
+
+  async function upload(file) {
+    showToast('Uploading and processing…', true);
+    pick.disabled = true;
+    const fd = new FormData();
+    fd.append('kind', 'ar_aging');
+    fd.append('file', file);
+    try {
+      const res = await fetch('/api/office-ops/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!data.success) {
+        showToast(data.error || 'Upload failed.', false);
+        pick.disabled = false;
+        return;
+      }
+      showToast('Processed. Refreshing…', true);
+      window.location.reload();
+    } catch (err) {
+      showToast('Network error — try again.', false);
+      pick.disabled = false;
+    }
+  }
+
+  document.getElementById('copy-draft').onclick = async () => {
+    const text = document.getElementById('draft-box').innerText;
+    try {
+      await navigator.clipboard.writeText(text);
+      document.getElementById('copy-status').textContent = 'Copied.';
+    } catch (e) {
+      document.getElementById('copy-status').textContent = 'Select the draft and copy manually.';
+    }
+  };
+  </script>
+</body>
+</html>

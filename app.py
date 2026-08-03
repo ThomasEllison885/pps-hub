@@ -7,6 +7,7 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
 import pipeline_board
+import office_ops
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -1100,6 +1101,7 @@ def init_db():
     ask_pps.init_tables(cur)
     pipeline_board.init_tables(cur)
     pipeline_board.cleanup_legacy_import_notes(cur)
+    office_ops.init_tables(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
@@ -3571,6 +3573,9 @@ def dashboard():
         pipeline_board_pair_key
         and pipeline_board.can_access_board(USERS, user_key, pipeline_board_pair_key)
     )
+    # Office Ops: Stephanie + Thomas (and any future office_manager/admin).
+    # Use real identity, not role-preview, so admin preview-as-PM does not open it.
+    office_ops_access = office_ops.can_access_office_ops(USERS, user_key)
 
     date_events = get_date_events(user_key, is_admin=real_is_admin and not view_as)
     recent_feed = _build_dashboard_recent_feed(
@@ -3625,6 +3630,7 @@ def dashboard():
         pm_training_open=pm_training_open,
         pipeline_board_access=pipeline_board_access,
         pipeline_board_pair_key=pipeline_board_pair_key,
+        office_ops_access=office_ops_access,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,
         pricing_summary=pricing_summary,
@@ -8104,6 +8110,7 @@ def logout():
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
 pipeline_board.register_routes(app, get_db, USERS, require_login)
+office_ops.register_routes(app, get_db, USERS, require_login)
 
 
 if __name__ == '__main__':

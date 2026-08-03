@@ -369,11 +369,24 @@
           {% if user_role in ('pm', 'office_manager', 'admin') %}
           <a href="/my-ppms" class="lane-link">My PPMs →</a>
           {% endif %}
+          {% if office_ops_access %}
+          <a href="/office-ops" class="lane-link">Office Ops →</a>
+          {% endif %}
           <a href="/estimating" class="lane-link">Estimating →</a>
         </div>
       </summary>
       <div class="lane-body">
         <div class="tools-grid">
+          {% if office_ops_access %}
+          <a href="/office-ops" class="pps-tool-card">
+            <div class="pps-tool-icon">📥</div>
+            <div class="pps-tool-name">Office Ops</div>
+            <div class="pps-tool-desc">Drop AR aging, ranked collections, Numbers draft — Stephanie &amp; Thomas only.</div>
+            <span class="tool-badge">Private</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
           <a href="#" onclick="openTool('{{ proposal_url }}/ppm'); return false;" class="pps-tool-card">
             <div class="pps-tool-icon">📋</div>
             <div class="pps-tool-name">Pre-Project Meeting (PPM)</div>
@@ -513,6 +526,16 @@
             <span class="tool-badge">Pilot</span>
             <div class="tool-meta">Open →</div>
           </a>
+
+          {% if office_ops_access %}
+          <a href="/office-ops" class="pps-tool-card">
+            <div class="pps-tool-icon">📥</div>
+            <div class="pps-tool-name">Office Ops</div>
+            <div class="pps-tool-desc">AR drop, collections brief, Numbers draft (Stephanie + you).</div>
+            <span class="tool-badge">Private</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
 
           <a href="/admin" class="pps-tool-card">
             <div class="pps-tool-icon">⚙️</div>
