@@ -37,6 +37,8 @@
   tr.row-in-progress td { background:#FFF8E7; }
   tr.row-in-progress:hover td { background:#FFF3D6; }
   tr.row-in-progress td:first-child { box-shadow:inset 3px 0 0 #F9A825; }
+  @keyframes jump-flash-pulse { 0%, 100% { background:#FFF8E7; } 50% { background:#FFECB3; } }
+  tr.jump-flash td { animation:jump-flash-pulse 0.4s ease-in-out 2; }
   td input, td select, td textarea {
     width:100%; border:1.5px solid transparent; border-radius:6px; padding:7px 8px; font-family:'DM Sans',sans-serif;
     font-size:13px; background:transparent; color:#333; resize:none; box-sizing:border-box;
@@ -151,6 +153,7 @@
       <div style="display:flex;gap:10px;align-items:center;">
         <input type="file" id="import-file-input" accept=".xlsx,.xlsm" style="display:none;">
         <button class="btn" id="import-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Import spreadsheet</button>
+        <button class="btn" id="jump-open-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Jump to open work</button>
         <button class="btn" id="add-row-btn">+ Add row</button>
       </div>
     </div>
@@ -382,7 +385,11 @@ document.getElementById('add-row-btn').onclick = () => {
       scrollToBottom();
       const row = document.getElementById(`row-${data.entry.id}`);
       if (row) {
-        const firstInput = row.querySelector('input, textarea');
+        // property_name, not the DOM-first field -- proposal_number is
+        // always pre-filled by _next_proposal_number() before the user
+        // ever sees this row, so focusing it just puts the cursor in an
+        // already-populated field instead of the first blank one.
+        const firstInput = row.querySelector('[data-field="property_name"]');
         if (firstInput) firstInput.focus();
       }
     },
@@ -407,12 +414,31 @@ function mergeEntries(freshEntries) {
 }
 
 function scrollToBottom() {
-  // New work lands at the bottom (+ Add row). Land there on open so Andy
-  // and Ben skip scrolling past older completed rows.
+  // Only called right after a successful Add row, so the new row you just
+  // created is visible without hunting for it. Deliberately NOT called on
+  // page load/reopen: rows sort by row_order (pure insertion order, see
+  // pipeline_board.py's ORDER BY) with no re-sort by status, so "bottom"
+  // only reliably means "newest row" -- an older in-progress row can sit
+  // anywhere earlier in a long imported board. Use "Jump to open work"
+  // for that instead of overloading this with a guarantee it can't keep.
   requestAnimationFrame(() => {
     window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
   });
 }
+
+function jumpToOpenWork() {
+  const target = entries.find(e => isInProgress(e.status));
+  if (!target) {
+    showError('Nothing in progress right now — everything is Sent/Awarded/Cancelled.');
+    return;
+  }
+  const row = document.getElementById(`row-${target.id}`);
+  if (!row) return;
+  row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  row.classList.add('jump-flash');
+  setTimeout(() => row.classList.remove('jump-flash'), 1200);
+}
+document.getElementById('jump-open-btn').onclick = jumpToOpenWork;
 
 function reloadEntries() {
   fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
@@ -421,7 +447,6 @@ function reloadEntries() {
       firstLoad = false;
       entries = data.entries;
       renderAll();
-      scrollToBottom();
     }
     else { mergeEntries(data.entries); }
     if (data.presence) { renderPresence(data.presence); }
