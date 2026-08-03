@@ -32,6 +32,11 @@
   th { position:relative; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--dark-blue); padding:10px 14px 10px 10px; background:var(--light-bg); border-bottom:1.5px solid var(--border); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   td { padding:4px 6px; border-bottom:1px solid #f0f4f8; font-size:13px; vertical-align:middle; overflow:hidden; }
   tr.archiving td { opacity:0.35; }
+  /* In-progress rows (not Sent / Awarded / Cancelled) — quick visual for
+     what still needs Andy or Ben's attention when scanning the board. */
+  tr.row-in-progress td { background:#FFF8E7; }
+  tr.row-in-progress:hover td { background:#FFF3D6; }
+  tr.row-in-progress td:first-child { box-shadow:inset 3px 0 0 #F9A825; }
   td input, td select, td textarea {
     width:100%; border:1.5px solid transparent; border-radius:6px; padding:7px 8px; font-family:'DM Sans',sans-serif;
     font-size:13px; background:transparent; color:#333; resize:none; box-sizing:border-box;
@@ -57,6 +62,9 @@
     content:attr(data-editor); position:absolute; top:-9px; left:6px; font-size:9px; font-weight:700;
     color:#E65100; background:#FFF3E0; padding:0 4px; border-radius:4px; white-space:nowrap;
   }
+  .status-new { color:#6A1B9A; font-weight:600; }
+  .status-needs_scope { color:#E65100; font-weight:600; }
+  .status-scoped { color:#00838F; font-weight:600; }
   .status-draft { color:#888; }
   .status-sent { color:#1565C0; }
   .status-awarded { color:#2E7D32; font-weight:600; }
@@ -112,7 +120,7 @@
           <col data-col="property_name" style="width:150px;">
           <col data-col="address" style="width:150px;">
           <col data-col="project" style="width:260px;">
-          <col data-col="status" style="width:110px;">
+          <col data-col="status" style="width:150px;">
           <col data-col="amount" style="width:100px;">
           <col data-col="subpay" style="width:100px;">
           <col data-col="trade_partner" style="width:130px;">
@@ -155,6 +163,9 @@ const PAIR_KEY = {{ pair_key|tojson }};
 const MY_USER_KEY = {{ user_key|tojson }};
 const MY_DISPLAY = {{ user_display|tojson }};
 const STATUSES = {{ statuses|tojson }};
+// Sent / Awarded / Cancelled are "done for our queue" — everything else is
+// still in progress and gets a row highlight for quick scanning.
+const COMPLETED_STATUSES = new Set({{ completed_statuses|tojson }});
 const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', 'trade_partner', 'client_contact', 'notes'];
 const NUMERIC_FIELDS = ['amount', 'sub_pay'];
 
@@ -200,9 +211,14 @@ function fieldSelector(id, field) {
   return `[data-row="${id}"][data-field="${field}"]`;
 }
 
+function isInProgress(status) {
+  return !COMPLETED_STATUSES.has(status);
+}
+
 function renderRow(entry) {
   const tr = document.createElement('tr');
   tr.id = `row-${entry.id}`;
+  if (isInProgress(entry.status)) tr.classList.add('row-in-progress');
 
   const cell = (field, inner) => {
     const td = document.createElement('td');
@@ -360,7 +376,16 @@ function removeRowLocally(rowId) {
 document.getElementById('add-row-btn').onclick = () => {
   handleApiResponse(
     fetch(apiUrl('/api/pipeline-board/entries'), {method: 'POST'}),
-    (data) => { entries.push(data.entry); renderAll(); },
+    (data) => {
+      entries.push(data.entry);
+      renderAll();
+      scrollToBottom();
+      const row = document.getElementById(`row-${data.entry.id}`);
+      if (row) {
+        const firstInput = row.querySelector('input, textarea');
+        if (firstInput) firstInput.focus();
+      }
+    },
   );
 };
 
@@ -381,10 +406,23 @@ function mergeEntries(freshEntries) {
   document.getElementById('row-count').textContent = `${entries.length} row${entries.length === 1 ? '' : 's'}`;
 }
 
+function scrollToBottom() {
+  // New work lands at the bottom (+ Add row). Land there on open so Andy
+  // and Ben skip scrolling past older completed rows.
+  requestAnimationFrame(() => {
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'auto' });
+  });
+}
+
 function reloadEntries() {
   fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
     if (!data.entries) { showError(data.error || 'Could not load the board.'); return; }
-    if (firstLoad) { firstLoad = false; entries = data.entries; renderAll(); }
+    if (firstLoad) {
+      firstLoad = false;
+      entries = data.entries;
+      renderAll();
+      scrollToBottom();
+    }
     else { mergeEntries(data.entries); }
     if (data.presence) { renderPresence(data.presence); }
     document.getElementById('live-dot').classList.add('connected');

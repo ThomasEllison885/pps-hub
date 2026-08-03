@@ -45,7 +45,16 @@ PILOT_PM_FOR_CONSULTANT = {
 }
 PRESENCE_TTL_SECONDS = 12  # no explicit "disconnect" under polling; just expire
 
+# Ordered roughly by pipeline stage so the dropdown reads top-to-bottom as
+# the work progresses. Early field stages (new / needs_scope / scoped) let
+# Andy & Ben glance at what still needs a walk vs. what's ready to write —
+# feedback 2026-08 from Andy Potts. "New" is the cleaner label for what he
+# called "Untouched". Terminal-for-our-queue statuses (sent / awarded /
+# cancelled) are the ones the board does *not* highlight as in-progress.
 STATUSES = [
+    {'value': 'new', 'label': 'New'},
+    {'value': 'needs_scope', 'label': 'Needs walk/scope'},
+    {'value': 'scoped', 'label': 'Walked/scoped'},
     {'value': 'draft', 'label': 'Draft'},
     {'value': 'sent', 'label': 'Sent'},
     {'value': 'awarded', 'label': 'Awarded'},
@@ -55,6 +64,8 @@ STATUSES = [
 ]
 STATUS_VALUES = frozenset(s['value'] for s in STATUSES)
 STATUS_LABELS = {s['value']: s['label'] for s in STATUSES}
+# Rows not in this set get a highlight — still in some form of progress.
+COMPLETED_STATUSES = frozenset({'sent', 'awarded', 'cancelled'})
 
 MAX_TEXT = 500
 MAX_NOTES = 10000
@@ -99,7 +110,7 @@ def init_tables(cur):
             property_name VARCHAR(255),
             address VARCHAR(255),
             project TEXT,
-            status VARCHAR(30) NOT NULL DEFAULT 'draft',
+            status VARCHAR(30) NOT NULL DEFAULT 'new',
             amount NUMERIC(12, 2),
             sub_pay NUMERIC(12, 2),
             trade_partner VARCHAR(255),
@@ -258,7 +269,7 @@ def create_entry(get_db_fn, pair_key, user_key):
         cur.execute('''
             INSERT INTO pipeline_board_entries
                 (pair_key, proposal_number, status, row_order, created_by, updated_by)
-            VALUES (%s, %s, 'draft',
+            VALUES (%s, %s, 'new',
                 COALESCE((SELECT MAX(row_order) + 1 FROM pipeline_board_entries WHERE pair_key = %s), 0),
                 %s, %s)
             RETURNING *
@@ -643,6 +654,7 @@ def register_routes(app, get_db_fn, users, require_login):
             consultant_display=_display(users, pair_key),
             pm_display=_display(users, pm_key) if pm_key else 'PM',
             statuses=STATUSES,
+            completed_statuses=sorted(COMPLETED_STATUSES),
             user_key=user_key,
             user_display=_display(users, user_key),
             is_admin_preview=(users.get(user_key, {}).get('role') == 'admin'
