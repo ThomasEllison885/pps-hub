@@ -1,0 +1,5 @@
+# Dev/test-only dependencies. NOT installed in production -- render.yaml's
+# buildCommand only runs `pip install -r requirements.txt`, so this file is
+# never touched by the deploy path. Install locally with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+pytest==8.3.3
