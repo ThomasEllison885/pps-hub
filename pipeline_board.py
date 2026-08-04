@@ -23,6 +23,7 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 "Indian Creek" property tag left in the wrong column, not a real status.
 """
 
+import json
 import re
 from datetime import datetime, date
 
@@ -185,6 +186,25 @@ def init_tables(cur):
             PRIMARY KEY (pair_key, user_key)
         )
     ''')
+    # Full-board JSON snapshots so a bad client poll, bad import, or accidental
+    # mass archive can be walked back. Same Postgres as live data (if the DB
+    # itself is suspended, these don't help until it comes back -- the browser
+    # localStorage cache covers that case). Kept small: last N per pair.
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pipeline_board_backups (
+            id SERIAL PRIMARY KEY,
+            pair_key VARCHAR(100) NOT NULL,
+            reason VARCHAR(50) NOT NULL,
+            created_by VARCHAR(100),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            entry_count INTEGER NOT NULL DEFAULT 0,
+            payload JSONB NOT NULL
+        )
+    ''')
+    cur.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pipeline_board_backups_pair '
+        'ON pipeline_board_backups(pair_key, created_at DESC)'
+    )
 
 
 # Segment prefixes import_workbook used to fold into Notes (see below) --
@@ -264,9 +284,12 @@ def _row_to_dict(row):
 
 
 def list_entries(get_db_fn, pair_key):
+    """Return (rows, error). On DB failure rows is None and error is a short
+    message -- callers must NOT treat that as an empty board (the UI used to
+    wipe all rows when get_db failed, because this returned [])."""
     conn = get_db_fn()
     if not conn:
-        return []
+        return None, 'Database unavailable'
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute('''
@@ -277,10 +300,10 @@ def list_entries(get_db_fn, pair_key):
         rows = [_row_to_dict(r) for r in cur.fetchall()]
         cur.close()
         conn.close()
-        return rows
+        return rows, None
     except Exception as e:
         print(f'Pipeline board list error: {e}')
-        return []
+        return None, 'Could not load board'
 
 
 def _prefix_from_pair_key(pair_key):
@@ -665,6 +688,223 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
     }
 
 
+
+# Keep enough snapshots that a bad morning of edits is recoverable, without
+# unbounded growth. ~40 writes/day * 7 days would be ~280; 60 is a practical
+# middle for a 2-pair pilot.
+BACKUP_KEEP_PER_PAIR = 60
+
+
+def _list_all_entries_for_backup(cur, pair_key):
+    """Active + archived rows for one pair (full recoverability)."""
+    cur.execute(
+        'SELECT * FROM pipeline_board_entries '
+        'WHERE pair_key = %s ORDER BY row_order ASC, id ASC',
+        (pair_key,),
+    )
+    return [_row_to_dict(r) for r in cur.fetchall()]
+
+
+def snapshot_board(get_db_fn, pair_key, reason, user_key=None):
+    """Persist a full-board JSON snapshot. Best-effort: never fails the
+    caller's write if snapshotting itself errors."""
+    conn = get_db_fn()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        rows = _list_all_entries_for_backup(cur, pair_key)
+        cur.execute(
+            '''INSERT INTO pipeline_board_backups
+                   (pair_key, reason, created_by, entry_count, payload)
+               VALUES (%s, %s, %s, %s, %s::jsonb)
+               RETURNING id''',
+            (pair_key, (reason or 'manual')[:50], user_key,
+             len(rows), json.dumps(rows)),
+        )
+        backup_id = cur.fetchone()['id']
+        # Prune older than keep-N for this pair.
+        cur.execute(
+            '''DELETE FROM pipeline_board_backups
+               WHERE pair_key = %s AND id NOT IN (
+                   SELECT id FROM pipeline_board_backups
+                   WHERE pair_key = %s
+                   ORDER BY created_at DESC, id DESC
+                   LIMIT %s
+               )''',
+            (pair_key, pair_key, BACKUP_KEEP_PER_PAIR),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return backup_id
+    except Exception as e:
+        print(f'Pipeline board snapshot error: {e}')
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+
+def list_backups(get_db_fn, pair_key, limit=20):
+    conn = get_db_fn()
+    if not conn:
+        return None, 'Database unavailable'
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT id, pair_key, reason, created_by, created_at, entry_count
+               FROM pipeline_board_backups
+               WHERE pair_key = %s
+               ORDER BY created_at DESC, id DESC
+               LIMIT %s''',
+            (pair_key, limit),
+        )
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            if d.get('created_at'):
+                d['created_at'] = d['created_at'].isoformat()
+            rows.append(d)
+        cur.close()
+        conn.close()
+        return rows, None
+    except Exception as e:
+        print(f'Pipeline board list_backups error: {e}')
+        return None, 'Could not list backups'
+
+
+def get_backup(get_db_fn, pair_key, backup_id):
+    conn = get_db_fn()
+    if not conn:
+        return None, 'Database unavailable'
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT id, pair_key, reason, created_by, created_at, entry_count, payload
+               FROM pipeline_board_backups
+               WHERE id = %s AND pair_key = %s''',
+            (backup_id, pair_key),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None, 'Backup not found'
+        d = dict(row)
+        if d.get('created_at'):
+            d['created_at'] = d['created_at'].isoformat()
+        # payload may already be list (psycopg2 jsonb) or need no transform
+        return d, None
+    except Exception as e:
+        print(f'Pipeline board get_backup error: {e}')
+        return None, 'Could not load backup'
+
+
+def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
+    """Replace live board for pair_key with a snapshot.
+
+    Strategy (safe for pilot size):
+    1. Snapshot current board first (reason=pre_restore).
+    2. Soft-archive every currently active row.
+    3. For each payload row: if id still exists, un-archive + overwrite fields;
+       else INSERT a new row (ids may not match if sequence moved on).
+    Returns (summary_dict, error).
+    """
+    backup, err = get_backup(get_db_fn, pair_key, backup_id)
+    if err:
+        return None, err
+    payload = backup.get('payload') or []
+    if not isinstance(payload, list):
+        return None, 'Backup payload is not a list'
+
+    # Safety snapshot of current state before we touch anything.
+    snapshot_board(get_db_fn, pair_key, 'pre_restore', user_key)
+
+    conn = get_db_fn()
+    if not conn:
+        return None, 'Database unavailable'
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''UPDATE pipeline_board_entries
+               SET archived = TRUE, updated_at = NOW(), updated_by = %s
+               WHERE pair_key = %s AND archived = FALSE''',
+            (user_key, pair_key),
+        )
+        restored = 0
+        inserted = 0
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            # Only restore non-archived rows from the snapshot into the active board.
+            if raw.get('archived'):
+                continue
+            entry_id = raw.get('id')
+            fields = {
+                'proposal_number': raw.get('proposal_number'),
+                'property_name': raw.get('property_name'),
+                'address': raw.get('address'),
+                'project': raw.get('project'),
+                'status': raw.get('status') if raw.get('status') in STATUS_VALUES else 'draft',
+                'amount': raw.get('amount'),
+                'sub_pay': raw.get('sub_pay'),
+                'trade_partner': raw.get('trade_partner'),
+                'client_contact': raw.get('client_contact'),
+                'notes': raw.get('notes'),
+                'row_order': raw.get('row_order') or 0,
+            }
+            updated = False
+            if entry_id is not None:
+                cur.execute(
+                    '''UPDATE pipeline_board_entries SET
+                        proposal_number = %s, property_name = %s, address = %s,
+                        project = %s, status = %s, amount = %s, sub_pay = %s,
+                        trade_partner = %s, client_contact = %s, notes = %s,
+                        row_order = %s, archived = FALSE,
+                        updated_by = %s, updated_at = NOW()
+                       WHERE id = %s AND pair_key = %s
+                       RETURNING id''',
+                    (fields['proposal_number'], fields['property_name'], fields['address'],
+                     fields['project'], fields['status'], fields['amount'], fields['sub_pay'],
+                     fields['trade_partner'], fields['client_contact'], fields['notes'],
+                     fields['row_order'], user_key, entry_id, pair_key),
+                )
+                if cur.fetchone():
+                    updated = True
+                    restored += 1
+            if not updated:
+                cur.execute(
+                    '''INSERT INTO pipeline_board_entries
+                        (pair_key, proposal_number, property_name, address, project, status,
+                         amount, sub_pay, trade_partner, client_contact, notes, row_order,
+                         archived, created_by, updated_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s)''',
+                    (pair_key, fields['proposal_number'], fields['property_name'],
+                     fields['address'], fields['project'], fields['status'],
+                     fields['amount'], fields['sub_pay'], fields['trade_partner'],
+                     fields['client_contact'], fields['notes'], fields['row_order'],
+                     user_key, user_key),
+                )
+                inserted += 1
+                restored += 1
+        conn.commit()
+        cur.close()
+        conn.close()
+        snapshot_board(get_db_fn, pair_key, 'post_restore', user_key)
+        return {'restored': restored, 'inserted_new': inserted, 'from_backup': backup_id}, None
+    except Exception as e:
+        print(f'Pipeline board restore error: {e}')
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        return None, 'Restore failed'
+
+
 def archive_entry(get_db_fn, entry_id, pair_key):
     conn = get_db_fn()
     if not conn:
@@ -726,14 +966,25 @@ def register_routes(app, get_db_fn, users, require_login):
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return jsonify({'error': 'Not authorized'}), 403
         if request.method == 'GET':
+            entries, err = list_entries(get_db_fn, pair_key)
+            if err:
+                # Critical: never return entries=[] on DB failure — the client
+                # used to treat that as "board is empty" and wipe the UI.
+                return jsonify({
+                    'error': err,
+                    'entries': None,
+                    'pair_key': pair_key,
+                    'db_unavailable': True,
+                }), 503
             return jsonify({
-                'entries': list_entries(get_db_fn, pair_key),
+                'entries': entries,
                 'presence': _live_presence(get_db_fn, pair_key, exclude_user_key=user_key),
                 'pair_key': pair_key,
             })
         entry = create_entry(get_db_fn, pair_key, user_key)
         if not entry:
             return jsonify({'error': 'Could not create row'}), 500
+        snapshot_board(get_db_fn, pair_key, 'create', user_key)
         return jsonify({'success': True, 'entry': entry})
 
     @app.route('/api/pipeline-board/entries/<int:entry_id>', methods=['POST'])
@@ -748,6 +999,7 @@ def register_routes(app, get_db_fn, users, require_login):
         entry, err = update_entry(get_db_fn, entry_id, pair_key, user_key, fields)
         if err:
             return jsonify({'error': err}), 400
+        snapshot_board(get_db_fn, pair_key, 'update', user_key)
         return jsonify({'success': True, 'entry': entry})
 
     @app.route('/api/pipeline-board/import', methods=['POST'])
@@ -764,6 +1016,7 @@ def register_routes(app, get_db_fn, users, require_login):
         result = import_workbook(get_db_fn, file, pair_key, user_key)
         if not result.get('success'):
             return jsonify(result), 400
+        snapshot_board(get_db_fn, pair_key, 'import', user_key)
         return jsonify(result)
 
     @app.route('/api/pipeline-board/entries/<int:entry_id>/archive', methods=['POST'])
@@ -775,6 +1028,7 @@ def register_routes(app, get_db_fn, users, require_login):
         ok = archive_entry(get_db_fn, entry_id, pair_key)
         if not ok:
             return jsonify({'error': 'Could not remove row'}), 500
+        snapshot_board(get_db_fn, pair_key, 'archive', user_key)
         return jsonify({'success': True})
 
     @app.route('/api/pipeline-board/presence', methods=['POST'])
@@ -792,3 +1046,66 @@ def register_routes(app, get_db_fn, users, require_login):
         field = (data.get('field') or '').strip()[:100] or None
         _touch_presence(get_db_fn, pair_key, user_key, _display(users, user_key), field)
         return jsonify({'success': True, 'presence': _live_presence(get_db_fn, pair_key, exclude_user_key=user_key)})
+
+    @app.route('/api/pipeline-board/backups', methods=['GET', 'POST'])
+    @require_login
+    def pipeline_board_backups_api():
+        """List snapshots (GET) or take a manual snapshot (POST). Admin or pair member."""
+        user_key, pair_key = _current_pair()
+        if not pair_key or not can_access_board(users, user_key, pair_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        if request.method == 'POST':
+            backup_id = snapshot_board(get_db_fn, pair_key, 'manual', user_key)
+            if not backup_id:
+                return jsonify({'error': 'Could not create backup'}), 500
+            return jsonify({'success': True, 'backup_id': backup_id})
+        backups, err = list_backups(get_db_fn, pair_key)
+        if err:
+            return jsonify({'error': err}), 503
+        return jsonify({'success': True, 'backups': backups, 'pair_key': pair_key})
+
+    @app.route('/api/pipeline-board/backups/<int:backup_id>', methods=['GET'])
+    @require_login
+    def pipeline_board_backup_get_api(backup_id):
+        """Download one full snapshot (JSON). Pair member or admin."""
+        user_key, pair_key = _current_pair()
+        if not pair_key or not can_access_board(users, user_key, pair_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        backup, err = get_backup(get_db_fn, pair_key, backup_id)
+        if err:
+            return jsonify({'error': err}), 404 if err == 'Backup not found' else 503
+        return jsonify({'success': True, 'backup': backup})
+
+    @app.route('/api/pipeline-board/backups/<int:backup_id>/restore', methods=['POST'])
+    @require_login
+    def pipeline_board_backup_restore_api(backup_id):
+        """Admin-only restore: replaces active board from a snapshot."""
+        user_key, pair_key = _current_pair()
+        if not pair_key or not can_access_board(users, user_key, pair_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        if users.get(user_key, {}).get('role') != 'admin':
+            return jsonify({'error': 'Only admin can restore a board from backup'}), 403
+        summary, err = restore_from_backup(get_db_fn, pair_key, backup_id, user_key)
+        if err:
+            return jsonify({'error': err}), 400
+        return jsonify({'success': True, **summary})
+
+    @app.route('/api/pipeline-board/export', methods=['GET'])
+    @require_login
+    def pipeline_board_export_api():
+        """Live export of active rows (always available to pair members for
+        offline/spreadsheet safety copy)."""
+        user_key, pair_key = _current_pair()
+        if not pair_key or not can_access_board(users, user_key, pair_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        entries, err = list_entries(get_db_fn, pair_key)
+        if err:
+            return jsonify({'error': err, 'entries': None}), 503
+        # Also take a named snapshot so "I exported" is recoverable server-side.
+        snapshot_board(get_db_fn, pair_key, 'export', user_key)
+        return jsonify({
+            'success': True,
+            'pair_key': pair_key,
+            'exported_at': datetime.now().isoformat(),
+            'entries': entries,
+        })

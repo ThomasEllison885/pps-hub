@@ -315,3 +315,15 @@ def test_map_sheet_unrecognized_first_column_becomes_project_not_notes():
     col_map, unmapped = pb._map_sheet(ws)
     assert col_map[0] == 'project'
     assert 'Amount' not in unmapped  # 'Amount' is a recognized header
+
+
+# --- list_entries must not pretend "empty board" on DB failure ------------
+
+def test_list_entries_db_unavailable_returns_none_not_empty_list():
+    # Regression: when Render Postgres was suspended, list_entries returned []
+    # and the client wiped every row. Failure must be distinguishable from
+    # a legitimately empty board.
+    rows, err = pb.list_entries(lambda: None, 'andy_potts')
+    assert rows is None
+    assert err
+    assert 'Database' in err or 'unavailable' in err.lower()

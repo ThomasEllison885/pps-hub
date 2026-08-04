@@ -152,6 +152,7 @@
       <span style="font-size:12px;color:#aaa;" id="row-count"></span>
       <div style="display:flex;gap:10px;align-items:center;">
         <input type="file" id="import-file-input" accept=".xlsx,.xlsm" style="display:none;">
+        <button class="btn" id="export-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);" title="Download a JSON safety copy of this board">Export backup</button>
         <button class="btn" id="import-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Import spreadsheet</button>
         <button class="btn" id="jump-open-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Jump to open work</button>
         <button class="btn" id="add-row-btn">+ Add row</button>
@@ -175,6 +176,10 @@ const NUMERIC_FIELDS = ['amount', 'sub_pay'];
 let entries = [];
 let firstLoad = true;
 let saveTimers = {};
+// Last good poll cached per pair so a DB blip / 503 cannot blank the board.
+// (2026-08-04: suspending the Render Postgres made list_entries return [] and
+// the poller wiped every row from the UI even though data was still on disk.)
+const CACHE_KEY = `pipelineBoardCache:${PAIR_KEY}`;
 
 // Admin preview URLs look like /pipeline-board?pair=andy_potts — the page route
 // reads that fine, but every API call below is a separate request and needs
@@ -186,7 +191,21 @@ function apiUrl(path) {
   return path + (path.includes('?') ? '&' : '?') + 'pair=' + encodeURIComponent(PAIR_OVERRIDE);
 }
 
-function showError(message) {
+function cacheEntries(list) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({savedAt: Date.now(), entries: list}));
+  } catch (_) { /* quota / private mode — ignore */ }
+}
+
+function loadCachedEntries() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+    if (raw && Array.isArray(raw.entries)) return raw;
+  } catch (_) {}
+  return null;
+}
+
+function showError(message, sticky) {
   let bar = document.getElementById('board-error-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -197,7 +216,13 @@ function showError(message) {
   bar.textContent = message;
   bar.style.display = 'block';
   clearTimeout(showError._t);
-  showError._t = setTimeout(() => { bar.style.display = 'none'; }, 6000);
+  if (!sticky) {
+    showError._t = setTimeout(() => { bar.style.display = 'none'; }, 6000);
+  }
+}
+
+function showDbWarning(message) {
+  showError(message, true);
 }
 
 function handleApiResponse(promise, onSuccess) {
@@ -441,14 +466,44 @@ function jumpToOpenWork() {
 document.getElementById('jump-open-btn').onclick = jumpToOpenWork;
 
 function reloadEntries() {
-  fetch(apiUrl('/api/pipeline-board/entries')).then(r => r.json()).then(data => {
-    if (!data.entries) { showError(data.error || 'Could not load the board.'); return; }
+  fetch(apiUrl('/api/pipeline-board/entries')).then(async (r) => {
+    let data = {};
+    try { data = await r.json(); } catch (_) { data = {}; }
+    // entries === null / missing / non-array means "could not load", NOT empty board.
+    // Never merge that into the table — that was the wipe path when Postgres was suspended.
+    if (!r.ok || !Array.isArray(data.entries)) {
+      document.getElementById('live-dot').classList.remove('connected');
+      document.getElementById('live-label').textContent = 'DB offline';
+      const cached = loadCachedEntries();
+      if (firstLoad && cached) {
+        firstLoad = false;
+        entries = cached.entries;
+        renderAll();
+        showDbWarning(
+          (data.error || 'Database unavailable') +
+          ' — showing last saved copy from this browser. Edits will not save until the DB is back.'
+        );
+      } else if (entries.length) {
+        showDbWarning(
+          (data.error || 'Database unavailable') +
+          ' — keeping the rows you already have open. Do not reload until the Hub DB is resumed.'
+        );
+      } else {
+        showDbWarning(data.error || 'Could not load the board (database unavailable).');
+      }
+      return;
+    }
+    // Successful load — clear sticky offline banner if any.
+    const bar = document.getElementById('board-error-bar');
+    if (bar) bar.style.display = 'none';
+    cacheEntries(data.entries);
     if (firstLoad) {
       firstLoad = false;
       entries = data.entries;
       renderAll();
+    } else {
+      mergeEntries(data.entries);
     }
-    else { mergeEntries(data.entries); }
     if (data.presence) { renderPresence(data.presence); }
     document.getElementById('live-dot').classList.add('connected');
     document.getElementById('live-label').textContent = 'Live';
@@ -460,6 +515,37 @@ function reloadEntries() {
   // server-side (PRESENCE_TTL_SECONDS) just because nothing new was typed.
   if (currentField) { sendPresence(); }
 }
+
+document.getElementById('export-btn').onclick = () => {
+  // Prefer live server export (also creates a server-side snapshot). Fall back
+  // to whatever is currently on screen / in localStorage if the DB is down.
+  fetch(apiUrl('/api/pipeline-board/export')).then(async (r) => {
+    let data = {};
+    try { data = await r.json(); } catch (_) {}
+    let payload;
+    if (r.ok && Array.isArray(data.entries)) {
+      payload = data;
+    } else {
+      const cached = loadCachedEntries();
+      payload = {
+        success: true,
+        pair_key: PAIR_KEY,
+        exported_at: new Date().toISOString(),
+        source: r.ok ? 'unknown' : 'browser_cache',
+        note: data.error || 'Server export unavailable — browser copy only',
+        entries: Array.isArray(data.entries) ? data.entries
+          : (entries.length ? entries : (cached ? cached.entries : [])),
+      };
+      showError(payload.note);
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `pipeline-board-${PAIR_KEY}-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }).catch(() => showError('Export failed — network error.'));
+};
 
 document.getElementById('import-btn').onclick = () => {
   document.getElementById('import-file-input').click();
