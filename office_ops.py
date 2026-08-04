@@ -32,10 +32,12 @@ ALLOWED_KINDS = frozenset({
     'ar_aging',
     'ar_aging_summary',
     'ar_aging_detail',
+    'invoice_list',
 })
 KIND_SUMMARY = 'ar_aging_summary'
 KIND_DETAIL = 'ar_aging_detail'
-PACK_KIND = 'ar_aging'  # combined pack stored after either upload
+KIND_INVOICE_LIST = 'invoice_list'
+PACK_KIND = 'ar_aging'  # combined pack stored after any related upload
 
 # Customers always called out in the brief (ops judgment, not accounting).
 LEGACY_CUSTOMER_HINTS = (
@@ -137,9 +139,25 @@ def _is_header_row(cells):
     return _is_summary_header_row(cells)
 
 
+def _is_invoice_list_header_row(cells):
+    """QB Invoice List by Date: Date | Transaction Type | Num | Name | … | Sales Rep."""
+    joined = ' '.join(_norm_header(c) for c in cells if c is not None)
+    has_sales = 'sales rep' in joined or 'salesman' in joined or 'salesperson' in joined
+    has_num = 'num' in joined or 'no.' in joined
+    has_name = 'name' in joined or 'customer' in joined
+    has_open = 'open balance' in joined or 'amount' in joined
+    return has_sales and has_num and has_name and has_open
+
+
 def detect_ar_report_type(filename, raw_bytes):
-    """Return 'summary' | 'detail' | None from filename + content peek."""
-    name = (filename or '').lower()
+    """Return 'summary' | 'detail' | 'invoice_list' | None from filename + content peek."""
+    name = (filename or '').lower().replace('+', ' ')
+    if 'invoice list' in name or 'invoice_list' in name:
+        return 'invoice_list'
+    if 'detail' in name and 'aging' in name:
+        return 'detail'
+    if 'summary' in name and 'aging' in name:
+        return 'summary'
     if 'detail' in name:
         return 'detail'
     if 'summary' in name:
@@ -148,6 +166,8 @@ def detect_ar_report_type(filename, raw_bytes):
     # Peek rows without full parse
     rows = _load_tabular_rows(filename, raw_bytes, max_rows=30)
     for row in rows:
+        if _is_invoice_list_header_row(row):
+            return 'invoice_list'
         if _is_detail_header_row(row):
             return 'detail'
         if _is_summary_header_row(row):
@@ -155,6 +175,8 @@ def detect_ar_report_type(filename, raw_bytes):
     # Title rows
     for row in rows[:5]:
         joined = ' '.join(str(c) for c in row if c).lower()
+        if 'invoice list' in joined:
+            return 'invoice_list'
         if 'aging detail' in joined:
             return 'detail'
         if 'aging summary' in joined:
@@ -234,18 +256,25 @@ def _row_bucket(cells, colmap):
 
 
 def parse_ar_aging_bytes(filename, raw_bytes, expect=None):
-    """Parse AR export. expect: 'summary' | 'detail' | None (auto-detect).
+    """Parse AR/invoice export. expect: summary|detail|invoice_list|None.
 
-    Returns a summary-shaped dict; detail also includes 'invoices' and report type.
+    Returns a pack fragment; kinds merge in process_ar_file.
     """
     detected = detect_ar_report_type(filename, raw_bytes)
     kind = expect or detected
     if expect and detected and expect != detected:
+        pretty = {
+            'summary': 'A/R Aging Summary',
+            'detail': 'A/R Aging Detail',
+            'invoice_list': 'Invoice List by Date',
+        }
         raise ValueError(
-            f'This file looks like an A/R Aging {detected.title()} export, '
-            f'but it was uploaded as {expect.title()}. '
-            f'Use the matching drop zone (or upload again — we will auto-detect).'
+            f'This file looks like {pretty.get(detected, detected)}, '
+            f'but it was uploaded as {pretty.get(expect, expect)}. '
+            f'Use the matching drop zone (or upload again — we auto-detect).'
         )
+    if kind == 'invoice_list':
+        return _parse_invoice_list(filename, raw_bytes)
     if kind == 'detail':
         return _parse_ar_detail(filename, raw_bytes)
     if kind == 'summary':
@@ -255,11 +284,209 @@ def parse_ar_aging_bytes(filename, raw_bytes, expect=None):
         return _parse_ar_xlsx(raw_bytes)
     # Unknown
     raise ValueError(
-        'Could not tell Summary from Detail. Export from QuickBooks:\n'
-        '• A/R Aging Summary — columns CURRENT / 1-30 / … / Total\n'
-        '• A/R Aging Detail — columns Date / Transaction type / Customer / Open balance\n'
+        'Could not identify the export. From QuickBooks use one of:\n'
+        '• A/R Aging Summary — CURRENT / 1-30 / … / Total\n'
+        '• A/R Aging Detail — Date / Transaction type / Customer / Open balance\n'
+        '• Invoice List by Date — with Sales Rep column (for 50/50 & salesman tracking)\n'
         'Then use the matching upload box on Office Ops.'
     )
+
+
+# Short first names used in 50/50 Sales Rep fields → full QB sales rep names.
+_SALES_REP_ALIASES = {
+    'adam': 'Adam Cupito',
+    'andy': 'Andy Potts',
+    'tony': 'Tony Cumella',
+    'rachel': 'Rachel Farler',
+    'thomas': 'Thomas Ellison',
+    'tom': 'Thomas Ellison',
+}
+
+
+def _normalize_sales_rep_name(part):
+    p = (part or '').strip()
+    if not p:
+        return p
+    # Already a full known name
+    low = p.lower()
+    for full in _SALES_REP_ALIASES.values():
+        if low == full.lower():
+            return full
+    # First-name only in multi-rep strings
+    if low in _SALES_REP_ALIASES:
+        return _SALES_REP_ALIASES[low]
+    first = low.split()[0] if low.split() else low
+    if first in _SALES_REP_ALIASES and len(p.split()) == 1:
+        return _SALES_REP_ALIASES[first]
+    return p
+
+
+def _parse_sales_reps(raw):
+    """Split 'Adam / Andy' → ['Adam Cupito', 'Andy Potts']; single name unchanged."""
+    if not raw:
+        return []
+    s = str(raw).strip()
+    if not s:
+        return []
+    parts = re.split(r'\s*/\s*|\s+and\s+|&', s, flags=re.I)
+    out = []
+    for p in parts:
+        n = _normalize_sales_rep_name(p)
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
+def _parse_invoice_list(filename, raw_bytes):
+    """Parse QB Invoice List by Date (includes Sales Rep — 50/50 uses 'A / B')."""
+    rows = _load_tabular_rows(filename, raw_bytes)
+    if not rows:
+        raise ValueError('Invoice List is empty.')
+
+    date_range = None
+    for row in rows[:6]:
+        for cell in row:
+            if cell and isinstance(cell, str) and re.search(r'\d{4}', cell) and ('-' in cell or 'to' in cell.lower()):
+                date_range = cell.strip()
+                break
+
+    header_idx = None
+    for i, row in enumerate(rows[:25]):
+        if _is_invoice_list_header_row(row):
+            header_idx = i
+            break
+    if header_idx is None:
+        raise ValueError(
+            'Could not find Invoice List header (expected Date, Num, Name, Open Balance, Sales Rep). '
+            'In QuickBooks: Reports → Sales → Invoice List by Date, include Sales Rep, Export Excel.'
+        )
+
+    header = rows[header_idx]
+    col = {}
+    for i, h in enumerate(header):
+        n = _norm_header(h)
+        if not n:
+            continue
+        if n == 'date':
+            col['date'] = i
+        elif 'transaction' in n or n == 'type':
+            col['type'] = i
+        elif n in ('num', 'no.', 'number', '#'):
+            col['num'] = i
+        elif n in ('name', 'customer', 'customer full name'):
+            col['name'] = i
+        elif 'memo' in n or 'description' in n:
+            col['memo'] = i
+        elif 'due' in n:
+            col['due'] = i
+        elif n == 'amount':
+            col['amount'] = i
+        elif 'open' in n and 'balance' in n:
+            col['open'] = i
+        elif 'sales' in n:
+            col['sales_rep'] = i
+
+    if 'num' not in col or 'name' not in col:
+        raise ValueError('Invoice List missing Num or Name column.')
+    if 'sales_rep' not in col:
+        raise ValueError(
+            'Invoice List is missing the Sales Rep column. '
+            'Customize the report in QB to include Sales Rep, then re-export.'
+        )
+
+    def cell(row, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(row):
+            return None
+        return row[idx]
+
+    invoices = []
+    for row in rows[header_idx + 1:]:
+        if not row or all(v in (None, '') for v in row):
+            continue
+        # Section headers like "Adam / Andy" alone in first column — skip
+        txn = cell(row, 'type')
+        num = cell(row, 'num')
+        name = cell(row, 'name')
+        if not num and not name:
+            continue
+        if txn is not None and str(txn).strip().lower() not in (
+            'invoice', 'credit memo', 'sales receipt', ''
+        ):
+            # Still allow if it has invoice number + amount
+            if not num:
+                continue
+        if txn is None and name is None:
+            continue
+        # Skip pure group headers (rep name only, no num)
+        if num is None and name is None:
+            continue
+        if num is None:
+            continue
+
+        open_bal = _money(cell(row, 'open'))
+        amount = _money(cell(row, 'amount'))
+        rep_raw = cell(row, 'sales_rep')
+        reps = _parse_sales_reps(rep_raw)
+        is_split = len(reps) >= 2
+        inv = {
+            'date': str(cell(row, 'date') or ''),
+            'type': str(txn or 'Invoice').strip(),
+            'num': str(int(num)) if isinstance(num, float) and num == int(num) else str(num).strip(),
+            'customer': str(name or '').strip(),
+            'memo': str(cell(row, 'memo') or '').strip() or None,
+            'due_date': str(cell(row, 'due') or ''),
+            'amount': amount,
+            'open_balance': open_bal,
+            'sales_rep_raw': str(rep_raw).strip() if rep_raw else None,
+            'sales_reps': reps,
+            'is_50_50_style': is_split,
+            # Equal share among listed reps when open balance remains
+            'open_share_each': (open_bal / len(reps)) if reps and open_bal else 0.0,
+        }
+        invoices.append(inv)
+
+    # Open-AR attribution by rep (equal split for multi-rep)
+    by_rep = {}
+    open_invoices = [i for i in invoices if (i.get('open_balance') or 0) > 0]
+    for inv in open_invoices:
+        reps = inv['sales_reps'] or ['(unassigned)']
+        share = inv['open_balance'] / len(reps)
+        for r in reps:
+            slot = by_rep.setdefault(r, {
+                'sales_rep': r,
+                'open_ar': 0.0,
+                'invoice_count': 0,
+                'split_invoice_count': 0,
+            })
+            slot['open_ar'] += share
+            slot['invoice_count'] += 1
+            if inv['is_50_50_style']:
+                slot['split_invoice_count'] += 1
+
+    rep_table = sorted(by_rep.values(), key=lambda x: -x['open_ar'])
+    split_count = sum(1 for i in invoices if i['is_50_50_style'])
+    open_total = sum(i['open_balance'] for i in open_invoices)
+
+    return {
+        'report': 'Invoice List by Date',
+        'report_kind': 'invoice_list',
+        'source_format': 'invoice_list_xlsx',
+        'date_range': date_range,
+        'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'invoice_list': invoices,
+        'invoice_list_count': len(invoices),
+        'open_invoice_count': len(open_invoices),
+        'open_ar_from_list': open_total,
+        'split_invoice_count': split_count,
+        'sales_rep_open_ar': rep_table,
+        'salesman_field_present': True,
+        'notes_for_humans': [
+            'Sales Rep from Invoice List: multi-name values like “Adam / Andy” count as 50/50-style '
+            '(open AR attributed equally across listed reps until you tell us a different split rule).',
+            'Match open AR aging to salesmen by invoice number when Detail + Invoice List are both uploaded.',
+        ],
+    }
 
 
 def _parse_ar_csv(raw_bytes):
@@ -678,7 +905,7 @@ def _fmt_money(n):
     return f'${v:,.0f}'
 
 
-def _numbers_draft_md(as_of_label, grand, operating, bopc, top_chase):
+def _numbers_draft_md(as_of_label, grand, operating, bopc, top_chase, sales_rep_open_ar=None):
     as_of = as_of_label or 'this week'
     lines = [
         f'**Numbers draft** — AR snapshot ({as_of})',
@@ -699,6 +926,17 @@ def _numbers_draft_md(as_of_label, grand, operating, bopc, top_chase):
         lines.append(
             f'- **Operating AR (ex-BOPC, rough):** {_fmt_money(operating["total"])}'
         )
+    if sales_rep_open_ar:
+        lines.extend(['', '### Open AR by sales rep (equal split on multi-rep invoices)', ''])
+        for r in sales_rep_open_ar[:12]:
+            split_note = (
+                f', {r["split_invoice_count"]} split'
+                if r.get('split_invoice_count') else ''
+            )
+            lines.append(
+                f'- **{r["sales_rep"]}**: {_fmt_money(r["open_ar"])} '
+                f'({r["invoice_count"]} open inv{split_note})'
+            )
     lines.extend(['', '### Collection focus (overdue-weighted)', ''])
     if not top_chase:
         lines.append('_No overdue balances detected in this export._')
@@ -713,7 +951,8 @@ def _numbers_draft_md(as_of_label, grand, operating, bopc, top_chase):
     lines.extend([
         '',
         '### Notes / 50–50 splits',
-        '- _Add any 50/50 jobs or shared AR here so totals stay honest._',
+        '- Multi-rep Sales Rep values (e.g. Adam / Andy) are treated as equal shares of open balance.',
+        '- _Override here if a job is not equal 50/50._',
         '',
         '—',
         'Generated from Office Ops · not sent automatically',
@@ -778,15 +1017,117 @@ def psycopg2_binary(raw_bytes):
     return Binary(raw_bytes)
 
 
+def _attach_invoice_samples(out):
+    """Attach sample open invoices onto chase rows (match parent or job name)."""
+    inv_by_key = {}
+    for inv in out.get('invoices') or []:
+        full = (inv.get('customer') or '').strip()
+        parent = full.split(':', 1)[0].strip()
+        job = full.split(':', 1)[1].strip() if ':' in full else ''
+        for key in filter(None, (full.lower(), parent.lower(), job.lower())):
+            inv_by_key.setdefault(key, []).append(inv)
+    for c in out.get('chase_list') or []:
+        key = (c.get('customer') or '').strip().lower()
+        samples = inv_by_key.get(key, [])[:5]
+        if not samples:
+            samples = [
+                i for i in (out.get('invoices') or [])
+                if key and key in (i.get('customer') or '').lower()
+            ][:5]
+        c['sample_invoices'] = [
+            {
+                'num': i.get('num'),
+                'open_balance': i.get('open_balance'),
+                'age_bucket': i.get('age_bucket'),
+                'due_date': i.get('due_date'),
+                'salesman': i.get('salesman') or i.get('sales_rep_raw'),
+            }
+            for i in samples
+        ]
+
+
+def _apply_sales_rep_map(out):
+    """Stamp sales_rep from Invoice List onto Aging Detail invoices by invoice #."""
+    ilist = out.get('invoice_list') or []
+    if not ilist:
+        return
+    by_num = {}
+    for inv in ilist:
+        num = str(inv.get('num') or '').strip()
+        if num:
+            by_num[num] = inv
+    matched = 0
+    for inv in out.get('invoices') or []:
+        num = str(inv.get('num') or '').strip()
+        src = by_num.get(num)
+        if not src:
+            continue
+        inv['salesman'] = src.get('sales_rep_raw')
+        inv['sales_reps'] = src.get('sales_reps') or []
+        inv['is_50_50_style'] = src.get('is_50_50_style', False)
+        matched += 1
+    out['sales_rep_matched_invoices'] = matched
+    out['salesman_field_present'] = True
+    # Rebuild rep open-AR from aging open balances when possible
+    if out.get('invoices'):
+        by_rep = {}
+        for inv in out['invoices']:
+            open_bal = inv.get('open_balance') or 0
+            if open_bal <= 0:
+                continue
+            reps = inv.get('sales_reps') or (
+                _parse_sales_reps(inv.get('salesman')) if inv.get('salesman') else ['(unassigned)']
+            )
+            if not reps:
+                reps = ['(unassigned)']
+            share = open_bal / len(reps)
+            for r in reps:
+                slot = by_rep.setdefault(r, {
+                    'sales_rep': r,
+                    'open_ar': 0.0,
+                    'invoice_count': 0,
+                    'split_invoice_count': 0,
+                })
+                slot['open_ar'] += share
+                slot['invoice_count'] += 1
+                if inv.get('is_50_50_style') or len(reps) >= 2:
+                    slot['split_invoice_count'] += 1
+        out['sales_rep_open_ar'] = sorted(by_rep.values(), key=lambda x: -x['open_ar'])
+
+
 def _merge_pack_payload(existing, incoming):
-    """Combine summary totals with detail invoices when both have been uploaded."""
+    """Combine Summary + Detail + Invoice List fragments into one pack."""
     if not existing:
-        return incoming
+        out = dict(incoming)
+        out['sources'] = {
+            'summary': out.get('summary_source_filename') or (
+                out.get('source_filename') if out.get('report_kind') == 'summary' else None
+            ),
+            'detail': out.get('detail_source_filename') or (
+                out.get('source_filename') if out.get('report_kind') == 'detail' else None
+            ),
+            'invoice_list': out.get('invoice_list_source_filename') or (
+                out.get('source_filename') if out.get('report_kind') == 'invoice_list' else None
+            ),
+        }
+        if out.get('report_kind') == 'summary':
+            out['summary_source_filename'] = out.get('source_filename')
+        if out.get('report_kind') == 'detail':
+            out['detail_source_filename'] = out.get('source_filename')
+        if out.get('report_kind') == 'invoice_list':
+            out['invoice_list_source_filename'] = out.get('source_filename')
+        if out.get('chase_list') and out.get('invoices'):
+            _attach_invoice_samples(out)
+        if out.get('invoice_list'):
+            _apply_sales_rep_map(out)
+        out['parsed_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        return out
     if not incoming:
         return existing
-    # Prefer Summary for money buckets; always prefer newer of same kind
+
     out = dict(existing)
     inc_kind = incoming.get('report_kind')
+
     if inc_kind == 'summary' or (incoming.get('report') or '').lower().find('summary') >= 0:
         for k in (
             'grand_total', 'operating_ex_bopc', 'bopc', 'top_customers_by_balance',
@@ -798,65 +1139,68 @@ def _merge_pack_payload(existing, incoming):
         out['report_kind'] = 'summary'
         out['summary_source_filename'] = incoming.get('source_filename')
         out['summary_source_file_id'] = incoming.get('source_file_id')
-    if inc_kind == 'detail' or incoming.get('invoices') is not None:
-        out['invoices'] = incoming.get('invoices') or []
-        out['invoice_count'] = incoming.get('invoice_count', len(out['invoices']))
-        out['invoices_truncated'] = incoming.get('invoices_truncated', 0)
-        out['salesman_field_present'] = incoming.get('salesman_field_present', False)
-        out['salesman_invoice_count'] = incoming.get('salesman_invoice_count', 0)
-        out['detail_source_filename'] = incoming.get('source_filename')
-        out['detail_source_file_id'] = incoming.get('source_file_id')
-        out['detail_as_of_label'] = incoming.get('as_of_label')
-        # If we only have detail so far, use its rollup as the pack
-        if not out.get('grand_total'):
-            for k in (
-                'grand_total', 'operating_ex_bopc', 'bopc', 'top_customers_by_balance',
-                'chase_list', 'customer_count', 'as_of_label', 'numbers_draft_md',
-                'notes_for_humans', 'report',
-            ):
-                if k in incoming:
-                    out[k] = incoming[k]
-            out['report_kind'] = 'detail'
-        # Attach sample open invoices onto chase rows (match parent or job name)
-        inv_by_key = {}
-        for inv in out.get('invoices') or []:
-            full = (inv.get('customer') or '').strip()
-            parent = full.split(':', 1)[0].strip()
-            job = full.split(':', 1)[1].strip() if ':' in full else ''
-            for key in filter(None, (full.lower(), parent.lower(), job.lower())):
-                inv_by_key.setdefault(key, []).append(inv)
-        for c in out.get('chase_list') or []:
-            key = (c.get('customer') or '').strip().lower()
-            samples = inv_by_key.get(key, [])[:5]
-            if not samples:
-                # soft match: any invoice whose full name contains chase name
-                samples = [
-                    i for i in (out.get('invoices') or [])
-                    if key and key in (i.get('customer') or '').lower()
-                ][:5]
-            c['sample_invoices'] = [
-                {
-                    'num': i.get('num'),
-                    'open_balance': i.get('open_balance'),
-                    'age_bucket': i.get('age_bucket'),
-                    'due_date': i.get('due_date'),
-                    'salesman': i.get('salesman'),
-                }
-                for i in samples
-            ]
-        # Rebuild numbers draft if we have totals
-        if out.get('grand_total'):
-            out['numbers_draft_md'] = _numbers_draft_md(
-                as_of_label=out.get('as_of_label'),
-                grand=out['grand_total'],
-                operating=out.get('operating_ex_bopc') or out['grand_total'],
-                bopc=out.get('bopc'),
-                top_chase=out.get('chase_list') or [],
-            )
+
+    if inc_kind == 'detail' or (
+        incoming.get('invoices') is not None and inc_kind != 'invoice_list'
+    ):
+        # Only replace aging invoices from Detail (not from invoice list)
+        if inc_kind == 'detail' or incoming.get('report') == 'A/R Aging Detail':
+            out['invoices'] = incoming.get('invoices') or []
+            out['invoice_count'] = incoming.get('invoice_count', len(out['invoices']))
+            out['invoices_truncated'] = incoming.get('invoices_truncated', 0)
+            out['detail_source_filename'] = incoming.get('source_filename')
+            out['detail_source_file_id'] = incoming.get('source_file_id')
+            out['detail_as_of_label'] = incoming.get('as_of_label')
+            if not out.get('grand_total'):
+                for k in (
+                    'grand_total', 'operating_ex_bopc', 'bopc', 'top_customers_by_balance',
+                    'chase_list', 'customer_count', 'as_of_label', 'numbers_draft_md',
+                    'notes_for_humans', 'report',
+                ):
+                    if k in incoming:
+                        out[k] = incoming[k]
+                out['report_kind'] = 'detail'
+
+    if inc_kind == 'invoice_list':
+        out['invoice_list'] = incoming.get('invoice_list') or []
+        out['invoice_list_count'] = incoming.get('invoice_list_count', len(out['invoice_list']))
+        out['open_invoice_count'] = incoming.get('open_invoice_count')
+        out['open_ar_from_list'] = incoming.get('open_ar_from_list')
+        out['split_invoice_count'] = incoming.get('split_invoice_count')
+        out['sales_rep_open_ar'] = incoming.get('sales_rep_open_ar')
+        out['salesman_field_present'] = True
+        out['invoice_list_source_filename'] = incoming.get('source_filename')
+        out['invoice_list_source_file_id'] = incoming.get('source_file_id')
+        out['invoice_list_date_range'] = incoming.get('date_range')
+        notes = list(out.get('notes_for_humans') or [])
+        for n in incoming.get('notes_for_humans') or []:
+            if n not in notes:
+                notes.append(n)
+        out['notes_for_humans'] = notes
+
+    if out.get('chase_list') and out.get('invoices'):
+        _attach_invoice_samples(out)
+    if out.get('invoice_list'):
+        _apply_sales_rep_map(out)
+        # After map, re-attach samples so salesman shows on chase
+        if out.get('chase_list') and out.get('invoices'):
+            _attach_invoice_samples(out)
+
+    if out.get('grand_total'):
+        out['numbers_draft_md'] = _numbers_draft_md(
+            as_of_label=out.get('as_of_label'),
+            grand=out['grand_total'],
+            operating=out.get('operating_ex_bopc') or out['grand_total'],
+            bopc=out.get('bopc'),
+            top_chase=out.get('chase_list') or [],
+            sales_rep_open_ar=out.get('sales_rep_open_ar'),
+        )
+
     out['parsed_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
     out['sources'] = {
         'summary': out.get('summary_source_filename'),
         'detail': out.get('detail_source_filename'),
+        'invoice_list': out.get('invoice_list_source_filename'),
     }
     return out
 
@@ -886,6 +1230,8 @@ def process_ar_file(get_db_fn, file_id, user_key, expect=None):
         if expect is None:
             if kind_hint == KIND_DETAIL:
                 expect = 'detail'
+            elif kind_hint == KIND_INVOICE_LIST:
+                expect = 'invoice_list'
             elif kind_hint in (KIND_SUMMARY, 'ar_aging'):
                 expect = 'summary'
 
@@ -936,7 +1282,11 @@ def process_ar_file(get_db_fn, file_id, user_key, expect=None):
         prow = cur.fetchone()
         # Fix stored file kind if auto-detected differently
         if detected:
-            fixed = KIND_DETAIL if detected == 'detail' else KIND_SUMMARY
+            fixed = {
+                'detail': KIND_DETAIL,
+                'summary': KIND_SUMMARY,
+                'invoice_list': KIND_INVOICE_LIST,
+            }.get(detected, KIND_SUMMARY)
             if frow['kind'] != fixed:
                 cur.execute(
                     'UPDATE office_ops_files SET kind = %s WHERE id = %s',
@@ -1112,6 +1462,8 @@ def register_routes(app, get_db_fn, users, require_login):
             kind = KIND_SUMMARY
         elif kind in ('detail', 'ar_detail'):
             kind = KIND_DETAIL
+        elif kind in ('invoice_list', 'invoices', 'sales_rep'):
+            kind = KIND_INVOICE_LIST
         f = request.files.get('file')
         if not f or not f.filename:
             return jsonify({'success': False, 'error': 'Choose a file to upload.'}), 400
@@ -1122,12 +1474,17 @@ def register_routes(app, get_db_fn, users, require_login):
             kind = KIND_DETAIL
         elif detected == 'summary':
             kind = KIND_SUMMARY
+        elif detected == 'invoice_list':
+            kind = KIND_INVOICE_LIST
         saved = save_upload(
             get_db_fn, kind, f.filename, f.mimetype or '', raw, user_key,
         )
         if not saved.get('success'):
             return jsonify(saved), 400
-        expect = 'detail' if kind == KIND_DETAIL else 'summary'
+        expect = {
+            KIND_DETAIL: 'detail',
+            KIND_INVOICE_LIST: 'invoice_list',
+        }.get(kind, 'summary')
         result = process_ar_file(get_db_fn, saved['file_id'], user_key, expect=expect)
         if not result.get('success'):
             return jsonify({

@@ -135,7 +135,7 @@
           </div>
         </div>
 
-        <div class="drop" id="drop-detail" data-kind="ar_aging_detail">
+        <div class="drop" id="drop-detail" data-kind="ar_aging_detail" style="margin-bottom:12px">
           <strong>B · Aging Detail</strong>
           <span class="muted">Open invoices · Date / Type / Num / Customer / Open balance</span>
           <div style="margin-top:10px">
@@ -144,14 +144,24 @@
           </div>
         </div>
 
+        <div class="drop" id="drop-invoices" data-kind="invoice_list">
+          <strong>C · Invoice List by Date (Sales Rep)</strong>
+          <span class="muted">Must include <b>Sales Rep</b> column — “Adam / Andy” = 50/50-style split</span>
+          <div style="margin-top:10px">
+            <input type="file" class="file-input" data-kind="invoice_list" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="invoice_list">Upload Invoice List</button>
+          </div>
+        </div>
+
         <div class="toast" id="toast"></div>
         {% if recent_files %}
         <p class="muted" style="margin:14px 0 6px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Recent uploads</p>
         <ul class="file-list">
-          {% for f in recent_files[:8] %}
+          {% for f in recent_files[:10] %}
           <li>
             <span>
               {% if f.kind == 'ar_aging_detail' %}<span class="tag">Detail</span>
+              {% elif f.kind == 'invoice_list' %}<span class="tag" style="background:#DCFCE7;color:#166534">Invoices</span>
               {% elif f.kind == 'ar_aging_summary' or f.kind == 'ar_aging' %}<span class="tag" style="background:#DBEAFE;color:#1E3A8A">Summary</span>
               {% endif %}
               {{ f.filename }}
@@ -169,16 +179,17 @@
         {% set s = pack.summary %}
         {% set g = s.grand_total %}
         <p class="muted" style="margin:0 0 8px">
-          {% if s.sources and (s.sources.summary or s.sources.detail) %}
+          {% if s.sources and (s.sources.summary or s.sources.detail or s.sources.invoice_list) %}
             {% if s.sources.summary %}Summary: <strong>{{ s.sources.summary }}</strong>{% endif %}
-            {% if s.sources.summary and s.sources.detail %} · {% endif %}
-            {% if s.sources.detail %}Detail: <strong>{{ s.sources.detail }}</strong>{% endif %}
+            {% if s.sources.detail %}{% if s.sources.summary %} · {% endif %}Detail: <strong>{{ s.sources.detail }}</strong>{% endif %}
+            {% if s.sources.invoice_list %}{% if s.sources.summary or s.sources.detail %} · {% endif %}Invoices: <strong>{{ s.sources.invoice_list }}</strong>{% endif %}
           {% else %}
             From <strong>{{ pack.source_filename or s.source_filename or 'upload' }}</strong>
           {% endif %}
           {% if s.as_of_label %} · {{ s.as_of_label }}{% endif %}
           {% if pack.created_at %} · processed {{ pack.created_at[:16].replace('T',' ') }}{% endif %}
-          {% if s.invoice_count %} · {{ s.invoice_count }} open invoices{% endif %}
+          {% if s.invoice_count %} · {{ s.invoice_count }} aging invoices{% endif %}
+          {% if s.split_invoice_count %} · {{ s.split_invoice_count }} multi-rep{% endif %}
         </p>
         <div class="stat-row">
           <div class="stat"><div class="lbl">Total AR</div><div class="val money">${{ '{:,.0f}'.format(g.total) }}</div></div>
@@ -192,14 +203,30 @@
           · Operating ex-BOPC (rough): <strong class="money">${{ '{:,.0f}'.format(s.operating_ex_bopc.total) }}</strong>
         </p>
         {% endif %}
+        {% if s.sales_rep_open_ar %}
+        <h2 style="margin-top:16px">Open AR by sales rep</h2>
+        <p class="muted" style="margin:0 0 8px">Multi-rep invoices (e.g. Adam / Andy) split open balance equally.</p>
+        <table>
+          <thead><tr><th>Rep</th><th>Open AR share</th><th>Open inv</th><th>Split inv</th></tr></thead>
+          <tbody>
+            {% for r in s.sales_rep_open_ar[:12] %}
+            <tr>
+              <td>{{ r.sales_rep }}</td>
+              <td class="money">${{ '{:,.0f}'.format(r.open_ar) }}</td>
+              <td>{{ r.invoice_count }}</td>
+              <td>{{ r.split_invoice_count or 0 }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
         {% else %}
-        <p class="muted" style="margin:0">No AR pack yet. Upload an Aging Summary to populate totals and the chase list.</p>
+        <p class="muted" style="margin:0">No AR pack yet. Upload Summary (and ideally Detail + Invoice List with Sales Rep).</p>
         {% endif %}
 
         <h2 style="margin-top:18px">Coming next</h2>
         <ul class="note-list">
           <li>Sticky status notes per customer (survive re-upload)</li>
-          <li>Salesmen / 50–50 from invoice line or custom field (see below)</li>
           <li>Monday Sub Info → compliance chase</li>
           <li>Monthly Outlook sheet → full Numbers narrative</li>
           <li>Optional Gmail draft</li>
@@ -326,7 +353,9 @@
         document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = false; });
         return;
       }
-      const label = data.detected === 'detail' ? 'Detail' : 'Summary';
+      const label = data.detected === 'detail' ? 'Detail'
+        : data.detected === 'invoice_list' ? 'Invoice List'
+        : 'Summary';
       showToast(label + ' processed. Refreshing…', true);
       window.location.reload();
     } catch (err) {
