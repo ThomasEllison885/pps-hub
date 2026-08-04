@@ -21,6 +21,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import CellIsRule
+from openpyxl.utils import get_column_letter
 
 from office_ops import _parse_sales_reps
 
@@ -515,28 +516,59 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
     if 'Insights' in wb.sheetnames:
         del wb['Insights']
     ws_i = wb.create_sheet('Insights', 0)
+    # Wide layout: merge A–H so email/viewer doesn't clip long lines
+    ws_i.column_dimensions['A'].width = 100
+    for col in range(2, 9):
+        ws_i.column_dimensions[get_column_letter(col)].width = 18
     ws_i['A1'] = 'Monday Numbers · Insights'
     ws_i['A1'].font = Font(name='Calibri', size=20, bold=True, color='FFFFFFFF')
     ws_i['A1'].fill = FILL_HEADER
-    ws_i['A1'].alignment = Alignment(vertical='center')
-    ws_i.merge_cells('A1:B1')
-    ws_i.row_dimensions[1].height = 32
-    ws_i.column_dimensions['A'].width = 118
+    ws_i['A1'].alignment = Alignment(vertical='center', horizontal='left')
+    ws_i.merge_cells('A1:H1')
+    ws_i.row_dimensions[1].height = 36
     for i, line in enumerate(insights.splitlines(), start=3):
         cell = ws_i.cell(i, 1, line)
-        is_head = line in (
-            'SALES', 'SALES BY REP (YTD; multi-rep invoices split 50/50)',
-            'MARGIN & PROFIT', 'A/R (company total)', 'PAST-DUE UPDATES',
-        ) or line.startswith('SALES') or line.startswith('MARGIN') or line.startswith('A/R') or line.startswith('PAST-DUE')
-        if is_head and line and not line.startswith('•') and not line.startswith('—') and not line.startswith('Sales =') and not line.startswith('Generated') and not line.startswith('Thursday') and line != 'Monday Numbers · Insights':
+        # Merge each insight line across A–H so viewers show full width
+        ws_i.merge_cells(start_row=i, start_column=1, end_row=i, end_column=8)
+        is_head = (
+            line in (
+                'SALES',
+                'SALES BY REP (YTD; multi-rep invoices split 50/50)',
+                'MARGIN & PROFIT',
+                'A/R (company total)',
+                'PAST-DUE UPDATES',
+            )
+            or (
+                line
+                and not line.startswith('•')
+                and not line.startswith('—')
+                and not line.startswith('Sales =')
+                and not line.startswith('Generated')
+                and not line.startswith('Thursday')
+                and line != 'Monday Numbers · Insights'
+                and (
+                    line.startswith('SALES')
+                    or line.startswith('MARGIN')
+                    or line.startswith('A/R')
+                    or line.startswith('PAST-DUE')
+                )
+            )
+        )
+        if is_head:
             cell.font = Font(name='Calibri', size=16, bold=True, color='FF1A5276')
-            ws_i.row_dimensions[i].height = 22
+            ws_i.row_dimensions[i].height = 24
         elif line.startswith('Monday Numbers') or line.startswith('Generated'):
             cell.font = Font(name='Calibri', size=14, bold=True, color='FF333333')
+            ws_i.row_dimensions[i].height = 20
         else:
             cell.font = Font(name='Calibri', size=14, color='FF222222')
-            ws_i.row_dimensions[i].height = 20
-        cell.alignment = Alignment(wrap_text=True, vertical='top')
+            # Grow row for long wrapped lines (~90 chars per visual line at this width)
+            text_len = len(line or '')
+            wraps = max(1, (text_len // 95) + 1)
+            ws_i.row_dimensions[i].height = max(20, 16 * wraps + 4)
+        cell.alignment = Alignment(wrap_text=True, vertical='top', horizontal='left')
+    # Keep Insights from being shrunk by autosize later
+    ws_i.sheet_view.showGridLines = False
 
     if 'AR Totals' in wb.sheetnames:
         del wb['AR Totals']
@@ -665,10 +697,18 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
 
 
 def _autosize_workbook(wb):
-    """Resize columns so currency values fit (avoid ####)."""
+    """Resize columns so currency values fit (avoid ####).
+
+    Insights is handled separately (wide merged layout) — do not shrink it.
+    """
     from openpyxl.utils import get_column_letter
     for ws in wb.worksheets:
-        # Skip huge empty used ranges — cap scan
+        if ws.title == 'Insights':
+            # Preserve wide Insights layout for email/viewers
+            ws.column_dimensions['A'].width = 100
+            for col_idx in range(2, 9):
+                ws.column_dimensions[get_column_letter(col_idx)].width = 18
+            continue
         max_row = min(ws.max_row or 1, 80)
         max_col = min(ws.max_column or 1, 20)
         for col_idx in range(1, max_col + 1):
@@ -678,14 +718,16 @@ def _autosize_workbook(wb):
                 cell = ws.cell(row_idx, col_idx)
                 if cell.value is None:
                     continue
-                # Currency formats need room for $1,234,567
                 if isinstance(cell.value, (int, float)):
                     max_len = max(max_len, 14)
                 else:
                     max_len = max(max_len, min(60, len(str(cell.value)) + 2))
-            # Money columns B–N on sales/team sheets
             if ws.title in ('Monthly Team', 'Monthly Sales', 'Quarterly Breakdowns') and col_idx >= 2:
                 max_len = max(max_len, 13)
+            if ws.title == 'AR Totals':
+                max_len = max(max_len, 18 if col_idx == 1 else 16)
+            if ws.title == 'P&L Snapshot':
+                max_len = max(max_len, 14)
             ws.column_dimensions[letter].width = min(55, max(10, max_len))
 
 
