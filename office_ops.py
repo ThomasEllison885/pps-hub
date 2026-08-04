@@ -591,39 +591,121 @@ def _parse_ar_xlsx(raw_bytes):
         )
 
     colmap = _map_aging_cols(rows[header_idx])
-    # Prefer "Total for X" rollups (QB hierarchy); fall back to leaf rows.
-    total_for = []
-    leafish = []
-    for row in rows[header_idx + 1:]:
+    # Walk QB hierarchy so job codes keep parent names:
+    #   Chestnut Park / 7163 / Total for Chestnut Park
+    # → "Chestnut Park · 7163" (never bare "7163")
+    # Standalone "29th Street Living" (has $ but no Total for) does NOT nest
+    # the following customers under it.
+    customers = []
+    parent_stack = []
+    body = rows[header_idx + 1:]
+
+    def _has_money(b):
+        return bool(
+            b.get('total')
+            or any(b.get(k) for k in ('current', '1_30', '31_60', '61_90', '91_and_over'))
+        )
+
+    def _has_total_for_later(name, from_idx):
+        target = name.lower()
+        for later in body[from_idx + 1:]:
+            if not later or later[0] is None:
+                continue
+            lab = str(later[0]).strip()
+            if lab.lower().startswith('total for '):
+                if lab[10:].strip().lower() == target:
+                    return True
+        return False
+
+    def _display_name(job_or_cust, parents):
+        job = (job_or_cust or '').strip()
+        if not parents:
+            return job
+        parent = parents[0]
+        if job.lower() == parent.lower():
+            return parent
+        return f'{parent} · {job}'
+
+    for idx, row in enumerate(body):
         if not row or row[0] is None:
             continue
         name = str(row[0]).strip()
         if not name:
             continue
-        if name.upper() == 'TOTAL' or name.upper().startswith('TOTAL '):
-            # Grand total row — capture but don't list as customer
+        low = name.lower()
+        if name.upper() == 'TOTAL' or (
+            low.startswith('total') and not low.startswith('total for ')
+        ):
             continue
         buckets = _row_bucket(row, colmap)
-        if name.lower().startswith('total for '):
-            cust = name[10:].strip()
-            if buckets['total'] or any(buckets[k] for k in buckets if k != 'total'):
-                total_for.append({'customer': cust, **buckets})
-        else:
-            # Skip pure parent headers with no amounts (children follow)
-            if buckets['total'] or any(
-                buckets[k] for k in ('current', '1_30', '31_60', '61_90', '91_and_over')
-            ):
-                leafish.append({'customer': name, **buckets})
 
-    customers = total_for if total_for else leafish
-    # Dedupe by customer keeping max total (parent "Total for ACME" vs job totals)
-    by_name = {}
+        if low.startswith('total for '):
+            closed = name[10:].strip()
+            while parent_stack and parent_stack[-1].lower() != closed.lower():
+                parent_stack.pop()
+            if parent_stack and parent_stack[-1].lower() == closed.lower():
+                parent_stack.pop()
+            if _has_money(buckets):
+                customers.append({
+                    'customer': closed,
+                    'parent': closed,
+                    'job': None,
+                    'is_parent_total': True,
+                    **buckets,
+                })
+            continue
+
+        parents_before = list(parent_stack)
+        money = _has_money(buckets)
+        will_nest = _has_total_for_later(name, idx)
+
+        if money:
+            display = _display_name(name, parents_before)
+            customers.append({
+                'customer': display,
+                'parent': parents_before[0] if parents_before else name,
+                'job': name if parents_before else None,
+                'is_parent_total': False,
+                **buckets,
+            })
+            # Only open nesting if QB later has "Total for <this name>"
+            if will_nest:
+                parent_stack.append(name)
+        else:
+            # Header with no $ — only nest if a matching Total-for closes it
+            # (avoids orphan headers like "KCG Adjustment" swallowing Morgan)
+            if will_nest:
+                parent_stack.append(name)
+
+    by_key = {}
     for c in customers:
-        key = c['customer'].strip().lower()
-        prev = by_name.get(key)
+        if c.get('job') and c.get('parent'):
+            key = f"{c['parent'].lower()}::{c['job'].lower()}"
+        else:
+            key = f"total::{c['customer'].strip().lower()}"
+        prev = by_key.get(key)
         if not prev or c['total'] >= prev['total']:
-            by_name[key] = c
-    customers = sorted(by_name.values(), key=lambda x: -x['total'])
+            by_key[key] = c
+
+    parents_with_jobs = {
+        c['parent'].lower()
+        for c in by_key.values()
+        if c.get('job') and c.get('parent')
+    }
+    filtered = []
+    for c in by_key.values():
+        if c.get('is_parent_total') and c['customer'].lower() in parents_with_jobs:
+            continue
+        if (
+            not c.get('job')
+            and not c.get('is_parent_total')
+            and c.get('parent')
+            and c['parent'].lower() in parents_with_jobs
+            and c['customer'].lower() == c['parent'].lower()
+        ):
+            continue
+        filtered.append(c)
+    customers = sorted(filtered, key=lambda x: -x['total'])
     out = _build_summary(customers, as_of_label=as_of_label, source='xlsx')
     out['report'] = 'A/R Aging Summary'
     out['report_kind'] = 'summary'
@@ -1412,29 +1494,33 @@ def build_past_due_prompt_rows(ar_summary, notes_dict=None, limit=15):
                 chase.append({**c, 'overdue': overdue})
         chase.sort(key=lambda x: -float(x.get('overdue') or 0))
 
-    bridges_total = 0.0
-    bridges_overdue = 0.0
-    bridges_parts = []
+    bridges_items = []
     other = []
-
     for c in chase:
         name = c.get('customer') or ''
-        if _is_bridges_customer_name(name):
-            bridges_total += float(c.get('total') or 0)
-            bridges_overdue += float(c.get('overdue') or 0)
-            bridges_parts.append(name)
+        if _is_bridges_customer_name(name) or _is_bridges_customer_name(c.get('parent') or ''):
+            bridges_items.append(c)
         else:
             other.append(c)
 
     rows = []
-    if bridges_overdue > 0 or bridges_total > 0:
-        # Prefer stored note under rolled-up key, else any bridges-related note
+    if bridges_items:
+        # Prefer a single parent total (Bridges of Pine Creek) when present so we
+        # do not double-count parent Total-for + job lines.
+        parent_totals = [
+            c for c in bridges_items
+            if not c.get('job') and 'bridges of pine' in (c.get('customer') or '').lower()
+        ]
+        if parent_totals:
+            bridges_total = max(float(c.get('total') or 0) for c in parent_totals)
+            bridges_overdue = max(float(c.get('overdue') or 0) for c in parent_totals)
+            bridges_parts = [c.get('customer') for c in bridges_items if c.get('job')]
+        else:
+            bridges_total = sum(float(c.get('total') or 0) for c in bridges_items)
+            bridges_overdue = sum(float(c.get('overdue') or 0) for c in bridges_items)
+            bridges_parts = [c.get('customer') for c in bridges_items]
         note = ''
-        for key in (
-            'bridges / bopc',
-            'bridges of pine creek',
-            'bopc',
-        ):
+        for key in ('bridges / bopc', 'bridges of pine creek', 'bopc'):
             if notes_dict.get(key) and notes_dict[key].get('note'):
                 note = notes_dict[key]['note']
                 break

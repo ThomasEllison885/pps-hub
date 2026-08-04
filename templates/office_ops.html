@@ -241,8 +241,16 @@
             <label>
               {{ c.customer }}
               {% if c.is_bridges_rollup %}<span class="tag">Rolled up</span>{% endif %}
-              <span class="amt"> · overdue ${{ '{:,.0f}'.format(c.overdue or 0) }} · total ${{ '{:,.0f}'.format(c.total or 0) }}</span>
             </label>
+            <div class="amt" style="margin:2px 0 6px">
+              Overdue ${{ '{:,.0f}'.format(c.overdue or 0) }}
+              · balance ${{ '{:,.0f}'.format(c.total or 0) }}
+              {% if c.rolled_up_from and c.rolled_up_from|length <= 6 %}
+              · includes: {{ c.rolled_up_from|join(', ') }}
+              {% elif c.rolled_up_from %}
+              · includes {{ c.rolled_up_from|length }} job lines
+              {% endif %}
+            </div>
             <textarea data-customer="{{ c.customer }}" placeholder="Status / progress…">{{ c.note or '' }}</textarea>
           </div>
           {% endfor %}
