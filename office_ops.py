@@ -95,6 +95,16 @@ def init_tables(cur):
         'CREATE INDEX IF NOT EXISTS idx_office_ops_packs_created '
         'ON office_ops_packs(created_at DESC)'
     )
+    # Stephanie's past-due status notes (survive re-uploads; keyed by customer name)
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS office_ops_ar_notes (
+            customer_key VARCHAR(255) PRIMARY KEY,
+            customer_display VARCHAR(255) NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            updated_by VARCHAR(100),
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    ''')
 
 
 def _money(val):
@@ -890,6 +900,7 @@ def _build_summary(customers, as_of_label, source):
         'grand_total': grand,
         'operating_ex_bopc': operating,
         'bopc': bopc,
+        'all_customers': customers,
         'top_customers_by_balance': top_by_balance,
         'chase_list': top_chase,
         'notes_for_humans': [
@@ -1367,6 +1378,219 @@ def get_latest_pack(get_db_fn, kind=None):
         return None
 
 
+def get_ar_notes(get_db_fn):
+    conn = get_db_fn()
+    if not conn:
+        return {}
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT customer_key, customer_display, note, updated_by, updated_at '
+            'FROM office_ops_ar_notes ORDER BY customer_display'
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        out = {}
+        for r in rows:
+            out[r['customer_key']] = {
+                'customer': r['customer_display'],
+                'note': r['note'] or '',
+                'updated_by': r['updated_by'],
+                'updated_at': r['updated_at'].isoformat() if r['updated_at'] else None,
+            }
+        return out
+    except Exception as e:
+        print(f'Office Ops notes load error: {e}')
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {}
+
+
+def save_ar_notes(get_db_fn, notes_map, user_key):
+    """notes_map: {customer_display: note_text}"""
+    conn = get_db_fn()
+    if not conn:
+        return {'success': False, 'error': 'Database unavailable.'}
+    try:
+        cur = conn.cursor()
+        for display, note in (notes_map or {}).items():
+            display = (display or '').strip()
+            if not display:
+                continue
+            key = display.lower()
+            note = (note or '').strip()
+            if not note:
+                cur.execute('DELETE FROM office_ops_ar_notes WHERE customer_key = %s', (key,))
+            else:
+                cur.execute(
+                    '''
+                    INSERT INTO office_ops_ar_notes
+                        (customer_key, customer_display, note, updated_by, updated_at)
+                    VALUES (%s, %s, %s, %s, NOW())
+                    ON CONFLICT (customer_key) DO UPDATE SET
+                        customer_display = EXCLUDED.customer_display,
+                        note = EXCLUDED.note,
+                        updated_by = EXCLUDED.updated_by,
+                        updated_at = NOW()
+                    ''',
+                    (key, display, note, user_key),
+                )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {'success': True}
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        print(f'Office Ops notes save error: {e}')
+        return {'success': False, 'error': str(e)}
+
+
+def generate_thursday_pack(get_db_fn, user_key):
+    """Build Monday/Thursday Excel from latest Invoice List + AR Summary + notes.
+
+    Does NOT require Stephanie to maintain Monthly Outlook — goals from template.
+    """
+    from office_ops_generate import generate_from_qb
+
+    conn = get_db_fn()
+    if not conn:
+        return {'success': False, 'error': 'Database unavailable.'}
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Latest invoice list file
+        cur.execute(
+            '''
+            SELECT id, filename, file_data FROM office_ops_files
+            WHERE kind = %s ORDER BY uploaded_at DESC LIMIT 1
+            ''',
+            (KIND_INVOICE_LIST,),
+        )
+        inv_row = cur.fetchone()
+        if not inv_row:
+            cur.close()
+            conn.close()
+            return {
+                'success': False,
+                'error': 'Upload Invoice List by Date (with Sales Rep) first.',
+            }
+        inv_raw = bytes(inv_row['file_data'])
+        inv_parsed = parse_ar_aging_bytes(inv_row['filename'], inv_raw, expect='invoice_list')
+
+        # Latest AR pack for totals
+        cur.execute(
+            '''
+            SELECT summary_json FROM office_ops_packs
+            WHERE kind = %s ORDER BY created_at DESC LIMIT 1
+            ''',
+            (PACK_KIND,),
+        )
+        ar_row = cur.fetchone()
+        ar_summary = None
+        if ar_row and ar_row.get('summary_json'):
+            ar_summary = ar_row['summary_json']
+            if isinstance(ar_summary, str):
+                ar_summary = json.loads(ar_summary)
+
+        cur.close()
+        conn.close()
+
+        notes = get_ar_notes(get_db_fn)
+        notes_by_customer = {
+            v['customer']: v['note'] for v in notes.values() if v.get('note')
+        }
+
+        report_bytes, insights, meta = generate_from_qb(
+            inv_parsed.get('invoice_list') or [],
+            ar_summary=ar_summary,
+            notes_by_customer=notes_by_customer,
+            year=2026,
+        )
+
+        # Store generated file
+        conn = get_db_fn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        fname = f"PPS_Monday_Numbers_{date.today().isoformat()}.xlsx"
+        cur.execute(
+            '''
+            INSERT INTO office_ops_files
+                (kind, filename, mime_type, size_bytes, file_data, uploaded_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            ''',
+            (
+                KIND_MONDAY,
+                fname,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                len(report_bytes),
+                psycopg2_binary(report_bytes),
+                user_key,
+            ),
+        )
+        monday_id = cur.fetchone()['id']
+        pack_payload = {
+            'report': 'Monday Numbers (generated from QB)',
+            'report_kind': 'monday_report',
+            'insights_md': insights,
+            'source_invoice_list': inv_row['filename'],
+            'monday_file_id': monday_id,
+            'ar_total': (ar_summary or {}).get('grand_total'),
+            'bopc': (ar_summary or {}).get('bopc'),
+            'bridges_lines': (ar_summary or {}).get('bridges_lines'),
+            'meta': meta,
+            'notes_count': len(notes_by_customer),
+            'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'recipients_note': (
+                'Email to Thomas + Tony; if sent from system/admin, include Stephanie.'
+            ),
+        }
+        cur.execute(
+            '''
+            INSERT INTO office_ops_packs
+                (pack_date, source_file_id, kind, summary_json, numbers_draft_md, created_by)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s)
+            RETURNING id
+            ''',
+            (
+                date.today(),
+                monday_id,
+                KIND_MONDAY,
+                json.dumps(pack_payload),
+                insights,
+                user_key,
+            ),
+        )
+        pack_id = cur.fetchone()['id']
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {
+            'success': True,
+            'monday_file_id': monday_id,
+            'pack_id': pack_id,
+            'insights_md': insights,
+            'download_url': f'/api/office-ops/files/{monday_id}/download',
+            'ar_included': bool(ar_summary and ar_summary.get('grand_total')),
+            'invoice_source': inv_row['filename'],
+        }
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        print(f'Thursday pack error: {e}')
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'error': f'Could not generate report: {e}'}
+
+
 def process_monthly_outlook(get_db_fn, file_id, user_key):
     """Build Monday Excel from uploaded Monthly Outlook + latest AR totals."""
     from office_ops_monday import generate_monday_report
@@ -1578,6 +1802,18 @@ def register_routes(app, get_db_fn, users, require_login):
         pack = get_latest_pack(get_db_fn)
         monday = get_latest_monday_pack(get_db_fn)
         files = list_recent_files(get_db_fn)
+        notes = get_ar_notes(get_db_fn)
+        # Past-due customers for notes prompt (overdue-weighted chase)
+        past_due = []
+        if pack and pack.get('summary') and pack['summary'].get('chase_list'):
+            for c in pack['summary']['chase_list'][:25]:
+                key = (c.get('customer') or '').lower()
+                past_due.append({
+                    'customer': c.get('customer'),
+                    'total': c.get('total'),
+                    'overdue': c.get('overdue'),
+                    'note': (notes.get(key) or {}).get('note', ''),
+                })
         return render_template(
             'office_ops.html',
             user_key=user_key,
@@ -1585,6 +1821,8 @@ def register_routes(app, get_db_fn, users, require_login):
             pack=pack,
             monday=monday,
             recent_files=files,
+            past_due=past_due,
+            ar_notes=notes,
         )
 
     @app.route('/api/office-ops/upload', methods=['POST'])
@@ -1680,6 +1918,37 @@ def register_routes(app, get_db_fn, users, require_login):
             as_attachment=True,
             download_name=meta['filename'] or 'office_ops.xlsx',
         )
+
+    @app.route('/api/office-ops/notes', methods=['GET', 'POST'])
+    @require_login
+    def office_ops_notes():
+        user_key = session.get('user_key')
+        if not can_access_office_ops(users, user_key):
+            return jsonify({'error': 'Not allowed.'}), 403
+        if request.method == 'GET':
+            return jsonify({'success': True, 'notes': get_ar_notes(get_db_fn)})
+        data = request.get_json(silent=True) or {}
+        notes_map = data.get('notes') or {}
+        result = save_ar_notes(get_db_fn, notes_map, user_key)
+        if not result.get('success'):
+            return jsonify(result), 400
+        return jsonify({'success': True})
+
+    @app.route('/api/office-ops/generate', methods=['POST'])
+    @require_login
+    def office_ops_generate():
+        """Thursday pack: Invoice List + AR Summary + past-due notes → Monday Excel."""
+        user_key = session.get('user_key')
+        if not can_access_office_ops(users, user_key):
+            return jsonify({'error': 'Not allowed.'}), 403
+        # Optional notes save in same request (from modal)
+        data = request.get_json(silent=True) or {}
+        if data.get('notes'):
+            save_ar_notes(get_db_fn, data['notes'], user_key)
+        result = generate_thursday_pack(get_db_fn, user_key)
+        if not result.get('success'):
+            return jsonify(result), 400
+        return jsonify(result)
 
     @app.route('/api/office-ops/latest')
     @require_login
