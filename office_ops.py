@@ -33,11 +33,15 @@ ALLOWED_KINDS = frozenset({
     'ar_aging_summary',
     'ar_aging_detail',
     'invoice_list',
+    'monthly_outlook',
+    'monday_report',
 })
 KIND_SUMMARY = 'ar_aging_summary'
 KIND_DETAIL = 'ar_aging_detail'
 KIND_INVOICE_LIST = 'invoice_list'
-PACK_KIND = 'ar_aging'  # combined pack stored after any related upload
+KIND_OUTLOOK = 'monthly_outlook'
+KIND_MONDAY = 'monday_report'
+PACK_KIND = 'ar_aging'  # combined AR pack
 
 # Customers always called out in the brief (ops judgment, not accounting).
 LEGACY_CUSTOMER_HINTS = (
@@ -926,17 +930,7 @@ def _numbers_draft_md(as_of_label, grand, operating, bopc, top_chase, sales_rep_
         lines.append(
             f'- **Operating AR (ex-BOPC, rough):** {_fmt_money(operating["total"])}'
         )
-    if sales_rep_open_ar:
-        lines.extend(['', '### Open AR by sales rep (equal split on multi-rep invoices)', ''])
-        for r in sales_rep_open_ar[:12]:
-            split_note = (
-                f', {r["split_invoice_count"]} split'
-                if r.get('split_invoice_count') else ''
-            )
-            lines.append(
-                f'- **{r["sales_rep"]}**: {_fmt_money(r["open_ar"])} '
-                f'({r["invoice_count"]} open inv{split_note})'
-            )
+    # A/R is company total only — Stephanie owns collections (not by rep).
     lines.extend(['', '### Collection focus (overdue-weighted)', ''])
     if not top_chase:
         lines.append('_No overdue balances detected in this export._')
@@ -1373,6 +1367,147 @@ def get_latest_pack(get_db_fn, kind=None):
         return None
 
 
+def process_monthly_outlook(get_db_fn, file_id, user_key):
+    """Build Monday Excel from uploaded Monthly Outlook + latest AR totals."""
+    from office_ops_monday import generate_monday_report
+
+    conn = get_db_fn()
+    if not conn:
+        return {'success': False, 'error': 'Database unavailable.'}
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT id, kind, filename, file_data FROM office_ops_files WHERE id = %s',
+            (file_id,),
+        )
+        frow = cur.fetchone()
+        if not frow:
+            cur.close()
+            conn.close()
+            return {'success': False, 'error': 'Upload not found.'}
+        raw = bytes(frow['file_data'])
+        # Pull company AR totals from latest pack if present
+        ar_summary = None
+        cur.execute(
+            '''
+            SELECT summary_json FROM office_ops_packs
+            WHERE kind = %s ORDER BY created_at DESC LIMIT 1
+            ''',
+            (PACK_KIND,),
+        )
+        prow = cur.fetchone()
+        if prow and prow.get('summary_json'):
+            ar_summary = prow['summary_json']
+            if isinstance(ar_summary, str):
+                ar_summary = json.loads(ar_summary)
+
+        report_bytes, insights, meta = generate_monday_report(raw, ar_summary=ar_summary)
+        # Store generated report as a file for download
+        cur.execute(
+            '''
+            INSERT INTO office_ops_files
+                (kind, filename, mime_type, size_bytes, file_data, uploaded_by)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, uploaded_at
+            ''',
+            (
+                KIND_MONDAY,
+                f"PPS_Monday_Numbers_{date.today().isoformat()}.xlsx",
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                len(report_bytes),
+                psycopg2_binary(report_bytes),
+                user_key,
+            ),
+        )
+        row = cur.fetchone()
+        monday_id = row[0]
+        # Light pack record for UI (insights text)
+        pack_payload = {
+            'report': 'Monday Numbers',
+            'report_kind': 'monday_report',
+            'insights_md': insights,
+            'source_outlook': frow['filename'],
+            'source_outlook_file_id': file_id,
+            'monday_file_id': monday_id,
+            'ar_total': (ar_summary or {}).get('grand_total'),
+            'bopc': (ar_summary or {}).get('bopc'),
+            'operating_ex_bopc': (ar_summary or {}).get('operating_ex_bopc'),
+            'meta': meta,
+            'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        }
+        cur.execute(
+            '''
+            INSERT INTO office_ops_packs
+                (pack_date, source_file_id, kind, summary_json, numbers_draft_md, created_by)
+            VALUES (%s, %s, %s, %s::jsonb, %s, %s)
+            RETURNING id, created_at
+            ''',
+            (
+                date.today(),
+                monday_id,
+                KIND_MONDAY,
+                json.dumps(pack_payload),
+                insights,
+                user_key,
+            ),
+        )
+        pack_row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {
+            'success': True,
+            'monday_file_id': monday_id,
+            'pack_id': pack_row['id'],
+            'insights_md': insights,
+            'download_url': f'/api/office-ops/files/{monday_id}/download',
+            'ar_included': bool(ar_summary and ar_summary.get('grand_total')),
+        }
+    except Exception as e:
+        try:
+            conn.rollback()
+            conn.close()
+        except Exception:
+            pass
+        print(f'Office Ops Monday report error: {e}')
+        return {'success': False, 'error': f'Could not build Monday report: {e}'}
+
+
+def get_latest_monday_pack(get_db_fn):
+    return get_latest_pack(get_db_fn, kind=KIND_MONDAY)
+
+
+def get_file_bytes(get_db_fn, file_id):
+    conn = get_db_fn()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            'SELECT id, kind, filename, mime_type, file_data FROM office_ops_files WHERE id = %s',
+            (file_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None
+        return {
+            'id': row['id'],
+            'kind': row['kind'],
+            'filename': row['filename'],
+            'mime_type': row['mime_type'] or 'application/octet-stream',
+            'data': bytes(row['file_data']),
+        }
+    except Exception as e:
+        print(f'Office Ops get file error: {e}')
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None
+
+
 def list_recent_files(get_db_fn, kind=None, limit=12):
     conn = get_db_fn()
     if not conn:
@@ -1441,12 +1576,14 @@ def register_routes(app, get_db_fn, users, require_login):
             return blocked
         user_key = session.get('user_key')
         pack = get_latest_pack(get_db_fn)
+        monday = get_latest_monday_pack(get_db_fn)
         files = list_recent_files(get_db_fn)
         return render_template(
             'office_ops.html',
             user_key=user_key,
             user_display=(users.get(user_key) or {}).get('display', user_key),
             pack=pack,
+            monday=monday,
             recent_files=files,
         )
 
@@ -1464,23 +1601,49 @@ def register_routes(app, get_db_fn, users, require_login):
             kind = KIND_DETAIL
         elif kind in ('invoice_list', 'invoices', 'sales_rep'):
             kind = KIND_INVOICE_LIST
+        elif kind in ('monthly_outlook', 'outlook', 'monday'):
+            kind = KIND_OUTLOOK
         f = request.files.get('file')
         if not f or not f.filename:
             return jsonify({'success': False, 'error': 'Choose a file to upload.'}), 400
         raw = f.read()
-        # Content wins over wrong drop-zone label
-        detected = detect_ar_report_type(f.filename, raw)
-        if detected == 'detail':
-            kind = KIND_DETAIL
-        elif detected == 'summary':
-            kind = KIND_SUMMARY
-        elif detected == 'invoice_list':
-            kind = KIND_INVOICE_LIST
+        fname = (f.filename or '').lower()
+        # Content wins over wrong drop-zone label (AR types)
+        if kind != KIND_OUTLOOK and 'outlook' not in fname and 'monthly' not in fname:
+            detected = detect_ar_report_type(f.filename, raw)
+            if detected == 'detail':
+                kind = KIND_DETAIL
+            elif detected == 'summary':
+                kind = KIND_SUMMARY
+            elif detected == 'invoice_list':
+                kind = KIND_INVOICE_LIST
+        if 'outlook' in fname or 'monthly' in fname:
+            kind = KIND_OUTLOOK
         saved = save_upload(
             get_db_fn, kind, f.filename, f.mimetype or '', raw, user_key,
         )
         if not saved.get('success'):
             return jsonify(saved), 400
+
+        # Monday report path
+        if kind == KIND_OUTLOOK:
+            result = process_monthly_outlook(get_db_fn, saved['file_id'], user_key)
+            if not result.get('success'):
+                return jsonify({
+                    'success': False,
+                    'error': result.get('error', 'Monday report failed.'),
+                    'file_id': saved['file_id'],
+                }), 400
+            return jsonify({
+                'success': True,
+                'detected': 'monthly_outlook',
+                'file_id': saved['file_id'],
+                'monday_file_id': result['monday_file_id'],
+                'download_url': result['download_url'],
+                'insights_md': result.get('insights_md'),
+                'ar_included': result.get('ar_included'),
+            })
+
         expect = {
             KIND_DETAIL: 'detail',
             KIND_INVOICE_LIST: 'invoice_list',
@@ -1500,6 +1663,23 @@ def register_routes(app, get_db_fn, users, require_login):
             'summary': result['summary'],
             'numbers_draft_md': result['summary'].get('numbers_draft_md'),
         })
+
+    @app.route('/api/office-ops/files/<int:file_id>/download')
+    @require_login
+    def office_ops_file_download(file_id):
+        from flask import send_file
+        user_key = session.get('user_key')
+        if not can_access_office_ops(users, user_key):
+            return jsonify({'error': 'Not allowed.'}), 403
+        meta = get_file_bytes(get_db_fn, file_id)
+        if not meta:
+            return jsonify({'error': 'File not found.'}), 404
+        return send_file(
+            io.BytesIO(meta['data']),
+            mimetype=meta['mime_type'],
+            as_attachment=True,
+            download_name=meta['filename'] or 'office_ops.xlsx',
+        )
 
     @app.route('/api/office-ops/latest')
     @require_login

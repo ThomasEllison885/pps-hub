@@ -8,16 +8,8 @@
   <link rel="stylesheet" href="/static/pps-global.css">
   <style>
     :root {
-      --navy: #0B1D36;
-      --blue: #1A5276;
-      --gold: #B8922A;
-      --bg: #F7F5F0;
-      --card: #fff;
-      --border: #E5E0D5;
-      --muted: #6B7280;
-      --ok: #1B7A4E;
-      --warn: #B45309;
-      --danger: #B91C1C;
+      --navy: #0B1D36; --blue: #1A5276; --gold: #B8922A; --bg: #F7F5F0;
+      --card: #fff; --border: #E5E0D5; --muted: #6B7280; --ok: #1B7A4E; --danger: #B91C1C;
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: #1a1a1a; }
@@ -25,22 +17,18 @@
     .hero {
       background: linear-gradient(135deg, #0B1D36 0%, #1A5276 100%);
       color: #fff; border-radius: 16px; padding: 22px 24px; margin-bottom: 20px;
-      display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between;
     }
     .hero h1 { font-family: 'DM Serif Display', serif; font-size: 1.75rem; margin: 0 0 6px; font-weight: 400; }
-    .hero p { margin: 0; opacity: 0.88; font-size: 0.95rem; line-height: 1.45; max-width: 36rem; }
+    .hero p { margin: 0; opacity: 0.88; font-size: 0.95rem; line-height: 1.45; max-width: 40rem; }
     .badge {
       display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
       text-transform: uppercase; background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 999px;
     }
     .grid { display: grid; gap: 16px; }
-    @media (min-width: 860px) {
-      .grid-2 { grid-template-columns: 1fr 1fr; }
-      .span-2 { grid-column: 1 / -1; }
-    }
+    @media (min-width: 860px) { .grid-2 { grid-template-columns: 1fr 1fr; } .span-2 { grid-column: 1 / -1; } }
     .card {
       background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-      padding: 18px 18px 16px; box-shadow: 0 1px 2px rgba(11,29,54,0.04);
+      padding: 18px; box-shadow: 0 1px 2px rgba(11,29,54,0.04);
     }
     .card h2 {
       margin: 0 0 10px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.06em;
@@ -48,49 +36,44 @@
     }
     .muted { color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
     .drop {
-      border: 2px dashed #C9B896; border-radius: 12px; padding: 22px 16px; text-align: center;
-      background: #FBF8F1; transition: border-color 0.15s, background 0.15s;
+      border: 2px dashed #C9B896; border-radius: 12px; padding: 18px 16px; text-align: center;
+      background: #FBF8F1; margin-bottom: 12px;
     }
     .drop.drag { border-color: var(--gold); background: #FFF8E7; }
-    .drop strong { display: block; margin-bottom: 6px; color: var(--navy); }
+    .drop strong { display: block; margin-bottom: 4px; color: var(--navy); }
     .btn {
       display: inline-block; border: none; border-radius: 8px; padding: 10px 16px;
-      font-weight: 700; font-size: 14px; cursor: pointer; font-family: inherit;
+      font-weight: 700; font-size: 14px; cursor: pointer; font-family: inherit; text-decoration: none;
     }
     .btn-primary { background: var(--gold); color: #1a1200; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-ghost { background: transparent; color: var(--blue); border: 1px solid var(--border); }
-    .btn-sm { padding: 7px 12px; font-size: 13px; }
+    .btn-ghost { background: #fff; color: var(--blue); border: 1px solid var(--border); }
     .stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 4px; }
-    .stat {
-      flex: 1 1 120px; background: #F3F6F9; border-radius: 10px; padding: 10px 12px;
-    }
-    .stat .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat { flex: 1 1 120px; background: #F3F6F9; border-radius: 10px; padding: 10px 12px; }
+    .stat .lbl { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
     .stat .val { font-size: 1.15rem; font-weight: 700; color: var(--navy); margin-top: 2px; }
-    .stat.warn .val { color: var(--warn); }
     .stat.danger .val { color: var(--danger); }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--border); }
-    td { padding: 9px 6px; border-bottom: 1px solid #f0ebe3; vertical-align: top; }
-    tr.legacy td { background: #FFF8F0; }
-    .tag {
-      display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
-      padding: 2px 6px; border-radius: 4px; background: #FEF3C7; color: #92400E;
-    }
-    .draft-box {
-      white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; background: #FAFBFC;
-      border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: 420px; overflow: auto;
-    }
-    .toast {
-      display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
-    }
+    .money { font-variant-numeric: tabular-nums; }
+    .toast { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: pre-wrap; }
     .toast.ok { display: block; background: #ECFDF5; color: var(--ok); }
     .toast.err { display: block; background: #FEF2F2; color: var(--danger); }
+    .draft-box {
+      white-space: pre-wrap; font-size: 13.5px; line-height: 1.55; background: #FAFBFC;
+      border: 1px solid var(--border); border-radius: 10px; padding: 14px; max-height: 480px; overflow: auto;
+    }
     .file-list { list-style: none; padding: 0; margin: 0; font-size: 13px; }
     .file-list li { padding: 6px 0; border-bottom: 1px solid #f0ebe3; display: flex; justify-content: space-between; gap: 8px; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
-    .note-list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; color: var(--muted); line-height: 1.5; }
-    .money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .tag {
+      display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase;
+      padding: 2px 6px; border-radius: 4px; background: #FEF3C7; color: #92400E; margin-right: 4px;
+    }
+    .swatch { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
+    .swatch.pos { background: #C6EFCE; border: 1px solid #006100; }
+    .swatch.neg { background: #FFC7CE; border: 1px solid #9C0006; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; font-size: 11px; text-transform: uppercase; color: var(--muted); padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    td { padding: 8px 6px; border-bottom: 1px solid #f0ebe3; }
+    tr.legacy td { background: #FFF8F0; }
   </style>
 </head>
 <body>
@@ -108,145 +91,115 @@
 
   <div class="wrap">
     <div class="hero">
-      <div>
-        <span class="badge">Stephanie + Thomas · private</span>
-        <h1>Office Ops</h1>
-        <p>
-          Upload both QuickBooks aging reports (Summary for totals, Detail for open invoices).
-          You get a ranked collection list and a Numbers draft. Nothing writes back to QB or auto-emails.
-        </p>
-      </div>
+      <span class="badge">Stephanie + Thomas · private</span>
+      <h1>Office Ops</h1>
+      <p>
+        Monday Numbers Excel (same layout &amp; green/red as Monthly Outlook) plus company A/R totals.
+        Stephanie owns collections — no A/R-by-rep. Nothing writes to QuickBooks or auto-emails.
+      </p>
     </div>
 
     <div class="grid grid-2">
+      <!-- Monday report -->
       <div class="card">
-        <h2>1 · Upload both AR reports</h2>
+        <h2>1 · Monday Numbers report</h2>
         <p class="muted" style="margin-top:0">
-          In QuickBooks Online: <strong>Reports → Who owes you</strong>. Export each to Excel.
-          Wrong box is OK — we auto-detect Summary vs Detail.
+          Upload Stephanie’s <strong>2026 Monthly Outlook.xlsx</strong> (the Monday email attachment).
+          We keep every sheet, reinforce
+          <span class="swatch pos"></span>positive /
+          <span class="swatch neg"></span>negative colors on Difference &amp; % Hit rows,
+          and add <strong>Insights</strong> + <strong>AR Totals</strong> sheets.
         </p>
-
-        <div class="drop" id="drop-summary" data-kind="ar_aging_summary" style="margin-bottom:12px">
-          <strong>A · Aging Summary</strong>
-          <span class="muted">Totals by customer · columns CURRENT / 1–30 / … / Total</span>
+        <div class="drop" id="drop-outlook" data-kind="monthly_outlook">
+          <strong>Monthly Outlook (.xlsx)</strong>
+          <span class="muted">Same file attached to Numbers emails</span>
           <div style="margin-top:10px">
-            <input type="file" class="file-input" data-kind="ar_aging_summary" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_summary">Upload Summary</button>
+            <input type="file" class="file-input" data-kind="monthly_outlook" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="monthly_outlook">Upload Outlook → Generate</button>
           </div>
         </div>
-
-        <div class="drop" id="drop-detail" data-kind="ar_aging_detail" style="margin-bottom:12px">
-          <strong>B · Aging Detail</strong>
-          <span class="muted">Open invoices · Date / Type / Num / Customer / Open balance</span>
-          <div style="margin-top:10px">
-            <input type="file" class="file-input" data-kind="ar_aging_detail" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_detail">Upload Detail</button>
-          </div>
-        </div>
-
-        <div class="drop" id="drop-invoices" data-kind="invoice_list">
-          <strong>C · Invoice List by Date (Sales Rep)</strong>
-          <span class="muted">Must include <b>Sales Rep</b> column — “Adam / Andy” = 50/50-style split</span>
-          <div style="margin-top:10px">
-            <input type="file" class="file-input" data-kind="invoice_list" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="invoice_list">Upload Invoice List</button>
-          </div>
-        </div>
-
-        <div class="toast" id="toast"></div>
-        {% if recent_files %}
-        <p class="muted" style="margin:14px 0 6px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Recent uploads</p>
-        <ul class="file-list">
-          {% for f in recent_files[:10] %}
-          <li>
-            <span>
-              {% if f.kind == 'ar_aging_detail' %}<span class="tag">Detail</span>
-              {% elif f.kind == 'invoice_list' %}<span class="tag" style="background:#DCFCE7;color:#166534">Invoices</span>
-              {% elif f.kind == 'ar_aging_summary' or f.kind == 'ar_aging' %}<span class="tag" style="background:#DBEAFE;color:#1E3A8A">Summary</span>
-              {% endif %}
-              {{ f.filename }}
-            </span>
-            <span class="muted">{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '' }}</span>
-          </li>
-          {% endfor %}
-        </ul>
+        {% if monday and monday.summary %}
+        <p class="muted" style="margin:8px 0">
+          Last generated from <strong>{{ monday.summary.source_outlook or 'Outlook' }}</strong>
+          {% if monday.created_at %} · {{ monday.created_at[:16].replace('T',' ') }}{% endif %}
+          {% if monday.summary.ar_total %} · AR included{% endif %}
+        </p>
+        {% if monday.summary.monday_file_id %}
+        <a class="btn btn-primary" href="/api/office-ops/files/{{ monday.summary.monday_file_id }}/download">Download Monday Excel</a>
         {% endif %}
+        {% endif %}
+        <div class="toast" id="toast-outlook"></div>
       </div>
 
+      <!-- AR total only -->
       <div class="card">
-        <h2>2 · This week’s snapshot</h2>
-        {% if pack and pack.summary %}
-        {% set s = pack.summary %}
-        {% set g = s.grand_total %}
-        <p class="muted" style="margin:0 0 8px">
-          {% if s.sources and (s.sources.summary or s.sources.detail or s.sources.invoice_list) %}
-            {% if s.sources.summary %}Summary: <strong>{{ s.sources.summary }}</strong>{% endif %}
-            {% if s.sources.detail %}{% if s.sources.summary %} · {% endif %}Detail: <strong>{{ s.sources.detail }}</strong>{% endif %}
-            {% if s.sources.invoice_list %}{% if s.sources.summary or s.sources.detail %} · {% endif %}Invoices: <strong>{{ s.sources.invoice_list }}</strong>{% endif %}
-          {% else %}
-            From <strong>{{ pack.source_filename or s.source_filename or 'upload' }}</strong>
-          {% endif %}
-          {% if s.as_of_label %} · {{ s.as_of_label }}{% endif %}
-          {% if pack.created_at %} · processed {{ pack.created_at[:16].replace('T',' ') }}{% endif %}
-          {% if s.invoice_count %} · {{ s.invoice_count }} aging invoices{% endif %}
-          {% if s.split_invoice_count %} · {{ s.split_invoice_count }} multi-rep{% endif %}
+        <h2>2 · Company A/R total</h2>
+        <p class="muted" style="margin-top:0">
+          QuickBooks → <strong>A/R Aging Summary</strong> → Excel.
+          One company rollup for Numbers (Stephanie owns all collections).
         </p>
-        <div class="stat-row">
+        <div class="drop" id="drop-summary" data-kind="ar_aging_summary">
+          <strong>A/R Aging Summary</strong>
+          <span class="muted">CURRENT / 1–30 / … / Total</span>
+          <div style="margin-top:10px">
+            <input type="file" class="file-input" data-kind="ar_aging_summary" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_summary">Upload AR Summary</button>
+          </div>
+        </div>
+        <details style="margin-top:8px">
+          <summary class="muted" style="cursor:pointer">Optional: Aging Detail (invoice samples on chase list)</summary>
+          <div class="drop" id="drop-detail" data-kind="ar_aging_detail" style="margin-top:8px">
+            <strong>A/R Aging Detail</strong>
+            <div style="margin-top:10px">
+              <input type="file" class="file-input" data-kind="ar_aging_detail" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+              <button type="button" class="btn btn-ghost pick-btn" data-kind="ar_aging_detail">Upload Detail</button>
+            </div>
+          </div>
+        </details>
+        <div class="toast" id="toast-ar"></div>
+
+        {% if pack and pack.summary and pack.summary.grand_total %}
+        {% set g = pack.summary.grand_total %}
+        <div class="stat-row" style="margin-top:14px">
           <div class="stat"><div class="lbl">Total AR</div><div class="val money">${{ '{:,.0f}'.format(g.total) }}</div></div>
           <div class="stat"><div class="lbl">Current</div><div class="val money">${{ '{:,.0f}'.format(g.current) }}</div></div>
-          <div class="stat warn"><div class="lbl">1–30</div><div class="val money">${{ '{:,.0f}'.format(g['1_30']) }}</div></div>
           <div class="stat danger"><div class="lbl">91+</div><div class="val money">${{ '{:,.0f}'.format(g['91_and_over']) }}</div></div>
         </div>
-        {% if s.bopc %}
+        {% if pack.summary.bopc %}
         <p class="muted" style="margin:10px 0 0">
-          BOPC / Bridges called out: <strong class="money">${{ '{:,.0f}'.format(s.bopc.total) }}</strong>
-          · Operating ex-BOPC (rough): <strong class="money">${{ '{:,.0f}'.format(s.operating_ex_bopc.total) }}</strong>
+          BOPC in total: <strong class="money">${{ '{:,.0f}'.format(pack.summary.bopc.total) }}</strong>
+          · Operating ex-BOPC: <strong class="money">${{ '{:,.0f}'.format(pack.summary.operating_ex_bopc.total) }}</strong>
         </p>
         {% endif %}
-        {% if s.sales_rep_open_ar %}
-        <h2 style="margin-top:16px">Open AR by sales rep</h2>
-        <p class="muted" style="margin:0 0 8px">Multi-rep invoices (e.g. Adam / Andy) split open balance equally.</p>
-        <table>
-          <thead><tr><th>Rep</th><th>Open AR share</th><th>Open inv</th><th>Split inv</th></tr></thead>
-          <tbody>
-            {% for r in s.sales_rep_open_ar[:12] %}
-            <tr>
-              <td>{{ r.sales_rep }}</td>
-              <td class="money">${{ '{:,.0f}'.format(r.open_ar) }}</td>
-              <td>{{ r.invoice_count }}</td>
-              <td>{{ r.split_invoice_count or 0 }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% endif %}
         {% else %}
-        <p class="muted" style="margin:0">No AR pack yet. Upload Summary (and ideally Detail + Invoice List with Sales Rep).</p>
+        <p class="muted" style="margin-top:12px">No AR summary yet — upload Summary above. Totals also flow into Monday Excel → AR Totals sheet.</p>
         {% endif %}
-
-        <h2 style="margin-top:18px">Coming next</h2>
-        <ul class="note-list">
-          <li>Sticky status notes per customer (survive re-upload)</li>
-          <li>Monday Sub Info → compliance chase</li>
-          <li>Monthly Outlook sheet → full Numbers narrative</li>
-          <li>Optional Gmail draft</li>
-        </ul>
       </div>
 
+      <!-- Insights from last Monday gen -->
       <div class="card span-2">
-        <h2>3 · Collection focus</h2>
-        {% if pack and pack.summary and pack.summary.chase_list %}
+        <h2>3 · Insights (last generation)</h2>
+        {% if monday and monday.numbers_draft_md %}
+        <div class="draft-box" id="insights-box">{{ monday.numbers_draft_md }}</div>
+        <div style="margin-top:10px">
+          <button type="button" class="btn btn-ghost" id="copy-insights">Copy insights</button>
+          <span class="muted" id="copy-status"></span>
+        </div>
+        {% else %}
+        <p class="muted" style="margin:0">Upload Monthly Outlook to generate insights (team hit/miss, YTD, AR totals if Summary is loaded).</p>
+        {% endif %}
+      </div>
+
+      <!-- Chase list if AR loaded -->
+      {% if pack and pack.summary and pack.summary.chase_list %}
+      <div class="card span-2">
+        <h2>4 · Collection focus (company AR)</h2>
+        <p class="muted" style="margin-top:0">Overdue-weighted list for Stephanie’s notes — not split by salesman.</p>
         <div style="overflow-x:auto">
           <table>
             <thead>
               <tr>
-                <th>Customer</th>
-                <th>Total</th>
-                <th>Overdue</th>
-                <th>1–30</th>
-                <th>31–60</th>
-                <th>61–90</th>
-                <th>91+</th>
+                <th>Customer</th><th>Total</th><th>Overdue</th><th>1–30</th><th>31–60</th><th>61–90</th><th>91+</th>
               </tr>
             </thead>
             <tbody>
@@ -258,7 +211,7 @@
                   {% if c.sample_invoices %}
                   <div class="muted" style="font-size:11px;margin-top:4px">
                     {% for inv in c.sample_invoices[:3] %}
-                      #{{ inv.num or '—' }} ${{ '{:,.0f}'.format(inv.open_balance or 0) }} ({{ inv.age_bucket }}){% if inv.salesman %} · {{ inv.salesman }}{% endif %}{% if not loop.last %}; {% endif %}
+                      #{{ inv.num or '—' }} ${{ '{:,.0f}'.format(inv.open_balance or 0) }} ({{ inv.age_bucket }}){% if not loop.last %}; {% endif %}
                     {% endfor %}
                   </div>
                   {% endif %}
@@ -274,40 +227,50 @@
             </tbody>
           </table>
         </div>
-        {% else %}
-        <p class="muted" style="margin:0">Chase list appears after an AR upload.</p>
-        {% endif %}
       </div>
+      {% endif %}
 
       <div class="card span-2">
-        <h2>4 · Numbers draft (edit &amp; send yourself)</h2>
-        <p class="muted" style="margin-top:0">
-          Skeleton for your weekly Numbers email — sales vs goal still comes from your Outlook sheet.
-          Copy, polish in email, send to Thomas / Tony as you always do.
-        </p>
-        <div class="draft-box" id="draft-box">{% if pack and pack.numbers_draft_md %}{{ pack.numbers_draft_md }}{% else %}_Upload AR aging to generate a draft._
-{% endif %}</div>
-        <div class="actions">
-          <button type="button" class="btn btn-primary btn-sm" id="copy-draft" {% if not pack or not pack.numbers_draft_md %}disabled{% endif %}>Copy draft</button>
-          <span class="muted" id="copy-status"></span>
-        </div>
-        {% if pack and pack.summary and pack.summary.notes_for_humans %}
-        <ul class="note-list" style="margin-top:14px">
-          {% for n in pack.summary.notes_for_humans %}
-          <li>{{ n }}</li>
+        <h2>Recent uploads</h2>
+        {% if recent_files %}
+        <ul class="file-list">
+          {% for f in recent_files[:12] %}
+          <li>
+            <span>
+              {% if f.kind == 'monday_report' %}<span class="tag" style="background:#DCFCE7;color:#166534">Monday</span>
+              {% elif f.kind == 'monthly_outlook' %}<span class="tag" style="background:#DBEAFE;color:#1E3A8A">Outlook</span>
+              {% elif f.kind == 'ar_aging_detail' %}<span class="tag">Detail</span>
+              {% elif f.kind in ('ar_aging_summary','ar_aging') %}<span class="tag">AR</span>
+              {% elif f.kind == 'invoice_list' %}<span class="tag">Invoices</span>
+              {% endif %}
+              {{ f.filename }}
+            </span>
+            <span class="muted">
+              {% if f.kind == 'monday_report' %}
+              <a href="/api/office-ops/files/{{ f.id }}/download">Download</a> ·
+              {% endif %}
+              {{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '' }}
+            </span>
+          </li>
           {% endfor %}
         </ul>
+        {% else %}
+        <p class="muted" style="margin:0">No uploads yet.</p>
         {% endif %}
       </div>
     </div>
   </div>
 
   <script>
-  const toast = document.getElementById('toast');
-
-  function showToast(msg, ok) {
-    toast.textContent = msg;
-    toast.className = 'toast ' + (ok ? 'ok' : 'err');
+  function toastEl(kind) {
+    if (kind === 'monthly_outlook') return document.getElementById('toast-outlook');
+    return document.getElementById('toast-ar');
+  }
+  function showToast(kind, msg, ok) {
+    const el = toastEl(kind);
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'toast ' + (ok ? 'ok' : 'err');
   }
 
   document.querySelectorAll('.pick-btn').forEach(btn => {
@@ -319,12 +282,9 @@
   });
   document.querySelectorAll('.file-input').forEach(input => {
     input.addEventListener('change', () => {
-      if (input.files && input.files[0]) {
-        upload(input.files[0], input.getAttribute('data-kind'));
-      }
+      if (input.files && input.files[0]) upload(input.files[0], input.getAttribute('data-kind'));
     });
   });
-
   document.querySelectorAll('.drop').forEach(drop => {
     const kind = drop.getAttribute('data-kind');
     ;['dragenter','dragover'].forEach(ev => {
@@ -340,7 +300,7 @@
   });
 
   async function upload(file, kind) {
-    showToast('Uploading and processing…', true);
+    showToast(kind, 'Uploading and processing…', true);
     document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = true; });
     const fd = new FormData();
     fd.append('kind', kind || 'ar_aging_summary');
@@ -349,30 +309,36 @@
       const res = await fetch('/api/office-ops/upload', { method: 'POST', body: fd });
       const data = await res.json();
       if (!data.success) {
-        showToast(data.error || 'Upload failed.', false);
+        showToast(kind, data.error || 'Upload failed.', false);
         document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = false; });
         return;
       }
-      const label = data.detected === 'detail' ? 'Detail'
-        : data.detected === 'invoice_list' ? 'Invoice List'
-        : 'Summary';
-      showToast(label + ' processed. Refreshing…', true);
+      if (data.download_url) {
+        showToast(kind, 'Monday report ready. Downloading…', true);
+        window.location.href = data.download_url;
+        setTimeout(() => window.location.reload(), 800);
+        return;
+      }
+      showToast(kind, 'Processed. Refreshing…', true);
       window.location.reload();
     } catch (err) {
-      showToast('Network error — try again.', false);
+      showToast(kind, 'Network error — try again.', false);
       document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = false; });
     }
   }
 
-  document.getElementById('copy-draft').onclick = async () => {
-    const text = document.getElementById('draft-box').innerText;
-    try {
-      await navigator.clipboard.writeText(text);
-      document.getElementById('copy-status').textContent = 'Copied.';
-    } catch (e) {
-      document.getElementById('copy-status').textContent = 'Select the draft and copy manually.';
-    }
-  };
+  const copyBtn = document.getElementById('copy-insights');
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      const text = document.getElementById('insights-box').innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        document.getElementById('copy-status').textContent = 'Copied.';
+      } catch (e) {
+        document.getElementById('copy-status').textContent = 'Select text and copy manually.';
+      }
+    };
+  }
   </script>
 </body>
 </html>
