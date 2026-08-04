@@ -47,6 +47,15 @@
     }
     .btn-primary { background: var(--gold); color: #1a1200; }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* Generate is the main action — navy, not gold like upload */
+    .btn-generate {
+      background: linear-gradient(135deg, #0B1D36 0%, #1A5276 100%);
+      color: #fff;
+      border: none;
+      box-shadow: 0 2px 8px rgba(11, 29, 54, 0.25);
+    }
+    .btn-generate:hover { filter: brightness(1.08); }
+    .btn-generate:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
     .btn-ghost { background: #fff; color: var(--blue); border: 1px solid var(--border); }
     .btn-lg { padding: 14px 22px; font-size: 15px; }
     .stat-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
@@ -135,7 +144,7 @@
           Uses latest Invoice List + AR Summary on file, plus your past-due notes.
           Opens a prompt for collection updates before building the file.
         </p>
-        <button type="button" class="btn btn-primary btn-lg" id="btn-generate">Update past-dues &amp; generate Monday Excel</button>
+        <button type="button" class="btn btn-generate btn-lg" id="btn-generate">Update past-dues &amp; generate Monday Excel</button>
         <div class="toast" id="toast-gen"></div>
         {% if monday and monday.summary and monday.summary.monday_file_id %}
         <p class="muted" style="margin:14px 0 6px">
