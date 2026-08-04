@@ -112,34 +112,50 @@
         <span class="badge">Stephanie + Thomas · private</span>
         <h1>Office Ops</h1>
         <p>
-          Drop QuickBooks AR aging here, get a ranked collection focus list and a Numbers draft you can edit and send.
-          Nothing writes back to QuickBooks. Nothing emails itself.
+          Upload both QuickBooks aging reports (Summary for totals, Detail for open invoices).
+          You get a ranked collection list and a Numbers draft. Nothing writes back to QB or auto-emails.
         </p>
       </div>
     </div>
 
     <div class="grid grid-2">
       <div class="card">
-        <h2>1 · Drop AR aging</h2>
+        <h2>1 · Upload both AR reports</h2>
         <p class="muted" style="margin-top:0">
-          QuickBooks → Reports → <strong>A/R Aging Summary</strong> → Export Excel (or CSV).
-          Upload below — we parse and refresh this page’s brief automatically.
+          In QuickBooks Online: <strong>Reports → Who owes you</strong>. Export each to Excel.
+          Wrong box is OK — we auto-detect Summary vs Detail.
         </p>
-        <div class="drop" id="drop-zone">
-          <strong>Drop file here or choose</strong>
-          <span class="muted">.xlsx or .csv · max 5 MB</span>
-          <div style="margin-top:12px">
-            <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
-            <button type="button" class="btn btn-primary" id="pick-btn">Choose file</button>
+
+        <div class="drop" id="drop-summary" data-kind="ar_aging_summary" style="margin-bottom:12px">
+          <strong>A · Aging Summary</strong>
+          <span class="muted">Totals by customer · columns CURRENT / 1–30 / … / Total</span>
+          <div style="margin-top:10px">
+            <input type="file" class="file-input" data-kind="ar_aging_summary" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_summary">Upload Summary</button>
           </div>
         </div>
+
+        <div class="drop" id="drop-detail" data-kind="ar_aging_detail">
+          <strong>B · Aging Detail</strong>
+          <span class="muted">Open invoices · Date / Type / Num / Customer / Open balance</span>
+          <div style="margin-top:10px">
+            <input type="file" class="file-input" data-kind="ar_aging_detail" accept=".xlsx,.xls,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_detail">Upload Detail</button>
+          </div>
+        </div>
+
         <div class="toast" id="toast"></div>
         {% if recent_files %}
         <p class="muted" style="margin:14px 0 6px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.04em;">Recent uploads</p>
         <ul class="file-list">
-          {% for f in recent_files[:5] %}
+          {% for f in recent_files[:8] %}
           <li>
-            <span>{{ f.filename }}</span>
+            <span>
+              {% if f.kind == 'ar_aging_detail' %}<span class="tag">Detail</span>
+              {% elif f.kind == 'ar_aging_summary' or f.kind == 'ar_aging' %}<span class="tag" style="background:#DBEAFE;color:#1E3A8A">Summary</span>
+              {% endif %}
+              {{ f.filename }}
+            </span>
             <span class="muted">{{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '' }}</span>
           </li>
           {% endfor %}
@@ -153,9 +169,16 @@
         {% set s = pack.summary %}
         {% set g = s.grand_total %}
         <p class="muted" style="margin:0 0 8px">
-          From <strong>{{ pack.source_filename or s.source_filename or 'upload' }}</strong>
+          {% if s.sources and (s.sources.summary or s.sources.detail) %}
+            {% if s.sources.summary %}Summary: <strong>{{ s.sources.summary }}</strong>{% endif %}
+            {% if s.sources.summary and s.sources.detail %} · {% endif %}
+            {% if s.sources.detail %}Detail: <strong>{{ s.sources.detail }}</strong>{% endif %}
+          {% else %}
+            From <strong>{{ pack.source_filename or s.source_filename or 'upload' }}</strong>
+          {% endif %}
           {% if s.as_of_label %} · {{ s.as_of_label }}{% endif %}
           {% if pack.created_at %} · processed {{ pack.created_at[:16].replace('T',' ') }}{% endif %}
+          {% if s.invoice_count %} · {{ s.invoice_count }} open invoices{% endif %}
         </p>
         <div class="stat-row">
           <div class="stat"><div class="lbl">Total AR</div><div class="val money">${{ '{:,.0f}'.format(g.total) }}</div></div>
@@ -175,10 +198,11 @@
 
         <h2 style="margin-top:18px">Coming next</h2>
         <ul class="note-list">
+          <li>Sticky status notes per customer (survive re-upload)</li>
+          <li>Salesmen / 50–50 from invoice line or custom field (see below)</li>
           <li>Monday Sub Info → compliance chase</li>
           <li>Monthly Outlook sheet → full Numbers narrative</li>
-          <li>50/50 split jobs (we’ll learn your pattern)</li>
-          <li>Optional Gmail draft for one-click send prep</li>
+          <li>Optional Gmail draft</li>
         </ul>
       </div>
 
@@ -204,6 +228,13 @@
                 <td>
                   {{ c.customer }}
                   {% if c.is_legacy_or_bopc %}<span class="tag">Care</span>{% endif %}
+                  {% if c.sample_invoices %}
+                  <div class="muted" style="font-size:11px;margin-top:4px">
+                    {% for inv in c.sample_invoices[:3] %}
+                      #{{ inv.num or '—' }} ${{ '{:,.0f}'.format(inv.open_balance or 0) }} ({{ inv.age_bucket }}){% if inv.salesman %} · {{ inv.salesman }}{% endif %}{% if not loop.last %}; {% endif %}
+                    {% endfor %}
+                  </div>
+                  {% endif %}
                 </td>
                 <td class="money">${{ '{:,.0f}'.format(c.total) }}</td>
                 <td class="money">${{ '{:,.0f}'.format(c.overdue) }}</td>
@@ -245,9 +276,6 @@
   </div>
 
   <script>
-  const drop = document.getElementById('drop-zone');
-  const input = document.getElementById('file-input');
-  const pick = document.getElementById('pick-btn');
   const toast = document.getElementById('toast');
 
   function showToast(msg, ok) {
@@ -255,41 +283,55 @@
     toast.className = 'toast ' + (ok ? 'ok' : 'err');
   }
 
-  pick.onclick = () => input.click();
-  input.onchange = () => {
-    if (input.files && input.files[0]) upload(input.files[0]);
-  };
+  document.querySelectorAll('.pick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.getAttribute('data-kind');
+      const input = document.querySelector(`.file-input[data-kind="${kind}"]`);
+      if (input) input.click();
+    });
+  });
+  document.querySelectorAll('.file-input').forEach(input => {
+    input.addEventListener('change', () => {
+      if (input.files && input.files[0]) {
+        upload(input.files[0], input.getAttribute('data-kind'));
+      }
+    });
+  });
 
-  ;['dragenter','dragover'].forEach(ev => {
-    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); });
-  });
-  ;['dragleave','drop'].forEach(ev => {
-    drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); });
-  });
-  drop.addEventListener('drop', e => {
-    const f = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) upload(f);
+  document.querySelectorAll('.drop').forEach(drop => {
+    const kind = drop.getAttribute('data-kind');
+    ;['dragenter','dragover'].forEach(ev => {
+      drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); });
+    });
+    ;['dragleave','drop'].forEach(ev => {
+      drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); });
+    });
+    drop.addEventListener('drop', e => {
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) upload(f, kind);
+    });
   });
 
-  async function upload(file) {
+  async function upload(file, kind) {
     showToast('Uploading and processing…', true);
-    pick.disabled = true;
+    document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = true; });
     const fd = new FormData();
-    fd.append('kind', 'ar_aging');
+    fd.append('kind', kind || 'ar_aging_summary');
     fd.append('file', file);
     try {
       const res = await fetch('/api/office-ops/upload', { method: 'POST', body: fd });
       const data = await res.json();
       if (!data.success) {
         showToast(data.error || 'Upload failed.', false);
-        pick.disabled = false;
+        document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = false; });
         return;
       }
-      showToast('Processed. Refreshing…', true);
+      const label = data.detected === 'detail' ? 'Detail' : 'Summary';
+      showToast(label + ' processed. Refreshing…', true);
       window.location.reload();
     } catch (err) {
       showToast('Network error — try again.', false);
-      pick.disabled = false;
+      document.querySelectorAll('.pick-btn').forEach(b => { b.disabled = false; });
     }
   }
 

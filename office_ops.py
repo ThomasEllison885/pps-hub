@@ -3,8 +3,10 @@
 Owner request 2026-08-03 / build-out 2026-08:
   - Access: office_manager (Stephanie) + admin (Thomas) only.
   - Files land via Hub upload (Postgres), not a shared team vault dump.
-  - v1: AR Aging Summary (QB export) → ranked chase list + Numbers draft body.
-  - Later: Sub Info compliance, Outlook sheet, 50/50 split nuance, Gmail drafts.
+  - AR Aging Summary → totals / chase list / Numbers draft skeleton.
+  - AR Aging Detail → open invoices by age bucket (invoice-level chase).
+  - Later: sticky notes, salesman/50-50 from invoice custom field, Sub Info,
+    Outlook sheet, Gmail drafts.
 
 Does NOT write to QuickBooks. Does NOT auto-send email.
 """
@@ -25,7 +27,15 @@ OFFICE_OPS_USER_KEYS = frozenset({'stephanie_whetstone', 'thomas_ellison'})
 OFFICE_OPS_ROLES = frozenset({'office_manager', 'admin'})
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-ALLOWED_KINDS = frozenset({'ar_aging'})
+# ar_aging kept for early uploads; new kinds are explicit.
+ALLOWED_KINDS = frozenset({
+    'ar_aging',
+    'ar_aging_summary',
+    'ar_aging_detail',
+})
+KIND_SUMMARY = 'ar_aging_summary'
+KIND_DETAIL = 'ar_aging_detail'
+PACK_KIND = 'ar_aging'  # combined pack stored after either upload
 
 # Customers always called out in the brief (ops judgment, not accounting).
 LEGACY_CUSTOMER_HINTS = (
@@ -101,13 +111,78 @@ def _norm_header(h):
     return re.sub(r'\s+', ' ', str(h).strip().lower())
 
 
-def _is_header_row(cells):
+def _is_summary_header_row(cells):
+    """QB A/R Aging Summary: CURRENT | 1-30 | … | Total (customer in col 0)."""
+    joined = ' '.join(_norm_header(c) for c in cells if c is not None)
+    has_current = 'current' in joined
+    has_1_30 = bool(re.search(r'1\s*[-–—]\s*30', joined) or '1-30' in joined)
+    has_total = 'total' in joined
+    # Some exports use "Not yet due" instead of CURRENT
+    has_not_yet = 'not yet due' in joined
+    return (has_current or has_not_yet) and has_1_30 and has_total
+
+
+def _is_detail_header_row(cells):
+    """QB A/R Aging Detail: Date | Transaction type | Num | Customer full name | …"""
     joined = ' '.join(_norm_header(c) for c in cells if c is not None)
     return (
-        'current' in joined
-        and ('1 - 30' in joined or '1-30' in joined or '1 – 30' in joined)
-        and 'total' in joined
+        'transaction type' in joined
+        or ('date' in joined and 'customer' in joined and 'open balance' in joined)
+        or ('customer full name' in joined and 'open balance' in joined)
     )
+
+
+# Back-compat name used by older call sites
+def _is_header_row(cells):
+    return _is_summary_header_row(cells)
+
+
+def detect_ar_report_type(filename, raw_bytes):
+    """Return 'summary' | 'detail' | None from filename + content peek."""
+    name = (filename or '').lower()
+    if 'detail' in name:
+        return 'detail'
+    if 'summary' in name:
+        return 'summary'
+
+    # Peek rows without full parse
+    rows = _load_tabular_rows(filename, raw_bytes, max_rows=30)
+    for row in rows:
+        if _is_detail_header_row(row):
+            return 'detail'
+        if _is_summary_header_row(row):
+            return 'summary'
+    # Title rows
+    for row in rows[:5]:
+        joined = ' '.join(str(c) for c in row if c).lower()
+        if 'aging detail' in joined:
+            return 'detail'
+        if 'aging summary' in joined:
+            return 'summary'
+    return None
+
+
+def _load_tabular_rows(filename, raw_bytes, max_rows=None):
+    name = (filename or '').lower()
+    if name.endswith('.csv') or name.endswith('.txt'):
+        text = raw_bytes.decode('utf-8-sig', errors='replace')
+        reader = csv.reader(io.StringIO(text))
+        rows = []
+        for i, row in enumerate(reader):
+            rows.append(row)
+            if max_rows and i + 1 >= max_rows:
+                break
+        return rows
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True, read_only=True)
+    ws = wb.active
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+        rows.append(list(row))
+        if max_rows and i >= max_rows:
+            break
+    wb.close()
+    return rows
 
 
 def _map_aging_cols(header_cells):
@@ -158,12 +233,33 @@ def _row_bucket(cells, colmap):
     }
 
 
-def parse_ar_aging_bytes(filename, raw_bytes):
-    """Parse QB A/R Aging Summary (xlsx) or flat CSV. Returns summary dict."""
-    name = (filename or '').lower()
-    if name.endswith('.csv') or name.endswith('.txt'):
-        return _parse_ar_csv(raw_bytes)
-    return _parse_ar_xlsx(raw_bytes)
+def parse_ar_aging_bytes(filename, raw_bytes, expect=None):
+    """Parse AR export. expect: 'summary' | 'detail' | None (auto-detect).
+
+    Returns a summary-shaped dict; detail also includes 'invoices' and report type.
+    """
+    detected = detect_ar_report_type(filename, raw_bytes)
+    kind = expect or detected
+    if expect and detected and expect != detected:
+        raise ValueError(
+            f'This file looks like an A/R Aging {detected.title()} export, '
+            f'but it was uploaded as {expect.title()}. '
+            f'Use the matching drop zone (or upload again — we will auto-detect).'
+        )
+    if kind == 'detail':
+        return _parse_ar_detail(filename, raw_bytes)
+    if kind == 'summary':
+        name = (filename or '').lower()
+        if name.endswith('.csv') or name.endswith('.txt'):
+            return _parse_ar_csv(raw_bytes)
+        return _parse_ar_xlsx(raw_bytes)
+    # Unknown
+    raise ValueError(
+        'Could not tell Summary from Detail. Export from QuickBooks:\n'
+        '• A/R Aging Summary — columns CURRENT / 1-30 / … / Total\n'
+        '• A/R Aging Detail — columns Date / Transaction type / Customer / Open balance\n'
+        'Then use the matching upload box on Office Ops.'
+    )
 
 
 def _parse_ar_csv(raw_bytes):
@@ -174,7 +270,7 @@ def _parse_ar_csv(raw_bytes):
         raise ValueError('CSV is empty.')
     header_idx = 0
     for i, row in enumerate(rows[:20]):
-        if _is_header_row(row) or any(_norm_header(c) == 'customer' for c in row):
+        if _is_summary_header_row(row) or any(_norm_header(c) == 'customer' for c in row):
             header_idx = i
             break
     colmap = _map_aging_cols(rows[header_idx])
@@ -235,13 +331,22 @@ def _parse_ar_xlsx(raw_bytes):
 
     header_idx = None
     for i, row in enumerate(rows[:25]):
-        if _is_header_row(row):
+        if _is_summary_header_row(row):
             header_idx = i
             break
     if header_idx is None:
+        # Common mistake: Detail file in Summary slot
+        for row in rows[:15]:
+            if _is_detail_header_row(row):
+                raise ValueError(
+                    'This is an A/R Aging Detail export, not Summary. '
+                    'Use the “Aging Detail” upload box (invoice-level), '
+                    'or export Reports → A/R Aging Summary for totals.'
+                )
         raise ValueError(
-            'Could not find an A/R Aging header row (expected CURRENT / 1-30 / Total). '
-            'Upload the QuickBooks A/R Aging Summary export.'
+            'Could not find an A/R Aging Summary header row '
+            '(expected CURRENT / 1-30 / Total). '
+            'In QuickBooks: Reports → Who owes you → A/R Aging Summary → Export to Excel.'
         )
 
     colmap = _map_aging_cols(rows[header_idx])
@@ -278,7 +383,196 @@ def _parse_ar_xlsx(raw_bytes):
         if not prev or c['total'] >= prev['total']:
             by_name[key] = c
     customers = sorted(by_name.values(), key=lambda x: -x['total'])
-    return _build_summary(customers, as_of_label=as_of_label, source='xlsx')
+    out = _build_summary(customers, as_of_label=as_of_label, source='xlsx')
+    out['report'] = 'A/R Aging Summary'
+    out['report_kind'] = 'summary'
+    return out
+
+
+def _bucket_from_section_label(label):
+    n = _norm_header(label)
+    if not n:
+        return None
+    if n.startswith('total for'):
+        return None
+    if '91' in n or 'or more' in n:
+        return '91_and_over'
+    if re.search(r'61\s*[-–—]\s*90', n):
+        return '61_90'
+    if re.search(r'31\s*[-–—]\s*60', n):
+        return '31_60'
+    if re.search(r'1\s*[-–—]\s*30', n):
+        return '1_30'
+    if n == 'current' or 'not yet due' in n:
+        return 'current'
+    return None
+
+
+def _parse_ar_detail(filename, raw_bytes):
+    """Parse QB A/R Aging Detail into customer rollup + invoice list."""
+    rows = _load_tabular_rows(filename, raw_bytes)
+    if not rows:
+        raise ValueError('Detail spreadsheet is empty.')
+
+    as_of_label = None
+    for row in rows[:8]:
+        for cell in row:
+            if cell and isinstance(cell, str) and cell.strip().lower().startswith('as of'):
+                as_of_label = cell.strip()
+                break
+
+    header_idx = None
+    for i, row in enumerate(rows[:25]):
+        if _is_detail_header_row(row):
+            header_idx = i
+            break
+    if header_idx is None:
+        for row in rows[:15]:
+            if _is_summary_header_row(row):
+                raise ValueError(
+                    'This is an A/R Aging Summary export, not Detail. '
+                    'Use the “Aging Summary” upload box for totals.'
+                )
+        raise ValueError(
+            'Could not find an A/R Aging Detail header '
+            '(expected Date / Transaction type / Customer / Open balance). '
+            'In QuickBooks: Reports → Who owes you → A/R Aging Detail → Export to Excel.'
+        )
+
+    header = rows[header_idx]
+    # Map columns (Detail often has a blank leading column)
+    col = {}
+    for i, h in enumerate(header):
+        n = _norm_header(h)
+        if not n:
+            continue
+        if n == 'date' or n.endswith(' date') and 'due' not in n:
+            col.setdefault('date', i)
+        elif 'transaction' in n or n == 'type':
+            col['type'] = i
+        elif n in ('num', 'no.', 'number', '#') or n == 'num':
+            col['num'] = i
+        elif 'customer' in n:
+            col['customer'] = i
+        elif 'due' in n:
+            col['due'] = i
+        elif n == 'amount':
+            col['amount'] = i
+        elif 'open' in n and 'balance' in n:
+            col['open'] = i
+        elif 'sales' in n or 'rep' in n or n in ('salesman', 'salesperson', 'sales rep'):
+            col['salesman'] = i
+        elif 'memo' in n or 'description' in n or 'product' in n or 'service' in n:
+            col.setdefault('memo', i)
+
+    if 'customer' not in col:
+        raise ValueError('Detail export missing Customer column.')
+    if 'open' not in col and 'amount' not in col:
+        raise ValueError('Detail export missing Open balance / Amount column.')
+
+    def cell(row, key):
+        idx = col.get(key)
+        if idx is None or idx >= len(row):
+            return None
+        return row[idx]
+
+    current_bucket = 'current'
+    invoices = []
+    by_customer = {}
+
+    for row in rows[header_idx + 1:]:
+        if not row or all(v in (None, '') for v in row):
+            continue
+        # Section labels live in first non-empty cell
+        first = next((str(v).strip() for v in row if v not in (None, '')), '')
+        if first.upper() == 'TOTAL' or first.lower().startswith('total for'):
+            # Prefer TOTAL open-balance if present
+            continue
+        bucket_hit = _bucket_from_section_label(first)
+        if bucket_hit and cell(row, 'type') in (None, ''):
+            current_bucket = bucket_hit
+            continue
+
+        txn = cell(row, 'type')
+        if txn is None:
+            continue
+        txn_s = str(txn).strip()
+        if txn_s.lower() not in ('invoice', 'credit memo', 'payment', 'journal entry', 'deposit', 'cheque', 'check', 'sales receipt'):
+            # Still allow rows that look like invoices via open balance + customer
+            if not cell(row, 'customer'):
+                continue
+        cust_raw = cell(row, 'customer')
+        if not cust_raw:
+            continue
+        cust = str(cust_raw).strip()
+        open_bal = _money(cell(row, 'open') if col.get('open') is not None else cell(row, 'amount'))
+        if open_bal == 0 and str(txn_s).lower() != 'invoice':
+            continue
+        # Credit memos reduce AR
+        if str(txn_s).lower() == 'credit memo' and open_bal > 0:
+            open_bal = -open_bal
+
+        inv = {
+            'date': str(cell(row, 'date') or ''),
+            'type': txn_s,
+            'num': str(cell(row, 'num') or ''),
+            'customer': cust,
+            'due_date': str(cell(row, 'due') or ''),
+            'amount': _money(cell(row, 'amount')),
+            'open_balance': open_bal,
+            'age_bucket': current_bucket,
+            'salesman': str(cell(row, 'salesman') or '').strip() or None,
+            'memo': str(cell(row, 'memo') or '').strip() or None,
+        }
+        # Heuristic: salesman on a free-text line (e.g. "Sales: Andy / Adam")
+        if not inv['salesman'] and inv['memo']:
+            m = re.search(
+                r'(?:sales(?:man|person| rep)?|psc|consultant)\s*[:\-]\s*(.+)$',
+                inv['memo'],
+                re.I,
+            )
+            if m:
+                inv['salesman'] = m.group(1).strip()[:120]
+
+        if str(txn_s).lower() != 'invoice' and open_bal == 0:
+            continue
+        invoices.append(inv)
+
+        # Parent customer before ":" for rollups
+        parent = cust.split(':', 1)[0].strip()
+        slot = by_customer.setdefault(parent, {
+            'customer': parent,
+            'current': 0.0,
+            '1_30': 0.0,
+            '31_60': 0.0,
+            '61_90': 0.0,
+            '91_and_over': 0.0,
+            'total': 0.0,
+            'invoice_count': 0,
+        })
+        b = current_bucket if current_bucket in slot else 'current'
+        slot[b] = slot.get(b, 0.0) + open_bal
+        slot['total'] += open_bal
+        slot['invoice_count'] += 1
+
+    customers = sorted(by_customer.values(), key=lambda x: -x['total'])
+    out = _build_summary(customers, as_of_label=as_of_label, source='detail_xlsx')
+    out['report'] = 'A/R Aging Detail'
+    out['report_kind'] = 'detail'
+    out['invoices'] = invoices[:500]  # cap payload
+    out['invoice_count'] = len(invoices)
+    out['invoices_truncated'] = max(0, len(invoices) - 500)
+    # Salesman coverage
+    with_sales = sum(1 for i in invoices if i.get('salesman'))
+    out['salesman_field_present'] = with_sales > 0
+    out['salesman_invoice_count'] = with_sales
+    if with_sales == 0:
+        out['notes_for_humans'] = list(out.get('notes_for_humans') or []) + [
+            'No salesman/rep column found on this Detail export. '
+            'If salesmen are stored as a custom field or invoice line in QB, '
+            'export that field (or we parse a “Sales: Name” description line once the export includes it).',
+        ]
+    return out
 
 
 def _build_summary(customers, as_of_label, source):
@@ -484,7 +778,90 @@ def psycopg2_binary(raw_bytes):
     return Binary(raw_bytes)
 
 
-def process_ar_file(get_db_fn, file_id, user_key):
+def _merge_pack_payload(existing, incoming):
+    """Combine summary totals with detail invoices when both have been uploaded."""
+    if not existing:
+        return incoming
+    if not incoming:
+        return existing
+    # Prefer Summary for money buckets; always prefer newer of same kind
+    out = dict(existing)
+    inc_kind = incoming.get('report_kind')
+    if inc_kind == 'summary' or (incoming.get('report') or '').lower().find('summary') >= 0:
+        for k in (
+            'grand_total', 'operating_ex_bopc', 'bopc', 'top_customers_by_balance',
+            'chase_list', 'customer_count', 'as_of_label', 'numbers_draft_md',
+            'notes_for_humans', 'source_format', 'report',
+        ):
+            if k in incoming:
+                out[k] = incoming[k]
+        out['report_kind'] = 'summary'
+        out['summary_source_filename'] = incoming.get('source_filename')
+        out['summary_source_file_id'] = incoming.get('source_file_id')
+    if inc_kind == 'detail' or incoming.get('invoices') is not None:
+        out['invoices'] = incoming.get('invoices') or []
+        out['invoice_count'] = incoming.get('invoice_count', len(out['invoices']))
+        out['invoices_truncated'] = incoming.get('invoices_truncated', 0)
+        out['salesman_field_present'] = incoming.get('salesman_field_present', False)
+        out['salesman_invoice_count'] = incoming.get('salesman_invoice_count', 0)
+        out['detail_source_filename'] = incoming.get('source_filename')
+        out['detail_source_file_id'] = incoming.get('source_file_id')
+        out['detail_as_of_label'] = incoming.get('as_of_label')
+        # If we only have detail so far, use its rollup as the pack
+        if not out.get('grand_total'):
+            for k in (
+                'grand_total', 'operating_ex_bopc', 'bopc', 'top_customers_by_balance',
+                'chase_list', 'customer_count', 'as_of_label', 'numbers_draft_md',
+                'notes_for_humans', 'report',
+            ):
+                if k in incoming:
+                    out[k] = incoming[k]
+            out['report_kind'] = 'detail'
+        # Attach sample open invoices onto chase rows (match parent or job name)
+        inv_by_key = {}
+        for inv in out.get('invoices') or []:
+            full = (inv.get('customer') or '').strip()
+            parent = full.split(':', 1)[0].strip()
+            job = full.split(':', 1)[1].strip() if ':' in full else ''
+            for key in filter(None, (full.lower(), parent.lower(), job.lower())):
+                inv_by_key.setdefault(key, []).append(inv)
+        for c in out.get('chase_list') or []:
+            key = (c.get('customer') or '').strip().lower()
+            samples = inv_by_key.get(key, [])[:5]
+            if not samples:
+                # soft match: any invoice whose full name contains chase name
+                samples = [
+                    i for i in (out.get('invoices') or [])
+                    if key and key in (i.get('customer') or '').lower()
+                ][:5]
+            c['sample_invoices'] = [
+                {
+                    'num': i.get('num'),
+                    'open_balance': i.get('open_balance'),
+                    'age_bucket': i.get('age_bucket'),
+                    'due_date': i.get('due_date'),
+                    'salesman': i.get('salesman'),
+                }
+                for i in samples
+            ]
+        # Rebuild numbers draft if we have totals
+        if out.get('grand_total'):
+            out['numbers_draft_md'] = _numbers_draft_md(
+                as_of_label=out.get('as_of_label'),
+                grand=out['grand_total'],
+                operating=out.get('operating_ex_bopc') or out['grand_total'],
+                bopc=out.get('bopc'),
+                top_chase=out.get('chase_list') or [],
+            )
+    out['parsed_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    out['sources'] = {
+        'summary': out.get('summary_source_filename'),
+        'detail': out.get('detail_source_filename'),
+    }
+    return out
+
+
+def process_ar_file(get_db_fn, file_id, user_key, expect=None):
     conn = get_db_fn()
     if not conn:
         return {'success': False, 'error': 'Database unavailable.'}
@@ -499,15 +876,45 @@ def process_ar_file(get_db_fn, file_id, user_key):
             cur.close()
             conn.close()
             return {'success': False, 'error': 'Upload not found.'}
-        if frow['kind'] != 'ar_aging':
+        if frow['kind'] not in ALLOWED_KINDS:
             cur.close()
             conn.close()
             return {'success': False, 'error': 'Not an AR aging file.'}
 
+        # Prefer explicit kind from upload slot
+        kind_hint = frow['kind']
+        if expect is None:
+            if kind_hint == KIND_DETAIL:
+                expect = 'detail'
+            elif kind_hint in (KIND_SUMMARY, 'ar_aging'):
+                expect = 'summary'
+
         raw = bytes(frow['file_data'])
-        summary = parse_ar_aging_bytes(frow['filename'], raw)
-        summary['source_filename'] = frow['filename']
-        summary['source_file_id'] = file_id
+        # Auto-correct kind if content disagrees (user used wrong box)
+        detected = detect_ar_report_type(frow['filename'], raw)
+        if detected and expect and detected != expect:
+            expect = detected  # trust content; still process successfully
+
+        parsed = parse_ar_aging_bytes(frow['filename'], raw, expect=expect)
+        parsed['source_filename'] = frow['filename']
+        parsed['source_file_id'] = file_id
+
+        # Merge with latest combined pack if present
+        cur.execute(
+            '''
+            SELECT summary_json FROM office_ops_packs
+            WHERE kind = %s
+            ORDER BY created_at DESC LIMIT 1
+            ''',
+            (PACK_KIND,),
+        )
+        prev = cur.fetchone()
+        existing = None
+        if prev and prev.get('summary_json'):
+            existing = prev['summary_json']
+            if isinstance(existing, str):
+                existing = json.loads(existing)
+        merged = _merge_pack_payload(existing, parsed)
 
         pack_date = date.today()
         cur.execute(
@@ -520,13 +927,21 @@ def process_ar_file(get_db_fn, file_id, user_key):
             (
                 pack_date,
                 file_id,
-                'ar_aging',
-                json.dumps(summary),
-                summary.get('numbers_draft_md'),
+                PACK_KIND,
+                json.dumps(merged),
+                merged.get('numbers_draft_md'),
                 user_key,
             ),
         )
         prow = cur.fetchone()
+        # Fix stored file kind if auto-detected differently
+        if detected:
+            fixed = KIND_DETAIL if detected == 'detail' else KIND_SUMMARY
+            if frow['kind'] != fixed:
+                cur.execute(
+                    'UPDATE office_ops_files SET kind = %s WHERE id = %s',
+                    (fixed, file_id),
+                )
         conn.commit()
         cur.close()
         conn.close()
@@ -534,7 +949,8 @@ def process_ar_file(get_db_fn, file_id, user_key):
             'success': True,
             'pack_id': prow['id'],
             'created_at': prow['created_at'].isoformat() if prow['created_at'] else None,
-            'summary': summary,
+            'summary': merged,
+            'detected': detected or expect,
         }
     except ValueError as e:
         try:
@@ -550,10 +966,17 @@ def process_ar_file(get_db_fn, file_id, user_key):
         except Exception:
             pass
         print(f'Office Ops process error: {e}')
-        return {'success': False, 'error': 'Could not process that AR file. Check it is a QB Aging Summary export.'}
+        return {
+            'success': False,
+            'error': (
+                'Could not process that AR file. '
+                'Use A/R Aging Summary for totals and A/R Aging Detail for invoices.'
+            ),
+        }
 
 
-def get_latest_pack(get_db_fn, kind='ar_aging'):
+def get_latest_pack(get_db_fn, kind=None):
+    kind = kind or PACK_KIND
     conn = get_db_fn()
     if not conn:
         return None
@@ -600,22 +1023,34 @@ def get_latest_pack(get_db_fn, kind='ar_aging'):
         return None
 
 
-def list_recent_files(get_db_fn, kind='ar_aging', limit=10):
+def list_recent_files(get_db_fn, kind=None, limit=12):
     conn = get_db_fn()
     if not conn:
         return []
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(
-            '''
-            SELECT id, kind, filename, size_bytes, uploaded_by, uploaded_at
-            FROM office_ops_files
-            WHERE kind = %s
-            ORDER BY uploaded_at DESC
-            LIMIT %s
-            ''',
-            (kind, limit),
-        )
+        if kind:
+            cur.execute(
+                '''
+                SELECT id, kind, filename, size_bytes, uploaded_by, uploaded_at
+                FROM office_ops_files
+                WHERE kind = %s
+                ORDER BY uploaded_at DESC
+                LIMIT %s
+                ''',
+                (kind, limit),
+            )
+        else:
+            cur.execute(
+                '''
+                SELECT id, kind, filename, size_bytes, uploaded_by, uploaded_at
+                FROM office_ops_files
+                WHERE kind IN %s
+                ORDER BY uploaded_at DESC
+                LIMIT %s
+                ''',
+                (tuple(ALLOWED_KINDS), limit),
+            )
         rows = cur.fetchall()
         cur.close()
         conn.close()
@@ -671,33 +1106,43 @@ def register_routes(app, get_db_fn, users, require_login):
         user_key = session.get('user_key')
         if not can_access_office_ops(users, user_key):
             return jsonify({'success': False, 'error': 'Not allowed.'}), 403
-        kind = (request.form.get('kind') or 'ar_aging').strip()
+        kind = (request.form.get('kind') or KIND_SUMMARY).strip()
+        # Map UI kinds
+        if kind in ('summary', 'ar_summary'):
+            kind = KIND_SUMMARY
+        elif kind in ('detail', 'ar_detail'):
+            kind = KIND_DETAIL
         f = request.files.get('file')
         if not f or not f.filename:
             return jsonify({'success': False, 'error': 'Choose a file to upload.'}), 400
         raw = f.read()
+        # Content wins over wrong drop-zone label
+        detected = detect_ar_report_type(f.filename, raw)
+        if detected == 'detail':
+            kind = KIND_DETAIL
+        elif detected == 'summary':
+            kind = KIND_SUMMARY
         saved = save_upload(
             get_db_fn, kind, f.filename, f.mimetype or '', raw, user_key,
         )
         if not saved.get('success'):
             return jsonify(saved), 400
-        # Auto-process AR on upload
-        if kind == 'ar_aging':
-            result = process_ar_file(get_db_fn, saved['file_id'], user_key)
-            if not result.get('success'):
-                return jsonify({
-                    'success': False,
-                    'error': result.get('error', 'Processed save failed.'),
-                    'file_id': saved['file_id'],
-                }), 400
+        expect = 'detail' if kind == KIND_DETAIL else 'summary'
+        result = process_ar_file(get_db_fn, saved['file_id'], user_key, expect=expect)
+        if not result.get('success'):
             return jsonify({
-                'success': True,
+                'success': False,
+                'error': result.get('error', 'Processed save failed.'),
                 'file_id': saved['file_id'],
-                'pack_id': result['pack_id'],
-                'summary': result['summary'],
-                'numbers_draft_md': result['summary'].get('numbers_draft_md'),
-            })
-        return jsonify(saved)
+            }), 400
+        return jsonify({
+            'success': True,
+            'file_id': saved['file_id'],
+            'pack_id': result['pack_id'],
+            'detected': result.get('detected') or expect,
+            'summary': result['summary'],
+            'numbers_draft_md': result['summary'].get('numbers_draft_md'),
+        })
 
     @app.route('/api/office-ops/latest')
     @require_login
