@@ -1378,6 +1378,96 @@ def get_latest_pack(get_db_fn, kind=None):
         return None
 
 
+def _is_bridges_customer_name(name):
+    low = (name or '').lower()
+    return any(
+        x in low
+        for x in (
+            'bopc', 'bridges', 'pine creek', 'pebble', 'meadow',
+            'bridges of pine',
+        )
+    ) or low.startswith('bopc')
+
+
+def build_past_due_prompt_rows(ar_summary, notes_dict=None, limit=15):
+    """Customer-level past-due rows for the notes modal — NOT per invoice.
+
+    - One modal, up to `limit` rows (default 15).
+    - All Bridges/BOPC/Pebble/Pine-Meadow job lines collapse to a single
+      "Bridges / BOPC" row (Stephanie's email style), not one box per sub-job.
+    - Source is overdue-weighted chase list / customers with overdue > 0.
+    """
+    notes_dict = notes_dict or {}
+    chase = list(ar_summary.get('chase_list') or [])
+    if not chase and ar_summary.get('all_customers'):
+        # Build minimal overdue rows from all_customers
+        for c in ar_summary['all_customers']:
+            overdue = (
+                float(c.get('1_30') or 0)
+                + float(c.get('31_60') or 0)
+                + float(c.get('61_90') or 0)
+                + float(c.get('91_and_over') or 0)
+            )
+            if overdue > 0:
+                chase.append({**c, 'overdue': overdue})
+        chase.sort(key=lambda x: -float(x.get('overdue') or 0))
+
+    bridges_total = 0.0
+    bridges_overdue = 0.0
+    bridges_parts = []
+    other = []
+
+    for c in chase:
+        name = c.get('customer') or ''
+        if _is_bridges_customer_name(name):
+            bridges_total += float(c.get('total') or 0)
+            bridges_overdue += float(c.get('overdue') or 0)
+            bridges_parts.append(name)
+        else:
+            other.append(c)
+
+    rows = []
+    if bridges_overdue > 0 or bridges_total > 0:
+        # Prefer stored note under rolled-up key, else any bridges-related note
+        note = ''
+        for key in (
+            'bridges / bopc',
+            'bridges of pine creek',
+            'bopc',
+        ):
+            if notes_dict.get(key) and notes_dict[key].get('note'):
+                note = notes_dict[key]['note']
+                break
+        if not note:
+            for k, v in notes_dict.items():
+                if _is_bridges_customer_name(k) and v.get('note'):
+                    note = v['note']
+                    break
+        rows.append({
+            'customer': 'Bridges / BOPC',
+            'total': bridges_total,
+            'overdue': bridges_overdue,
+            'note': note,
+            'rolled_up_from': bridges_parts,
+            'is_bridges_rollup': True,
+        })
+
+    for c in other:
+        if len(rows) >= limit:
+            break
+        display = c.get('customer') or ''
+        key = display.lower()
+        rows.append({
+            'customer': display,
+            'total': float(c.get('total') or 0),
+            'overdue': float(c.get('overdue') or 0),
+            'note': (notes_dict.get(key) or {}).get('note', ''),
+            'is_bridges_rollup': False,
+        })
+
+    return rows[:limit]
+
+
 def get_ar_notes(get_db_fn):
     conn = get_db_fn()
     if not conn:
@@ -1803,17 +1893,13 @@ def register_routes(app, get_db_fn, users, require_login):
         monday = get_latest_monday_pack(get_db_fn)
         files = list_recent_files(get_db_fn)
         notes = get_ar_notes(get_db_fn)
-        # Past-due customers for notes prompt (overdue-weighted chase)
-        past_due = []
-        if pack and pack.get('summary') and pack['summary'].get('chase_list'):
-            for c in pack['summary']['chase_list'][:25]:
-                key = (c.get('customer') or '').lower()
-                past_due.append({
-                    'customer': c.get('customer'),
-                    'total': c.get('total'),
-                    'overdue': c.get('overdue'),
-                    'note': (notes.get(key) or {}).get('note', ''),
-                })
+        # ONE modal, customer-level rows only (never per invoice). Bridges/BOPC
+        # rolled into a single line so Stephanie isn't prompted 5+ times.
+        past_due = build_past_due_prompt_rows(
+            (pack or {}).get('summary') or {},
+            notes,
+            limit=15,
+        )
         return render_template(
             'office_ops.html',
             user_key=user_key,

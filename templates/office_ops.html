@@ -230,8 +230,9 @@
     <div class="modal" role="dialog" aria-labelledby="notes-title">
       <h3 id="notes-title">Past-due updates</h3>
       <p class="muted" style="margin:0 0 14px">
-        Same kind of notes you put in Numbers (e.g. “PAID”, “board disagrees”, “check next week”).
-        Saved for next week — only type what’s new.
+        <strong>One screen</strong> — about a dozen <em>customers</em>, not invoices.
+        Bridges/BOPC is a <strong>single</strong> rolled-up row (not each BOPC job).
+        Notes like Numbers: “PAID”, “board disagrees”, “check next week”. Saved for next Thursday.
       </p>
       <div id="notes-fields">
         {% if past_due %}
@@ -239,11 +240,13 @@
           <div class="note-row">
             <label>
               {{ c.customer }}
+              {% if c.is_bridges_rollup %}<span class="tag">Rolled up</span>{% endif %}
               <span class="amt"> · overdue ${{ '{:,.0f}'.format(c.overdue or 0) }} · total ${{ '{:,.0f}'.format(c.total or 0) }}</span>
             </label>
             <textarea data-customer="{{ c.customer }}" placeholder="Status / progress…">{{ c.note or '' }}</textarea>
           </div>
           {% endfor %}
+          <p class="muted" style="margin:8px 0 0">{{ past_due|length }} customer row{{ 's' if past_due|length != 1 else '' }} (max 15).</p>
         {% else %}
           <p class="muted">Upload A/R Aging Summary first so we know who is past due. You can still generate sales-only if Invoice List is loaded.</p>
         {% endif %}
