@@ -118,10 +118,10 @@
         <h2>Thursday workflow (QB uploads only)</h2>
         <ol class="steps">
           <li><strong>Invoice List by Date</strong> with <em>Sales Rep</em> (actuals + 50/50)</li>
-          <li><strong>A/R Aging Summary</strong> (company AR totals + Bridges lines)</li>
+          <li><strong>A/R Aging Summary</strong> (company AR + Bridges lines)</li>
+          <li><strong>P&amp;L</strong> this year vs last year (margin &amp; profit insights)</li>
           <li>Optional: <strong>A/R Aging Detail</strong></li>
-          <li>Optional later: <strong>P&amp;L</strong> if we want prior-year / margin tab</li>
-          <li>Update past-due notes → <strong>Generate Monday Excel</strong></li>
+          <li>Past-due notes → <strong>Generate Monday Excel</strong></li>
         </ol>
         <p class="muted" style="margin:12px 0 0">
           Draws/downpayments count on this report (invoice date). Bonuses still wait for closed jobs — noted on Insights.
@@ -186,6 +186,23 @@
           </div>
           <div class="toast toast-slot" data-kind="ar_aging_detail"></div>
         </details>
+      </div>
+
+      <div class="card span-2">
+        <h2>3 · P&amp;L (this year vs last year) — for margin &amp; profit insight</h2>
+        <p class="muted" style="margin-top:0">
+          QB → Reports → Business overview → <strong>Profit and Loss</strong>.
+          Compare to prior year (columns: this year, prior year, % change). Accrual is fine.
+          We pull <strong>income, gross profit, net income, margins</strong> only — not line-item expenses.
+        </p>
+        <div class="drop" data-kind="profit_loss" style="max-width:480px">
+          <strong>Profit &amp; Loss .xlsx</strong>
+          <div style="margin-top:10px">
+            <input type="file" class="file-input" data-kind="profit_loss" accept=".xlsx,.xls,.csv" hidden>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="profit_loss">Upload P&amp;L YoY</button>
+          </div>
+        </div>
+        <div class="toast toast-slot" data-kind="profit_loss"></div>
       </div>
 
       {% if monday and monday.numbers_draft_md %}

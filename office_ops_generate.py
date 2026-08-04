@@ -123,31 +123,59 @@ def aggregate_sales_from_invoice_list(invoice_list, year=2026):
 
 
 def _bridges_ar_breakdown(customers):
-    """Split Bridges/BOPC customers into Old / Pine-Meadow / Pebble when possible."""
+    """Split Bridges/BOPC into Pebble / Pine-Meadow / old.
+
+    Owner correction 2026-08: ~$400k+ 'BOPC 2701 / 2025' is **Pebble**, not
+    Pine/Meadow. Only explicit pine/meadow names go to Pine/Meadow.
+    """
     buckets = {
         'Bridges — Pebble': 0.0,
         'Bridges — Pine/Meadow': 0.0,
         'Bridges — old / other': 0.0,
     }
-    parts = []
+    parts = {'Bridges — Pebble': [], 'Bridges — Pine/Meadow': [], 'Bridges — old / other': []}
     for c in customers or []:
         name = (c.get('customer') or '')
         low = name.lower()
-        if not any(x in low for x in ('bopc', 'bridges', 'pine creek', 'pebble', 'meadow')):
+        # Only Bridges/BOPC family (not unrelated "Meadows" apartments)
+        is_bridges = any(
+            x in low for x in ('bopc', 'bridges of pine', 'bridges / bopc', 'bridges of pine creek')
+        ) or low.startswith('bridges')
+        if not is_bridges and 'bopc' not in (c.get('parent') or '').lower():
+            # parent field may be Bridges of Pine Creek
+            if 'bridges' not in (c.get('parent') or '').lower() and 'bopc' not in (c.get('parent') or '').lower():
+                continue
+        # Skip parent total-for (double-count + "pine" false positive)
+        if c.get('is_parent_total') or (
+            not c.get('job') and low.strip() in ('bridges of pine creek', 'bridges / bopc')
+        ):
             continue
+        job = (c.get('job') or name.split('·')[-1]).strip().lower()
         total = float(c.get('total') or 0)
-        parts.append(name)
-        if 'pebble' in low:
-            buckets['Bridges — Pebble'] += total
-        elif 'pine' in low or 'meadow' in low or '2701' in low:
-            buckets['Bridges — Pine/Meadow'] += total
+        # Pebble first (includes BOPC 2701 / 2025 — owner 2026-08)
+        if (
+            'pebble' in low
+            or 'pebble' in job
+            or '2701' in low
+            or '2701' in job
+            or 'phase 3' in job
+            or 'phase 3' in low
+        ):
+            key = 'Bridges — Pebble'
+        elif 'meadow' in job or (job.startswith('pine') and 'creek' not in job):
+            key = 'Bridges — Pine/Meadow'
         else:
-            buckets['Bridges — old / other'] += total
-    # Drop zero lines
-    lines = [{'label': k, 'total': v} for k, v in buckets.items() if abs(v) > 0.5]
-    if not lines and parts:
-        lines = [{'label': 'Bridges / BOPC (rolled up)', 'total': sum(buckets.values())}]
-    return lines, parts
+            key = 'Bridges — old / other'
+        buckets[key] += total
+        parts[key].append(name)
+    lines = [
+        {'label': k, 'total': v, 'includes': parts[k]}
+        for k, v in buckets.items()
+        if abs(v) > 0.5
+    ]
+    if not lines and any(parts.values()):
+        lines = [{'label': 'Bridges / BOPC (rolled up)', 'total': sum(buckets.values()), 'includes': []}]
+    return lines, [n for ns in parts.values() for n in ns]
 
 
 def _fill_sales_sheet(ws, sales_agg):
@@ -230,78 +258,199 @@ def _fill_team_sheet(ws, sales_agg):
     ws.cell(13, 14).number_format = '"$"#,##0.00'
 
 
-def _build_insights(sales_agg, ar_summary, notes_by_customer=None):
+def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=None):
+    """Deeper sales / margin / profit / AR narrative for leadership."""
     lines = []
     now = datetime.now().strftime('%Y-%m-%d %H:%M')
-    lines.append(f'Office Ops · Monday Numbers insights · generated {now}')
+    lines.append('Monday Numbers · Insights')
+    lines.append(f'Generated {now}')
     lines.append('')
     lines.append(
-        '_Sales = invoiced amount by invoice date (includes draws/downpayments for this '
-        'report). Quarterly bonuses still use closed/completed jobs — not changed here._'
+        'Sales = invoiced $ by invoice date (includes draws/downpayments for this pack). '
+        'Bonus math still waits for fully closed jobs — not changed here.'
     )
     lines.append('')
 
     team = sales_agg.get('team_month') or {}
+    ytd = sum(team.values()) if team else 0.0
+    months = sorted(team.keys()) if team else []
+    latest = months[-1] if months else None
+    prior = months[-2] if len(months) >= 2 else None
+
+    lines.append('SALES')
     if team:
-        months = sorted(team.keys())
-        latest = months[-1] if months else None
-        ytd = sum(team.values())
-        lines.append('## Team invoiced (from Invoice List)')
-        lines.append(f'- **YTD invoiced:** ${_money(ytd)}')
+        lines.append(f'• Company YTD invoiced: ${_money(ytd)}')
         if latest:
-            lines.append(
-                f'- **Latest month ({month_abbr[latest]}):** ${_money(team[latest])}'
-            )
+            latest_amt = team[latest]
+            lines.append(f'• Latest month ({month_abbr[latest]}): ${_money(latest_amt)}')
+            if prior:
+                prior_amt = team[prior]
+                delta = latest_amt - prior_amt
+                pace = (delta / prior_amt) if prior_amt else 0
+                direction = 'up' if delta > 0 else 'down' if delta < 0 else 'flat'
+                lines.append(
+                    f'• vs prior month ({month_abbr[prior]} ${_money(prior_amt)}): '
+                    f'{direction} ${_money(abs(delta))} ({_pct_delta(pace)})'
+                )
+            if latest and latest < 12 and ytd:
+                run_rate = (ytd / latest) * 12
+                lines.append(
+                    f'• Simple full-year run-rate from YTD: ~${_money(run_rate)} '
+                    f'(linear; not a forecast)'
+                )
+                gap_10m = 10000000 - ytd
+                if gap_10m > 0:
+                    months_left = 12 - latest
+                    need = gap_10m / months_left if months_left else gap_10m
+                    lines.append(
+                        f'• To hit $10M goal: ~${_money(need)}/mo for remaining '
+                        f'{months_left} month(s) (${_money(gap_10m)} still needed)'
+                    )
+                else:
+                    lines.append('• YTD already at/above $10M full-year goal.')
         lines.append(
-            f'- Invoices counted: {sales_agg.get("invoice_count", 0)} · '
+            f'• Invoice volume: {sales_agg.get("invoice_count", 0)} · '
             f'50/50-style splits: {sales_agg.get("split_invoice_count", 0)}'
         )
-        lines.append('')
+    else:
+        lines.append('• Upload Invoice List by Date (Sales Rep) to fill sales.')
+    lines.append('')
 
     by_rep = sales_agg.get('by_rep_month') or {}
     if by_rep:
-        lines.append('## By sales rep (YTD invoiced; multi-rep = equal 50/50 share)')
+        lines.append('SALES BY REP (YTD; multi-rep invoices split 50/50)')
         ranked = sorted(
             ((r, sum(m.values())) for r, m in by_rep.items()),
             key=lambda x: -x[1],
         )
+        ranked = [(r, t) for r, t in ranked if r != '(unassigned)']
+        total_rep = sum(t for _, t in ranked) or 1.0
         for r, tot in ranked:
-            if r == '(unassigned)':
-                continue
-            lines.append(f'- **{r}:** ${_money(tot)}')
+            share = tot / total_rep
+            lm = ''
+            if latest:
+                lm_amt = (by_rep.get(r) or {}).get(latest, 0)
+                lm = f' · {month_abbr[latest]} ${_money(lm_amt)}'
+            lines.append(f'• {r}: ${_money(tot)} ({share:.0%} of credited sales){lm}')
+        if ranked:
+            top_name, top_tot = ranked[0]
+            lines.append(
+                f'• Concentration: {top_name} is {top_tot / total_rep:.0%} of rep-credited YTD.'
+            )
         lines.append('')
 
-    lines.append('## A/R (company total — Stephanie owns collections)')
+    lines.append('MARGIN & PROFIT')
+    if pl_summary:
+        inc = pl_summary.get('income_ty')
+        inc_py = pl_summary.get('income_py')
+        gp = pl_summary.get('gross_profit_ty')
+        gp_py = pl_summary.get('gross_profit_py')
+        ni = pl_summary.get('net_income_ty')
+        ni_py = pl_summary.get('net_income_py')
+        period = pl_summary.get('period_label') or 'YTD'
+        lines.append(f'• P&L period: {period} (vs same period prior year)')
+        if inc is not None:
+            line = f'• Income (TY): ${_money(inc)}'
+            if inc_py is not None:
+                line += f' · PY ${_money(inc_py)} ({_pct_change(inc, inc_py)})'
+            lines.append(line)
+        if gp is not None and inc:
+            gm = gp / inc if inc else 0
+            line = f'• Gross profit: ${_money(gp)} · gross margin {gm:.1%}'
+            if gp_py is not None:
+                line += f' · PY ${_money(gp_py)} ({_pct_change(gp, gp_py)})'
+            lines.append(line)
+            if gp_py is not None and inc_py:
+                gm_py = gp_py / inc_py if inc_py else 0
+                gm_pts = (gm - gm_py) * 100
+                lines.append(
+                    f'• Gross margin vs PY: {gm:.1%} vs {gm_py:.1%} ({gm_pts:+.1f} pts)'
+                )
+        if ni is not None:
+            nm = (ni / inc) if inc else 0
+            line = f'• Net income: ${_money(ni)} · net margin {nm:.1%}'
+            if ni_py is not None:
+                line += f' · PY ${_money(ni_py)} ({_pct_change(ni, ni_py)})'
+            lines.append(line)
+            if ni_py is not None:
+                if ni > ni_py:
+                    lines.append(
+                        '• Profit is ahead of last year YTD — still watch AR for cash conversion.'
+                    )
+                elif ni < ni_py:
+                    lines.append(
+                        '• Profit is behind last year YTD — focus on margin and volume, not only invoices.'
+                    )
+        if pl_summary.get('cogs_ty') is not None and inc:
+            cogs_ratio = pl_summary['cogs_ty'] / inc if inc else 0
+            lines.append(f'• COGS as % of income: {cogs_ratio:.1%}')
+    else:
+        lines.append(
+            '• Upload P&L (compare this year vs last year) on Office Ops for margin & profit depth.'
+        )
+    lines.append('')
+
+    lines.append('A/R (company total)')
     if ar_summary and ar_summary.get('grand_total'):
         g = ar_summary['grand_total']
-        lines.append(f'- **Total AR:** ${_money(g.get("total"))}')
+        tot = float(g.get('total') or 0)
+        cur = float(g.get('current') or 0)
+        d91 = float(g.get('91_and_over') or 0)
+        lines.append(f'• Total AR: ${_money(tot)}')
         lines.append(
-            f'- Current ${_money(g.get("current"))} · 1–30 ${_money(g.get("1_30"))} · '
+            f'• Aging: Current ${_money(cur)} · 1–30 ${_money(g.get("1_30"))} · '
             f'31–60 ${_money(g.get("31_60"))} · 61–90 ${_money(g.get("61_90"))} · '
-            f'91+ ${_money(g.get("91_and_over"))}'
+            f'91+ ${_money(d91)}'
         )
+        if tot:
+            lines.append(f'• Mix: Current {cur / tot:.0%} · 91+ {d91 / tot:.0%} of total AR')
         bridges = ar_summary.get('bridges_lines') or []
         if bridges:
+            lines.append('• Bridges breakdown:')
             for b in bridges:
-                lines.append(f'- **{b["label"]}:** ${_money(b["total"])}')
+                lines.append(f'    – {b["label"]}: ${_money(b["total"])}')
         elif ar_summary.get('bopc'):
             lines.append(
-                f'- **Bridges / BOPC (rolled up):** ${_money(ar_summary["bopc"].get("total"))}'
+                f'• Bridges / BOPC (rolled up): ${_money(ar_summary["bopc"].get("total"))}'
+            )
+        if ytd and tot:
+            lines.append(
+                f'• AR / YTD invoices: {tot / ytd:.0%} '
+                f'(higher = more cash still in receivables)'
             )
     else:
-        lines.append('- _Upload A/R Aging Summary to fill totals._')
+        lines.append('• Upload A/R Aging Summary to fill AR.')
     lines.append('')
 
     if notes_by_customer:
-        lines.append('## Past-due updates (Stephanie)')
+        lines.append('PAST-DUE UPDATES')
         for cust, note in notes_by_customer.items():
             if note and str(note).strip():
-                lines.append(f'- **{cust}:** {note.strip()}')
+                lines.append(f'• {cust}: {note.strip()}')
         lines.append('')
 
     lines.append('—')
-    lines.append('Thursday pack · goals from 2026 Outlook template · actuals from QB Invoice List')
+    lines.append(
+        'Thursday pack · goals from 2026 template · actuals from Invoice List · optional P&L YoY'
+    )
     return '\n'.join(lines)
+
+
+def _pct_delta(n):
+    try:
+        return f'{float(n):+.0%}'
+    except (TypeError, ValueError):
+        return 'n/a'
+
+
+def _pct_change(ty, py):
+    try:
+        ty, py = float(ty), float(py)
+        if py == 0:
+            return 'n/a'
+        return f'{(ty - py) / abs(py):+.0%} YoY'
+    except (TypeError, ValueError):
+        return 'n/a'
 
 
 def _money(n):
@@ -311,8 +460,8 @@ def _money(n):
         return '0'
 
 
-def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, year=2026, template_path=None):
-    """Build Monday Excel bytes from Invoice List + AR pack + optional past-due notes."""
+def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_summary=None, year=2026, template_path=None):
+    """Build Monday Excel from Invoice List + AR + optional P&L YoY + notes."""
     path = Path(template_path or TEMPLATE_PATH)
     if not path.exists():
         raise FileNotFoundError(f'Goals template missing: {path}')
@@ -361,31 +510,47 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, year
     # paint Difference rows by computing from filled Actual vs Goal where possible
     _paint_computed_diffs(wb)
 
-    insights = _build_insights(sales_agg, ar, notes_by_customer=notes_by_customer)
+    insights = _build_insights(sales_agg, ar, notes_by_customer=notes_by_customer, pl_summary=pl_summary)
 
     if 'Insights' in wb.sheetnames:
         del wb['Insights']
     ws_i = wb.create_sheet('Insights', 0)
     ws_i['A1'] = 'Monday Numbers · Insights'
-    ws_i['A1'].font = FONT_HEADER
+    ws_i['A1'].font = Font(name='Calibri', size=20, bold=True, color='FFFFFFFF')
     ws_i['A1'].fill = FILL_HEADER
+    ws_i['A1'].alignment = Alignment(vertical='center')
     ws_i.merge_cells('A1:B1')
-    ws_i.column_dimensions['A'].width = 110
+    ws_i.row_dimensions[1].height = 32
+    ws_i.column_dimensions['A'].width = 118
     for i, line in enumerate(insights.splitlines(), start=3):
         cell = ws_i.cell(i, 1, line)
-        cell.font = Font(name='Calibri', size=12, bold=True, color='FF1A5276') if line.startswith('## ') else FONT_BODY
+        is_head = line in (
+            'SALES', 'SALES BY REP (YTD; multi-rep invoices split 50/50)',
+            'MARGIN & PROFIT', 'A/R (company total)', 'PAST-DUE UPDATES',
+        ) or line.startswith('SALES') or line.startswith('MARGIN') or line.startswith('A/R') or line.startswith('PAST-DUE')
+        if is_head and line and not line.startswith('•') and not line.startswith('—') and not line.startswith('Sales =') and not line.startswith('Generated') and not line.startswith('Thursday') and line != 'Monday Numbers · Insights':
+            cell.font = Font(name='Calibri', size=16, bold=True, color='FF1A5276')
+            ws_i.row_dimensions[i].height = 22
+        elif line.startswith('Monday Numbers') or line.startswith('Generated'):
+            cell.font = Font(name='Calibri', size=14, bold=True, color='FF333333')
+        else:
+            cell.font = Font(name='Calibri', size=14, color='FF222222')
+            ws_i.row_dimensions[i].height = 20
+        cell.alignment = Alignment(wrap_text=True, vertical='top')
 
     if 'AR Totals' in wb.sheetnames:
         del wb['AR Totals']
     ws_ar = wb.create_sheet('AR Totals', 1)
-    ws_ar['A1'] = 'Company A/R — Stephanie owns collections (not by rep)'
-    ws_ar['A1'].font = FONT_HEADER
+    ws_ar['A1'] = 'Company A/R'
+    ws_ar['A1'].font = Font(name='Calibri', size=16, bold=True, color='FFFFFFFF')
     ws_ar['A1'].fill = FILL_HEADER
     ws_ar.merge_cells('A1:C1')
+    ws_ar.row_dimensions[1].height = 26
     ws_ar['A3'] = 'Bucket'
     ws_ar['B3'] = 'Amount'
-    ws_ar['A3'].fill = FILL_YELLOW
-    ws_ar['B3'].fill = FILL_YELLOW
+    for col in (1, 2):
+        ws_ar.cell(3, col).fill = FILL_YELLOW
+        ws_ar.cell(3, col).font = FONT_BOLD
     if ar.get('grand_total'):
         g = ar['grand_total']
         rows = [
@@ -397,32 +562,93 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, year
             ('TOTAL AR', g.get('total')),
         ]
         for i, (lab, amt) in enumerate(rows, 4):
-            ws_ar.cell(i, 1, lab)
+            ws_ar.cell(i, 1, lab).font = Font(name='Calibri', size=12)
             c = ws_ar.cell(i, 2, float(amt or 0))
             c.number_format = '"$"#,##0'
+            c.font = Font(name='Calibri', size=12)
             if lab == 'TOTAL AR':
-                ws_ar.cell(i, 1).font = FONT_BOLD
-                c.font = FONT_BOLD
+                ws_ar.cell(i, 1).font = Font(name='Calibri', size=12, bold=True)
+                c.font = Font(name='Calibri', size=12, bold=True)
         r = 11
+        ws_ar.cell(r, 1, 'Bridges').font = FONT_BOLD
+        r += 1
         for b in ar.get('bridges_lines') or []:
-            ws_ar.cell(r, 1, b['label'])
+            ws_ar.cell(r, 1, b['label']).font = Font(name='Calibri', size=12)
             c = ws_ar.cell(r, 2, float(b['total'] or 0))
             c.number_format = '"$"#,##0'
+            c.font = Font(name='Calibri', size=12)
             r += 1
         if notes_by_customer:
             r += 1
-            ws_ar.cell(r, 1, 'Past-due notes')
-            ws_ar.cell(r, 1).font = FONT_BOLD
+            ws_ar.cell(r, 1, 'Past-due notes').font = FONT_BOLD
             r += 1
             for cust, note in notes_by_customer.items():
                 if note and str(note).strip():
-                    ws_ar.cell(r, 1, cust)
-                    ws_ar.cell(r, 2, str(note).strip())
+                    ws_ar.cell(r, 1, cust).font = Font(name='Calibri', size=11)
+                    ws_ar.cell(r, 2, str(note).strip()).font = Font(name='Calibri', size=11)
                     r += 1
     else:
         ws_ar['A4'] = 'Upload A/R Aging Summary to populate.'
-    ws_ar.column_dimensions['A'].width = 40
-    ws_ar.column_dimensions['B'].width = 48
+
+    # Optional P&L summary sheet (sales / margin / profit only)
+    if pl_summary:
+        if 'P&L Snapshot' in wb.sheetnames:
+            del wb['P&L Snapshot']
+        ws_pl = wb.create_sheet('P&L Snapshot', 2)
+        ws_pl['A1'] = 'P&L snapshot (sales, margin, profit — YoY)'
+        ws_pl['A1'].font = Font(name='Calibri', size=16, bold=True, color='FFFFFFFF')
+        ws_pl['A1'].fill = FILL_HEADER
+        ws_pl.merge_cells('A1:D1')
+        ws_pl['A2'] = pl_summary.get('period_label') or ''
+        headers = ['Metric', 'This year', 'Prior year', 'YoY']
+        for i, h in enumerate(headers, 1):
+            cell = ws_pl.cell(4, i, h)
+            cell.fill = FILL_YELLOW
+            cell.font = FONT_BOLD
+        metrics = [
+            ('Income', 'income_ty', 'income_py'),
+            ('COGS', 'cogs_ty', 'cogs_py'),
+            ('Gross profit', 'gross_profit_ty', 'gross_profit_py'),
+            ('Net income', 'net_income_ty', 'net_income_py'),
+        ]
+        for ri, (lab, k_ty, k_py) in enumerate(metrics, 5):
+            ws_pl.cell(ri, 1, lab)
+            ty = pl_summary.get(k_ty)
+            py = pl_summary.get(k_py)
+            if ty is not None:
+                c = ws_pl.cell(ri, 2, float(ty))
+                c.number_format = '"$"#,##0'
+            if py is not None:
+                c = ws_pl.cell(ri, 3, float(py))
+                c.number_format = '"$"#,##0'
+            if ty is not None and py not in (None, 0):
+                yoy = (float(ty) - float(py)) / abs(float(py))
+                c = ws_pl.cell(ri, 4, yoy)
+                c.number_format = '0.0%'
+                if yoy > 0:
+                    c.fill = FILL_POS
+                elif yoy < 0:
+                    c.fill = FILL_NEG
+        # Margins
+        ws_pl.cell(10, 1, 'Gross margin')
+        ws_pl.cell(11, 1, 'Net margin')
+        if pl_summary.get('income_ty'):
+            if pl_summary.get('gross_profit_ty') is not None:
+                c = ws_pl.cell(10, 2, pl_summary['gross_profit_ty'] / pl_summary['income_ty'])
+                c.number_format = '0.0%'
+            if pl_summary.get('net_income_ty') is not None:
+                c = ws_pl.cell(11, 2, pl_summary['net_income_ty'] / pl_summary['income_ty'])
+                c.number_format = '0.0%'
+        if pl_summary.get('income_py'):
+            if pl_summary.get('gross_profit_py') is not None:
+                c = ws_pl.cell(10, 3, pl_summary['gross_profit_py'] / pl_summary['income_py'])
+                c.number_format = '0.0%'
+            if pl_summary.get('net_income_py') is not None:
+                c = ws_pl.cell(11, 3, pl_summary['net_income_py'] / pl_summary['income_py'])
+                c.number_format = '0.0%'
+
+    # Widen columns so currency doesn't show as ####
+    _autosize_workbook(wb)
 
     out = io.BytesIO()
     wb.save(out)
@@ -433,8 +659,34 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, year
             'team_ytd': sum(sales_agg['team_month'].values()),
             'by_rep_ytd': {r: sum(m.values()) for r, m in sales_agg['by_rep_month'].items()},
         },
+        'pl_included': bool(pl_summary),
         'generated_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
+
+
+def _autosize_workbook(wb):
+    """Resize columns so currency values fit (avoid ####)."""
+    from openpyxl.utils import get_column_letter
+    for ws in wb.worksheets:
+        # Skip huge empty used ranges — cap scan
+        max_row = min(ws.max_row or 1, 80)
+        max_col = min(ws.max_column or 1, 20)
+        for col_idx in range(1, max_col + 1):
+            letter = get_column_letter(col_idx)
+            max_len = 8
+            for row_idx in range(1, max_row + 1):
+                cell = ws.cell(row_idx, col_idx)
+                if cell.value is None:
+                    continue
+                # Currency formats need room for $1,234,567
+                if isinstance(cell.value, (int, float)):
+                    max_len = max(max_len, 14)
+                else:
+                    max_len = max(max_len, min(60, len(str(cell.value)) + 2))
+            # Money columns B–N on sales/team sheets
+            if ws.title in ('Monthly Team', 'Monthly Sales', 'Quarterly Breakdowns') and col_idx >= 2:
+                max_len = max(max_len, 13)
+            ws.column_dimensions[letter].width = min(55, max(10, max_len))
 
 
 def _paint_computed_diffs(wb):

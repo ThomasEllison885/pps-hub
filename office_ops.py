@@ -35,12 +35,14 @@ ALLOWED_KINDS = frozenset({
     'invoice_list',
     'monthly_outlook',
     'monday_report',
+    'profit_loss',
 })
 KIND_SUMMARY = 'ar_aging_summary'
 KIND_DETAIL = 'ar_aging_detail'
 KIND_INVOICE_LIST = 'invoice_list'
 KIND_OUTLOOK = 'monthly_outlook'
 KIND_MONDAY = 'monday_report'
+KIND_PL = 'profit_loss'
 PACK_KIND = 'ar_aging'  # combined AR pack
 
 # Customers always called out in the brief (ops judgment, not accounting).
@@ -266,6 +268,83 @@ def _row_bucket(cells, colmap):
         '61_90': g('61_90'),
         '91_and_over': g('91_and_over'),
         'total': total,
+    }
+
+
+def parse_pl_bytes(filename, raw_bytes):
+    """Parse QB Profit & Loss export with this year / prior year / % change columns.
+
+    Returns sales / gross profit / net income only (for margin insights — not expense detail).
+    """
+    rows = _load_tabular_rows(filename, raw_bytes)
+    if not rows:
+        raise ValueError('P&L file is empty.')
+    period = None
+    for row in rows[:8]:
+        for cell in row:
+            if cell and isinstance(cell, str) and (
+                'january' in cell.lower() or '–' in cell or '-' in cell
+            ):
+                if any(ch.isdigit() for ch in cell):
+                    period = cell.strip()
+                    break
+
+    def find_row(*labels):
+        for row in rows:
+            if not row or row[0] is None:
+                continue
+            lab = str(row[0]).strip().lower()
+            for want in labels:
+                if lab == want.lower() or lab.startswith(want.lower()):
+                    def num(i):
+                        if i >= len(row) or row[i] in (None, ''):
+                            return None
+                        try:
+                            return float(row[i])
+                        except (TypeError, ValueError):
+                            return None
+                    return {
+                        'label': str(row[0]).strip(),
+                        'ty': num(1),
+                        'py': num(2),
+                        'pct': num(3),
+                    }
+        return None
+
+    income = find_row('Total for Income', 'Total Income')
+    # Prefer Services as sales proxy if present, else total income
+    services = find_row('Services')
+    cogs = find_row('Total for Cost of Goods Sold', 'Total Cost of Goods Sold')
+    gp = find_row('Gross Profit')
+    ni = find_row('Net Income')
+    if not income and not services:
+        raise ValueError(
+            'Could not find Income/Services on P&L. Export Profit and Loss with '
+            'columns for this year, prior year, and % change.'
+        )
+    inc_ty = (services or income or {}).get('ty')
+    # Prefer Total for Income for top line if Services is subset
+    if income and income.get('ty') is not None:
+        inc_ty = income['ty']
+        inc_py = income.get('py')
+    else:
+        inc_py = (services or {}).get('py')
+
+    return {
+        'report': 'Profit and Loss',
+        'report_kind': 'profit_loss',
+        'period_label': period,
+        'income_ty': inc_ty,
+        'income_py': inc_py if income else (services or {}).get('py'),
+        'services_ty': (services or {}).get('ty'),
+        'services_py': (services or {}).get('py'),
+        'cogs_ty': (cogs or {}).get('ty'),
+        'cogs_py': (cogs or {}).get('py'),
+        'gross_profit_ty': (gp or {}).get('ty'),
+        'gross_profit_py': (gp or {}).get('py'),
+        'net_income_ty': (ni or {}).get('ty'),
+        'net_income_py': (ni or {}).get('py'),
+        'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
 
 
@@ -1674,6 +1753,22 @@ def generate_thursday_pack(get_db_fn, user_key):
             if isinstance(ar_summary, str):
                 ar_summary = json.loads(ar_summary)
 
+        # Optional P&L for margin/profit YoY
+        cur.execute(
+            '''
+            SELECT filename, file_data FROM office_ops_files
+            WHERE kind = %s ORDER BY uploaded_at DESC LIMIT 1
+            ''',
+            (KIND_PL,),
+        )
+        pl_row = cur.fetchone()
+        pl_summary = None
+        if pl_row:
+            try:
+                pl_summary = parse_pl_bytes(pl_row['filename'], bytes(pl_row['file_data']))
+            except Exception as e:
+                print(f'P&L parse skipped: {e}')
+
         cur.close()
         conn.close()
 
@@ -1686,6 +1781,7 @@ def generate_thursday_pack(get_db_fn, user_key):
             inv_parsed.get('invoice_list') or [],
             ar_summary=ar_summary,
             notes_by_customer=notes_by_customer,
+            pl_summary=pl_summary,
             year=2026,
         )
 
@@ -2013,13 +2109,15 @@ def register_routes(app, get_db_fn, users, require_login):
             kind = KIND_INVOICE_LIST
         elif kind in ('monthly_outlook', 'outlook', 'monday'):
             kind = KIND_OUTLOOK
+        elif kind in ('profit_loss', 'pl', 'pnl', 'p&l'):
+            kind = KIND_PL
         f = request.files.get('file')
         if not f or not f.filename:
             return jsonify({'success': False, 'error': 'Choose a file to upload.'}), 400
         raw = f.read()
-        fname = (f.filename or '').lower()
+        fname = (f.filename or '').lower().replace('+', ' ')
         # Content wins over wrong drop-zone label (AR types)
-        if kind != KIND_OUTLOOK and 'outlook' not in fname and 'monthly' not in fname:
+        if kind not in (KIND_OUTLOOK, KIND_PL) and 'outlook' not in fname and 'profit' not in fname and 'p&l' not in fname:
             detected = detect_ar_report_type(f.filename, raw)
             if detected == 'detail':
                 kind = KIND_DETAIL
@@ -2029,13 +2127,35 @@ def register_routes(app, get_db_fn, users, require_login):
                 kind = KIND_INVOICE_LIST
         if 'outlook' in fname or 'monthly' in fname:
             kind = KIND_OUTLOOK
+        if 'profit' in fname or 'p&l' in fname or 'pnl' in fname or 'loss' in fname:
+            # Prefer P&L over generic "loss" in other names
+            if 'aging' not in fname and 'invoice' not in fname:
+                kind = KIND_PL
         saved = save_upload(
             get_db_fn, kind, f.filename, f.mimetype or '', raw, user_key,
         )
         if not saved.get('success'):
             return jsonify(saved), 400
 
-        # Monday report path
+        # P&L store only — used on next Generate
+        if kind == KIND_PL:
+            try:
+                pl = parse_pl_bytes(f.filename, raw)
+            except ValueError as e:
+                return jsonify({'success': False, 'error': str(e), 'file_id': saved['file_id']}), 400
+            return jsonify({
+                'success': True,
+                'detected': 'profit_loss',
+                'file_id': saved['file_id'],
+                'pl_summary': {
+                    'period_label': pl.get('period_label'),
+                    'income_ty': pl.get('income_ty'),
+                    'net_income_ty': pl.get('net_income_ty'),
+                    'gross_profit_ty': pl.get('gross_profit_ty'),
+                },
+            })
+
+        # Monday report path (legacy outlook upload)
         if kind == KIND_OUTLOOK:
             result = process_monthly_outlook(get_db_fn, saved['file_id'], user_key)
             if not result.get('success'):
