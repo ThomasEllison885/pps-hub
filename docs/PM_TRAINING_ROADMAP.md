@@ -2,7 +2,7 @@
 
 **Source:** PM field feedback — July 2026 (informal requests from active PMs).  
 **Stance:** Starting point, not final SOP. Validate with Trey and senior PMs before rollout.  
-**Data file:** `pm_training_data.py` (seed only — not exposed in Hub UI yet).
+**Data file:** `pm_training_data.py`, live in the Hub at `/pm-training`.
 
 ## What PMs asked for (captured)
 
@@ -23,28 +23,31 @@
 
 | Item | Status |
 |------|--------|
-| Seed curriculum in `pm_training_data.py` | Done |
-| Hub `/pm-training` page | Not built |
-| Progress tracking / enrollment tables | Not built |
-| Manager accountability (Trey oversight view) | Not built |
+| Seed curriculum in `pm_training_data.py`, Weeks 1–4 | Done (`c3fa97c`, 2026-07-28) |
+| Hub `/pm-training` page | Built (`app.py:5995`) |
+| Progress tracking / enrollment tables (`pm_training_progress`, `_notes`, `_feedback`, `_enrollment`, `_manager_signoffs`) | Built (`app.py:1043-1092`, API routes `app.py:6024-6165`) |
+| Manager accountability (Trey oversight view) | Built (`/pm-training/oversight` + `/admin/pm-training` alias, `app.py:6087,6116`) |
 | Production Board reference (`production_board_reference.py`, `docs/PRODUCTION_BOARD_REFERENCE.md`) | Done |
 | PM Training Week 1 — Production Board language & checklists | Done |
-| Monday.com checklist SOPs (screenshots/Loom) | `[TO DOCUMENT]` |
-| Contact directory / communication examples | `[TO DOCUMENT]` |
-| Route template & time-budget samples | `[TO DOCUMENT]` |
+| **Week 5 (4DX for production: WIG / lead measures / scoreboard / production-meeting cadence)** | Product-designed, **not built in code** — blocked on Trey's input, see below |
+| Monday.com checklist SOPs (screenshots/Loom) | `[TO DOCUMENT]` (`pm_training_data.py:146`) |
+| Contact directory / communication examples | `[TO DOCUMENT]` (`pm_training_data.py:194,203,212,221`) |
+| Route template & time-budget samples | `[TO DOCUMENT]` (`pm_training_data.py:266,329`, `TBD` at line 339) |
 
-## Future module (mirror PSC Training)
+## Shipped module (2026-07-28, `c3fa97c`)
 
-When ready to ship, reuse the PSC Training patterns in `app.py`:
+Built by mirroring the PSC Training patterns in `app.py`:
 
 1. **Enrollment** — `pm_training_enrollment` table; enroll on PM start date.
 2. **Progress** — checkbox completion per item ID from `get_pm_training_item_ids()`.
 3. **Notes** — per-week trainee notes.
 4. **Manager sign-offs** — weekly check-in questions already seeded in week data.
-5. **Dashboard card** — show for enrolled PMs (like PSC Training card).
+5. **Dashboard card** — shows for enrolled PMs (like PSC Training card).
 6. **Oversight view** — Trey (or delegate) sees cohort progress and graduation.
 
-Suggested accountability owner: **Trey Hollmeyer** (`PM_TRAINING_MANAGER` in data file).
+Accountability owner: **Trey Hollmeyer** (`PM_TRAINING_MANAGER` in data file).
+
+The `[TO DOCUMENT]` bullets above and Week 5 content still need Trey's actual input — don't invent SOP/route/contact content to fill them in.
 
 ## Content to add before launch
 
@@ -63,9 +66,9 @@ Suggested accountability owner: **Trey Hollmeyer** (`PM_TRAINING_MANAGER` in dat
 
 ### Lower priority
 
-- Weeks 3+ curriculum (callbacks, change orders, close-out, estimating depth).
 - Ask PPS integration for PM-specific SOP gaps.
 - Graduation criteria and manager rubric.
+- Week 5 (4DX for production) — still needs Trey's input before it can be written into `pm_training_data.py`.
 
 ## Owners (suggested)
 
@@ -77,3 +80,4 @@ Suggested accountability owner: **Trey Hollmeyer** (`PM_TRAINING_MANAGER` in dat
 | PM expectations & route norms | Trey + senior PMs |
 
 *Last updated: July 2026*
+*Last reconciled against shipped code: 2026-08-04*

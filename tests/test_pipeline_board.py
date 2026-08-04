@@ -150,6 +150,85 @@ def test_update_entry_rejects_empty_fields_before_touching_db():
     assert err == 'No editable fields provided'
 
 
+# --- Presence (DB-backed, moved off the in-process dict 2026-08-04) --------
+
+class _FakePresenceCursor:
+    """Records every execute() call so tests can assert on the SQL shape
+    without a live Postgres connection."""
+    def __init__(self, select_rows=None):
+        self.executed = []
+        self._select_rows = select_rows or []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql.strip(), params))
+
+    def fetchall(self):
+        return self._select_rows
+
+    def close(self):
+        pass
+
+
+class _FakePresenceConn:
+    def __init__(self, select_rows=None):
+        self.cur = _FakePresenceCursor(select_rows)
+        self.committed = False
+        self.closed = False
+
+    def cursor(self, cursor_factory=None):
+        return self.cur
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        self.closed = True
+
+
+def test_touch_presence_upserts_when_field_present():
+    conn = _FakePresenceConn()
+    pb._touch_presence(lambda: conn, 'andy_potts', 'ben_ramsey', 'Ben Ramsey', 'row5:notes')
+    assert conn.committed
+    sql, params = conn.cur.executed[0]
+    assert sql.startswith('INSERT INTO pipeline_board_presence')
+    assert 'ON CONFLICT' in sql
+    assert params == ('andy_potts', 'ben_ramsey', 'Ben Ramsey', 'row5:notes')
+
+
+def test_touch_presence_deletes_when_field_falsy():
+    # A blur event (empty field) should clear the row, not upsert an empty one.
+    conn = _FakePresenceConn()
+    pb._touch_presence(lambda: conn, 'andy_potts', 'ben_ramsey', 'Ben Ramsey', None)
+    sql, params = conn.cur.executed[0]
+    assert sql.startswith('DELETE FROM pipeline_board_presence')
+    assert params == ('andy_potts', 'ben_ramsey')
+
+
+def test_touch_presence_no_conn_does_not_raise():
+    pb._touch_presence(lambda: None, 'andy_potts', 'ben_ramsey', 'Ben Ramsey', 'row5:notes')
+
+
+def test_live_presence_expires_stale_rows_before_selecting():
+    # Regression guard for the fix itself: expiry has to happen server-side
+    # in SQL now (no more Python dict iterating timestamps), so the DELETE
+    # must run before the SELECT on every read.
+    conn = _FakePresenceConn(select_rows=[
+        {'user_key': 'ben_ramsey', 'display': 'Ben Ramsey', 'field': 'row5:notes'},
+    ])
+    result = pb._live_presence(lambda: conn, 'andy_potts', exclude_user_key='andy_potts')
+    delete_sql, _ = conn.cur.executed[0]
+    select_sql, select_params = conn.cur.executed[1]
+    assert delete_sql.startswith('DELETE FROM pipeline_board_presence WHERE ts')
+    assert select_sql.startswith('SELECT user_key, display, field FROM pipeline_board_presence')
+    assert select_params == ('andy_potts', 'andy_potts')
+    assert result == [{'user_key': 'ben_ramsey', 'display': 'Ben Ramsey', 'field': 'row5:notes'}]
+    assert conn.committed
+
+
+def test_live_presence_no_conn_returns_empty_list():
+    assert pb._live_presence(lambda: None, 'andy_potts') == []
+
+
 # --- Access gating ----------------------------------------------------------
 
 _USERS = {

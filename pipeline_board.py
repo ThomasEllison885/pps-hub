@@ -24,7 +24,6 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 """
 
 import re
-import time
 from datetime import datetime, date
 
 import openpyxl
@@ -74,31 +73,66 @@ _EDITABLE_TEXT_FIELDS = ('proposal_number', 'property_name', 'address', 'project
                          'trade_partner', 'client_contact', 'notes')
 _EDITABLE_NUMERIC_FIELDS = ('amount', 'sub_pay')
 
-# In-memory presence, refreshed by a heartbeat call every poll cycle rather
-# than a socket connection: pair_key -> {user_key: {'display', 'field', 'ts'}}.
+# Presence lives in Postgres (pipeline_board_presence table), refreshed by a
+# heartbeat call every poll cycle rather than a socket connection. It used to
+# be a module-level dict, but that's per-gunicorn-worker -- with 2 workers, a
+# user's heartbeat only reaches whichever worker handled that request, so the
+# *other* worker's requests never saw them as present. Fixed 2026-08-04 by
+# moving it to the DB, which every worker reads/writes the same rows from.
+# Deliberately still no Redis and no worker-count change, per the hard-won
+# single-worker-outage lesson in CLAUDE.md -- this is just a small table.
 # Entries older than PRESENCE_TTL_SECONDS are treated as gone -- the only way
 # to detect someone closed their tab without an explicit disconnect event.
-_presence = {}
 
 
-def _touch_presence(pair_key, user_key, display, field):
-    bucket = _presence.setdefault(pair_key, {})
-    if field:
-        bucket[user_key] = {'display': display, 'field': field, 'ts': time.time()}
-    else:
-        bucket.pop(user_key, None)
+def _touch_presence(get_db_fn, pair_key, user_key, display, field):
+    conn = get_db_fn()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        if field:
+            cur.execute('''
+                INSERT INTO pipeline_board_presence (pair_key, user_key, display, field, ts)
+                VALUES (%s, %s, %s, %s, NOW())
+                ON CONFLICT (pair_key, user_key)
+                DO UPDATE SET display = EXCLUDED.display, field = EXCLUDED.field, ts = NOW()
+            ''', (pair_key, user_key, display, field))
+        else:
+            cur.execute(
+                'DELETE FROM pipeline_board_presence WHERE pair_key = %s AND user_key = %s',
+                (pair_key, user_key),
+            )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'Pipeline board presence touch error: {e}')
 
 
-def _live_presence(pair_key, exclude_user_key=None):
-    bucket = _presence.get(pair_key, {})
-    now = time.time()
-    stale = [k for k, v in bucket.items() if now - v['ts'] > PRESENCE_TTL_SECONDS]
-    for k in stale:
-        bucket.pop(k, None)
-    return [
-        {'user_key': k, 'display': v['display'], 'field': v['field']}
-        for k, v in bucket.items() if k != exclude_user_key
-    ]
+def _live_presence(get_db_fn, pair_key, exclude_user_key=None):
+    conn = get_db_fn()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "DELETE FROM pipeline_board_presence WHERE ts < NOW() - (%s || ' seconds')::interval",
+            (PRESENCE_TTL_SECONDS,),
+        )
+        cur.execute(
+            'SELECT user_key, display, field FROM pipeline_board_presence '
+            'WHERE pair_key = %s AND user_key != %s',
+            (pair_key, exclude_user_key or ''),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.commit()
+        cur.close()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f'Pipeline board presence read error: {e}')
+        return []
 
 
 def init_tables(cur):
@@ -141,6 +175,16 @@ def init_tables(cur):
         )
     except Exception:
         pass
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pipeline_board_presence (
+            pair_key VARCHAR(100) NOT NULL,
+            user_key VARCHAR(100) NOT NULL,
+            display VARCHAR(255),
+            field VARCHAR(100),
+            ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (pair_key, user_key)
+        )
+    ''')
 
 
 # Segment prefixes import_workbook used to fold into Notes (see below) --
@@ -684,7 +728,7 @@ def register_routes(app, get_db_fn, users, require_login):
         if request.method == 'GET':
             return jsonify({
                 'entries': list_entries(get_db_fn, pair_key),
-                'presence': _live_presence(pair_key, exclude_user_key=user_key),
+                'presence': _live_presence(get_db_fn, pair_key, exclude_user_key=user_key),
                 'pair_key': pair_key,
             })
         entry = create_entry(get_db_fn, pair_key, user_key)
@@ -746,5 +790,5 @@ def register_routes(app, get_db_fn, users, require_login):
             return jsonify({'error': 'Not authorized'}), 403
         data = request.get_json(silent=True) or {}
         field = (data.get('field') or '').strip()[:100] or None
-        _touch_presence(pair_key, user_key, _display(users, user_key), field)
-        return jsonify({'success': True, 'presence': _live_presence(pair_key, exclude_user_key=user_key)})
+        _touch_presence(get_db_fn, pair_key, user_key, _display(users, user_key), field)
+        return jsonify({'success': True, 'presence': _live_presence(get_db_fn, pair_key, exclude_user_key=user_key)})
