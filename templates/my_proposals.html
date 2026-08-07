@@ -52,7 +52,7 @@
 
 <div class="main">
   <div class="page-title">My Proposals</div>
-  <p class="page-sub">{{ stats.total }} proposal{% if stats.total != 1 %}s{% endif %} you've generated · re-download or regenerate anytime</p>
+  <p class="page-sub">{{ page_sub if page_sub is defined else (stats.total ~ ' proposals') }}</p>
 
   <div class="stats-row">
     <div class="stat-card"><div class="stat-num">{{ stats.total }}</div><div class="stat-lbl">All Time</div></div>

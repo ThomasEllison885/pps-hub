@@ -15,7 +15,7 @@ import os
 import re
 from collections import defaultdict
 from calendar import month_abbr
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -89,6 +89,7 @@ def aggregate_sales_from_invoice_list(invoice_list, year=2026):
     by_rep = defaultdict(lambda: defaultdict(float))
     by_shared = defaultdict(lambda: defaultdict(float))
     team = defaultdict(float)
+    count_by_month = defaultdict(int)
     count = 0
     split_count = 0
     for inv in invoice_list or []:
@@ -105,6 +106,7 @@ def aggregate_sales_from_invoice_list(invoice_list, year=2026):
         share = amt / len(reps)
         m = dt.month
         team[m] += amt
+        count_by_month[m] += 1
         count += 1
         multi = len(reps) >= 2
         if multi:
@@ -117,6 +119,7 @@ def aggregate_sales_from_invoice_list(invoice_list, year=2026):
         'by_rep_month': {k: dict(v) for k, v in by_rep.items()},
         'by_shared_month': {k: dict(v) for k, v in by_shared.items()},
         'team_month': dict(team),
+        'invoice_count_by_month': dict(count_by_month),
         'invoice_count': count,
         'split_invoice_count': split_count,
         'year': year,
@@ -259,6 +262,26 @@ def _fill_team_sheet(ws, sales_agg):
     ws.cell(13, 14).number_format = '"$"#,##0.00'
 
 
+def _note_parts(val):
+    """Normalize notes_by_customer values: str or {note, overdue, total}."""
+    if isinstance(val, dict):
+        return (
+            (val.get('note') or '').strip(),
+            val.get('overdue'),
+            val.get('total'),
+        )
+    return (str(val).strip() if val is not None else ''), None, None
+
+
+def _format_money_compact(n):
+    try:
+        if n is None:
+            return None
+        return f'${float(n):,.0f}'
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=None):
     """Deeper sales / margin / profit / AR narrative for leadership."""
     lines = []
@@ -293,26 +316,78 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
                     f'• vs prior month ({month_abbr[prior]} ${_money(prior_amt)}): '
                     f'{direction} ${_money(abs(delta))} ({_pct_delta(pace)})'
                 )
-            if latest and latest < 12 and ytd:
-                run_rate = (ytd / latest) * 12
-                lines.append(
-                    f'• Simple full-year run-rate from YTD: ~${_money(run_rate)} '
-                    f'(linear; not a forecast)'
-                )
-                gap_10m = 10000000 - ytd
-                if gap_10m > 0:
-                    months_left = 12 - latest
-                    need = gap_10m / months_left if months_left else gap_10m
-                    lines.append(
-                        f'• To hit $10M goal: ~${_money(need)}/mo for remaining '
-                        f'{months_left} month(s) (${_money(gap_10m)} still needed)'
-                    )
+            # Day-based linear run-rate (not /12 months): avoids overweighting
+            # late-in-month vs early-in-month when "latest month" is partial.
+            if ytd:
+                sales_year = int(sales_agg.get('year') or datetime.now().year)
+                year_start = date(sales_year, 1, 1)
+                year_end = date(sales_year, 12, 31)
+                days_in_year = (year_end - year_start).days + 1  # 365 or 366
+                today = date.today()
+                if today.year > sales_year:
+                    as_of = year_end
+                elif today.year < sales_year:
+                    as_of = year_start
                 else:
-                    lines.append('• YTD already at/above $10M full-year goal.')
+                    as_of = min(today, year_end)
+                days_elapsed = max(1, (as_of - year_start).days + 1)
+                if days_elapsed < days_in_year:
+                    daily = ytd / days_elapsed
+                    run_rate = daily * days_in_year
+                    weeks_elapsed = days_elapsed / 7.0
+                    lines.append(
+                        f'• Simple full-year run-rate from YTD: ~${_money(run_rate)} '
+                        f'(linear by day: ${_money(ytd)} over {days_elapsed} of '
+                        f'{days_in_year} days ≈ ${_money(daily)}/day · '
+                        f'~${_money(daily * 7)}/wk; not a forecast)'
+                    )
+                    gap_10m = 10000000 - ytd
+                    if gap_10m > 0:
+                        days_left = days_in_year - days_elapsed
+                        need_day = gap_10m / days_left if days_left else gap_10m
+                        need_wk = need_day * 7
+                        lines.append(
+                            f'• To hit $10M goal: ~${_money(need_day)}/day '
+                            f'(~${_money(need_wk)}/wk) for remaining {days_left} day(s) '
+                            f'(${_money(gap_10m)} still needed)'
+                        )
+                    else:
+                        lines.append('• YTD already at/above $10M full-year goal.')
+                elif days_elapsed >= days_in_year:
+                    lines.append(
+                        f'• Full-year invoiced (year complete): ${_money(ytd)}'
+                    )
+                    if ytd >= 10000000:
+                        lines.append('• YTD already at/above $10M full-year goal.')
         lines.append(
             f'• Invoice volume: {sales_agg.get("invoice_count", 0)} · '
             f'50/50-style splits: {sales_agg.get("split_invoice_count", 0)}'
         )
+        # Stephanie request: largest invoice month by $ and by # of invoices sent
+        peak_dollar_m = None
+        peak_count_m = None
+        if team:
+            peak_dollar_m = max(team.keys(), key=lambda m: team[m])
+            lines.append(
+                f'• Largest invoice month by $: {month_abbr[peak_dollar_m]} '
+                f'(${_money(team[peak_dollar_m])})'
+            )
+        count_by_m = sales_agg.get('invoice_count_by_month') or {}
+        if count_by_m:
+            peak_count_m = max(count_by_m.keys(), key=lambda m: count_by_m[m])
+            lines.append(
+                f'• Largest invoice month by # of invoices: {month_abbr[peak_count_m]} '
+                f'({count_by_m[peak_count_m]} invoices)'
+            )
+        if (
+            peak_dollar_m is not None
+            and peak_count_m is not None
+            and peak_dollar_m != peak_count_m
+        ):
+            lines.append(
+                f'• Note: peak $ month ({month_abbr[peak_dollar_m]}) differs from '
+                f'peak volume month ({month_abbr[peak_count_m]}) — bigger average ticket vs more invoices.'
+            )
     else:
         lines.append('• Upload Invoice List by Date (Sales Rep) to fill sales.')
     lines.append('')
@@ -425,8 +500,19 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
 
     if notes_by_customer:
         lines.append('PAST-DUE UPDATES')
-        for cust, note in notes_by_customer.items():
-            if note and str(note).strip():
+        # Sort largest past-due $ first so importance is obvious
+        sorted_notes = sorted(
+            notes_by_customer.items(),
+            key=lambda kv: -float((_note_parts(kv[1])[1] or 0) or 0),
+        )
+        for cust, val in sorted_notes:
+            note, overdue, _total = _note_parts(val)
+            if not note or not str(note).strip():
+                continue
+            amt = _format_money_compact(overdue)
+            if amt:
+                lines.append(f'• {cust} ({amt} past due): {note.strip()}')
+            else:
                 lines.append(f'• {cust}: {note.strip()}')
         lines.append('')
 
@@ -614,11 +700,29 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
             r += 1
             ws_ar.cell(r, 1, 'Past-due notes').font = FONT_BOLD
             r += 1
-            for cust, note in notes_by_customer.items():
-                if note and str(note).strip():
-                    ws_ar.cell(r, 1, cust).font = Font(name='Calibri', size=11)
-                    ws_ar.cell(r, 2, str(note).strip()).font = Font(name='Calibri', size=11)
-                    r += 1
+            ws_ar.cell(r, 1, 'Customer').font = FONT_BOLD
+            ws_ar.cell(r, 2, 'Past due $').font = FONT_BOLD
+            ws_ar.cell(r, 3, 'Comment').font = FONT_BOLD
+            for col in (1, 2, 3):
+                ws_ar.cell(r, col).fill = FILL_YELLOW
+            r += 1
+            sorted_notes = sorted(
+                notes_by_customer.items(),
+                key=lambda kv: -float((_note_parts(kv[1])[1] or 0) or 0),
+            )
+            for cust, val in sorted_notes:
+                note, overdue, _total = _note_parts(val)
+                if not note or not str(note).strip():
+                    continue
+                ws_ar.cell(r, 1, cust).font = Font(name='Calibri', size=11)
+                if overdue is not None:
+                    c = ws_ar.cell(r, 2, float(overdue or 0))
+                    c.number_format = '"$"#,##0'
+                    c.font = Font(name='Calibri', size=11, bold=True)
+                else:
+                    ws_ar.cell(r, 2, '—').font = Font(name='Calibri', size=11)
+                ws_ar.cell(r, 3, str(note).strip()).font = Font(name='Calibri', size=11)
+                r += 1
     else:
         ws_ar['A4'] = 'Upload A/R Aging Summary to populate.'
 

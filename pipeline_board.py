@@ -247,24 +247,58 @@ def cleanup_legacy_import_notes(cur):
 
 def get_pair_key(users, user_key):
     """Resolve which pair board a user belongs to. Consultants use their own
-    key; PMs resolve to the consultant listed in their proposal_access."""
+    key; PMs resolve via PILOT_PM_FOR_CONSULTANT (preferred) or proposal_access.
+
+    proposal_access may be the string 'all' (Trey / Jordan / Phil) — never index
+    that as a list (access[0] would be the letter 'a').
+    """
     user = users.get(user_key, {})
     role = user.get('role')
     if role == 'consultant':
         return user_key
     if role == 'pm':
+        # Prefer explicit pilot pairing table over proposal_access order
+        for consultant_key, pm_key in PILOT_PM_FOR_CONSULTANT.items():
+            if pm_key == user_key:
+                return consultant_key
         access = user.get('proposal_access') or []
-        return access[0] if access else None
+        if access == 'all':
+            # Production / float PMs: no single default board; admin-style pick
+            # is handled at the route. First pilot consultant as a sensible home.
+            for ck in PILOT_PAIR_CONSULTANTS:
+                return ck
+            return None
+        if isinstance(access, (list, tuple)) and access:
+            # Prefer a pilot consultant they can access
+            for ck in access:
+                if ck in PILOT_PAIR_CONSULTANTS:
+                    return ck
+            return access[0]
+        return None
     return None
 
 
 def can_access_board(users, user_key, pair_key):
-    """Pilot members of that specific pair, or admin (preview)."""
+    """Pilot members of that specific pair, or admin (preview).
+
+    PMs with proposal_access 'all' (e.g. Trey) may open any pilot board.
+    PMs paired to a consultant may open that consultant's pilot board.
+    """
     if pair_key not in PILOT_PAIR_CONSULTANTS:
         return False
     user = users.get(user_key, {})
     if user.get('role') == 'admin':
         return True
+    if user.get('role') == 'consultant' and user_key == pair_key:
+        return True
+    if user.get('role') == 'pm':
+        access = user.get('proposal_access')
+        if access == 'all':
+            return True
+        if isinstance(access, (list, tuple)) and pair_key in access:
+            return True
+        if PILOT_PM_FOR_CONSULTANT.get(pair_key) == user_key:
+            return True
     return get_pair_key(users, user_key) == pair_key
 
 

@@ -1,7 +1,7 @@
-"""Office Ops — Stephanie + Thomas workspace for AR digests and weekly Numbers.
+"""Office Ops — AR digests and weekly Numbers (Stephanie, Thomas, Trey).
 
-Owner request 2026-08-03 / build-out 2026-08:
-  - Access: office_manager (Stephanie) + admin (Thomas) only.
+Owner request 2026-08-03 / build-out 2026-08; Trey elevated 2026-08-05:
+  - Access: office_manager (Stephanie) + admin (Thomas) + Trey Hollmeyer.
   - Files land via Hub upload (Postgres), not a shared team vault dump.
   - AR Aging Summary → totals / chase list / Numbers draft skeleton.
   - AR Aging Detail → open invoices by age bucket (invoice-level chase).
@@ -22,8 +22,14 @@ from decimal import Decimal
 
 from psycopg2.extras import RealDictCursor
 
-# Who may open /office-ops and upload. Admin always; Stephanie by key + role.
-OFFICE_OPS_USER_KEYS = frozenset({'stephanie_whetstone', 'thomas_ellison'})
+# Who may open /office-ops and upload.
+# Stephanie + Thomas (original); Trey elevated to same ops visibility (2026-08).
+# Admin / office_manager roles still included.
+OFFICE_OPS_USER_KEYS = frozenset({
+    'stephanie_whetstone',
+    'thomas_ellison',
+    'trey_hollmeyer',
+})
 OFFICE_OPS_ROLES = frozenset({'office_manager', 'admin'})
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -1773,9 +1779,32 @@ def generate_thursday_pack(get_db_fn, user_key):
         conn.close()
 
         notes = get_ar_notes(get_db_fn)
-        notes_by_customer = {
-            v['customer']: v['note'] for v in notes.values() if v.get('note')
+        # Attach past-due $ to each saved comment so Insights/AR show importance
+        past_rows = build_past_due_prompt_rows(ar_summary or {}, notes, limit=50)
+        overdue_by_name = {
+            (r.get('customer') or '').lower().strip(): r for r in past_rows
         }
+        notes_by_customer = {}
+        for v in notes.values():
+            if not v.get('note'):
+                continue
+            name = v.get('customer') or ''
+            key = name.lower().strip()
+            row = overdue_by_name.get(key)
+            if not row:
+                # fuzzy: Bridges rollup or partial name match
+                for ok, r in overdue_by_name.items():
+                    if key == ok or key in ok or ok in key:
+                        row = r
+                        break
+                    if _is_bridges_customer_name(name) and r.get('is_bridges_rollup'):
+                        row = r
+                        break
+            notes_by_customer[name] = {
+                'note': v['note'],
+                'overdue': float(row['overdue']) if row and row.get('overdue') is not None else None,
+                'total': float(row['total']) if row and row.get('total') is not None else None,
+            }
 
         report_bytes, insights, meta = generate_from_qb(
             inv_parsed.get('invoice_list') or [],

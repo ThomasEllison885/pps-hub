@@ -205,7 +205,8 @@ USERS = {
         'proposal_access': 'all',
         'ppm_access': True,
         'team_view': True,
-        'team_view_scope': 'pms',
+        # Production cohort + full sales/ops visibility (Tony/Stephanie-level tools).
+        'team_view_scope': 'all',
         'title': 'Production Manager',
         'email': 'trey@purepropsolutions.com',
     },
@@ -1221,30 +1222,72 @@ def require_admin(f):
     return decorated
 
 
+# Client/contacts database: sales + office + PMs who build proposals (need to add contacts).
+# Dashboard always linked /clients; page used to be Thomas-only.
+CONTACTS_USER_KEYS = frozenset({
+    'thomas_ellison',
+    'tony_cumella',
+    'stephanie_whetstone',
+    'trey_hollmeyer',
+})
+# PMs included: they use Proposal Generator and must save contacts (Trey reported 403).
+CONTACTS_ROLES = frozenset({'admin', 'consultant', 'office_manager', 'pm'})
+
+
+def can_manage_contacts(user_key):
+    """Who may open /clients and create/update contact records."""
+    if not user_key:
+        return False
+    if user_key in CONTACTS_USER_KEYS:
+        return True
+    role = (USERS.get(user_key) or {}).get('role')
+    return role in CONTACTS_ROLES
+
+
 def get_user_proposal_access(user_key):
     user = USERS.get(user_key, {})
     access = user.get('proposal_access', [])
     if access == 'all':
         return list(CONSULTANTS.keys())
-    return access
+    return list(access or [])
+
+
+def user_can_access_consultant_proposals(user_key, consultant_key):
+    """True if this user may view/prefill proposals for that consultant's book."""
+    if not user_key or not consultant_key:
+        return False
+    user = USERS.get(user_key) or {}
+    if user.get('role') == 'admin':
+        return True
+    return consultant_key in get_user_proposal_access(user_key)
 
 
 def get_recent_proposals(user_key, limit=5):
+    """Proposals this user generated, plus their consultants' book (for PMs)."""
     try:
         conn = get_db()
         if not conn:
             return []
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute('''
-            SELECT * FROM proposal_log
-            WHERE generated_by = %s
-            ORDER BY generated_at DESC LIMIT %s
-        ''', (user_key, limit))
+        access = get_user_proposal_access(user_key)
+        if access:
+            cur.execute('''
+                SELECT * FROM proposal_log
+                WHERE generated_by = %s OR consultant_key = ANY(%s)
+                ORDER BY generated_at DESC LIMIT %s
+            ''', (user_key, access, limit))
+        else:
+            cur.execute('''
+                SELECT * FROM proposal_log
+                WHERE generated_by = %s
+                ORDER BY generated_at DESC LIMIT %s
+            ''', (user_key, limit))
         rows = cur.fetchall()
         cur.close()
         conn.close()
         return rows
-    except:
+    except Exception as e:
+        print(f'get_recent_proposals error: {e}')
         return []
 
 
@@ -3821,16 +3864,23 @@ def _user_can_download_proposal(user_key, role, row):
         return True
     if row.get('generated_by') == user_key:
         return True
-    # Consultants with shared proposal access may download team proposals they generated
-    return row.get('doc_user_key') == user_key
+    if row.get('doc_user_key') == user_key:
+        return True
+    # PMs / shared access: download proposals for consultants they are paired to
+    if user_can_access_consultant_proposals(user_key, row.get('consultant_key')):
+        return True
+    return False
 
 
 def _user_can_access_proposal_log(user_key, role, row):
+    """View/prefill history: own generations, or any proposal for accessible consultants."""
     if not row:
         return False
     if role == 'admin':
         return True
-    return row.get('generated_by') == user_key
+    if row.get('generated_by') == user_key:
+        return True
+    return user_can_access_consultant_proposals(user_key, row.get('consultant_key'))
 
 
 @app.route('/api/proposals/next-number')
@@ -5277,34 +5327,75 @@ def _serialize_log_rows(rows):
 @app.route('/my-proposals')
 @require_login
 def my_proposals():
+    """Proposal history: consultants see their book; PMs see own + paired consultants'."""
     user_key = session['user_key']
     user = USERS.get(user_key, {})
-    if user.get('role') not in ('consultant', 'admin'):
+    role = user.get('role')
+    # Consultants, PMs (incl. Trey), admin — anyone who can generate proposals
+    if role not in ('consultant', 'pm', 'admin'):
         return redirect(url_for('dashboard'))
 
     rows = []
-    stats = {'total': 0, 'last_30': 0, 'with_file': 0}
+    stats = {'total': 0, 'last_30': 0, 'with_file': 0, 'mine': 0}
+    access = get_user_proposal_access(user_key)
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute(
-                'SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC',
-                (user_key,)
-            )
+            if role == 'admin':
+                cur.execute(
+                    'SELECT * FROM proposal_log ORDER BY generated_at DESC LIMIT 500'
+                )
+            elif access:
+                cur.execute(
+                    '''SELECT * FROM proposal_log
+                       WHERE generated_by = %s OR consultant_key = ANY(%s)
+                       ORDER BY generated_at DESC''',
+                    (user_key, access),
+                )
+            else:
+                cur.execute(
+                    'SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC',
+                    (user_key,),
+                )
             rows = cur.fetchall()
             stats['total'] = len(rows)
             stats['with_file'] = sum(1 for r in rows if r.get('document_id'))
-            cur.execute(
-                '''SELECT COUNT(*) AS c FROM proposal_log
-                   WHERE generated_by = %s AND generated_at >= NOW() - INTERVAL '30 days' ''',
-                (user_key,)
-            )
+            stats['mine'] = sum(1 for r in rows if r.get('generated_by') == user_key)
+            if role == 'admin':
+                cur.execute(
+                    '''SELECT COUNT(*) AS c FROM proposal_log
+                       WHERE generated_at >= NOW() - INTERVAL '30 days' '''
+                )
+            elif access:
+                cur.execute(
+                    '''SELECT COUNT(*) AS c FROM proposal_log
+                       WHERE (generated_by = %s OR consultant_key = ANY(%s))
+                       AND generated_at >= NOW() - INTERVAL '30 days' ''',
+                    (user_key, access),
+                )
+            else:
+                cur.execute(
+                    '''SELECT COUNT(*) AS c FROM proposal_log
+                       WHERE generated_by = %s AND generated_at >= NOW() - INTERVAL '30 days' ''',
+                    (user_key,),
+                )
             stats['last_30'] = cur.fetchone()['c'] or 0
             cur.close()
             conn.close()
     except Exception as e:
         print(f"My proposals error: {e}")
+
+    page_sub = (
+        f"{stats['total']} proposal{'s' if stats['total'] != 1 else ''}"
+        + (
+            f" · {stats['mine']} generated by you · includes paired consultants"
+            if role == 'pm'
+            else " you've generated · re-download or regenerate anytime"
+            if role == 'consultant'
+            else " (all books)"
+        )
+    )
 
     return render_template(
         'my_proposals.html',
@@ -5312,6 +5403,7 @@ def my_proposals():
         user_key=user_key,
         rows=rows,
         stats=stats,
+        page_sub=page_sub,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
     )
 
@@ -5765,6 +5857,7 @@ def team_view():
         member_keys = ['phil_miller','derek_kidney','nick_triplett','trey_hollmeyer',
                        'james_boling','jordan_allen','ben_ramsey']
     else:
+        # 'all' (Trey) and admin default — full roster
         member_keys = list(USERS.keys())
 
     for key in member_keys:
@@ -5776,15 +5869,16 @@ def team_view():
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
+            load_all_activity = scope in (None, 'all') or session.get('role') == 'admin'
             for key in member_keys:
                 udata = {}
-                if scope == 'consultants':
+                if scope == 'consultants' or load_all_activity:
                     cur.execute(
                         'SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC',
                         (key,)
                     )
                     udata['proposals'] = _serialize_log_rows(cur.fetchall())
-                elif scope == 'pms':
+                if scope == 'pms' or load_all_activity:
                     cur.execute(
                         'SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s ORDER BY generated_at DESC',
                         (key, key)
@@ -6769,8 +6863,7 @@ def clients_save():
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp, 401
 
-    user_role = USERS.get(user_key, {}).get('role', session.get('role', ''))
-    if user_role not in ('admin', 'consultant'):
+    if not can_manage_contacts(user_key):
         resp = jsonify({'error': 'Permission denied'})
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp, 403
@@ -6845,9 +6938,11 @@ def clients_seed():
 
 
 @app.route('/clients')
+@require_login
 def clients_page():
-    """Client database management page — Thomas only."""
-    if session.get('user_key') != 'thomas_ellison':
+    """Client / contacts database — admin, consultants, office, and all PMs."""
+    user_key = session.get('user_key')
+    if not can_manage_contacts(user_key):
         return redirect(url_for('dashboard'))
     rows = []
     try:

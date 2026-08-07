@@ -292,7 +292,7 @@
           <div class="lane-sub">Win work — proposals, clients, and voice</div>
         </div>
         <div class="lane-links" onclick="event.stopPropagation()">
-          {% if user_role in ('consultant', 'office_manager', 'admin') %}
+          {% if user_role in ('consultant', 'pm', 'office_manager', 'admin') %}
           <a href="/my-proposals" class="lane-link">My Proposals →</a>
           {% endif %}
         </div>
@@ -326,7 +326,7 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if pipeline_board_access and user_role in ('consultant', 'office_manager', 'admin') %}
+          {% if pipeline_board_access and user_role in ('consultant', 'pm', 'office_manager', 'admin') %}
           <a href="/pipeline-board" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
             <div class="pps-tool-name">Pipeline Board</div>
@@ -381,8 +381,8 @@
           <a href="/office-ops" class="pps-tool-card">
             <div class="pps-tool-icon">📥</div>
             <div class="pps-tool-name">Office Ops</div>
-            <div class="pps-tool-desc">Drop AR aging, ranked collections, Numbers draft — Stephanie &amp; Thomas only.</div>
-            <span class="tool-badge">Private</span>
+            <div class="pps-tool-desc">Drop AR aging, ranked collections, Numbers draft — Stephanie, Thomas &amp; Trey.</div>
+            <span class="tool-badge">Ops</span>
             <div class="tool-meta">Open →</div>
           </a>
           {% endif %}
