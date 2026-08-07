@@ -100,7 +100,14 @@
       </tbody>
     </table>
     {% else %}
-    <div class="empty">No proposals yet. Open the <a href="#" onclick="openGenerator();return false;" style="color:var(--blue);font-weight:600;">Proposal Generator</a> from your dashboard to create one.</div>
+    <div class="empty">
+      <p style="margin-bottom:12px;">No proposals found in your access yet.</p>
+      <p style="font-size:13px;color:#888;max-width:420px;margin:0 auto 16px;line-height:1.5;">
+        History includes proposals you generated <em>and</em> proposals for consultants you support.
+        If you expected to see others’ work, ask Thomas to confirm your consultant pairing.
+      </p>
+      <a href="#" onclick="openGenerator();return false;" style="color:var(--blue);font-weight:600;">Open Proposal Generator →</a>
+    </div>
     {% endif %}
   </div>
 

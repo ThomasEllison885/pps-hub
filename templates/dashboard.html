@@ -319,6 +319,21 @@
           </div>
           {% endif %}
 
+          {% if user_role in ('consultant', 'pm', 'office_manager', 'admin') %}
+          <a href="/my-proposals" class="pps-tool-card">
+            <div class="pps-tool-icon">📁</div>
+            <div class="pps-tool-name">Proposal History</div>
+            <div class="pps-tool-desc">
+              {% if user_role == 'pm' %}
+              View proposals you created and your consultants’ past proposals. Download or regenerate.
+              {% else %}
+              View, download, or regenerate proposals you’ve created.
+              {% endif %}
+            </div>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
           <a href="/clients" class="pps-tool-card">
             <div class="pps-tool-icon">👥</div>
             <div class="pps-tool-name">Clients</div>
