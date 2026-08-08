@@ -10,21 +10,32 @@
   :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
-  .header{background:var(--dark-blue);padding:0 40px;display:flex;align-items:center;justify-content:space-between;height:68px;box-shadow:0 2px 12px rgba(0,0,0,0.15);}
-  .header-left{display:flex;align-items:center;gap:16px;}
-  .header-logo{height:44px;opacity:0.95;}
-  .header-divider{width:1px;height:28px;background:rgba(255,255,255,0.2);}
-  .header-title{color:rgba(255,255,255,0.8);font-size:14px;}
-  .header-btn{background:rgba(255,255,255,0.12);color:white;border:1px solid rgba(255,255,255,0.2);padding:6px 14px;border-radius:6px;font-size:13px;text-decoration:none;}
   .main{max-width:760px;margin:0 auto;padding:36px 24px 60px;}
   .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
-  .page-sub{font-size:14px;color:#888;margin-bottom:28px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:16px;}
+  .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:20px;}
+  .tabs{display:flex;gap:8px;margin-bottom:18px;}
+  .tab{padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;border:1.5px solid var(--border);color:var(--dark-blue);background:white;}
+  .tab.active{background:var(--dark-blue);color:white;border-color:var(--dark-blue);}
+  .tab .count{opacity:0.75;font-weight:500;}
   .fb-item{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:22px 24px;margin-bottom:14px;border-left:4px solid var(--blue);}
-  .fb-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .fb-item.archived{border-left-color:#aaa;opacity:0.92;}
+  .fb-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:12px;flex-wrap:wrap;}
   .fb-name{font-size:15px;font-weight:600;color:var(--dark-blue);}
   .fb-date{font-size:12px;color:#aaa;}
-  .fb-msg{font-size:15px;color:var(--gray);line-height:1.6;}
+  .fb-msg{font-size:15px;color:var(--gray);line-height:1.6;white-space:pre-wrap;}
+  .fb-actions{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;}
+  .btn-sm{border:none;border-radius:6px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .btn-archive{background:var(--light-bg);color:var(--dark-blue);border:1px solid var(--border);}
+  .btn-delete{background:#FDECEA;color:#B71C1C;border:1px solid #F5C6CB;}
+  .btn-danger{background:#B71C1C;color:white;}
+  .btn-secondary{background:white;color:var(--dark-blue);border:1.5px solid var(--border);padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .danger-panel{background:#FFF8F8;border:1.5px solid #F5C6CB;border-radius:var(--radius);padding:16px 18px;margin-bottom:22px;}
+  .danger-panel h3{font-size:14px;color:#B71C1C;margin-bottom:8px;}
+  .danger-panel p{font-size:13px;color:#666;line-height:1.5;margin-bottom:10px;}
+  .danger-panel input[type=text]{padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;width:160px;margin-right:8px;}
   .empty{text-align:center;color:#bbb;padding:48px 0;font-size:15px;}
+  .flash-err{background:#FDECEA;color:#B71C1C;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;}
 </style>
 </head>
 <body>
@@ -38,31 +49,102 @@
     <a href="/admin" class="pps-btn-header">← Admin</a>
   </div>
 </header>
-    <div class="header-title">Team Feedback</div>
-  </div>
-  <a href="/admin" class="pps-btn-header">← Back to Admin</a>
-</div>
+
 <div class="main">
-  <div class="page-title">Feedback & Suggestions</div>
-  <p class="page-sub">{{ items|length }} submission{% if items|length != 1 %}s{% endif %} from your team</p>
+  <div class="page-title">Feedback &amp; Suggestions</div>
+  <p class="page-sub">
+    {% if show_archived %}
+      Archived inbox — hidden from the main list and unread badge.
+    {% else %}
+      Active inbox. Archive to clear the list without permanent delete.
+    {% endif %}
+  </p>
+
+  {% if request.args.get('err') == 'confirm' %}
+  <div class="flash-err">Permanent delete requires typing <strong>DELETE</strong> in the confirmation box.</div>
+  {% endif %}
+
+  <div class="tabs">
+    <a class="tab {% if not show_archived %}active{% endif %}" href="/admin/feedback">
+      Active <span class="count">({{ counts.active if counts else items|length }})</span>
+    </a>
+    <a class="tab {% if show_archived %}active{% endif %}" href="/admin/feedback?show=archived">
+      Archived <span class="count">({{ counts.archived if counts else 0 }})</span>
+    </a>
+  </div>
+
+  {% if not show_archived and items %}
+  <div class="toolbar">
+    <form method="post" action="/admin/feedback/archive-all" onsubmit="return confirm('Archive all active feedback? You can still view them under Archived.');">
+      <button type="submit" class="btn-secondary">Archive all active</button>
+    </form>
+  </div>
+  {% endif %}
+
+  <div class="danger-panel">
+    <h3>Permanent delete</h3>
+    <p>
+      Type <strong>DELETE</strong> then choose what to remove forever. Prefer <em>Archive</em> unless you are sure.
+    </p>
+    <form method="post" action="/admin/feedback/delete-all" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;"
+          onsubmit="return confirm('Permanently delete feedback? This cannot be undone.');">
+      <input type="text" name="confirm" placeholder="Type DELETE" autocomplete="off" required>
+      <input type="hidden" name="scope" id="deleteScope" value="{% if show_archived %}archived{% else %}active{% endif %}">
+      <button type="submit" class="btn-sm btn-danger" onclick="document.getElementById('deleteScope').value='{% if show_archived %}archived{% else %}active{% endif %}'">
+        Delete {% if show_archived %}archived{% else %}active{% endif %} forever
+      </button>
+      <button type="submit" class="btn-sm btn-delete" onclick="document.getElementById('deleteScope').value='all'">
+        Delete ALL forever
+      </button>
+    </form>
+  </div>
+
   {% if items %}
   {% for item in items %}
-  <div class="fb-item">
+  <div class="fb-item {% if show_archived %}archived{% endif %}">
     <div class="fb-header">
       <div class="fb-name">{{ item.display_name }}</div>
-      <div class="fb-date">{{ item.submitted_at.strftime('%B %d, %Y at %I:%M %p') if item.submitted_at else '' }}</div>
+      <div class="fb-date">
+        {{ item.submitted_at.strftime('%B %d, %Y at %I:%M %p') if item.submitted_at else '' }}
+        {% if item.archived_at %}
+        · archived {{ item.archived_at.strftime('%b %d, %Y') if item.archived_at else '' }}
+        {% endif %}
+      </div>
     </div>
     <div class="fb-msg">{{ item.message }}</div>
+    <div class="fb-actions">
+      {% if show_archived %}
+      <form method="post" action="/admin/feedback/{{ item.id }}/unarchive">
+        <button type="submit" class="btn-sm btn-archive">Restore to active</button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/feedback/{{ item.id }}/archive">
+        <button type="submit" class="btn-sm btn-archive">Archive</button>
+      </form>
+      {% endif %}
+      <form method="post" action="/admin/feedback/{{ item.id }}/delete"
+            onsubmit="return confirm('Permanently delete this feedback item?');">
+        <input type="hidden" name="show" value="{% if show_archived %}archived{% endif %}">
+        <button type="submit" class="btn-sm btn-delete">Delete forever</button>
+      </form>
+    </div>
   </div>
   {% endfor %}
   {% else %}
-  <div class="empty">No feedback submitted yet.</div>
+  <div class="empty">
+    {% if show_archived %}
+      No archived feedback.
+    {% else %}
+      No active feedback. {% if counts and counts.archived %}{{ counts.archived }} item(s) in Archived.{% endif %}
+    {% endif %}
+  </div>
   {% endif %}
 </div>
-  <div class="pps-footer">
-    <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
-    <span class="pps-footer-divider"></span>
-    <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" class="pps-footer-motto">
-  </div>
+
+<div class="pps-footer">
+  <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
+  <span class="pps-footer-divider"></span>
+  <img src="/static/PPS_statement1_MED.jpg" alt="The Pure Way: Trust. Quality. Results.™" class="pps-footer-motto">
+</div>
 </body>
 </html>

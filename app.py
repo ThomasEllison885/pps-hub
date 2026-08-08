@@ -716,6 +716,14 @@ def init_db():
             read_by_admin BOOLEAN DEFAULT FALSE
         )
     ''')
+    for col in (
+        "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
+    ):
+        try:
+            cur.execute(col)
+        except Exception:
+            pass
 
     # Proposal diffs table
     cur.execute('''
@@ -3133,7 +3141,11 @@ def _admin_inbox_counts():
         conn = get_db()
         if conn:
             cur = conn.cursor()
-            cur.execute('SELECT COUNT(*) FROM feedback WHERE read_by_admin = FALSE')
+            cur.execute(
+                '''SELECT COUNT(*) FROM feedback
+                   WHERE read_by_admin = FALSE
+                   AND COALESCE(archived, FALSE) = FALSE'''
+            )
             unread_feedback = cur.fetchone()[0] or 0
             cur.execute('SELECT COUNT(*) FROM proposal_diffs WHERE reviewed_by_admin = FALSE')
             unread_diffs = cur.fetchone()[0] or 0
@@ -5292,24 +5304,194 @@ def admin_member(user_key):
 
 
 @app.route('/admin/feedback')
+@require_login
 def admin_feedback():
+    """Team feedback inbox — admin only. Supports archive + permanent clear."""
     if session.get('role') != 'admin':
         return redirect(url_for('login'))
+    show_archived = (request.args.get('show') or '').strip().lower() == 'archived'
     items = []
+    counts = {'active': 0, 'archived': 0}
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute('SELECT * FROM feedback ORDER BY submitted_at DESC')
+            cur.execute(
+                'SELECT COUNT(*) AS c FROM feedback WHERE COALESCE(archived, FALSE) = FALSE'
+            )
+            counts['active'] = cur.fetchone()['c'] or 0
+            cur.execute(
+                'SELECT COUNT(*) AS c FROM feedback WHERE COALESCE(archived, FALSE) = TRUE'
+            )
+            counts['archived'] = cur.fetchone()['c'] or 0
+            if show_archived:
+                cur.execute(
+                    '''SELECT * FROM feedback
+                       WHERE COALESCE(archived, FALSE) = TRUE
+                       ORDER BY COALESCE(archived_at, submitted_at) DESC'''
+                )
+            else:
+                cur.execute(
+                    '''SELECT * FROM feedback
+                       WHERE COALESCE(archived, FALSE) = FALSE
+                       ORDER BY submitted_at DESC'''
+                )
             items = cur.fetchall()
-            # Mark all as read
-            cur.execute('UPDATE feedback SET read_by_admin = TRUE')
+            # Mark visible active items as read (badge clear)
+            if not show_archived:
+                cur.execute(
+                    '''UPDATE feedback SET read_by_admin = TRUE
+                       WHERE COALESCE(archived, FALSE) = FALSE'''
+                )
             conn.commit()
             cur.close()
             conn.close()
     except Exception as e:
         print(f"Feedback error: {e}")
-    return render_template('admin_feedback.html', items=items)
+    return render_template(
+        'admin_feedback.html',
+        items=items,
+        show_archived=show_archived,
+        counts=counts,
+    )
+
+
+@app.route('/admin/feedback/<int:item_id>/archive', methods=['POST'])
+@require_login
+def admin_feedback_archive_one(item_id):
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute(
+            '''UPDATE feedback
+               SET archived = TRUE, archived_at = NOW(), read_by_admin = TRUE
+               WHERE id = %s''',
+            (item_id,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or (
+            request.accept_mimetypes.best == 'application/json'
+        ):
+            return jsonify({'success': True})
+        return redirect(url_for('admin_feedback'))
+    except Exception as e:
+        print(f'Feedback archive one error: {e}')
+        return jsonify({'error': 'Could not archive'}), 500
+
+
+@app.route('/admin/feedback/<int:item_id>/unarchive', methods=['POST'])
+@require_login
+def admin_feedback_unarchive_one(item_id):
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute(
+            '''UPDATE feedback
+               SET archived = FALSE, archived_at = NULL
+               WHERE id = %s''',
+            (item_id,),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        return redirect(url_for('admin_feedback', show='archived'))
+    except Exception as e:
+        print(f'Feedback unarchive error: {e}')
+        return redirect(url_for('admin_feedback', show='archived'))
+
+
+@app.route('/admin/feedback/<int:item_id>/delete', methods=['POST'])
+@require_login
+def admin_feedback_delete_one(item_id):
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute('DELETE FROM feedback WHERE id = %s', (item_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        next_show = (request.form.get('show') or request.args.get('show') or '').strip()
+        if next_show == 'archived':
+            return redirect(url_for('admin_feedback', show='archived'))
+        return redirect(url_for('admin_feedback'))
+    except Exception as e:
+        print(f'Feedback delete one error: {e}')
+        return redirect(url_for('admin_feedback'))
+
+
+@app.route('/admin/feedback/archive-all', methods=['POST'])
+@require_login
+def admin_feedback_archive_all():
+    """Hide all active feedback from the main inbox (soft clear)."""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        cur.execute(
+            '''UPDATE feedback
+               SET archived = TRUE, archived_at = NOW(), read_by_admin = TRUE
+               WHERE COALESCE(archived, FALSE) = FALSE'''
+        )
+        n = cur.rowcount
+        conn.commit()
+        cur.close()
+        conn.close()
+        return redirect(url_for('admin_feedback'))
+    except Exception as e:
+        print(f'Feedback archive all error: {e}')
+        return redirect(url_for('admin_feedback'))
+
+
+@app.route('/admin/feedback/delete-all', methods=['POST'])
+@require_login
+def admin_feedback_delete_all():
+    """Permanently delete feedback. scope=active|archived|all."""
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admin only'}), 403
+    scope = (request.form.get('scope') or 'active').strip().lower()
+    if scope not in ('active', 'archived', 'all'):
+        scope = 'active'
+    # Require typed confirmation for permanent delete
+    confirm = (request.form.get('confirm') or '').strip().upper()
+    if confirm != 'DELETE':
+        return redirect(url_for('admin_feedback', err='confirm'))
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor()
+        if scope == 'all':
+            cur.execute('DELETE FROM feedback')
+        elif scope == 'archived':
+            cur.execute('DELETE FROM feedback WHERE COALESCE(archived, FALSE) = TRUE')
+        else:
+            cur.execute('DELETE FROM feedback WHERE COALESCE(archived, FALSE) = FALSE')
+        conn.commit()
+        cur.close()
+        conn.close()
+        if scope == 'archived':
+            return redirect(url_for('admin_feedback', show='archived'))
+        return redirect(url_for('admin_feedback'))
+    except Exception as e:
+        print(f'Feedback delete all error: {e}')
+        return redirect(url_for('admin_feedback'))
 
 
 def _serialize_log_rows(rows):
