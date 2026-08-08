@@ -1,7 +1,7 @@
-"""Office Ops — AR digests and weekly Numbers (Stephanie, Thomas, Trey).
+"""Office Ops — Stephanie + Thomas workspace for AR digests and weekly Numbers.
 
-Owner request 2026-08-03 / build-out 2026-08; Trey elevated 2026-08-05:
-  - Access: office_manager (Stephanie) + admin (Thomas) + Trey Hollmeyer.
+Owner request 2026-08-03 / build-out 2026-08:
+  - Access: office_manager (Stephanie) + admin (Thomas) only.
   - Files land via Hub upload (Postgres), not a shared team vault dump.
   - AR Aging Summary → totals / chase list / Numbers draft skeleton.
   - AR Aging Detail → open invoices by age bucket (invoice-level chase).
@@ -22,14 +22,8 @@ from decimal import Decimal
 
 from psycopg2.extras import RealDictCursor
 
-# Who may open /office-ops and upload.
-# Stephanie + Thomas (original); Trey elevated to same ops visibility (2026-08).
-# Admin / office_manager roles still included.
-OFFICE_OPS_USER_KEYS = frozenset({
-    'stephanie_whetstone',
-    'thomas_ellison',
-    'trey_hollmeyer',
-})
+# Who may open /office-ops and upload. Admin always; Stephanie by key + role.
+OFFICE_OPS_USER_KEYS = frozenset({'stephanie_whetstone', 'thomas_ellison'})
 OFFICE_OPS_ROLES = frozenset({'office_manager', 'admin'})
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
