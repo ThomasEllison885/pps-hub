@@ -25,11 +25,21 @@ has no separate CC header, so "CC" here means the counterpart's email is
 simply added to the same `recipients` list — same practical outcome
 (both people see the email and each other on it).
 
+Disabled by default (2026-08-10) — Thomas checked real Monday activity
+and every open item on the board was last touched 5.5+ months ago
+board-wide, not just a couple of neglected pairs. He's talking to the
+team about their actual process before deciding whether to turn this
+on, so it's built and ready but the cron no-ops until
+ESTIMATE_NOTIFICATIONS_ENABLED=true is set on Render — same
+enable-flag pattern daily_digest.py already uses for the exact same
+"built, not yet live" situation.
+
 send_email_fn(subject, text_body, html_body, recipients) -> bool
 """
 
 from __future__ import annotations
 
+import os
 import random
 from collections import defaultdict
 from datetime import date, datetime
@@ -63,6 +73,10 @@ STOIC_QUOTES = [
     "What we do now echoes in the work still to come.",
     "Discipline equals freedom.",
 ]
+
+
+def _notifications_enabled():
+    return os.environ.get('ESTIMATE_NOTIFICATIONS_ENABLED', 'false').strip().lower() in ('1', 'true', 'yes')
 
 
 def init_tables(cur):
@@ -110,6 +124,9 @@ def _ids_to_text(ids):
 
 
 def run_daily_estimate_check(get_db_fn, send_email_fn):
+    if not _notifications_enabled():
+        return {'ok': True, 'skipped': True, 'reason': 'disabled'}
+
     today = date.today()
     conn = get_db_fn()
     try:

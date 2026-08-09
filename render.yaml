@@ -51,6 +51,12 @@ services:
         sync: false
       - key: MONDAY_SUB_INFO_BOARD_ID
         value: "672547511"
+      # Estimates board notifications are built (estimate_assignments.py) but
+      # OFF by default — Thomas found every open item board-wide untouched
+      # for 5.5+ months and is reviewing the team's actual process before
+      # turning this on (2026-08-10). Flip to "true" to enable.
+      - key: ESTIMATE_NOTIFICATIONS_ENABLED
+        value: "false"
 
   - type: cron
     name: pps-hub-daily-digest
