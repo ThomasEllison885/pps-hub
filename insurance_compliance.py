@@ -412,6 +412,18 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 'needs_manual_review': needs_manual_review,
             })
 
+        # Prune rows for subs no longer in a monitored group — e.g. dropped
+        # from ACTIVE_GROUPS (like "Insurance Out of Date NOT COMPLIANT",
+        # 2026-08-10), moved to No Longer Active, or removed from the board
+        # entirely. Guarded on a non-empty fetch so a Monday API hiccup
+        # can't wipe the whole table.
+        if items:
+            current_ids = tuple(str(it['id']) for it in items)
+            cur.execute(
+                'DELETE FROM office_ops_tp_snapshot WHERE monday_item_id NOT IN %s',
+                (current_ids,),
+            )
+
         conn.commit()
         cur.close()
 
@@ -463,7 +475,7 @@ def _build_digest(rows, today):
         lines.append('Nothing flagged this week — all checked subs are current.')
         lines.append('')
 
-    lines.append(f'Checked {len(rows)} subs across Compliant + Insurance Out of Date groups.')
+    lines.append(f'Checked {len(rows)} subs across Compliant + On Hold groups.')
     lines.append('Source: Monday.com Sub Info board + COI PDF text extraction (best-effort — spot-check low-confidence rows).')
 
     text_body = '\n'.join(lines)

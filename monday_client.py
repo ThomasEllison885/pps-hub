@@ -24,15 +24,19 @@ COL_DATE_WORKERS_COMP = 'date8'
 COL_FILES = 'files'
 COL_DATE_FOUND = 'date4'
 
-# Groups that carry an active insurance requirement, confirmed live against
-# the board 2026-08-09. "ON HOLD - Waiting on updated insurnace" is spelled
-# that way on the board itself — do not "fix" the typo here, it must match
-# exactly for the GraphQL group-title filter to work. Potential Subs (not
-# yet vetted) and No Longer Active are excluded — no current compliance
-# expectation either way.
+# Groups actually worth a weekly nudge, confirmed live against the board
+# 2026-08-09 and narrowed 2026-08-10 per Thomas: "Insurance Out of Date NOT
+# COMPLIANT" is mostly subs from years ago that PPS doesn't use and has no
+# plan to use again — it was drowning the digest in ancient "expired since
+# 2021" noise for dead relationships, not real work. Dropped from
+# monitoring; existing snapshot rows for that group get pruned on the next
+# run (see run_weekly_compliance_check). "ON HOLD - Waiting on updated
+# insurnace" is spelled that way on the board itself — do not "fix" the
+# typo here, it must match exactly for the GraphQL group-title filter to
+# work. Potential Subs (not yet vetted) and No Longer Active stay excluded
+# — no current compliance expectation either way.
 ACTIVE_GROUPS = (
     'Sub contractors - Compliant',
-    'Insurance Out of Date NOT COMPLIANT',
     'ON HOLD - Waiting on updated insurnace',
 )
 
