@@ -336,3 +336,113 @@ def parse_files_column(column_value):
     except (json.JSONDecodeError, TypeError):
         return []
     return parsed.get('files') or []
+
+
+# Estimates board — new-assignment notification + daily reminder (Thomas,
+# 2026-08-10). Deliberately a standalone feature, not a Pipeline Board
+# change. "Sales Lead" = PSC, "Production Lead" = PM (confirmed with
+# Thomas). Note: the board has TWO groups both literally titled "Estimates
+# needed" (different group IDs — a board-editing artifact, not a naming
+# convention). Title-matching them together is safe only because both get
+# identical (open-work) treatment here; don't assume title-matching is
+# generally safe on this board if a future feature needs to tell them apart.
+ESTIMATES_BOARD_ID = os.environ.get('MONDAY_ESTIMATES_BOARD_ID', '8374265997')
+
+ESTIMATES_COL_SALES_LEAD = 'person'
+ESTIMATES_COL_PRODUCTION_LEAD = 'dup__of_sales_lead_mkmq33ap'
+ESTIMATES_COL_DUE_BY = 'date_1_mkn89y42'
+ESTIMATES_COL_PRIORITY = 'priority_mkmq448f'
+
+ESTIMATES_OPEN_GROUPS = ('Estimates needed', 'New Requests (Sales)', 'Estimate in Progress (PM)')
+
+_ESTIMATES_COLUMN_IDS = '["person", "dup__of_sales_lead_mkmq33ap", "date_1_mkn89y42", "priority_mkmq448f"]'
+
+_ESTIMATES_NEXT_PAGE_QUERY = f'''
+query($cursor: String!) {{
+  next_items_page(cursor: $cursor, limit: 50) {{
+    cursor
+    items {{
+      id
+      name
+      group {{ title }}
+      column_values(ids: {_ESTIMATES_COLUMN_IDS}) {{
+        id
+        text
+        value
+      }}
+    }}
+  }}
+}}
+'''
+
+
+def fetch_estimates_items(board_id=None, groups=ESTIMATES_OPEN_GROUPS):
+    """Return raw items from the open Estimates groups (excludes Completed/
+    Archive). Same items_page/next_items_page pagination shape used
+    elsewhere in this module."""
+    board_id = board_id or ESTIMATES_BOARD_ID
+    items = []
+    query = f'''
+    query($boardId: [ID!]) {{
+      boards(ids: $boardId) {{
+        groups {{
+          title
+          items_page(limit: 50) {{
+            cursor
+            items {{
+              id
+              name
+              group {{ title }}
+              column_values(ids: {_ESTIMATES_COLUMN_IDS}) {{
+                id
+                text
+                value
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+    '''
+    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
+    for board in boards:
+        for group in board.get('groups') or []:
+            if groups and group.get('title') not in groups:
+                continue
+            page = group.get('items_page') or {}
+            for it in page.get('items') or []:
+                items.append(it)
+
+            cursor = page.get('cursor')
+            while cursor:
+                next_page = monday_graphql(_ESTIMATES_NEXT_PAGE_QUERY, {'cursor': cursor}).get('next_items_page') or {}
+                for it in next_page.get('items') or []:
+                    it.setdefault('group', {'title': group.get('title')})
+                    items.append(it)
+                cursor = next_page.get('cursor')
+    return items
+
+
+def fetch_monday_users():
+    """Return {person_id: email} for everyone on the Monday account —
+    resolving a `people` column's assigned person to a real email needs
+    this, since the people column itself only carries id + name."""
+    query = '{ users { id name email } }'
+    data = monday_graphql(query)
+    return {str(u['id']): u.get('email') for u in (data.get('users') or []) if u.get('email')}
+
+
+def parse_people_column(column_value):
+    """column_value is the raw `value` JSON string from a `people` column —
+    returns a list of person ID strings (kind == 'person', not 'team')."""
+    raw = column_value.get('value') if isinstance(column_value, dict) else column_value
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    return [
+        str(p['id']) for p in (parsed.get('personsAndTeams') or [])
+        if p.get('kind') == 'person'
+    ]

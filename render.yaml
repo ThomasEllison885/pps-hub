@@ -91,3 +91,16 @@ services:
         sync: false
       - key: HUB_PUBLIC_URL
         value: https://hub.purepropsolutions.com
+
+  - type: cron
+    name: pps-hub-daily-estimate-check
+    runtime: python
+    # 11 UTC ≈ 7am US/Eastern (EDT/EST).
+    schedule: "0 11 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_daily_estimate_check.py
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com

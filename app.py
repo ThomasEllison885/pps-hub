@@ -10,6 +10,7 @@ import pipeline_board
 import office_ops
 import insurance_compliance
 import crm_contact_sync
+import estimate_assignments
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -3050,6 +3051,22 @@ def cron_weekly_crm_sync():
         return jsonify(result), 200
     except Exception as e:
         print(f'Weekly CRM contact sync cron error: {e}')
+        import traceback
+        traceback.print_exc()
+        return _api_error(e, ok=False)
+
+
+@app.route('/api/cron/daily-estimate-check', methods=['POST'])
+def cron_daily_estimate_check():
+    """Daily: Estimates board new-assignment notification + open-work reminder."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        result = estimate_assignments.run_daily_estimate_check(get_db, _send_digest_email)
+        return jsonify(result), 200
+    except Exception as e:
+        print(f'Daily estimate check cron error: {e}')
         import traceback
         traceback.print_exc()
         return _api_error(e, ok=False)
