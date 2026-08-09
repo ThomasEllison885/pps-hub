@@ -354,6 +354,7 @@ ESTIMATES_COL_DUE_BY = 'date_1_mkn89y42'
 ESTIMATES_COL_PRIORITY = 'priority_mkmq448f'
 
 ESTIMATES_OPEN_GROUPS = ('Estimates needed', 'New Requests (Sales)', 'Estimate in Progress (PM)')
+ESTIMATES_COMPLETED_GROUP = 'Completed Estimates (PM)'
 
 _ESTIMATES_COLUMN_IDS = '["person", "dup__of_sales_lead_mkmq33ap", "date_1_mkn89y42", "priority_mkmq448f"]'
 
