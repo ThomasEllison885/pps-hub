@@ -78,3 +78,16 @@ services:
         sync: false
       - key: HUB_PUBLIC_URL
         value: https://hub.purepropsolutions.com
+
+  - type: cron
+    name: pps-hub-weekly-crm-sync
+    runtime: python
+    # 4 UTC Monday ≈ Sunday ~11pm-midnight US/Eastern (EDT/EST) — Sunday EOD.
+    schedule: "0 4 * * 1"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_weekly_crm_sync.py
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com

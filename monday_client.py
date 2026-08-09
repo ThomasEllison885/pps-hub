@@ -224,6 +224,79 @@ def fetch_pay_request_items(board_id=None, groups=PAY_REQUEST_ACTIVE_GROUPS):
     return items
 
 
+# CRM Contacts board — synced weekly into the Hub's /clients picker (Thomas,
+# 2026-08-10). The board's own "Company" connect-column (contact_account) is
+# empty on every item checked live — same unused-connect-column pattern as
+# every other board this session — so company isn't pulled from here.
+CONTACTS_BOARD_ID = os.environ.get('MONDAY_CONTACTS_BOARD_ID', '7902650879')
+
+CONTACTS_COL_EMAIL = 'contact_email'
+CONTACTS_COL_PHONE = 'contact_phone'
+
+# Default placeholder title Monday gives a freshly-created contact before
+# anyone renames it — confirmed live in real data, not hypothetical.
+PLACEHOLDER_CONTACT_NAMES = {'new contact'}
+
+_CONTACTS_COLUMN_IDS = '["contact_email", "contact_phone"]'
+
+_CONTACTS_NEXT_PAGE_QUERY = f'''
+query($cursor: String!) {{
+  next_items_page(cursor: $cursor, limit: 50) {{
+    cursor
+    items {{
+      id
+      name
+      column_values(ids: {_CONTACTS_COLUMN_IDS}) {{
+        id
+        text
+        value
+      }}
+    }}
+  }}
+}}
+'''
+
+
+def fetch_contacts_items(board_id=None):
+    """Return all items from the Contacts board (no group filter — unlike
+    Sub Info/Pay Request, this board isn't organized into meaningful
+    groups for this purpose). Same items_page/next_items_page pagination
+    shape used elsewhere in this module."""
+    board_id = board_id or CONTACTS_BOARD_ID
+    items = []
+    query = f'''
+    query($boardId: [ID!]) {{
+      boards(ids: $boardId) {{
+        items_page(limit: 50) {{
+          cursor
+          items {{
+            id
+            name
+            column_values(ids: {_CONTACTS_COLUMN_IDS}) {{
+              id
+              text
+              value
+            }}
+          }}
+        }}
+      }}
+    }}
+    '''
+    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
+    for board in boards:
+        page = board.get('items_page') or {}
+        for it in page.get('items') or []:
+            items.append(it)
+
+        cursor = page.get('cursor')
+        while cursor:
+            next_page = monday_graphql(_CONTACTS_NEXT_PAGE_QUERY, {'cursor': cursor}).get('next_items_page') or {}
+            for it in next_page.get('items') or []:
+                items.append(it)
+            cursor = next_page.get('cursor')
+    return items
+
+
 def resolve_asset_urls(asset_ids):
     """Return {asset_id: public_url} for a batch of Monday file asset IDs."""
     if not asset_ids:
