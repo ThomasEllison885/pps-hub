@@ -90,12 +90,19 @@ def _col_value(column_values, col_id):
 
 
 def _parse_monday_date(text_val):
+    """Estimates' Due By column often carries a time suffix ("2026-02-24
+    09:00") even though we only care about the date — confirmed live
+    2026-08-10, every populated Due By on the real board had one. A
+    date-only column can also come back bare, so try both."""
     if not text_val:
         return None
-    try:
-        return datetime.strptime(text_val.strip(), '%Y-%m-%d').date()
-    except (ValueError, AttributeError):
-        return None
+    text_val = text_val.strip()
+    for fmt in ('%Y-%m-%d %H:%M', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(text_val, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _ids_to_text(ids):
