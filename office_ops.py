@@ -2078,8 +2078,10 @@ def list_recent_files(get_db_fn, kind=None, limit=12):
         return []
 
 
-def register_routes(app, get_db_fn, users, require_login):
+def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
     from flask import jsonify, redirect, render_template, request, session, url_for
+
+    import insurance_compliance
 
     def _gate():
         user_key = session.get('user_key')
@@ -2090,6 +2092,17 @@ def register_routes(app, get_db_fn, users, require_login):
     @app.route('/office-ops')
     @require_login
     def office_ops_page():
+        blocked = _gate()
+        if blocked:
+            return blocked
+        return render_template(
+            'office_ops_landing.html',
+            user_display=(users.get(session.get('user_key')) or {}).get('display', session.get('user_key')),
+        )
+
+    @app.route('/office-ops/numbers')
+    @require_login
+    def office_ops_numbers_page():
         blocked = _gate()
         if blocked:
             return blocked
@@ -2115,6 +2128,73 @@ def register_routes(app, get_db_fn, users, require_login):
             past_due=past_due,
             ar_notes=notes,
         )
+
+    @app.route('/office-ops/compliance')
+    @require_login
+    def office_ops_compliance_page():
+        blocked = _gate()
+        if blocked:
+            return blocked
+        rows, last_run_at = insurance_compliance.get_latest_snapshot_rows(get_db_fn)
+        from datetime import date as date_type
+        cats = insurance_compliance.categorize_rows(rows, date_type.today())
+        return render_template(
+            'office_ops_compliance.html',
+            user_display=(users.get(session.get('user_key')) or {}).get('display', session.get('user_key')),
+            checked=len(rows),
+            last_run_at=last_run_at.isoformat() if last_run_at else None,
+            expired=cats['expired'],
+            soon=cats['soon'],
+            later=cats['later'],
+            new_subs=cats['new_subs'],
+            mismatches=cats['mismatches'],
+            needs_manual=cats['needs_manual'],
+        )
+
+    @app.route('/office-ops/compliance/refresh', methods=['POST'])
+    @require_login
+    def office_ops_compliance_refresh():
+        blocked = _gate()
+        if blocked:
+            return jsonify({'success': False, 'error': 'Not allowed.'}), 403
+        if send_email_fn is None:
+            return jsonify({'success': False, 'error': 'Email sending not configured.'}), 500
+        user_key = session.get('user_key')
+        try:
+            recipients = [users['stephanie_whetstone']['email'], users['thomas_ellison']['email']]
+            result = insurance_compliance.run_weekly_compliance_check(get_db_fn, send_email_fn, recipients)
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            print(f'Office Ops compliance refresh error ({user_key}): {e}')
+            import traceback
+            traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/office-ops/compliance/override', methods=['POST'])
+    @require_login
+    def office_ops_compliance_override():
+        blocked = _gate()
+        if blocked:
+            return jsonify({'success': False, 'error': 'Not allowed.'}), 403
+        user_key = session.get('user_key')
+        data = request.get_json(silent=True) or {}
+        item_id = (data.get('item_id') or '').strip()
+        date_str = (data.get('date') or '').strip()
+        if not item_id or not date_str:
+            return jsonify({'success': False, 'error': 'item_id and date are required.'}), 400
+        from datetime import date as date_type
+        try:
+            override_date = date_type.fromisoformat(date_str)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'Invalid date (use YYYY-MM-DD).'}), 400
+        try:
+            ok = insurance_compliance.save_override(get_db_fn, item_id, override_date, user_key)
+            if not ok:
+                return jsonify({'success': False, 'error': 'Sub not found — run a compliance check first.'}), 404
+            return jsonify({'success': True})
+        except Exception as e:
+            print(f'Office Ops compliance override error ({user_key}): {e}')
+            return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/api/office-ops/upload', methods=['POST'])
     @require_login

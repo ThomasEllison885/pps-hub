@@ -43,6 +43,40 @@ def init_tables(cur):
             updated_at TIMESTAMP DEFAULT NOW()
         )
     ''')
+    # Hub-side manual correction — a human looked at the real COI (or knows
+    # the true date some other way) and typed it in directly. Outranks the
+    # Monday board's manual column (the thing that goes stale) but still
+    # loses to a COI we can actually read, since that's ground truth.
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS insurance_expires_override DATE
+    ''')
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS override_by VARCHAR(100)
+    ''')
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS override_at TIMESTAMP
+    ''')
+
+
+def save_override(get_db_fn, monday_item_id, override_date, user_key):
+    conn = get_db_fn()
+    try:
+        cur = conn.cursor()
+        init_tables(cur)
+        cur.execute('''
+            UPDATE office_ops_tp_snapshot
+            SET insurance_expires_override = %s, override_by = %s, override_at = NOW(), updated_at = NOW()
+            WHERE monday_item_id = %s
+        ''', (override_date, user_key, monday_item_id))
+        updated = cur.rowcount
+        conn.commit()
+        cur.close()
+        return updated > 0
+    finally:
+        conn.close()
 
 
 def _parse_monday_date(text_val):
@@ -166,6 +200,104 @@ def _bucket_label(exp_date, today):
     return None
 
 
+def categorize_rows(rows, today):
+    """Single shared definition of the digest's categories — used by both
+    the weekly email and the Office Ops compliance page, so the two never
+    silently drift apart on what counts as 'expiring soon'."""
+    expired, soon, later, new_subs, mismatches, needs_manual = [], [], [], [], [], []
+    for r in rows:
+        bucket = _bucket_label(r['effective_ins'], today)
+        if bucket == 'expired':
+            expired.append(r)
+        elif bucket == 'expiring_soon':
+            soon.append(r)
+        elif bucket == 'expiring_later':
+            later.append(r)
+        if r['is_new']:
+            new_subs.append(r)
+        if r['manual_ins'] and r['extracted_ins'] and r['manual_ins'] != r['extracted_ins']:
+            mismatches.append(r)
+        if r['needs_manual_review']:
+            needs_manual.append(r)
+
+    expired.sort(key=lambda r: r['effective_ins'] or date.min)
+    soon.sort(key=lambda r: r['effective_ins'] or date.min)
+    later.sort(key=lambda r: r['effective_ins'] or date.min)
+
+    return {
+        'expired': expired,
+        'soon': soon,
+        'later': later,
+        'new_subs': new_subs,
+        'mismatches': mismatches,
+        'needs_manual': needs_manual,
+    }
+
+
+def get_latest_snapshot_rows(get_db_fn):
+    """Read office_ops_tp_snapshot back out in the same row-shape
+    run_weekly_compliance_check builds, for the Office Ops compliance page.
+    Returns (rows, last_run_at) — last_run_at is None if never run."""
+    conn = get_db_fn()
+    try:
+        cur = conn.cursor()
+        init_tables(cur)
+        conn.commit()
+        cur.execute('''
+            SELECT monday_item_id, name, group_name, insurance_expires_manual,
+                   wc_expires_manual, insurance_expires_extracted, extract_confidence,
+                   additional_insured_present, coi_asset_name, insurance_expires_override,
+                   override_by, first_seen_at, updated_at
+            FROM office_ops_tp_snapshot
+            ORDER BY name
+        ''')
+        db_rows = cur.fetchall()
+        cur.close()
+
+        today = date.today()
+        new_cutoff = today - timedelta(days=NEW_SUB_WINDOW_DAYS)
+        rows = []
+        last_run_at = None
+        for (item_id, name, group_name, manual_ins, manual_wc, extracted_ins,
+             confidence, additional_insured, coi_name, override_ins, override_by,
+             first_seen_at, updated_at) in db_rows:
+            if updated_at and (last_run_at is None or updated_at > last_run_at):
+                last_run_at = updated_at
+
+            if extracted_ins:
+                effective_ins, effective_source = extracted_ins, 'coi_pdf'
+            elif override_ins:
+                effective_ins, effective_source = override_ins, 'override'
+            elif manual_ins:
+                effective_ins, effective_source = manual_ins, 'manual'
+            else:
+                effective_ins, effective_source = None, None
+
+            is_new = bool(first_seen_at and first_seen_at.date() >= new_cutoff)
+            needs_manual_review = (not extracted_ins) and (not override_ins)
+
+            rows.append({
+                'item_id': item_id,
+                'name': name,
+                'group': group_name,
+                'manual_ins': manual_ins,
+                'manual_wc': manual_wc,
+                'extracted_ins': extracted_ins,
+                'confidence': confidence,
+                'additional_insured': additional_insured,
+                'override_ins': override_ins,
+                'override_by': override_by,
+                'effective_ins': effective_ins,
+                'effective_source': effective_source,
+                'is_new': is_new,
+                'coi_name': coi_name,
+                'needs_manual_review': needs_manual_review,
+            })
+        return rows, last_run_at
+    finally:
+        conn.close()
+
+
 def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
     today = date.today()
     conn = get_db_fn()
@@ -206,17 +338,29 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                     extracted = {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
                                  'confidence': f'fetch_error: {e}'}
 
-            # COI-extracted date wins whenever we have it — the board's manual
-            # entry can be stale or mistyped; only fall back to it when the
-            # COI couldn't be read (image/scan with no text layer, fetch
-            # error, or no file at all).
-            effective_ins = extracted['gl_exp'] or manual_ins
-            effective_source = 'coi_pdf' if extracted['gl_exp'] else ('manual' if manual_ins else None)
-            needs_manual_review = (not extracted['gl_exp']) and coi_file is not None
-
-            cur.execute('SELECT first_seen_at FROM office_ops_tp_snapshot WHERE monday_item_id = %s', (item_id,))
+            cur.execute(
+                'SELECT first_seen_at, insurance_expires_override, override_by '
+                'FROM office_ops_tp_snapshot WHERE monday_item_id = %s',
+                (item_id,),
+            )
             existing = cur.fetchone()
             is_new = existing is None
+            override_ins = existing[1] if existing else None
+            override_by = existing[2] if existing else None
+
+            # Priority: a COI we can actually read > a human-typed Hub
+            # override (someone looked at the real file) > the Monday
+            # board's manual column, which is what goes stale in practice.
+            effective_ins = extracted['gl_exp'] or override_ins or manual_ins
+            if extracted['gl_exp']:
+                effective_source = 'coi_pdf'
+            elif override_ins:
+                effective_source = 'override'
+            elif manual_ins:
+                effective_source = 'manual'
+            else:
+                effective_source = None
+            needs_manual_review = (not extracted['gl_exp']) and (not override_ins)
 
             cur.execute('''
                 INSERT INTO office_ops_tp_snapshot
@@ -238,6 +382,9 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
             ''', (item_id, name, group_name, manual_ins, manual_wc,
                   extracted['gl_exp'], extracted['confidence'],
                   extracted['additional_insured'], coi_name))
+            # Note: override_* columns are untouched by this upsert (not in
+            # the SET clause) — a manual correction survives every future
+            # weekly run until a real COI is read and beats it.
 
             rows.append({
                 'item_id': item_id,
@@ -249,6 +396,8 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 'extracted_wc': extracted['wc_exp'],
                 'confidence': extracted['confidence'],
                 'additional_insured': extracted['additional_insured'],
+                'override_ins': override_ins,
+                'override_by': override_by,
                 'effective_ins': effective_ins,
                 'effective_source': effective_source,
                 'is_new': is_new,
@@ -270,32 +419,20 @@ def _fmt_date(d):
     return d.strftime('%m/%d/%Y') if d else '—'
 
 
+def _needs_manual_message(r):
+    if r['coi_name']:
+        base = f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read"
+    else:
+        base = f"{r['name']} — no COI on file to read"
+    if r['manual_ins']:
+        return f"{base}; using board date ({_fmt_date(r['manual_ins'])}) for now"
+    return f"{base}, and no board date entered either"
+
+
 def _build_digest(rows, today):
-    expired = []
-    soon = []
-    later = []
-    new_subs = []
-    mismatches = []
-    needs_manual = []
-
-    for r in rows:
-        bucket = _bucket_label(r['effective_ins'], today)
-        if bucket == 'expired':
-            expired.append(r)
-        elif bucket == 'expiring_soon':
-            soon.append(r)
-        elif bucket == 'expiring_later':
-            later.append(r)
-        if r['is_new']:
-            new_subs.append(r)
-        if r['manual_ins'] and r['extracted_ins'] and r['manual_ins'] != r['extracted_ins']:
-            mismatches.append(r)
-        if r['needs_manual_review']:
-            needs_manual.append(r)
-
-    expired.sort(key=lambda r: r['effective_ins'] or date.min)
-    soon.sort(key=lambda r: r['effective_ins'] or date.min)
-    later.sort(key=lambda r: r['effective_ins'] or date.min)
+    cats = categorize_rows(rows, today)
+    expired, soon, later = cats['expired'], cats['soon'], cats['later']
+    new_subs, mismatches, needs_manual = cats['new_subs'], cats['mismatches'], cats['needs_manual']
 
     lines = [f'PPS Trade Partner Compliance — {today.strftime("%A, %B %d, %Y")}', '']
 
@@ -313,8 +450,7 @@ def _build_digest(rows, today):
     _section(f'NEW SUBS (last {NEW_SUB_WINDOW_DAYS} days)', new_subs, lambda r: f"{r['name']} ({r['group']})")
     _section('MANUAL VS COI-EXTRACTED DATE MISMATCH', mismatches,
               lambda r: f"{r['name']} — board says {_fmt_date(r['manual_ins'])}, COI PDF says {_fmt_date(r['extracted_ins'])}")
-    _section('COI ON FILE BUT UNREADABLE — NEEDS MANUAL ENTRY', needs_manual,
-              lambda r: f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read; using board date ({_fmt_date(r['manual_ins'])}) for now" if r['manual_ins'] else f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read, and no board date entered either")
+    _section('NEEDS MANUAL ENTRY', needs_manual, _needs_manual_message)
 
     if not (expired or soon or later or new_subs or mismatches):
         lines.append('Nothing flagged this week — all checked subs are current.')
@@ -341,8 +477,7 @@ def _build_digest(rows, today):
     _html_section('New subs', new_subs, lambda r: f"{r['name']} ({r['group']})", '#166534')
     _html_section('Manual vs COI-extracted mismatch', mismatches,
                    lambda r: f"{r['name']} — board says {_fmt_date(r['manual_ins'])}, COI PDF says {_fmt_date(r['extracted_ins'])}", '#4338ca')
-    _html_section('COI on file but unreadable — needs manual entry', needs_manual,
-                   lambda r: f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read; using board date ({_fmt_date(r['manual_ins'])}) for now" if r['manual_ins'] else f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read, and no board date entered either", '#78716c')
+    _html_section('Needs manual entry', needs_manual, _needs_manual_message, '#78716c')
 
     if not (expired or soon or later or new_subs or mismatches):
         html_parts.append('<p>Nothing flagged this week — all checked subs are current.</p>')

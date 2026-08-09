@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compliance · Office Ops · PPS Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/pps-global.css">
+  <style>
+    :root {
+      --navy: #0B1D36; --blue: #1A5276; --gold: #B8922A; --bg: #F7F5F0;
+      --card: #fff; --border: #E5E0D5; --muted: #6B7280; --ok: #1B7A4E; --danger: #B91C1C;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: #1a1a1a; }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 20px 18px 48px; }
+    .hero {
+      background: linear-gradient(135deg, #0B1D36 0%, #1A5276 100%);
+      color: #fff; border-radius: 16px; padding: 22px 24px; margin-bottom: 20px;
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 14px;
+    }
+    .hero h1 { font-family: 'DM Serif Display', serif; font-size: 1.75rem; margin: 8px 0 6px; font-weight: 400; }
+    .hero p { margin: 0; opacity: 0.9; font-size: 0.9rem; }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 999px;
+    }
+    .back { color: #fff; opacity: 0.85; font-size: 0.85rem; text-decoration: none; }
+    .btn {
+      display: inline-block; border: none; border-radius: 8px; padding: 10px 16px;
+      font-weight: 700; font-size: 14px; cursor: pointer; font-family: inherit; text-decoration: none;
+    }
+    .btn-generate {
+      background: #fff; color: var(--navy); box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .btn-generate:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary { background: var(--gold); color: #1a1200; padding: 6px 12px; font-size: 13px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; margin-bottom: 16px;
+      box-shadow: 0 1px 2px rgba(11,29,54,0.04);
+    }
+    .card h2 {
+      margin: 0 0 12px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.02em;
+    }
+    .card.expired h2 { color: var(--danger); }
+    .card.soon h2 { color: #c2410c; }
+    .card.later h2 { color: #a16207; }
+    .card.new h2 { color: #166534; }
+    .card.mismatch h2 { color: #4338ca; }
+    .card.needs h2 { color: #78716c; }
+    .row { padding: 10px 0; border-bottom: 1px solid #f0ebe3; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; }
+    .row:last-child { border-bottom: none; }
+    .row .name { font-weight: 600; }
+    .row .detail { color: var(--muted); font-size: 0.85rem; }
+    .muted { color: var(--muted); font-size: 0.9rem; }
+    .override-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .override-form input[type="date"] {
+      border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-family: inherit; font-size: 13px;
+    }
+    .toast { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+    .toast.ok { display: block; background: #ECFDF5; color: var(--ok); }
+    .toast.err { display: block; background: #FEF2F2; color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header class="pps-header">
+    <a href="/dashboard" class="pps-header-left">
+      <img src="/static/logo.png" alt="PPS" class="pps-header-logo" width="36" height="36">
+      <span class="pps-header-title">Office Ops · Compliance</span>
+    </a>
+    <div class="pps-header-right">
+      <span class="pps-header-user">{{ user_display }}</span>
+      <a href="/dashboard" class="pps-btn-header">Dashboard</a>
+      <a href="/logout" class="pps-btn-header">Sign Out</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <div>
+        <a class="back" href="/office-ops">← Office Ops</a>
+        <span class="badge" style="display:block;margin-top:8px;width:fit-content">Trade Partner insurance</span>
+        <h1>Compliance</h1>
+        <p>
+          Checked {{ checked }} sub{{ 's' if checked != 1 else '' }}
+          {% if last_run_at %} · data as of {{ last_run_at[:16].replace('T',' ') }}{% else %} · never run yet{% endif %}
+        </p>
+      </div>
+      <div>
+        <button type="button" class="btn btn-generate" id="btn-refresh">Run now</button>
+        <div class="toast" id="toast-refresh" style="max-width:260px"></div>
+      </div>
+    </div>
+
+    {% macro row_list(items, empty_msg, show_source=true) %}
+      {% if items %}
+        {% for r in items %}
+        <div class="row">
+          <div>
+            <div class="name">{{ r.name }}</div>
+            <div class="detail">
+              {{ r.group }}
+              {% if show_source and r.effective_ins %} · expires {{ r.effective_ins.strftime('%m/%d/%Y') }} [{{ r.effective_source }}]{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="margin:0">{{ empty_msg }}</p>
+      {% endif %}
+    {% endmacro %}
+
+    <div class="card expired">
+      <h2>Expired ({{ expired|length }})</h2>
+      {{ row_list(expired, 'None.') }}
+    </div>
+
+    <div class="card soon">
+      <h2>Expiring ≤30 days ({{ soon|length }})</h2>
+      {{ row_list(soon, 'None.') }}
+    </div>
+
+    <div class="card later">
+      <h2>Expiring 31-60 days ({{ later|length }})</h2>
+      {{ row_list(later, 'None.') }}
+    </div>
+
+    <div class="card new">
+      <h2>New subs ({{ new_subs|length }})</h2>
+      {{ row_list(new_subs, 'None.', show_source=false) }}
+    </div>
+
+    <div class="card mismatch">
+      <h2>Manual vs COI-extracted mismatch ({{ mismatches|length }})</h2>
+      {% if mismatches %}
+        {% for r in mismatches %}
+        <div class="row">
+          <div>
+            <div class="name">{{ r.name }}</div>
+            <div class="detail">board says {{ r.manual_ins.strftime('%m/%d/%Y') if r.manual_ins else '—' }}, COI PDF says {{ r.extracted_ins.strftime('%m/%d/%Y') if r.extracted_ins else '—' }}</div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="margin:0">None.</p>
+      {% endif %}
+    </div>
+
+    <div class="card needs">
+      <h2>Needs manual entry ({{ needs_manual|length }})</h2>
+      <p class="muted" style="margin:0 0 10px">
+        No readable COI and no usable date on file. Look up the real expiration and enter it below —
+        it will be used going forward until a readable COI beats it.
+      </p>
+      {% if needs_manual %}
+        {% for r in needs_manual %}
+        <div class="row">
+          <div>
+            <div class="name">{{ r.name }}</div>
+            <div class="detail">
+              {{ r.group }}
+              {% if r.coi_name %} · "{{ r.coi_name }}" — no text to read{% else %} · no COI on file{% endif %}
+              {% if r.manual_ins %} · board date {{ r.manual_ins.strftime('%m/%d/%Y') }} (fallback){% endif %}
+            </div>
+          </div>
+          <form class="override-form" data-item-id="{{ r.item_id }}">
+            <input type="date" required>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="margin:0">None.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+  const refreshBtn = document.getElementById('btn-refresh');
+  const refreshToast = document.getElementById('toast-refresh');
+  refreshBtn.addEventListener('click', async () => {
+    refreshBtn.disabled = true;
+    refreshToast.className = 'toast ok';
+    refreshToast.textContent = 'Checking Monday.com + COIs — this can take a minute…';
+    try {
+      const res = await fetch('/office-ops/compliance/refresh', { method: 'POST' });
+      const data = await res.json();
+      if (!data.success) {
+        refreshToast.className = 'toast err';
+        refreshToast.textContent = data.error || 'Refresh failed';
+        refreshBtn.disabled = false;
+        return;
+      }
+      refreshToast.textContent = `Done — checked ${data.checked} subs. Refreshing…`;
+      setTimeout(() => window.location.reload(), 800);
+    } catch (e) {
+      refreshToast.className = 'toast err';
+      refreshToast.textContent = 'Network error';
+      refreshBtn.disabled = false;
+    }
+  });
+
+  document.querySelectorAll('.override-form').forEach(form => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const itemId = form.getAttribute('data-item-id');
+      const dateVal = form.querySelector('input[type="date"]').value;
+      if (!dateVal) return;
+      const btn = form.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      try {
+        const res = await fetch('/office-ops/compliance/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, date: dateVal }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          btn.textContent = 'Failed';
+          alert(data.error || 'Save failed');
+          btn.disabled = false;
+          btn.textContent = 'Save';
+          return;
+        }
+        window.location.reload();
+      } catch (err) {
+        alert('Network error');
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
+    });
+  });
+  </script>
+</body>
+</html>

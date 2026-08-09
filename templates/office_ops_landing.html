@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Office Ops · PPS Hub</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/pps-global.css">
+  <style>
+    :root {
+      --navy: #0B1D36; --blue: #1A5276; --gold: #B8922A; --bg: #F7F5F0;
+      --card: #fff; --border: #E5E0D5; --muted: #6B7280;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'DM Sans', system-ui, sans-serif; background: var(--bg); color: #1a1a1a; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 20px 18px 48px; }
+    .hero {
+      background: linear-gradient(135deg, #0B1D36 0%, #1A5276 100%);
+      color: #fff; border-radius: 16px; padding: 22px 24px; margin-bottom: 20px;
+    }
+    .hero h1 { font-family: 'DM Serif Display', serif; font-size: 1.75rem; margin: 8px 0 6px; font-weight: 400; }
+    .hero p { margin: 0; opacity: 0.9; font-size: 0.95rem; line-height: 1.5; max-width: 42rem; }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; background: rgba(255,255,255,0.15); padding: 4px 10px; border-radius: 999px;
+    }
+    .grid { display: grid; gap: 16px; }
+    @media (min-width: 700px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
+    .card-link {
+      display: block; background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 22px; box-shadow: 0 1px 2px rgba(11,29,54,0.04); text-decoration: none; color: inherit;
+      transition: box-shadow 0.15s, transform 0.15s;
+    }
+    .card-link:hover { box-shadow: 0 6px 20px rgba(11,29,54,0.12); transform: translateY(-1px); }
+    .card-link h2 {
+      margin: 0 0 8px; font-family: 'DM Serif Display', serif; font-weight: 400; font-size: 1.3rem; color: var(--navy);
+    }
+    .card-link p { margin: 0; color: var(--muted); font-size: 0.92rem; line-height: 1.5; }
+    .arrow { color: var(--gold); font-weight: 700; margin-top: 12px; display: block; }
+  </style>
+</head>
+<body>
+  <header class="pps-header">
+    <a href="/dashboard" class="pps-header-left">
+      <img src="/static/logo.png" alt="PPS" class="pps-header-logo" width="36" height="36">
+      <span class="pps-header-title">Office Ops</span>
+    </a>
+    <div class="pps-header-right">
+      <span class="pps-header-user">{{ user_display }}</span>
+      <a href="/dashboard" class="pps-btn-header">Dashboard</a>
+      <a href="/logout" class="pps-btn-header">Sign Out</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="hero">
+      <span class="badge">Stephanie + Thomas</span>
+      <h1>Office Ops</h1>
+      <p>Pick a workspace.</p>
+    </div>
+
+    <div class="grid grid-2">
+      <a class="card-link" href="/office-ops/numbers">
+        <h2>Numbers</h2>
+        <p>Thursday pack — QB uploads (Invoice List, A/R Aging, P&amp;L) build the Monday Numbers Excel with sales vs goal, AR totals, and past-due notes.</p>
+        <span class="arrow">Open Numbers →</span>
+      </a>
+      <a class="card-link" href="/office-ops/compliance">
+        <h2>Compliance</h2>
+        <p>Trade Partner insurance status — expired/expiring COIs, new subs, and manual-entry flags, pulled weekly from the Monday.com Sub Info board.</p>
+        <span class="arrow">Open Compliance →</span>
+      </a>
+    </div>
+  </div>
+</body>
+</html>
