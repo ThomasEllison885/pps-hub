@@ -47,6 +47,10 @@ services:
         value: thomas_ellison
       - key: DAILY_DIGEST_EMAIL
         sync: false
+      - key: MONDAY_API_TOKEN
+        sync: false
+      - key: MONDAY_SUB_INFO_BOARD_ID
+        value: "672547511"
 
   - type: cron
     name: pps-hub-daily-digest
@@ -61,3 +65,16 @@ services:
       - key: HUB_PUBLIC_URL
         value: https://hub.purepropsolutions.com
       # Optional: set DAILY_DIGEST_FORCE=true and Trigger Run once to test email delivery.
+
+  - type: cron
+    name: pps-hub-weekly-tp-compliance
+    runtime: python
+    # 12 UTC Monday ≈ 7-8am US/Eastern (EDT/EST).
+    schedule: "0 12 * * 1"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_weekly_tp_compliance.py
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com

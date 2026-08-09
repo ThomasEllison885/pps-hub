@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
 import pipeline_board
 import office_ops
+import insurance_compliance
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -1111,6 +1112,7 @@ def init_db():
     pipeline_board.init_tables(cur)
     pipeline_board.cleanup_legacy_import_notes(cur)
     office_ops.init_tables(cur)
+    insurance_compliance.init_tables(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
@@ -3006,6 +3008,27 @@ def cron_daily_digest():
         return jsonify(result), 200
     except Exception as e:
         print(f'Daily digest cron error: {e}')
+        import traceback
+        traceback.print_exc()
+        return _api_error(e, ok=False)
+
+
+@app.route('/api/cron/weekly-tp-compliance', methods=['POST'])
+def cron_weekly_tp_compliance():
+    """Weekly Trade Partner insurance compliance digest — Stephanie + Thomas only."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+
+    try:
+        recipients = [USERS['stephanie_whetstone']['email'], USERS['thomas_ellison']['email']]
+        result = insurance_compliance.run_weekly_compliance_check(
+            get_db,
+            _send_digest_email,
+            recipients,
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        print(f'Weekly TP compliance cron error: {e}')
         import traceback
         traceback.print_exc()
         return _api_error(e, ok=False)
