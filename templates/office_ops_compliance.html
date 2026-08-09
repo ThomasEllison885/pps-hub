@@ -42,6 +42,8 @@
     .card h2 {
       margin: 0 0 12px; font-size: 0.85rem; font-weight: 700; letter-spacing: 0.02em;
     }
+    .card.payflag { border-color: #9d174d; }
+    .card.payflag h2 { color: #9d174d; }
     .card.expired h2 { color: var(--danger); }
     .card.soon h2 { color: #c2410c; }
     .card.later h2 { color: #a16207; }
@@ -109,6 +111,47 @@
         <p class="muted" style="margin:0">{{ empty_msg }}</p>
       {% endif %}
     {% endmacro %}
+
+    <div class="card payflag">
+      <h2>Pay requests to non-compliant subs ({{ pay_flagged|length }})</h2>
+      <p class="muted" style="margin:0 0 10px">
+        Recent Pay Request board items (In Request / On Hold) matched to a sub whose insurance is expired or expiring soon.
+      </p>
+      {% if pay_flagged %}
+        {% for f in pay_flagged %}
+        <div class="row">
+          <div>
+            <div class="name">
+              {{ f.pay_request_name }}
+              {% if f.match_confidence == 'fuzzy' %}<span class="detail">(matched to "{{ f.matched_sub }}")</span>{% endif %}
+            </div>
+            <div class="detail">
+              {{ '${:,.0f}'.format(f.amount) if f.amount is not none else '$?' }} requested {{ f.date.strftime('%m/%d/%Y') if f.date else '—' }}
+              · sub {{ f.our_status.replace('_', ' ') }}, expires {{ f.effective_ins.strftime('%m/%d/%Y') if f.effective_ins else '—' }}
+              {% if f.status_disagreement %} · <strong>board says compliant, we say otherwise</strong>{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" style="margin:0">None.</p>
+      {% endif %}
+      {% if pay_unmatched %}
+      <details style="margin-top:12px">
+        <summary class="muted" style="cursor:pointer">{{ pay_unmatched|length }} pay request name(s) couldn't be matched to a sub</summary>
+        <div style="margin-top:8px">
+          {% for u in pay_unmatched %}
+          <div class="row">
+            <div>
+              <div class="name">{{ u.pay_request_name }}</div>
+              <div class="detail">{{ '${:,.0f}'.format(u.amount) if u.amount is not none else '$?' }} · {{ u.group }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
 
     <div class="card expired">
       <h2>Expired ({{ expired|length }})</h2>

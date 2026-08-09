@@ -12,6 +12,7 @@ send_email_fn(subject, text_body, html_body, recipients) -> bool
 
 from __future__ import annotations
 
+import difflib
 import re
 from datetime import date, datetime
 from html import escape
@@ -214,6 +215,105 @@ def _bucket_label(exp_date, today):
     if delta <= EXPIRING_LATER_DAYS:
         return 'expiring_later'
     return None
+
+
+FUZZY_MATCH_THRESHOLD = 0.75
+
+
+def _match_sub_name(name, snapshot_names, threshold=FUZZY_MATCH_THRESHOLD):
+    """Match a Pay Request item's name against known Sub Info names.
+
+    Two-tier: cheap substring match first (same pattern as office_ops.py's
+    past-due customer matching), then a difflib fallback so real typos and
+    misspellings ("Grey Sky" vs "Gray Sky", transposed letters) still match
+    instead of silently falling through to "unmatched." Returns
+    (matched_name, 'exact'|'fuzzy') or (None, None) if nothing clears the
+    threshold — a miss is safer than a wrong guess between two subs with
+    genuinely similar names.
+    """
+    key = (name or '').lower().strip()
+    if not key:
+        return None, None
+    for candidate in snapshot_names:
+        cand_norm = candidate.lower().strip()
+        if key == cand_norm or key in cand_norm or cand_norm in key:
+            return candidate, 'exact'
+    best_name, best_score = None, 0.0
+    for candidate in snapshot_names:
+        score = difflib.SequenceMatcher(None, key, candidate.lower().strip()).ratio()
+        if score > best_score:
+            best_name, best_score = candidate, score
+    if best_name and best_score >= threshold:
+        return best_name, 'fuzzy'
+    return None, None
+
+
+def check_pay_requests(get_db_fn):
+    """Cross-reference the Pay Request board's active pipeline (In Request,
+    On Hold) against current sub compliance status — flags a recent pay
+    request to a sub whose insurance is expired/expiring, which is the
+    exact failure mode this whole feature exists to catch (paying/continuing
+    to use someone whose insurance lapsed). Read-only against Monday; never
+    writes to the unused Sub Info connect-column or the manual "Insurance
+    Compliance" status on Pay Request — those stay human-owned.
+    """
+    today = date.today()
+    rows, _ = get_latest_snapshot_rows(get_db_fn)
+    name_lookup = {r['name']: r for r in rows}
+    snapshot_names = list(name_lookup.keys())
+
+    pay_items = monday_client.fetch_pay_request_items()
+
+    flagged = []
+    unmatched = []
+    for it in pay_items:
+        col = it.get('column_values') or []
+        pr_name = it.get('name') or ''
+        group_name = (it.get('group') or {}).get('title') or ''
+
+        status_cv = _col_value(col, monday_client.PAY_REQUEST_COL_STATUS)
+        date_cv = _col_value(col, monday_client.PAY_REQUEST_COL_DATE)
+        amount_cv = _col_value(col, monday_client.PAY_REQUEST_COL_AMOUNT)
+        job_cv = _col_value(col, monday_client.PAY_REQUEST_COL_JOB_NAME)
+
+        monday_status = (status_cv['text'] if status_cv else '') or None
+        request_date = _parse_monday_date(date_cv['text'] if date_cv else None)
+        try:
+            amount = float(amount_cv['text']) if amount_cv and amount_cv.get('text') else None
+        except (TypeError, ValueError):
+            amount = None
+        job_name = (job_cv['text'] if job_cv else '') or None
+
+        matched_name, confidence = _match_sub_name(pr_name, snapshot_names)
+        if not matched_name:
+            unmatched.append({
+                'pay_request_name': pr_name,
+                'amount': amount,
+                'date': request_date,
+                'group': group_name,
+            })
+            continue
+
+        sub_row = name_lookup[matched_name]
+        bucket = _bucket_label(sub_row['effective_ins'], today)
+        if bucket in ('expired', 'expiring_soon'):
+            monday_says_compliant = bool(monday_status and monday_status.lower().strip() == 'compliant')
+            flagged.append({
+                'pay_request_name': pr_name,
+                'matched_sub': matched_name,
+                'match_confidence': confidence,
+                'amount': amount,
+                'date': request_date,
+                'group': group_name,
+                'job_name': job_name,
+                'our_status': bucket,
+                'effective_ins': sub_row['effective_ins'],
+                'monday_status': monday_status,
+                'status_disagreement': monday_says_compliant,
+            })
+
+    flagged.sort(key=lambda f: -(f['amount'] or 0))
+    return {'flagged': flagged, 'unmatched': unmatched}
 
 
 def categorize_rows(rows, today):
@@ -443,9 +543,15 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
         conn.commit()
         cur.close()
 
-        subject, text_body, html_body = _build_digest(rows, today)
+        try:
+            pay_request_result = check_pay_requests(get_db_fn)
+        except Exception as e:
+            print(f'Pay Request cross-check failed (continuing without it): {e}')
+            pay_request_result = {'flagged': [], 'unmatched': []}
+
+        subject, text_body, html_body = _build_digest(rows, today, pay_request_result)
         sent = send_email_fn(subject, text_body, html_body, recipients)
-        return {'ok': True, 'sent': sent, 'checked': len(rows)}
+        return {'ok': True, 'sent': sent, 'checked': len(rows), 'pay_requests_flagged': len(pay_request_result['flagged'])}
     finally:
         conn.close()
 
@@ -464,10 +570,22 @@ def _needs_manual_message(r):
     return f"{base}, and no board date entered either"
 
 
-def _build_digest(rows, today):
+def _pay_request_message(f):
+    amt = f'${f["amount"]:,.0f}' if f['amount'] is not None else '$?'
+    when = _fmt_date(f['date'])
+    match_note = '' if f['match_confidence'] == 'exact' else f" (fuzzy match to \"{f['matched_sub']}\")"
+    status_note = (
+        f" — Monday board says compliant, we say {f['our_status'].replace('_', ' ')}"
+        if f['status_disagreement'] else f" ({f['our_status'].replace('_', ' ')})"
+    )
+    return f"{f['pay_request_name']}{match_note} — {amt} requested {when}, sub expires {_fmt_date(f['effective_ins'])}{status_note}"
+
+
+def _build_digest(rows, today, pay_request_result=None):
     cats = categorize_rows(rows, today)
     expired, soon, later = cats['expired'], cats['soon'], cats['later']
     new_subs, mismatches, needs_manual = cats['new_subs'], cats['mismatches'], cats['needs_manual']
+    pay_flagged = (pay_request_result or {}).get('flagged') or []
 
     lines = [f'PPS Trade Partner Compliance — {today.strftime("%A, %B %d, %Y")}', '']
 
@@ -479,6 +597,7 @@ def _build_digest(rows, today):
             lines.append(f'  - {fmt(it)}')
         lines.append('')
 
+    _section('PAY REQUESTS TO NON-COMPLIANT SUBS', pay_flagged, _pay_request_message)
     _section('EXPIRED', expired, lambda r: f"{r['name']} — expired {_fmt_date(r['effective_ins'])} [{r['effective_source']}]")
     _section(f'EXPIRING ≤{EXPIRING_SOON_DAYS} DAYS', soon, lambda r: f"{r['name']} — expires {_fmt_date(r['effective_ins'])} [{r['effective_source']}]")
     _section(f'EXPIRING {EXPIRING_SOON_DAYS+1}-{EXPIRING_LATER_DAYS} DAYS', later, lambda r: f"{r['name']} — expires {_fmt_date(r['effective_ins'])} [{r['effective_source']}]")
@@ -487,7 +606,7 @@ def _build_digest(rows, today):
               lambda r: f"{r['name']} — board says {_fmt_date(r['manual_ins'])}, COI PDF says {_fmt_date(r['extracted_ins'])}")
     _section('NEEDS MANUAL ENTRY', needs_manual, _needs_manual_message)
 
-    if not (expired or soon or later or new_subs or mismatches):
+    if not (pay_flagged or expired or soon or later or new_subs or mismatches):
         lines.append('Nothing flagged this week — all checked subs are current.')
         lines.append('')
 
@@ -506,6 +625,7 @@ def _build_digest(rows, today):
             html_parts.append(f'<li>{escape(fmt(it))}</li>')
         html_parts.append('</ul>')
 
+    _html_section('Pay requests to non-compliant subs', pay_flagged, _pay_request_message, '#9d174d')
     _html_section('Expired', expired, lambda r: f"{r['name']} — expired {_fmt_date(r['effective_ins'])} [{r['effective_source']}]", '#b91c1c')
     _html_section(f'Expiring ≤{EXPIRING_SOON_DAYS} days', soon, lambda r: f"{r['name']} — expires {_fmt_date(r['effective_ins'])} [{r['effective_source']}]", '#c2410c')
     _html_section(f'Expiring {EXPIRING_SOON_DAYS+1}-{EXPIRING_LATER_DAYS} days', later, lambda r: f"{r['name']} — expires {_fmt_date(r['effective_ins'])} [{r['effective_source']}]", '#a16207')
@@ -514,14 +634,16 @@ def _build_digest(rows, today):
                    lambda r: f"{r['name']} — board says {_fmt_date(r['manual_ins'])}, COI PDF says {_fmt_date(r['extracted_ins'])}", '#4338ca')
     _html_section('Needs manual entry', needs_manual, _needs_manual_message, '#78716c')
 
-    if not (expired or soon or later or new_subs or mismatches):
+    if not (pay_flagged or expired or soon or later or new_subs or mismatches):
         html_parts.append('<p>Nothing flagged this week — all checked subs are current.</p>')
 
     html_parts.append(f'<p style="color:#64748b;font-size:12px;">Checked {len(rows)} subs. Source: Monday.com Sub Info + COI PDF extraction (best-effort).</p>')
     html_body = '\n'.join(html_parts)
 
     subject = 'PPS Trade Partner Compliance'
-    if expired:
+    if pay_flagged:
+        subject += f' — {len(pay_flagged)} PAY REQUEST(S) TO NON-COMPLIANT SUBS'
+    elif expired:
         subject += f' — {len(expired)} EXPIRED'
     elif soon:
         subject += f' — {len(soon)} expiring soon'

@@ -2138,6 +2138,11 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
         rows, last_run_at = insurance_compliance.get_latest_snapshot_rows(get_db_fn)
         from datetime import date as date_type
         cats = insurance_compliance.categorize_rows(rows, date_type.today())
+        try:
+            pay_request_result = insurance_compliance.check_pay_requests(get_db_fn)
+        except Exception as e:
+            print(f'Compliance page: Pay Request cross-check failed: {e}')
+            pay_request_result = {'flagged': [], 'unmatched': []}
         return render_template(
             'office_ops_compliance.html',
             user_display=(users.get(session.get('user_key')) or {}).get('display', session.get('user_key')),
@@ -2149,6 +2154,8 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
             new_subs=cats['new_subs'],
             mismatches=cats['mismatches'],
             needs_manual=cats['needs_manual'],
+            pay_flagged=pay_request_result['flagged'],
+            pay_unmatched=pay_request_result['unmatched'],
         )
 
     @app.route('/office-ops/compliance/refresh', methods=['POST'])

@@ -139,6 +139,91 @@ def fetch_sub_info_items(board_id=None, groups=ACTIVE_GROUPS):
     return items
 
 
+# Pay Request board — cross-referenced against Sub Info compliance status
+# (Thomas, 2026-08-10). The board's own "Sub Info" connect-column
+# (board_relation_mm0m3act) exists but is empty on every item checked live —
+# not populated in practice, so matching has to go by name (see
+# insurance_compliance._match_sub_name), not a board relation.
+PAY_REQUEST_BOARD_ID = os.environ.get('MONDAY_PAY_REQUEST_BOARD_ID', '2358228368')
+
+PAY_REQUEST_COL_STATUS = 'status__1'      # "Insurance Compliance" — manually set, not COI-verified
+PAY_REQUEST_COL_DATE = 'date4'            # "Date"
+PAY_REQUEST_COL_AMOUNT = 'numbers'        # "Requested Amount"
+PAY_REQUEST_COL_JOB_NAME = 'text8'        # "Job Name"
+
+# Only the active pipeline — money not yet out the door. "Paid Out" holds the
+# bulk of this board's 5,206 items and is after-the-fact, not needed for a
+# forward-looking warning.
+PAY_REQUEST_ACTIVE_GROUPS = ('In Request', 'On Hold')
+
+_PAY_REQUEST_COLUMN_IDS = '["status__1", "date4", "numbers", "text8"]'
+
+_PAY_REQUEST_NEXT_PAGE_QUERY = f'''
+query($cursor: String!) {{
+  next_items_page(cursor: $cursor, limit: 50) {{
+    cursor
+    items {{
+      id
+      name
+      group {{ title }}
+      column_values(ids: {_PAY_REQUEST_COLUMN_IDS}) {{
+        id
+        text
+        value
+      }}
+    }}
+  }}
+}}
+'''
+
+
+def fetch_pay_request_items(board_id=None, groups=PAY_REQUEST_ACTIVE_GROUPS):
+    """Return raw items from the active Pay Request groups (In Request, On
+    Hold). Same items_page/next_items_page pagination shape as
+    fetch_sub_info_items."""
+    board_id = board_id or PAY_REQUEST_BOARD_ID
+    items = []
+    query = f'''
+    query($boardId: [ID!]) {{
+      boards(ids: $boardId) {{
+        groups {{
+          title
+          items_page(limit: 50) {{
+            cursor
+            items {{
+              id
+              name
+              group {{ title }}
+              column_values(ids: {_PAY_REQUEST_COLUMN_IDS}) {{
+                id
+                text
+                value
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+    '''
+    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
+    for board in boards:
+        for group in board.get('groups') or []:
+            if groups and group.get('title') not in groups:
+                continue
+            page = group.get('items_page') or {}
+            for it in page.get('items') or []:
+                items.append(it)
+
+            cursor = page.get('cursor')
+            while cursor:
+                next_page = monday_graphql(_PAY_REQUEST_NEXT_PAGE_QUERY, {'cursor': cursor}).get('next_items_page') or {}
+                for it in next_page.get('items') or []:
+                    it.setdefault('group', {'title': group.get('title')})
+                    items.append(it)
+                cursor = next_page.get('cursor')
+    return items
+
+
 def resolve_asset_urls(asset_ids):
     """Return {asset_id: public_url} for a batch of Monday file asset IDs."""
     if not asset_ids:
