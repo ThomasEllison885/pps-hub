@@ -13,7 +13,7 @@ send_email_fn(subject, text_body, html_body, recipients) -> bool
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from html import escape
 
 import monday_client
@@ -65,6 +65,15 @@ def init_tables(cur):
     cur.execute('''
         ALTER TABLE office_ops_tp_snapshot
         ALTER COLUMN extract_confidence TYPE TEXT
+    ''')
+    # Monday's own "Date Found" column — the real signal for "new sub."
+    # first_seen_at (this table's insert time) is NOT usable for that: this
+    # table didn't exist before 2026-08-09, so every sub already on the
+    # board got first_seen_at = that day, making every veteran sub look
+    # "new" for 30 days after launch. date_found fixes that (2026-08-10).
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS date_found DATE
     ''')
 
 
@@ -254,7 +263,7 @@ def get_latest_snapshot_rows(get_db_fn):
             SELECT monday_item_id, name, group_name, insurance_expires_manual,
                    wc_expires_manual, insurance_expires_extracted, extract_confidence,
                    additional_insured_present, coi_asset_name, insurance_expires_override,
-                   override_by, first_seen_at, updated_at
+                   override_by, date_found, updated_at
             FROM office_ops_tp_snapshot
             ORDER BY name
         ''')
@@ -262,12 +271,11 @@ def get_latest_snapshot_rows(get_db_fn):
         cur.close()
 
         today = date.today()
-        new_cutoff = today - timedelta(days=NEW_SUB_WINDOW_DAYS)
         rows = []
         last_run_at = None
         for (item_id, name, group_name, manual_ins, manual_wc, extracted_ins,
              confidence, additional_insured, coi_name, override_ins, override_by,
-             first_seen_at, updated_at) in db_rows:
+             date_found, updated_at) in db_rows:
             if updated_at and (last_run_at is None or updated_at > last_run_at):
                 last_run_at = updated_at
 
@@ -280,7 +288,9 @@ def get_latest_snapshot_rows(get_db_fn):
             else:
                 effective_ins, effective_source = None, None
 
-            is_new = bool(first_seen_at and first_seen_at.date() >= new_cutoff)
+            # Same "new" definition as run_weekly_compliance_check — Monday's
+            # own Date Found column, not our table's insert time.
+            is_new = bool(date_found and (today - date_found).days <= NEW_SUB_WINDOW_DAYS)
             needs_manual_review = (not extracted_ins) and (not override_ins)
 
             rows.append({
@@ -324,8 +334,10 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
 
             ins_cv = _col_value(col, monday_client.COL_DATE_INSURANCE)
             wc_cv = _col_value(col, monday_client.COL_DATE_WORKERS_COMP)
+            found_cv = _col_value(col, monday_client.COL_DATE_FOUND)
             manual_ins = _parse_monday_date(ins_cv['text'] if ins_cv else None)
             manual_wc = _parse_monday_date(wc_cv['text'] if wc_cv else None)
+            date_found = _parse_monday_date(found_cv['text'] if found_cv else None)
 
             files_col = _col_value(col, monday_client.COL_FILES)
             files = monday_client.parse_files_column(files_col) if files_col else []
@@ -351,9 +363,12 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 (item_id,),
             )
             existing = cur.fetchone()
-            is_new = existing is None
             override_ins = existing[1] if existing else None
             override_by = existing[2] if existing else None
+            # "New" means Monday's own Date Found is recent — NOT whether
+            # this is the first time our table has seen the item (that
+            # conflates "new to us" with "new to the business").
+            is_new = bool(date_found and (today - date_found).days <= NEW_SUB_WINDOW_DAYS)
 
             # Priority: a COI we can actually read > a human-typed Hub
             # override (someone looked at the real file) > the Monday
@@ -373,8 +388,8 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 INSERT INTO office_ops_tp_snapshot
                     (monday_item_id, name, group_name, insurance_expires_manual,
                      wc_expires_manual, insurance_expires_extracted, extract_confidence,
-                     additional_insured_present, coi_asset_name, last_seen_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                     additional_insured_present, coi_asset_name, date_found, last_seen_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (monday_item_id) DO UPDATE SET
                     name = EXCLUDED.name,
                     group_name = EXCLUDED.group_name,
@@ -384,11 +399,12 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                     extract_confidence = EXCLUDED.extract_confidence,
                     additional_insured_present = EXCLUDED.additional_insured_present,
                     coi_asset_name = EXCLUDED.coi_asset_name,
+                    date_found = EXCLUDED.date_found,
                     last_seen_at = NOW(),
                     updated_at = NOW()
             ''', (item_id, name, group_name, manual_ins, manual_wc,
                   extracted['gl_exp'], extracted['confidence'],
-                  extracted['additional_insured'], coi_name))
+                  extracted['additional_insured'], coi_name, date_found))
             # Note: override_* columns are untouched by this upsert (not in
             # the SET clause) — a manual correction survives every future
             # weekly run until a real COI is read and beats it.
