@@ -35,7 +35,7 @@ def init_tables(cur):
             insurance_expires_manual DATE,
             wc_expires_manual DATE,
             insurance_expires_extracted DATE,
-            extract_confidence VARCHAR(50),
+            extract_confidence TEXT,
             additional_insured_present BOOLEAN,
             coi_asset_name VARCHAR(255),
             first_seen_at TIMESTAMP DEFAULT NOW(),
@@ -58,6 +58,13 @@ def init_tables(cur):
     cur.execute('''
         ALTER TABLE office_ops_tp_snapshot
         ADD COLUMN IF NOT EXISTS override_at TIMESTAMP
+    ''')
+    # Widen extract_confidence on tables created before this fix (2026-08-09) —
+    # fetch_error values embed the exception message, which routinely runs
+    # past 50 chars ("value too long for type character varying(50)").
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ALTER COLUMN extract_confidence TYPE TEXT
     ''')
 
 
@@ -336,7 +343,7 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                         extracted = _extract_coi_fields(pdf_bytes)
                 except Exception as e:
                     extracted = {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
-                                 'confidence': f'fetch_error: {e}'}
+                                 'confidence': f'fetch_error: {e}'[:300]}
 
             cur.execute(
                 'SELECT first_seen_at, insurance_expires_override, override_by '
