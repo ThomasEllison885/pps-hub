@@ -594,11 +594,13 @@ PSC_COMPANY_OPERATIONS = {
         'How PPS actually runs — not generic construction knowledge. Weeks 0–3 pair you with an experienced consultant '
         'on real projects while you complete these modules with your manager. Each module has SOP bullets (many still '
         'being captured from the field), a required manager 1:1, and hands-on exercises. '
-        'Training develops judgment and confidence — not just information transfer.'
+        'Training develops judgment and confidence — not just information transfer. '
+        'Company standard (2026-08): awarded jobs use a PSC + PM + Trade Partner three-way text chain — see Trade Partners module.'
     ),
     'draft_note': (
         'SOP sections marked [TO DOCUMENT] are gaps we are filling through Ask PPS and manager capture sessions. '
-        'Field reality may differ from leadership intent — document what actually happens.'
+        'Field reality may differ from leadership intent — document what actually happens. '
+        'Three-way text chain SOP captured from Sales Meeting 2026-08-10 (Andy/Adam/Tony/Thomas/Rachel).'
     ),
     'modules': [
         {
@@ -722,6 +724,10 @@ PSC_COMPANY_OPERATIONS = {
             'sop_placeholders': [
                 'Opportunity & discovery → site visit → scope capture → proposal → client review conversation (never cold-send)',
                 'Award → PPM → mobilization → active job — PSC stays the relationship point of contact',
+                (
+                    'At award + ready to schedule: start PSC + PM + Trade Partner three-way text for that job '
+                    '(see Trade Partners module). All field Q&A, photos, delays live there until punch/pay.'
+                ),
                 'Change orders: cease/document/approve in writing before extra work; PSC coordinates client, PM owns field',
                 'Punch list and close-out walkthrough — who attends, what gets documented',
                 'PSC leads: relationship, scope narrative, client communication, site visit quality',
@@ -1024,38 +1030,95 @@ PSC_COMPANY_OPERATIONS = {
             'assigned_week': 2,
             'summary': (
                 'Trade Partners are an extension of the PPS team. Learn through partner projects — estimating conversations, '
-                'scope discussions, and site coordination alongside your mentor — not in isolation.'
+                'scope discussions, and site coordination alongside your mentor — not in isolation. '
+                'Company standard after award: PSC + PM + Trade Partner share one job text chain (see SOP).'
             ),
             'sop_placeholders': [
                 '[TO DOCUMENT] How do we find and recruit new Trade Partners?',
-                '[TO DOCUMENT] What must a Trade Partner have before we use them (insurance, quality, etc.)?',
+                (
+                    'Before first use: signed sub agreement, current COI, workers’ comp (or documented exemption) — '
+                    'Stephanie owns DocuSign packet; you send name + email + company. Board tracks Sub Compliance.'
+                ),
                 'Trade Partner Scope = crew-ready language; PSC does not promise scope production has not confirmed',
                 'Scheduling and 48-hour resident notice — PM/production lead; PSC communicates to client',
-                '[TO DOCUMENT] When do we pay a Trade Partner, and what QC is required first?',
+                (
+                    'THREE-WAY TEXT CHAIN (company standard — Sales Meeting 2026-08-10): When a job is awarded and '
+                    'ready to schedule, start a group text = you (PSC) + PM + Trade Partner lead for that job. '
+                    'Not required at walk/estimate only. Super-simple one-loop jobs may be light — do not default to silence.'
+                ),
+                (
+                    'On the chain: job questions, ETAs, material issues, progress/finish photos, delays. Not private '
+                    'PM↔sub only. Whoever can answer fastest answers (PSC or PM). You stay informed so the client never '
+                    'surprises you with “where are the guys?”'
+                ),
+                (
+                    'Why you stay on the chain even if the PM “runs” the field: (1) more informed on your jobs, '
+                    '(2) you see issues and potential solutions as they form — even when silent — so you learn and can '
+                    'brief the client, (3) you can take point on pay: tell the TP you will enter the pay request when '
+                    'work/photos check out (punch before pay; ACH preferred).'
+                ),
+                (
+                    'Trust but verify — not distrust of production. Simple jobs may need almost no texts; you never fully '
+                    'step away because it is your sale and next award. Prefer many small chains (per job / per TP) over '
+                    'one mega-group. Client-wide chains (e.g. Morgan) are OK for multi-job traffic.'
+                ),
+                (
+                    'TP buy-in takes time: some will only text the PM at first. Set the expectation, answer real questions '
+                    'on the three-way, build trust — they will use the group. If a PM refuses the standard, escalate to '
+                    'manager / production leadership (not optional style).'
+                ),
+                (
+                    'Pay / QC: photos and completion on the thread support QC. PSC often enters or drives the pay request '
+                    'once work is accepted; incomplete punch should not get final pay. Stephanie/office handles ACH setup.'
+                ),
                 'Include new PSC in Trade Partner site visits and estimate conversations during partner projects',
                 '[TO DOCUMENT] Preferred Trade Partners by trade — who and specialty?',
             ],
             'manager_1on1': (
-                '45-minute session: review one Trade Partner Scope document and the Monday.com/production '
-                'record for that job. Discuss how the sub was selected and how scope was confirmed.'
+                '45-minute session: (1) review one Trade Partner Scope and the Monday/production record for that job; '
+                '(2) open or mock a real PSC + PM + TP three-way text on an active/scheduled job; (3) confirm who enters '
+                'pay requests and what photos/QC are required before pay.'
             ),
             'items': [
                 {
                     'id': 'ops_tp_read',
                     'title': 'Review Trade Partner SOP',
-                    'text': 'Read the SOP bullets. Note what you are allowed to promise clients vs. what requires production sign-off.',
+                    'text': (
+                        'Read the SOP bullets — especially the three-way text chain and pay/QC rules. '
+                        'Note what you may promise clients vs. what requires production sign-off.'
+                    ),
                 },
                 {
                     'id': 'ops_tp_1on1',
-                    'title': 'Manager 1:1 — Trade Partner handoff',
-                    'text': 'Review a real Trade Partner Scope with your manager. Identify crew-ready vs. client-facing language.',
+                    'title': 'Manager 1:1 — Trade Partner handoff + text chain',
+                    'text': (
+                        'Review a real Trade Partner Scope with your manager. Identify crew-ready vs. client-facing language. '
+                        'Confirm when the three-way text starts (award + ready to schedule) and who is on it.'
+                    ),
                 },
                 {
                     'id': 'ops_tp_shadow',
                     'title': 'Shadow production/sub coordination',
                     'text': (
-                        'On a shadow day, note how the consultant and PM/production coordinate Trade Partner '
-                        'arrival, scope questions, and site issues.'
+                        'On a shadow day, note how the consultant and PM coordinate Trade Partner arrival, scope questions, '
+                        'and site issues. Count how many updates lived on a shared text vs. private side channels.'
+                    ),
+                },
+                {
+                    'id': 'ops_tp_text_chain',
+                    'title': 'Start or join a three-way text chain',
+                    'text': (
+                        'On a partner or solo job that is awarded and ready to schedule: create (or join) the group text '
+                        'PSC + PM + Trade Partner. Send a short kickoff line (job name, address, start window, who answers '
+                        'what). Show your manager. If the TP only replies to the PM, coach once on the group and log it.'
+                    ),
+                },
+                {
+                    'id': 'ops_tp_pay_point',
+                    'title': 'Pay-request path with the TP',
+                    'text': (
+                        'With your manager, walk how a TP gets paid on one real job: photos/QC, who enters the pay request, '
+                        'when you tell the TP “I’ll submit the request.” Write the one-sentence script you will use on the chain.'
                     ),
                 },
             ],
@@ -1071,6 +1134,10 @@ PSC_COMPANY_OPERATIONS = {
                 'Touchpoints: site visit follow-up, proposal review call (not cold email), award, mobilization, mid-job, close-out',
                 '48-hour notice and resident communication through property management',
                 'Copy PM/production on schedule, scope, and complaint threads; ownership on major investment decisions',
+                (
+                    'Job text chain (PSC + PM + TP) is your live field feed — use it so client updates are accurate '
+                    '(delay, crew status, finish). You can brief the client without a second detective call to the PM.'
+                ),
                 'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Tony/manager',
                 'Never to client without PM/manager review: production dates, pricing outside proposal, scope commitments',
                 '[TO DOCUMENT] Sample client update for one phase (award, delay, or close-out)?',

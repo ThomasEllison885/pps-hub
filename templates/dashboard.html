@@ -384,6 +384,9 @@
           {% if user_role in ('pm', 'office_manager', 'admin') %}
           <a href="/my-ppms" class="lane-link">My PPMs →</a>
           {% endif %}
+          {% if user_role in ('pm', 'consultant', 'admin') %}
+          <a href="/my-tpscopes" class="lane-link">My TPS →</a>
+          {% endif %}
           {% if office_ops_access %}
           <a href="/office-ops" class="lane-link">Office Ops →</a>
           {% endif %}

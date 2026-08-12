@@ -96,7 +96,7 @@ Do make every major skill answer: *Does this behavior increase trust, raise qual
 
 | Pillar | What it means at PPS (commercial MF) | Trainable behaviors |
 |--------|--------------------------------------|---------------------|
-| **Trust** | Client believes you’ll do what you said; production believes your scope; Trade Partners believe the sell | Check-in at office; 48-hr notice; no dates you can’t keep; review proposals live; include/exclude honesty; stop work + photo + written approval on extras |
+| **Trust** | Client believes you’ll do what you said; production believes your scope; Trade Partners believe the sell | Check-in at office; 48-hr notice; no dates you can’t keep; review proposals live; include/exclude honesty; stop work + photo + written approval on extras; **PSC+PM+TP three-way text** after award (Sales 2026-08-10) — informed, solutions visible, PSC can own pay-request path |
 | **Quality** | Durable, clean, code-aware commercial work — not custom home millwork | Prep before paint; decking inspection; product systems (GAF, SW); daily cleanup; punch before invoice |
 | **Results** | Jobs finish, get paid, lead to next award | Complete packages; multi-scope logic; options that close; follow-up; bread-crumb → loaf strategy |
 
