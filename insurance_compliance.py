@@ -353,30 +353,33 @@ def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeou
                 'confidence': f'vision_error: {e}'[:300]}
 
 
-# Confidence prefixes that mean "no usable date yet, still worth trying
-# vision" -- includes vision_error/vision_uncertain so a row that failed on
-# a previous vision attempt (timeout, transient API error, blurry read)
-# gets retried on the next batch instead of getting silently stuck forever.
-# A dedicated helper because vision_error embeds the exception message, so
-# it can't be an exact-match frozenset like the original three values.
-_SCANNED_PDF_CONFIDENCE_PREFIXES = (
-    'no_dates_found', 'unreadable', 'image_file', 'vision_uncertain', 'vision_error',
-)
+# Confidence values meaning "vision already looked at this and reached a
+# terminal outcome" -- retrying won't help, since nothing about the file
+# changes between attempts. vision_uncertain means Claude read the image
+# and genuinely couldn't tell (blurry/cropped/glare); unsupported_image_type
+# means the format itself (HEIC etc.) will never be vision-readable. Both
+# wait for a human (View COI + manual override) instead of being retried.
+#
+# vision_error is deliberately NOT here -- that's a technical failure
+# (timeout, API hiccup), not a read of the actual file, so it stays
+# eligible for another try. First cut of this (2026-08-13) treated
+# vision_uncertain the same as vision_error and made *all* image-kind rows
+# eligible unconditionally regardless of confidence -- on a board full of
+# genuinely blurry phone photos, that meant the same handful of rows got
+# retried on every single batch within one run (140 attempts against 47
+# real rows, confirmed live), since an uncertain read doesn't change
+# anything about the row that would make it ineligible next time.
+_VISION_TERMINAL_CONFIDENCE = frozenset({'vision_uncertain', 'unsupported_image_type'})
 
 
 def is_vision_target(row):
-    """Photos always. PDFs only when there's no usable extracted date yet —
-    scans/photos saved as .pdf, or a prior vision attempt that didn't pan
-    out. Skip rows with no file at all."""
+    """Any row with a viewable photo/scan and no usable date yet, unless a
+    prior vision attempt already reached a terminal outcome for it."""
     if not row.get('has_viewable_coi') and not row.get('coi_name'):
         return False
-    kind = row.get('coi_kind')
-    if kind == 'image':
-        return True
-    if kind == 'pdf':
-        confidence = row.get('confidence') or ''
-        return any(confidence.startswith(p) for p in _SCANNED_PDF_CONFIDENCE_PREFIXES)
-    return False
+    if row.get('coi_kind') not in ('image', 'pdf'):
+        return False
+    return (row.get('confidence') or '') not in _VISION_TERMINAL_CONFIDENCE
 
 
 def _pdf_first_page_jpeg(pdf_bytes):

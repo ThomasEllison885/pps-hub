@@ -121,23 +121,29 @@ def test_is_vision_target_photos_and_scanned_pdfs_not_empty_rows():
     assert ic.is_vision_target(empty) is False
 
 
-def test_is_vision_target_retries_a_previously_failed_vision_read():
-    # A PDF that already went through vision once and came back uncertain,
-    # or errored (timeout, transient API failure), must stay eligible --
-    # otherwise a row that failed once is stuck forever, since its
-    # confidence string no longer matches the original "never tried" set.
+def test_is_vision_target_retries_a_technical_failure_but_not_an_uncertain_read():
+    # vision_error (timeout, transient API failure) is a failed *attempt* --
+    # the file is fine, so it stays eligible for another try. vision_uncertain
+    # means Claude actually looked and genuinely couldn't tell -- retrying
+    # the same static image won't produce new information, so it's terminal
+    # for the automated path (waits for a human instead). Getting this
+    # backwards (both eligible) is what caused vision-pass to loop on the
+    # same unclear photos every batch within one run, 140 attempts against
+    # 47 real rows (2026-08-13, live).
     uncertain = _needs_manual_row(coi_kind='pdf')
     uncertain['confidence'] = 'vision_uncertain'
     errored = _needs_manual_row(coi_kind='pdf')
     errored['confidence'] = 'vision_error: ReadTimeout('  # message is embedded, not exact-match
-    assert ic.is_vision_target(uncertain) is True
+    assert ic.is_vision_target(uncertain) is False
     assert ic.is_vision_target(errored) is True
 
 
-def test_is_vision_target_excludes_pdf_already_read_by_text_extraction():
-    already_read = _needs_manual_row(coi_kind='pdf')
-    already_read['confidence'] = 'text_extracted'
-    assert ic.is_vision_target(already_read) is False
+def test_is_vision_target_excludes_unsupported_image_type_from_retry():
+    # HEIC etc. will never become vision-readable no matter how many times
+    # it's retried -- a format limitation, not a transient failure.
+    heic = _needs_manual_row(coi_kind='image')
+    heic['confidence'] = 'unsupported_image_type'
+    assert ic.is_vision_target(heic) is False
 
 
 def test_run_vision_pass_includes_scanned_pdfs(monkeypatch):
