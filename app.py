@@ -7566,29 +7566,32 @@ def _siding_filename(job):
 
 
 def _siding_preview_context(row):
-    from estimators.siding import calculate_quantities, aggregate_building_quantities
+    from estimators.siding import calculate_quantities, aggregate_building_quantities, compute_price_stack
     from estimators.siding.excel_builder import SOURCE_LABELS
 
     data = _siding_job_data_from_row(row)
     job = data.get('job', {})
     inputs = data.get('inputs', {})
+    buildings = data.get('buildings', [])
     building_rows = []
-    for b in data.get('buildings', []):
+    for b in buildings:
         qty = max(int(b.get('qty') or 1), 1)
         q = calculate_quantities(b.get('measurements') or {}, inputs, qty=qty)
         building_rows.append({
             'label': b.get('label') or 'Building',
-            'building_type': b.get('building_type') or 'Building',
+            'building_type': b.get('building_type') or 'A',
             'qty': qty,
             'source_label': SOURCE_LABELS.get(b.get('source'), b.get('source', '')),
             'quantities': q,
         })
     totals = aggregate_building_quantities(building_rows)
+    price_stack = data.get('price_stack') or compute_price_stack(buildings, inputs)
     return {
         'job': job,
         'inputs': inputs,
         'building_rows': building_rows,
         'totals': totals,
+        'price_stack': price_stack,
     }
 
 
@@ -7640,10 +7643,11 @@ def siding_estimator_generate():
         if not buildings:
             return jsonify({'error': 'Add at least one building'}), 400
 
-        from estimators.siding import build_estimate_excel
+        from estimators.siding import build_estimate_excel, compute_price_stack
         from estimators.reliability import build_siding_job_reliability
         pricing_loaded = parsed_pricing.get('loaded_count', 0)
         confidence = build_siding_job_reliability(buildings, pricing_loaded)
+        price_stack = compute_price_stack(buildings, inputs)
         buf = build_estimate_excel(
             job, buildings, inputs, pricing, library_rows=library_rows, confidence=confidence
         )
@@ -7657,6 +7661,7 @@ def siding_estimator_generate():
             'pricing': pricing,
             'library': library_rows,
             'confidence': confidence,
+            'price_stack': price_stack,
             'pricing_meta': {
                 'loaded_count': pricing_loaded,
                 'warnings': parsed_pricing.get('warnings', []),
@@ -7666,8 +7671,11 @@ def siding_estimator_generate():
         conn = get_db()
         if conn:
             cur = conn.cursor()
+            type_n = len(buildings)
+            bldg_n = price_stack.get('total_qty') or type_n
             siding_summary = ' · '.join(x for x in [
-                f"{len(buildings)} building{'s' if len(buildings) != 1 else ''}",
+                f"{type_n} type{'s' if type_n != 1 else ''}",
+                f"{bldg_n} building{'s' if bldg_n != 1 else ''}",
                 inputs.get('siding_type'),
             ] if x)
             cur.execute(
@@ -7722,6 +7730,7 @@ def siding_estimator_result(estimate_id):
         building_count=row.get('building_count') or 1,
         filename=_siding_filename(data.get('job', {})),
         totals=ctx['totals'],
+        price_stack=ctx.get('price_stack'),
         confidence=data.get('confidence'),
         user_email=session.get('user_email', ''),
     )

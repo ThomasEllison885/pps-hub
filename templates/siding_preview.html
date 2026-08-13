@@ -42,9 +42,9 @@
     <table>
       <thead>
         <tr>
-          <th>Building</th>
           <th>Type</th>
-          <th>Qty</th>
+          <th>Label</th>
+          <th># of type</th>
           <th>Source</th>
           <th>Wall (net)</th>
           <th>Siding (sq)</th>
@@ -53,16 +53,29 @@
       <tbody>
         {% for b in building_rows %}
         <tr>
-          <td>{{ b.label }}</td>
           <td>{{ b.building_type }}</td>
+          <td>{{ b.label }}</td>
           <td>{{ b.qty }}</td>
           <td>{{ b.source_label }}</td>
           <td>{{ b.quantities.wall_area_net }}</td>
-          <td>{{ b.quantities.siding_squares }}</td>
+          <td>{{ b.quantities.siding_squares_net_one or b.quantities.siding_squares }}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+
+    {% if price_stack %}
+    <div class="building-head">Price stack</div>
+    <table>
+      <tbody>
+        <tr><td>Cost (labor + haul + delivery)</td><td>${{ '{:,.0f}'.format(price_stack.cost) }}</td></tr>
+        <tr><td>Markup</td><td>${{ '{:,.0f}'.format(price_stack.markup) }}</td></tr>
+        <tr><td>Overhead</td><td>${{ '{:,.0f}'.format(price_stack.overhead) }}</td></tr>
+        <tr><td><strong>Invoice</strong></td><td><strong>${{ '{:,.0f}'.format(price_stack.invoice) }}</strong></td></tr>
+        <tr><td>Margin % (markup ÷ invoice)</td><td>{{ '%.1f'|format(price_stack.margin_pct * 100) }}%</td></tr>
+      </tbody>
+    </table>
+    {% endif %}
 
     <div class="building-head">Job totals</div>
     <table>

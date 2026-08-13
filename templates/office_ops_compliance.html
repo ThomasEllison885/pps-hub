@@ -328,6 +328,15 @@
             ? `Read ${totalDated} of ${totalAttempted} so far — still going…`
             : 'Reading COIs — this can take a bit…';
           const res = await fetch('/office-ops/compliance/vision-pass', { method: 'POST' });
+          if (!res.ok) {
+            // A non-2xx here (502/504 from Render's proxy, a raw 500 HTML
+            // error page, etc.) can't be parsed as JSON -- surface the real
+            // status instead of letting res.json() throw and landing in the
+            // generic catch block below as an undiagnosable "Network error".
+            let bodyPreview = '';
+            try { bodyPreview = (await res.text()).slice(0, 200); } catch (_) {}
+            throw new Error(`HTTP ${res.status} ${res.statusText}${bodyPreview ? ' — ' + bodyPreview : ''}`);
+          }
           const data = await res.json();
           if (!data.success) {
             visionToast.className = 'toast err';
@@ -347,9 +356,10 @@
         setTimeout(() => window.location.reload(), 1200);
       } catch (e) {
         visionToast.className = 'toast err';
+        const detail = (e && e.message) ? e.message : 'Network error';
         visionToast.textContent = totalAttempted
-          ? `Read ${totalDated} of ${totalAttempted} before a network error — you can click again to pick up the rest.`
-          : 'Network error';
+          ? `Read ${totalDated} of ${totalAttempted} before this: ${detail} — click again to pick up the rest.`
+          : detail;
         visionBtn.disabled = false;
       }
     });

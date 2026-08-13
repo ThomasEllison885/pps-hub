@@ -70,7 +70,7 @@ def build_estimate_excel(job, buildings, inputs, pricing, library_rows=None, con
     library_total_row = _build_library(wb, pricing, library_rows)
     mat_subtotal_row = _build_materials(wb, building_results, pricing, takeoff_refs, inputs)
     labor_subtotal_row = _build_labor(wb, building_results)
-    _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row)
+    _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row, inputs)
 
     from estimators.excel_branding import brand_estimate_workbook
     brand_estimate_workbook(wb)
@@ -180,7 +180,7 @@ def _build_summary(wb, job, building_results, inputs, confidence=None):
     row = 27
     _section_head(ws, row, 2, 'BUILDINGS ON THIS JOB', 6)
     row += 1
-    for col, txt in [('B', 'Building'), ('C', 'Type'), ('D', 'Qty'), ('E', 'Source'), ('F', 'Net Sq'), ('G', 'Order Sq')]:
+    for col, txt in [('B', 'Label'), ('C', 'Type'), ('D', '# of type'), ('E', 'Source'), ('F', 'Net Sq (one)'), ('G', 'Order Sq')]:
         ws[f'{col}{row}'] = txt
         ws[f'{col}{row}'].font = Font(bold=True, size=9, color=DARK_BLUE)
         ws[f'{col}{row}'].fill = PatternFill('solid', start_color=LIGHT_BLUE)
@@ -188,7 +188,7 @@ def _build_summary(wb, job, building_results, inputs, confidence=None):
     for i, b in enumerate(building_results):
         q = b['quantities']
         vals = [b['label'], b['building_type'], b['qty'], SOURCE_LABELS.get(b['source'], b['source']),
-                q['siding_squares_net'], q['siding_squares']]
+                q.get('siding_squares_net_one', q['siding_squares_net']), q['siding_squares']]
         for j, col in enumerate('BCDEFG'):
             ws[f'{col}{row}'] = vals[j]
             ws[f'{col}{row}'].fill = PatternFill('solid', start_color=GRAY_HDR if i % 2 else WHITE)
@@ -462,11 +462,16 @@ def _build_labor(wb, building_results):
 
     for b in building_results:
         q = b['quantities']
-        net_sq = q['siding_squares_net']
+        # Squares for ONE building of this type — qty expands in column F.
+        # (siding_squares_net is already × qty; using it here double-counted.)
+        net_sq_one = q.get('siding_squares_net_one')
+        if net_sq_one is None:
+            qty = max(int(b.get('qty') or 1), 1)
+            net_sq_one = round((q.get('siding_squares_net') or 0) / qty, 2)
         ws[f'B{row}'] = b['label']
         ws[f'C{row}'] = b['building_type']
         ws[f'D{row}'] = b['qty']
-        ws[f'E{row}'] = net_sq
+        ws[f'E{row}'] = net_sq_one
         ws[f'F{row}'] = f'={SUMMARY_LABOR_CELL}*E{row}*D{row}'
         for col in 'BCDEF':
             ws[f'{col}{row}'].border = border
@@ -481,7 +486,15 @@ def _build_labor(wb, building_results):
 
     haul_row = labor_total_row + 2
     ws[f'B{haul_row}'] = 'Haul Off & Dump (job net squares × $/sq)'
-    total_net = round(sum(b['quantities']['siding_squares_net'] for b in building_results), 2)
+    total_net = 0.0
+    for b in building_results:
+        q = b['quantities']
+        one = q.get('siding_squares_net_one')
+        if one is None:
+            qty = max(int(b.get('qty') or 1), 1)
+            one = (q.get('siding_squares_net') or 0) / qty
+        total_net += one * max(int(b.get('qty') or 1), 1)
+    total_net = round(total_net, 2)
     ws[f'C{haul_row}'] = total_net
     ws[f'D{haul_row}'] = f'={SUMMARY_HAUL_CELL}'
     ws[f'E{haul_row}'] = f'=C{haul_row}*D{haul_row}'
@@ -498,7 +511,8 @@ def _build_labor(wb, building_results):
     return subtotal_row
 
 
-def _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row):
+def _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row, inputs=None):
+    inputs = inputs or {}
     ws = wb.create_sheet(SHEET_TOTAL)
     ws.sheet_view.showGridLines = False
     ws.column_dimensions['B'].width = 32
@@ -527,9 +541,9 @@ def _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row):
     line(8, 'Labor + Haul Subtotal (Tab 5)', f"='{SHEET_LABOR}'!F{labor_subtotal_row}")
     line(9, 'Combined Cost', '=C7+C8', DARK_BLUE, bold=True)
     line(11, 'Markup ($)', '', WARNING)
-    ws['C11'] = 0
+    ws['C11'] = float(inputs.get('markup') or 0)
     line(12, 'Overhead ($)', '', WARNING)
-    ws['C12'] = 0
+    ws['C12'] = float(inputs.get('overhead') or 0)
     line(13, 'Invoice Amount', '=C9+C11+C12', DARK_BLUE, bold=True)
     line(15, 'Material $/Sq (Library Tab 3)', f"='{SHEET_LIBRARY}'!E{library_total_row}")
     line(16, 'Margin % (Markup / Invoice)', '=IF(C13=0,"",C11/C13)', GRAY_HDR)
@@ -539,7 +553,8 @@ def _build_totals(wb, mat_subtotal_row, labor_subtotal_row, library_total_row):
 
     ws.merge_cells('B20:C20')
     ws['B20'] = (
-        'Edit markup/overhead on this tab. Waste %, labor $/sq, haul $/sq, tax, and delivery on Tab 1. '
+        'Invoice = Cost + Markup + Overhead. Margin % = Markup / Invoice. '
+        'Waste %, labor $/sq, haul $/sq, tax, and delivery on Tab 1. '
         'Optional per-square detail on Tab 3.'
     )
     ws['B20'].font = Font(size=9, italic=True, color='666666')

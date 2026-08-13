@@ -1,7 +1,7 @@
 from .excel_builder import build_estimate_excel
 from .eagleview_parser import parse_eagleview_walls
 from .aerial_parser import parse_aerial_report
-from .calculator import calculate_quantities, aggregate_building_quantities
+from .calculator import calculate_quantities, aggregate_building_quantities, compute_price_stack
 
 __all__ = [
     'build_estimate_excel',
@@ -9,4 +9,5 @@ __all__ = [
     'parse_aerial_report',
     'calculate_quantities',
     'aggregate_building_quantities',
+    'compute_price_stack',
 ]

@@ -288,7 +288,7 @@ def _strip_json_fences(raw):
     return text
 
 
-def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeout=45.0):
+def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeout=20.0):
     """Same job as _extract_coi_fields, for a COI that's a photo instead of
     a PDF with a text layer — reads the certificate visually with Claude.
 
@@ -412,7 +412,7 @@ def _vision_ready_image(data, filename, content_type):
     return None, content_type, f"{content_type or filename or 'file type'} not supported for vision (iPhone HEIC is the usual case)"
 
 
-def run_vision_pass(get_db_fn, api_key, model, limit=None):
+def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=70):
     """On-demand batch: try Claude vision on every 'needs manual entry'
     COI we can actually look at — photos, and PDFs whose text layer was
     empty (scans). Not run automatically; Thomas/Stephanie trigger it
@@ -422,32 +422,43 @@ def run_vision_pass(get_db_fn, api_key, model, limit=None):
     A row that comes back uncertain still gets its confidence recorded
     but its date stays NULL rather than posting a guess.
 
-    limit caps how many rows this call processes. Each vision read is a
-    real network round-trip (plus a pdftoppm render for scanned PDFs), so
-    a board with dozens of rows needing a look can run past gunicorn's
-    120s worker timeout in one shot (--timeout 120, render.yaml) -- the
-    request gets killed mid-flight and the browser just sees a dropped
-    connection. The Compliance page calls this in small batches instead
-    of one big request; 'remaining' tells it whether to call again.
+    limit caps how many rows this call *starts*, but row count alone
+    doesn't bound wall-clock time -- a single vision call can retry once
+    on a timeout (up to ~2x its own timeout, worse under real network
+    jitter), so a handful of slow rows in one batch can still outlast
+    gunicorn's 120s worker timeout (confirmed live 2026-08-13: "WORKER
+    TIMEOUT" -> SIGKILL in the Render log after clicking this with a
+    limit=6 batch). time_budget_seconds is the real guard: checked before
+    *starting* each row, so the function always returns with whatever's
+    done so far well inside the worker timeout, instead of gunicorn
+    killing it mid-flight. 'remaining' tells the Compliance page whether
+    to call again -- same shape whether the stop was limit or time.
     """
     if not api_key:
         return {'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}
+
+    import time as _time
+    started = _time.monotonic()
 
     rows, _ = get_latest_snapshot_rows(get_db_fn)
     all_targets = [r for r in categorize_rows(rows, date.today())['needs_manual']
                    if is_vision_target(r)]
     targets = all_targets[:limit] if limit else all_targets
-    remaining = max(0, len(all_targets) - len(targets))
 
-    result = {'attempted': len(targets), 'dated': 0, 'uncertain': 0, 'errors': 0,
-              'remaining': remaining, 'details': []}
+    result = {'attempted': 0, 'dated': 0, 'uncertain': 0, 'errors': 0,
+              'remaining': 0, 'details': []}
     if not targets:
         return result
 
     conn = get_db_fn()
     try:
         cur = conn.cursor()
+        processed = 0
         for r in targets:
+            if _time.monotonic() - started > time_budget_seconds:
+                break
+            processed += 1
+            result['attempted'] += 1
             item_id = r['item_id']
             try:
                 data, filename, content_type, err = load_coi_asset(get_db_fn, item_id)
@@ -485,6 +496,7 @@ def run_vision_pass(get_db_fn, api_key, model, limit=None):
     finally:
         conn.close()
 
+    result['remaining'] = max(0, len(all_targets) - processed)
     return result
 
 

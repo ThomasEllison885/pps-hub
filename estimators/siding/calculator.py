@@ -17,7 +17,8 @@ def calculate_quantities(measurements, inputs, qty=1):
     stories = inputs.get('stories', 2)
     siding_type = inputs.get('siding_type', 'Vinyl Lap')
 
-    wall_net = _scale(measurements.get('wall_area_net', 0) or 0, qty)
+    wall_one = float(measurements.get('wall_area_net', 0) or 0)
+    wall_net = _scale(wall_one, qty)
     wall_gross = _scale(measurements.get('wall_area_gross', 0) or 0, qty)
     if not wall_gross and wall_net:
         wall_gross = wall_net
@@ -59,6 +60,7 @@ def calculate_quantities(measurements, inputs, qty=1):
         'wall_area_net': round(wall_net, 1),
         'wall_area_gross': round(wall_gross, 1),
         'siding_area_with_waste': round(siding_area_with_waste, 1),
+        'siding_squares_net_one': round(wall_one / 100, 2),
         'siding_squares_net': round(siding_squares_net, 2),
         'siding_squares': round(siding_squares, 2),
         'waste_pct': inputs.get('waste_pct', 14),
@@ -116,3 +118,67 @@ def aggregate_building_quantities(building_results):
     totals['siding_squares_net'] = round(totals['siding_squares_net'], 2)
     totals['siding_squares'] = round(totals['siding_squares'], 2)
     return totals
+
+
+def _money(n):
+    return round(float(n or 0), 2)
+
+
+def compute_price_stack(buildings, inputs):
+    """Trey's stack: Cost + Markup $ + Overhead $ = Invoice; Margin % = Markup / Invoice.
+
+    Cost here is labor + haul + delivery. Material unit prices are optional
+    and live in the workbook — we do not invent them. Labor uses *one*
+    building's net squares × type count (same as his sheet), not the
+    already-expanded quantity field.
+    """
+    inputs = inputs or {}
+    labor_rate = float(inputs.get('labor_per_sq') or 0)
+    haul_rate = float(inputs.get('haul_per_sq') or 0)
+    delivery = float(inputs.get('delivery') or 0)
+    markup = float(inputs.get('markup') or 0)
+    overhead = float(inputs.get('overhead') or 0)
+
+    types = []
+    labor = 0.0
+    haul = 0.0
+    total_qty = 0
+    job_net_squares = 0.0
+    for b in buildings or []:
+        qty = max(int(b.get('qty') or 1), 1)
+        m = b.get('measurements') or {}
+        sq_one = float(m.get('wall_area_net') or 0) / 100.0
+        labor_one = labor_rate * sq_one
+        haul_one = haul_rate * sq_one
+        labor += labor_one * qty
+        haul += haul_one * qty
+        total_qty += qty
+        job_net_squares += sq_one * qty
+        letter = (b.get('building_type') or '').strip() or 'A'
+        types.append({
+            'letter': letter,
+            'label': b.get('label') or f'Type {letter}',
+            'qty': qty,
+            'squares_one': round(sq_one, 2),
+            'labor_one': _money(labor_one),
+            'labor_expanded': _money(labor_one * qty),
+        })
+
+    cost = labor + haul + delivery
+    invoice = cost + markup + overhead
+    margin_pct = (markup / invoice) if invoice else 0.0
+    return {
+        'labor': _money(labor),
+        'haul': _money(haul),
+        'delivery': _money(delivery),
+        'cost': _money(cost),
+        'markup': _money(markup),
+        'overhead': _money(overhead),
+        'invoice': _money(invoice),
+        'margin_pct': round(margin_pct, 4),
+        'total_qty': total_qty,
+        'type_count': len(buildings or []),
+        'job_net_squares': round(job_net_squares, 2),
+        'types': types,
+        'cost_note': 'Labor + haul + delivery. Material unit prices stay in the workbook.',
+    }

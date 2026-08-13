@@ -56,14 +56,15 @@
     <div class="pps-step-progress-bar"><div class="pps-step-progress-fill" id="stepProgressFill"></div></div>
   </div>
   <div class="pps-page-title">Siding Estimator</div>
-  <p class="pps-page-sub">Upload your EagleView report first — property details fill in automatically. Add more buildings or switch to field measurements as needed.</p>
+  <p class="pps-page-sub">One takeoff per building type — Type A × 7, Type B × 3 — then Cost + Markup + Overhead = Invoice. Same stack as the estimate worksheet.</p>
 
   <!-- 1. Buildings + PDF first -->
   <div class="form-section">
-    <div class="form-section-title">1. Buildings &amp; Measurements</div>
-    <p class="section-hint">Each building defaults to <strong>EagleView PDF</strong>. Upload the Walls Only report, then confirm type and quantity below.</p>
+    <div class="form-section-title">1. Building Types &amp; Measurements</div>
+    <p class="section-hint">Each <strong>type</strong> gets one EagleView (or field takeoff). <strong>Number of this type</strong> is how many buildings share that takeoff — Type A × 7, Type B × 3.</p>
     <div id="buildingsList"></div>
-    <button type="button" class="add-building-btn" onclick="addBuilding()">+ Add Building</button>
+    <button type="button" class="add-building-btn" onclick="addBuilding()">+ Add Building Type</button>
+    <div id="typeRollup" class="section-hint" style="margin-top:12px;margin-bottom:0;"></div>
   </div>
 
   <!-- 2. Job info after PDF -->
@@ -162,8 +163,15 @@
       <div class="field"><label>Haul off $/sq</label><input type="number" id="haulSq" value="{{ pricing_defaults.siding.haul_per_sq }}" step="1" min="0"></div>
       <div class="field"><label>Material tax %</label><input type="number" id="taxPct" value="{{ pricing_defaults.siding.tax_pct }}" step="0.1" min="0"></div>
     </div>
-    <div class="field" style="margin-bottom:14px;max-width:200px;">
-      <label>Delivery ($)</label><input type="number" id="delivery" value="{{ pricing_defaults.siding.delivery }}" step="1" min="0">
+    <div class="field-row-3" style="margin-bottom:14px;">
+      <div class="field"><label>Delivery ($)</label><input type="number" id="delivery" value="{{ pricing_defaults.siding.delivery }}" step="1" min="0"></div>
+      <div class="field"><label>Markup ($)</label><input type="number" id="markupAmt" value="0" step="100" min="0"></div>
+      <div class="field"><label>Overhead ($)</label><input type="number" id="overheadAmt" value="0" step="100" min="0"></div>
+    </div>
+    <p class="section-hint" style="margin-bottom:8px;">Invoice = Cost + Markup + Overhead. Margin % = Markup ÷ Invoice (same as the worksheet).</p>
+    <div id="priceStack" style="background:var(--light-bg);border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;line-height:1.7;">
+      <div><strong>Price stack</strong> <span style="color:var(--gray-mid);">(labor + haul + delivery)</span></div>
+      <div id="priceStackBody" style="margin-top:6px;color:var(--gray);">Add a type takeoff to see cost.</div>
     </div>
     <p class="section-hint" style="margin-bottom:10px;"><strong>Material unit prices (optional):</strong> upload CSV or Excel with <strong>Item</strong> + <strong>Item Price</strong> columns (same as the team worksheet).</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -188,7 +196,8 @@
 <script src="/static/estimate-reliability.js"></script>
 <script src="/static/step-progress.js"></script>
 <script>
-const BUILDING_TYPES = ['Building', 'Garage', 'Clubhouse', 'Carport / Shed', 'Other'];
+const TYPE_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+const BUILDING_TYPES = ['A', 'B', 'C', 'D', 'Garage', 'Clubhouse', 'Carport / Shed', 'Other'];
 let lastJobConfidence = null;
 let pricingLoadedCount = 0;
 const MANUAL_FIELDS = [
@@ -208,10 +217,21 @@ function buildingId() {
   return 'b' + buildingCount;
 }
 
+function usedTypeLetters() {
+  return [...document.querySelectorAll('[data-role="type"]')].map(s => s.value);
+}
+
+function nextTypeLetter() {
+  const used = usedTypeLetters();
+  return TYPE_LETTERS.find(l => !used.includes(l)) || 'Other';
+}
+
 function addBuilding() {
   const id = buildingId();
-  const n = document.querySelectorAll('.building-card').length + 1;
-  const typeOpts = BUILDING_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+  const letter = nextTypeLetter();
+  const typeOpts = BUILDING_TYPES.map(t =>
+    `<option value="${t}" ${t === letter ? 'selected' : ''}>${t}</option>`
+  ).join('');
   const manualInputs = MANUAL_FIELDS.map(([k, lbl]) =>
     `<div class="field"><label>${lbl}</label><input type="number" step="0.1" min="0" data-field="${k}" placeholder="0"></div>`
   ).join('');
@@ -219,7 +239,7 @@ function addBuilding() {
   const html = `
   <div class="building-card" id="${id}" data-id="${id}">
     <div class="building-head">
-      <div class="building-title">Building ${n}</div>
+      <div class="building-title">Type ${letter}</div>
       <button type="button" class="remove-btn" onclick="removeBuilding('${id}')">Remove</button>
     </div>
     <div class="field" style="margin-bottom:10px;">
@@ -250,19 +270,34 @@ function addBuilding() {
       <input type="number" data-role="unit-count" min="0" step="1" placeholder="e.g. 12 — drives J-blocks &amp; exhaust vents">
     </div>
     <div class="field-row-3" style="margin-top:12px;">
-      <div class="field"><label>Label</label><input type="text" data-role="label" value="Building ${n}"></div>
-      <div class="field"><label>Type</label><select data-role="type">${typeOpts}</select></div>
-      <div class="field"><label>Qty</label><input type="number" data-role="qty" min="1" value="1"></div>
+      <div class="field"><label>Label</label><input type="text" data-role="label" value="Type ${letter}"></div>
+      <div class="field"><label>Type</label><select data-role="type" onchange="onBuildingTypeChange('${id}')">${typeOpts}</select></div>
+      <div class="field"><label>Number of this type</label><input type="number" data-role="qty" min="1" value="1" oninput="refreshPriceStack()"></div>
     </div>
   </div>`;
   document.getElementById('buildingsList').insertAdjacentHTML('beforeend', html);
   onSourceChange(id);
+  refreshPriceStack();
+}
+
+function onBuildingTypeChange(id) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  const letter = card.querySelector('[data-role="type"]').value;
+  const label = card.querySelector('[data-role="label"]');
+  const title = card.querySelector('.building-title');
+  if (label && (!label.value || /^Type [A-H]$/.test(label.value))) {
+    label.value = TYPE_LETTERS.includes(letter) ? ('Type ' + letter) : letter;
+  }
+  if (title) title.textContent = label ? label.value : ('Type ' + letter);
+  refreshPriceStack();
 }
 
 function removeBuilding(id) {
   const el = document.getElementById(id);
   if (el) el.remove();
   if (!document.querySelector('.building-card')) addBuilding();
+  refreshPriceStack();
 }
 
 function onSourceChange(id) {
@@ -345,6 +380,7 @@ async function parsePdf(id, file) {
     status.style.color = 'var(--green)';
     applyJobFromPdf(d.measurements || {});
     renderParsed(card, d.measurements, d.warnings, d.confidence);
+    refreshPriceStack();
   } catch (e) {
     status.textContent = '✗ ' + e.message;
     status.style.color = 'var(--red)';
@@ -423,7 +459,57 @@ function getInputs() {
     haul_per_sq: parseFloat(document.getElementById('haulSq').value) || 25,
     tax_pct: parseFloat(document.getElementById('taxPct').value) || 7,
     delivery: parseFloat(document.getElementById('delivery').value) || 15,
+    markup: parseFloat(document.getElementById('markupAmt').value) || 0,
+    overhead: parseFloat(document.getElementById('overheadAmt').value) || 0,
   };
+}
+
+function money(n) {
+  return '$' + (Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function cardWallNet(card) {
+  if (card.querySelector('[data-role="source"]').value === 'field') {
+    const inp = card.querySelector('[data-field="wall_area_net"]');
+    return parseFloat(inp && inp.value) || 0;
+  }
+  return parseFloat((card._measurements || {}).wall_area_net) || 0;
+}
+
+function refreshPriceStack() {
+  const rollup = document.getElementById('typeRollup');
+  const body = document.getElementById('priceStackBody');
+  const cards = [...document.querySelectorAll('.building-card')];
+  const laborRate = parseFloat(document.getElementById('laborSq').value) || 0;
+  const haulRate = parseFloat(document.getElementById('haulSq').value) || 0;
+  const delivery = parseFloat(document.getElementById('delivery').value) || 0;
+  const markup = parseFloat(document.getElementById('markupAmt').value) || 0;
+  const overhead = parseFloat(document.getElementById('overheadAmt').value) || 0;
+  let labor = 0, haul = 0, jobSq = 0, totalQty = 0;
+  const bits = [];
+  cards.forEach(card => {
+    const letter = (card.querySelector('[data-role="type"]') || {}).value || 'A';
+    const qty = Math.max(1, parseInt((card.querySelector('[data-role="qty"]') || {}).value, 10) || 1);
+    const sqOne = cardWallNet(card) / 100;
+    labor += laborRate * sqOne * qty;
+    haul += haulRate * sqOne * qty;
+    jobSq += sqOne * qty;
+    totalQty += qty;
+    bits.push(`Type ${letter} × ${qty}` + (sqOne ? ` (${sqOne.toFixed(1)} sq each)` : ''));
+  });
+  if (rollup) {
+    rollup.textContent = bits.length
+      ? bits.join('  ·  ') + (totalQty ? `  —  ${totalQty} building${totalQty === 1 ? '' : 's'} total` : '')
+      : '';
+  }
+  if (!body) return;
+  const cost = labor + haul + delivery;
+  const invoice = cost + markup + overhead;
+  const margin = invoice ? (markup / invoice) : 0;
+  body.innerHTML =
+    `Cost ${money(cost)} <span style="color:var(--gray-mid);">(labor ${money(labor)} + haul ${money(haul)} + delivery ${money(delivery)})</span><br>` +
+    `+ Markup ${money(markup)}  + Overhead ${money(overhead)}<br>` +
+    `<strong>Invoice ${money(invoice)}</strong>  ·  Margin ${(margin * 100).toFixed(1)}%`;
 }
 
 async function previewPricing(file) {
@@ -528,6 +614,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('estDate').value = new Date().toISOString().split('T')[0];
   onTypeChange();
   addBuilding();
+  ['laborSq', 'haulSq', 'delivery', 'markupAmt', 'overheadAmt'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', refreshPriceStack);
+  });
+  document.getElementById('buildingsList').addEventListener('input', (e) => {
+    if (e.target && (e.target.dataset.field === 'wall_area_net' || e.target.dataset.role === 'qty')) {
+      refreshPriceStack();
+    }
+  });
 });
 </script>
 </body>

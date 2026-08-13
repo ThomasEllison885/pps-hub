@@ -234,3 +234,46 @@ def test_run_vision_pass_no_limit_processes_everything_with_zero_remaining(monke
 
     assert result['attempted'] == 3
     assert result['remaining'] == 0
+
+
+# --- wall-clock time budget (2026-08-13) ------------------------------------
+# Live incident: a limit=6 batch still triggered gunicorn's WORKER TIMEOUT ->
+# SIGKILL, because row count doesn't bound wall-clock time -- one retried
+# vision call can eat ~2x its own timeout. run_vision_pass now checks a real
+# time budget before starting each row, independent of limit.
+
+def test_run_vision_pass_stops_immediately_when_budget_already_exhausted(monkeypatch):
+    rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(5)]
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
+
+    def should_not_be_called(*a, **k):
+        raise AssertionError('time budget of 0 should stop before touching any row')
+    monkeypatch.setattr(ic, 'load_coi_asset', should_not_be_called)
+
+    conn = _FakeVisionConn()
+    result = ic.run_vision_pass(lambda: conn, api_key='k', model='m', time_budget_seconds=0)
+
+    assert result['attempted'] == 0
+    assert result['remaining'] == 5
+
+
+def test_run_vision_pass_time_budget_stops_mid_batch_and_reports_remaining(monkeypatch):
+    import time as real_time
+    rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(5)]
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
+    monkeypatch.setattr(ic, 'load_coi_asset',
+                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+
+    def slow_extract(data, content_type, api_key, model):
+        real_time.sleep(0.05)
+        return {'gl_exp': date(2027, 1, 1), 'wc_exp': None,
+                'additional_insured': None, 'confidence': 'vision_extracted'}
+    monkeypatch.setattr(ic, '_extract_coi_fields_vision', slow_extract)
+
+    conn = _FakeVisionConn()
+    # First row's 50ms sleep pushes elapsed past a 40ms budget -- the loop's
+    # check happens *before* starting the next row, so it stops after one.
+    result = ic.run_vision_pass(lambda: conn, api_key='k', model='m', time_budget_seconds=0.04)
+
+    assert result['attempted'] == 1
+    assert result['remaining'] == 4

@@ -47,7 +47,15 @@
   <div class="result-card">
     <div class="check">✓</div>
     <h1>Estimate Ready</h1>
-    <p class="sub">{{ property_name }} — {{ building_count }} building{{ 's' if building_count != 1 else '' }}</p>
+    <p class="sub">
+      {{ property_name }} —
+      {% if price_stack %}
+        {{ price_stack.type_count }} type{{ 's' if price_stack.type_count != 1 else '' }}
+        · {{ price_stack.total_qty }} building{{ 's' if price_stack.total_qty != 1 else '' }}
+      {% else %}
+        {{ building_count }} building{{ 's' if building_count != 1 else '' }}
+      {% endif %}
+    </p>
     <p style="font-size:13px;color:#888;margin-bottom:16px;">{{ filename }}</p>
 
     {% if confidence %}
@@ -57,15 +65,34 @@
     {% endif %}
 
     <div class="summary-box">
-      <strong>Job totals (all buildings):</strong><br>
+      <strong>Job totals:</strong><br>
       Net wall area: {{ totals.wall_area_net | default(0) }} sq ft<br>
       Siding: {{ totals.siding_squares | default(0) }} squares<br>
       Starter: {{ totals.starter_pieces | default(0) }} pcs · J-channel: {{ totals.jchannel_pieces | default(0) }} pcs<br>
       Inside corners: {{ totals.inside_corner_pieces | default(0) }} · Outside corners: {{ totals.outside_corner_pieces | default(0) }}
     </div>
 
+    {% if price_stack %}
+    <div class="summary-box">
+      <strong>Price stack</strong>
+      {% if price_stack.types %}
+      <div style="margin:6px 0 8px;color:#555;">
+        {% for t in price_stack.types %}
+        {{ t.label }} × {{ t.qty }}{% if t.squares_one %} ({{ t.squares_one }} sq){% endif %}{% if not loop.last %} · {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+      Cost ${{ '{:,.0f}'.format(price_stack.cost) }}
+      <span style="color:#888;">(labor + haul + delivery)</span><br>
+      + Markup ${{ '{:,.0f}'.format(price_stack.markup) }}
+      + Overhead ${{ '{:,.0f}'.format(price_stack.overhead) }}<br>
+      <strong>Invoice ${{ '{:,.0f}'.format(price_stack.invoice) }}</strong>
+      · Margin {{ '%.1f'|format(price_stack.margin_pct * 100) }}%
+    </div>
+    {% endif %}
+
     <div style="background:var(--light-bg);border:1.5px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:20px;text-align:left;font-size:13px;color:#555;line-height:1.55;">
-      The workbook has 6 tabs: <strong>Job Summary</strong>, <strong>Takeoff</strong>, optional <strong>Material Library</strong> (per-square detail), <strong>Materials by Building</strong>, <strong>Labor</strong>, and <strong>Estimate Total</strong>. Edit assumptions on Tab 1; add markup on Tab 6.
+      The workbook has 6 tabs. Tab 1 and Tab 6 show Cost + Markup + Overhead = Invoice. Material unit prices still go in the yellow cells if you did not upload a price file.
     </div>
 
     <div class="result-actions">
