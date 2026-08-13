@@ -145,8 +145,8 @@ def test_run_vision_pass_includes_scanned_pdfs(monkeypatch):
     row['confidence'] = 'no_dates_found'
     row['coi_name'] = 'scan.pdf'
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: ([row], None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'%PDF-fake', 'scan.pdf', 'application/pdf', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'%PDF-fake', 'scan.pdf', 'application/pdf', None))
     monkeypatch.setattr(ic, '_pdf_first_page_jpeg', lambda data: b'jpeg-bytes')
     monkeypatch.setattr(ic, '_extract_coi_fields_vision',
                          lambda data, content_type, api_key, model: {
@@ -162,8 +162,8 @@ def test_run_vision_pass_includes_scanned_pdfs(monkeypatch):
 def test_run_vision_pass_writes_extracted_date_on_confident_read(monkeypatch):
     row = _needs_manual_row()
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: ([row], None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
     monkeypatch.setattr(ic, '_extract_coi_fields_vision',
                          lambda data, content_type, api_key, model: {
                              'gl_exp': date(2027, 3, 1), 'wc_exp': None,
@@ -184,8 +184,8 @@ def test_run_vision_pass_writes_extracted_date_on_confident_read(monkeypatch):
 def test_run_vision_pass_uncertain_read_leaves_date_null_but_records_confidence(monkeypatch):
     row = _needs_manual_row()
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: ([row], None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
     monkeypatch.setattr(ic, '_extract_coi_fields_vision',
                          lambda data, content_type, api_key, model: {
                              'gl_exp': None, 'wc_exp': None,
@@ -204,8 +204,8 @@ def test_run_vision_pass_uncertain_read_leaves_date_null_but_records_confidence(
 def test_run_vision_pass_fetch_failure_counts_as_error_and_skips_update(monkeypatch):
     row = _needs_manual_row()
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: ([row], None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (None, None, None, 'Could not get a download URL from Monday'))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (None, None, None, 'Could not get a download URL from Monday'))
 
     conn = _FakeVisionConn()
     result = ic.run_vision_pass(lambda: conn, api_key='k', model='m')
@@ -220,8 +220,8 @@ def test_run_vision_pass_limit_caps_batch_and_reports_remaining(monkeypatch):
     # can outlast gunicorn's worker timeout (render.yaml: --timeout 120).
     rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(5)]
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
     monkeypatch.setattr(ic, '_extract_coi_fields_vision',
                          lambda data, content_type, api_key, model: {
                              'gl_exp': date(2027, 1, 1), 'wc_exp': None,
@@ -240,8 +240,8 @@ def test_run_vision_pass_limit_caps_batch_and_reports_remaining(monkeypatch):
 def test_run_vision_pass_no_limit_processes_everything_with_zero_remaining(monkeypatch):
     rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(3)]
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
     monkeypatch.setattr(ic, '_extract_coi_fields_vision',
                          lambda data, content_type, api_key, model: {
                              'gl_exp': date(2027, 1, 1), 'wc_exp': None,
@@ -253,6 +253,50 @@ def test_run_vision_pass_no_limit_processes_everything_with_zero_remaining(monke
 
     assert result['attempted'] == 3
     assert result['remaining'] == 0
+
+
+def test_run_vision_pass_opens_exactly_one_db_connection_for_a_multi_row_batch(monkeypatch):
+    # Regression guard for the real live incident (2026-08-13): the per-row
+    # asset fetch used to call load_coi_asset(get_db_fn, item_id), which
+    # opened its OWN connection and re-ran init_tables() (DDL, including an
+    # ALTER COLUMN that always takes an ACCESS EXCLUSIVE lock) on every row.
+    # With the outer run_vision_pass connection holding an uncommitted
+    # UPDATE from the previous row, that DDL blocked on a lock only the
+    # outer connection could release -- a self-inflicted deadlock Postgres
+    # can't detect, since the outer connection isn't "waiting" on anything
+    # from Postgres's point of view. It hung every batch until gunicorn's
+    # 120s worker timeout killed it, regardless of any vision/timeout
+    # tuning, because the hang was never in the Claude call. Fixed by
+    # having the loop use asset_id/filename already in hand (from
+    # get_latest_snapshot_rows) instead of re-querying per row. This test
+    # encodes the actual invariant that prevents it recurring: get_db_fn
+    # must be called once for the whole batch, never once per row.
+    rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(4)]
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
+    monkeypatch.setattr(ic, '_extract_coi_fields_vision',
+                         lambda data, content_type, api_key, model: {
+                             'gl_exp': date(2027, 1, 1), 'wc_exp': None,
+                             'additional_insured': None, 'confidence': 'vision_extracted',
+                         })
+    # Deliberately NOT mocking _fetch_coi_bytes -- it must be called with
+    # each row's own coi_asset_id/coi_name (already present on the fake
+    # rows) rather than reaching back into the DB, so mock only the Monday
+    # call it makes, proving no DB access happens per row.
+    monkeypatch.setattr(ic.monday_client, 'resolve_asset_urls',
+                         lambda asset_ids: {'999': {'public_url': 'https://example.test/coi'}})
+    monkeypatch.setattr(ic.monday_client, 'download_asset', lambda url: b'fake-bytes')
+
+    conn = _FakeVisionConn()
+    open_count = {'n': 0}
+    def counting_get_db_fn():
+        open_count['n'] += 1
+        return conn
+
+    result = ic.run_vision_pass(counting_get_db_fn, api_key='k', model='m')
+
+    assert result['attempted'] == 4
+    assert result['dated'] == 4
+    assert open_count['n'] == 1
 
 
 # --- wall-clock time budget (2026-08-13) ------------------------------------
@@ -267,7 +311,7 @@ def test_run_vision_pass_stops_immediately_when_budget_already_exhausted(monkeyp
 
     def should_not_be_called(*a, **k):
         raise AssertionError('time budget of 0 should stop before touching any row')
-    monkeypatch.setattr(ic, 'load_coi_asset', should_not_be_called)
+    monkeypatch.setattr(ic, '_fetch_coi_bytes', should_not_be_called)
 
     conn = _FakeVisionConn()
     result = ic.run_vision_pass(lambda: conn, api_key='k', model='m', time_budget_seconds=0)
@@ -280,8 +324,8 @@ def test_run_vision_pass_time_budget_stops_mid_batch_and_reports_remaining(monke
     import time as real_time
     rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(5)]
     monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
-    monkeypatch.setattr(ic, 'load_coi_asset',
-                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_fetch_coi_bytes',
+                         lambda item_id, asset_id, filename: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
 
     def slow_extract(data, content_type, api_key, model):
         real_time.sleep(0.05)

@@ -479,7 +479,9 @@ def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=3
             result['attempted'] += 1
             item_id = r['item_id']
             try:
-                data, filename, content_type, err = load_coi_asset(get_db_fn, item_id)
+                data, filename, content_type, err = _fetch_coi_bytes(
+                    item_id, r.get('coi_asset_id'), r.get('coi_name'),
+                )
                 if err:
                     result['errors'] += 1
                     result['details'].append({'name': r['name'], 'outcome': f'fetch failed: {err}'})
@@ -501,6 +503,7 @@ def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=3
                 'WHERE monday_item_id = %s',
                 (extracted['gl_exp'], extracted['confidence'], item_id),
             )
+            conn.commit()
             if extracted['gl_exp']:
                 result['dated'] += 1
                 result['details'].append({'name': r['name'], 'outcome': f"read {extracted['gl_exp']}"})
@@ -786,6 +789,31 @@ def load_coi_asset(get_db_fn, item_id):
     finally:
         conn.close()
 
+    return _fetch_coi_bytes(item_id, asset_id, filename)
+
+
+def _fetch_coi_bytes(item_id, asset_id, filename):
+    """The Monday-only half of load_coi_asset -- no DB connection, no
+    init_tables(). Split out so run_vision_pass's loop can use asset_id/
+    filename it already has from get_latest_snapshot_rows instead of
+    calling load_coi_asset per row.
+
+    That mattered for real: load_coi_asset opens its own fresh connection
+    and re-runs init_tables() (several ALTER TABLE statements, one of
+    which always takes an ACCESS EXCLUSIVE lock even when it's a no-op)
+    on every call. Fine for a single "View COI" click, but called once
+    per row inside run_vision_pass's loop -- where the *outer* connection
+    is holding an uncommitted UPDATE from the previous row -- that ALTER
+    TABLE blocked waiting on a lock only the outer connection could
+    release, and the outer connection couldn't commit because the single-
+    threaded Python code driving it was itself stuck waiting on this call
+    to return. A self-inflicted deadlock Postgres can't detect (the outer
+    connection isn't waiting on anything from Postgres's point of view),
+    so nothing resolved it except gunicorn's SIGKILL at the 120s worker
+    timeout -- every vision-pass batch hung here, not in the Claude call,
+    which is why tuning vision timeouts/retries never touched it
+    (2026-08-13).
+    """
     if not asset_id:
         files = monday_client.fetch_item_files(item_id)
         picked = _pick_latest_coi_file(files)
