@@ -1,10 +1,9 @@
 """Pure-logic tests for pipeline_board.py -- no live Postgres required.
 
-Scope is deliberately narrow: this is a 2-pair pilot tool, not a call for a
-comprehensive suite. Covers status validation/highlight-eligibility logic,
-proposal auto-numbering, access gating, and the import column-mapping
-fallback -- the parts most likely to silently regress, and cheap to check
-without provisioning a database. Run with:
+Scope is deliberately narrow: status validation, auto-numbering, the
+explicit board-access roster, and the import column-mapping fallback --
+the parts most likely to silently regress, cheap to check without a
+database. Run with:
 
     cd pps-hub && python -m pytest tests/test_pipeline_board.py -v
 """
@@ -232,50 +231,88 @@ def test_live_presence_no_conn_returns_empty_list():
 # --- Access gating ----------------------------------------------------------
 
 _USERS = {
-    'andy_potts': {'display': 'Andy Potts', 'role': 'consultant', 'proposal_access': ['andy_potts']},
-    'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm', 'proposal_access': ['andy_potts']},
-    'rachel_farler': {'display': 'Rachel Farler', 'role': 'consultant', 'proposal_access': ['rachel_farler']},
-    'derek_kidney': {'display': 'Derek Kidney', 'role': 'pm', 'proposal_access': ['rachel_farler']},
-    'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant', 'proposal_access': ['adam_cupito']},
-    'james_boling': {'display': 'James Boling', 'role': 'pm', 'proposal_access': ['andy_potts', 'adam_cupito']},
-    'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin', 'proposal_access': []},
+    'andy_potts': {'display': 'Andy Potts', 'role': 'consultant'},
+    'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm'},
+    'rachel_farler': {'display': 'Rachel Farler', 'role': 'consultant'},
+    'derek_kidney': {'display': 'Derek Kidney', 'role': 'pm'},
+    'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant'},
+    'james_boling': {'display': 'James Boling', 'role': 'pm'},
+    'jordan_allen': {'display': 'Jordan Allen', 'role': 'pm', 'proposal_access': 'all'},
+    'nick_triplett': {'display': 'Nick Triplett', 'role': 'pm'},
+    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant'},
+    'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'proposal_access': 'all'},
+    'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'proposal_access': 'all'},
+    'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin'},
 }
 
 
 def test_get_pair_key_consultant_uses_own_key():
     assert pb.get_pair_key(_USERS, 'andy_potts') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'rachel_farler') == 'rachel_farler'
+    assert pb.get_pair_key(_USERS, 'adam_cupito') == 'adam_cupito'
+    assert pb.get_pair_key(_USERS, 'tony_cumella') == 'tony_cumella'
 
 
-def test_get_pair_key_pm_resolves_via_proposal_access():
+def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'ben_ramsey') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'derek_kidney') == 'rachel_farler'
+    assert pb.get_pair_key(_USERS, 'jordan_allen') == 'adam_cupito'
+    assert pb.get_pair_key(_USERS, 'nick_triplett') == 'tony_cumella'
 
 
 def test_get_pair_key_admin_has_no_pair_of_their_own():
     assert pb.get_pair_key(_USERS, 'thomas_ellison') is None
 
 
-def test_can_access_board_matching_pilot_pair():
+def test_get_pair_key_trey_defaults_to_adam():
+    assert pb.get_pair_key(_USERS, 'trey_hollmeyer') == 'adam_cupito'
+
+
+def test_get_pair_key_ignores_proposal_access_all():
+    # Jordan and Phil both carry proposal_access 'all' in Hub. Pipeline
+    # access is the explicit roster — Phil is on no board, Jordan is on
+    # Adam (primary) + Andy, not Tony/Rachel.
+    assert pb.get_pair_key(_USERS, 'phil_miller') is None
+    assert pb.can_access_board(_USERS, 'phil_miller', 'andy_potts') is False
+    assert pb.can_access_board(_USERS, 'jordan_allen', 'tony_cumella') is False
+
+
+def test_can_access_board_owner_and_named_roster():
     assert pb.can_access_board(_USERS, 'andy_potts', 'andy_potts') is True
     assert pb.can_access_board(_USERS, 'ben_ramsey', 'andy_potts') is True
-
-
-def test_can_access_board_rejects_non_pilot_pair_even_with_matching_role():
-    # adam_cupito isn't a pilot consultant -- confirmed via PILOT_PAIR_CONSULTANTS,
-    # so access should be denied even though the role/pairing shape looks valid.
-    assert 'adam_cupito' not in pb.PILOT_PAIR_CONSULTANTS
-    assert pb.can_access_board(_USERS, 'adam_cupito', 'adam_cupito') is False
+    assert pb.can_access_board(_USERS, 'adam_cupito', 'andy_potts') is True
+    assert pb.can_access_board(_USERS, 'jordan_allen', 'andy_potts') is True
+    assert pb.can_access_board(_USERS, 'james_boling', 'andy_potts') is True
+    assert pb.can_access_board(_USERS, 'adam_cupito', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'jordan_allen', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'james_boling', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'andy_potts', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'ben_ramsey', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'adam_cupito') is True
+    assert pb.can_access_board(_USERS, 'nick_triplett', 'tony_cumella') is True
+    assert pb.can_access_board(_USERS, 'derek_kidney', 'rachel_farler') is True
 
 
 def test_can_access_board_wrong_pair_denied():
-    # Derek is a real PM, but not on Andy's board.
     assert pb.can_access_board(_USERS, 'derek_kidney', 'andy_potts') is False
+    assert pb.can_access_board(_USERS, 'nick_triplett', 'adam_cupito') is False
+    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'andy_potts') is False
+    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'tony_cumella') is False
+    assert pb.can_access_board(_USERS, 'rachel_farler', 'adam_cupito') is False
 
 
-def test_can_access_board_admin_allowed_regardless_of_own_pairing():
-    assert pb.can_access_board(_USERS, 'thomas_ellison', 'andy_potts') is True
-    assert pb.can_access_board(_USERS, 'thomas_ellison', 'rachel_farler') is True
+def test_can_access_board_admin_allowed_on_every_live_board():
+    for ck in pb.BOARD_CONSULTANTS:
+        assert pb.can_access_board(_USERS, 'thomas_ellison', ck) is True
+
+
+def test_list_accessible_boards_for_multi_board_users():
+    andy = [b['key'] for b in pb.list_accessible_boards(_USERS, 'andy_potts')]
+    assert andy == ['andy_potts', 'adam_cupito']
+    trey = [b['key'] for b in pb.list_accessible_boards(_USERS, 'trey_hollmeyer')]
+    assert trey == ['adam_cupito']
+    nick = [b['key'] for b in pb.list_accessible_boards(_USERS, 'nick_triplett')]
+    assert nick == ['tony_cumella']
 
 
 # --- Import column mapping --------------------------------------------------

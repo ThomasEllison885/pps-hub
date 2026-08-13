@@ -26,6 +26,21 @@ NEW_SUB_WINDOW_DAYS = 30
 
 _DATE_RE = re.compile(r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})')
 
+# Photo COIs (phone shots of a paper certificate) are common on this board
+# and have no PDF text layer. The Hub shows them as images so Stephanie /
+# Thomas can read the date and type the override. PDF extract is skipped.
+_IMAGE_EXTS = frozenset({
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif',
+    '.tif', '.tiff', '.bmp',
+})
+_PDF_EXTS = frozenset({'.pdf'})
+_IMAGE_CONTENT_TYPES = {
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.gif': 'image/gif', '.webp': 'image/webp', '.heic': 'image/heic',
+    '.heif': 'image/heif', '.tif': 'image/tiff', '.tiff': 'image/tiff',
+    '.bmp': 'image/bmp',
+}
+
 
 def init_tables(cur):
     cur.execute('''
@@ -76,6 +91,17 @@ def init_tables(cur):
         ALTER TABLE office_ops_tp_snapshot
         ADD COLUMN IF NOT EXISTS date_found DATE
     ''')
+    # Monday asset id for the COI we last looked at — needed to proxy the
+    # file in the Hub viewer (public_url expires in ~1 hour, so we cannot
+    # store the URL). Filename alone is not enough to re-fetch.
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS coi_asset_id VARCHAR(50)
+    ''')
+    cur.execute('''
+        ALTER TABLE office_ops_tp_snapshot
+        ADD COLUMN IF NOT EXISTS coi_kind VARCHAR(20)
+    ''')
 
 
 def save_override(get_db_fn, monday_item_id, override_date, user_key):
@@ -114,6 +140,47 @@ def _parse_date_token(m):
         return date(yr, mo, day)
     except ValueError:
         return None
+
+
+def _ext(name):
+    name = (name or '').strip()
+    dot = name.rfind('.')
+    if dot < 0:
+        return ''
+    return name[dot:].lower()
+
+
+def sniff_coi_kind(filename, data=None):
+    """'pdf', 'image', or 'other'. Prefer magic bytes when we have them —
+    a phone photo uploaded as 'COI.pdf' should still display as an image."""
+    if data:
+        head = data[:16]
+        if head.startswith(b'%PDF'):
+            return 'pdf'
+        if head.startswith(b'\xff\xd8\xff'):
+            return 'image'
+        if head.startswith(b'\x89PNG\r\n\x1a\n'):
+            return 'image'
+        if head.startswith(b'GIF8'):
+            return 'image'
+        if head[0:4] == b'RIFF' and data[8:12] == b'WEBP':
+            return 'image'
+        if b'ftyp' in head[4:12]:
+            # HEIC/HEIF container
+            return 'image'
+    ext = _ext(filename)
+    if ext in _PDF_EXTS:
+        return 'pdf'
+    if ext in _IMAGE_EXTS:
+        return 'image'
+    return 'other'
+
+
+def content_type_for_coi(kind, filename):
+    if kind == 'pdf':
+        return 'application/pdf'
+    ext = _ext(filename)
+    return _IMAGE_CONTENT_TYPES.get(ext, 'application/octet-stream')
 
 
 def _extract_coi_fields(pdf_bytes):
@@ -363,7 +430,7 @@ def get_latest_snapshot_rows(get_db_fn):
             SELECT monday_item_id, name, group_name, insurance_expires_manual,
                    wc_expires_manual, insurance_expires_extracted, extract_confidence,
                    additional_insured_present, coi_asset_name, insurance_expires_override,
-                   override_by, date_found, updated_at
+                   override_by, date_found, updated_at, coi_asset_id, coi_kind
             FROM office_ops_tp_snapshot
             ORDER BY name
         ''')
@@ -375,7 +442,7 @@ def get_latest_snapshot_rows(get_db_fn):
         last_run_at = None
         for (item_id, name, group_name, manual_ins, manual_wc, extracted_ins,
              confidence, additional_insured, coi_name, override_ins, override_by,
-             date_found, updated_at) in db_rows:
+             date_found, updated_at, coi_asset_id, coi_kind) in db_rows:
             if updated_at and (last_run_at is None or updated_at > last_run_at):
                 last_run_at = updated_at
 
@@ -408,11 +475,59 @@ def get_latest_snapshot_rows(get_db_fn):
                 'effective_source': effective_source,
                 'is_new': is_new,
                 'coi_name': coi_name,
+                'coi_asset_id': coi_asset_id,
+                'coi_kind': coi_kind or sniff_coi_kind(coi_name),
+                'has_viewable_coi': bool(coi_name or coi_asset_id),
                 'needs_manual_review': needs_manual_review,
             })
         return rows, last_run_at
     finally:
         conn.close()
+
+
+def load_coi_asset(get_db_fn, item_id):
+    """Fetch the COI bytes for one sub so the Hub can display it.
+
+    Returns (data, filename, content_type, error). Monday's public_url
+    expires in about an hour, so this always re-resolves the asset id
+    rather than serving a stored URL.
+    """
+    item_id = (item_id or '').strip()
+    if not item_id:
+        return None, None, None, 'Missing item'
+    asset_id, filename = None, None
+    conn = get_db_fn()
+    try:
+        cur = conn.cursor()
+        init_tables(cur)
+        conn.commit()
+        cur.execute(
+            'SELECT coi_asset_id, coi_asset_name FROM office_ops_tp_snapshot '
+            'WHERE monday_item_id = %s',
+            (item_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row:
+            asset_id, filename = row[0], row[1]
+    finally:
+        conn.close()
+
+    if not asset_id:
+        files = monday_client.fetch_item_files(item_id)
+        picked = _pick_latest_coi_file(files)
+        if not picked:
+            return None, None, None, 'No COI file on this Monday item'
+        asset_id = picked.get('assetId')
+        filename = picked.get('name') or filename or 'coi'
+
+    asset_map = monday_client.resolve_asset_urls([asset_id])
+    asset = asset_map.get(str(asset_id))
+    if not asset or not asset.get('public_url'):
+        return None, None, None, 'Could not get a download URL from Monday'
+    data = monday_client.download_asset(asset['public_url'])
+    kind = sniff_coi_kind(filename, data)
+    return data, filename or 'coi', content_type_for_coi(kind, filename), None
 
 
 def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
@@ -445,17 +560,35 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
 
             extracted = {'gl_exp': None, 'wc_exp': None, 'additional_insured': None, 'confidence': 'no_file'}
             coi_name = None
+            coi_asset_id = None
+            coi_kind = None
             if coi_file:
                 coi_name = coi_file.get('name')
+                coi_asset_id = str(coi_file.get('assetId') or '') or None
                 try:
                     asset_map = monday_client.resolve_asset_urls([coi_file['assetId']])
                     asset = asset_map.get(str(coi_file['assetId']))
                     if asset and asset.get('public_url'):
-                        pdf_bytes = monday_client.download_asset(asset['public_url'])
-                        extracted = _extract_coi_fields(pdf_bytes)
+                        file_bytes = monday_client.download_asset(asset['public_url'])
+                        coi_kind = sniff_coi_kind(coi_name, file_bytes)
+                        if coi_kind == 'pdf':
+                            extracted = _extract_coi_fields(file_bytes)
+                        elif coi_kind == 'image':
+                            extracted = {
+                                'gl_exp': None, 'wc_exp': None,
+                                'additional_insured': None, 'confidence': 'image_file',
+                            }
+                        else:
+                            extracted = {
+                                'gl_exp': None, 'wc_exp': None,
+                                'additional_insured': None, 'confidence': 'unsupported_file',
+                            }
+                    else:
+                        coi_kind = sniff_coi_kind(coi_name)
                 except Exception as e:
                     extracted = {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
                                  'confidence': f'fetch_error: {e}'[:300]}
+                    coi_kind = sniff_coi_kind(coi_name)
 
             cur.execute(
                 'SELECT first_seen_at, insurance_expires_override, override_by '
@@ -488,8 +621,9 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 INSERT INTO office_ops_tp_snapshot
                     (monday_item_id, name, group_name, insurance_expires_manual,
                      wc_expires_manual, insurance_expires_extracted, extract_confidence,
-                     additional_insured_present, coi_asset_name, date_found, last_seen_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                     additional_insured_present, coi_asset_name, date_found,
+                     coi_asset_id, coi_kind, last_seen_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
                 ON CONFLICT (monday_item_id) DO UPDATE SET
                     name = EXCLUDED.name,
                     group_name = EXCLUDED.group_name,
@@ -500,11 +634,14 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                     additional_insured_present = EXCLUDED.additional_insured_present,
                     coi_asset_name = EXCLUDED.coi_asset_name,
                     date_found = EXCLUDED.date_found,
+                    coi_asset_id = EXCLUDED.coi_asset_id,
+                    coi_kind = EXCLUDED.coi_kind,
                     last_seen_at = NOW(),
                     updated_at = NOW()
             ''', (item_id, name, group_name, manual_ins, manual_wc,
                   extracted['gl_exp'], extracted['confidence'],
-                  extracted['additional_insured'], coi_name, date_found))
+                  extracted['additional_insured'], coi_name, date_found,
+                  coi_asset_id, coi_kind))
             # Note: override_* columns are untouched by this upsert (not in
             # the SET clause) — a manual correction survives every future
             # weekly run until a real COI is read and beats it.
@@ -525,6 +662,9 @@ def run_weekly_compliance_check(get_db_fn, send_email_fn, recipients):
                 'effective_source': effective_source,
                 'is_new': is_new,
                 'coi_name': coi_name,
+                'coi_asset_id': coi_asset_id,
+                'coi_kind': coi_kind,
+                'has_viewable_coi': bool(coi_name or coi_asset_id),
                 'needs_manual_review': needs_manual_review,
             })
 
@@ -561,7 +701,9 @@ def _fmt_date(d):
 
 
 def _needs_manual_message(r):
-    if r['coi_name']:
+    if r.get('coi_kind') == 'image' or (r.get('confidence') == 'image_file'):
+        base = f"{r['name']} — \"{r.get('coi_name') or 'photo'}\" is an image; open in Hub to read the date"
+    elif r['coi_name']:
         base = f"{r['name']} — \"{r['coi_name']}\" looks like a scan/photo, no text to read"
     else:
         base = f"{r['name']} — no COI on file to read"

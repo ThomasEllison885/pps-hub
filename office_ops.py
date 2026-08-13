@@ -2079,7 +2079,9 @@ def list_recent_files(get_db_fn, kind=None, limit=12):
 
 
 def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
-    from flask import jsonify, redirect, render_template, request, session, url_for
+    from io import BytesIO
+
+    from flask import jsonify, redirect, render_template, request, send_file, session, url_for
 
     import insurance_compliance
 
@@ -2202,6 +2204,32 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
         except Exception as e:
             print(f'Office Ops compliance override error ({user_key}): {e}')
             return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/office-ops/compliance/coi/<item_id>')
+    @require_login
+    def office_ops_compliance_coi(item_id):
+        """Proxy the Monday COI so Stephanie/Thomas can view a photo or PDF
+        in the Hub. Monday's pre-signed URL expires; we re-resolve on each
+        click. Stephanie + Thomas only (same gate as the rest of Office Ops)."""
+        blocked = _gate()
+        if blocked:
+            return blocked
+        try:
+            data, filename, content_type, err = insurance_compliance.load_coi_asset(
+                get_db_fn, item_id,
+            )
+        except Exception as e:
+            print(f'Office Ops COI view error ({item_id}): {e}')
+            return (f'Could not load COI: {e}', 502)
+        if err:
+            return (err, 404)
+        return send_file(
+            BytesIO(data),
+            mimetype=content_type or 'application/octet-stream',
+            as_attachment=False,
+            download_name=filename or 'coi',
+            max_age=60,
+        )
 
     @app.route('/api/office-ops/upload', methods=['POST'])
     @require_login

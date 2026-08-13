@@ -324,6 +324,35 @@ def download_asset(public_url, timeout=30):
         return resp.read()
 
 
+def fetch_item_files(item_id):
+    """Files on one Monday item's `files` column. Used by the Hub COI
+    viewer when the snapshot has no stored asset id yet (rows last
+    written before we started persisting coi_asset_id)."""
+    if not item_id:
+        return []
+    query = '''
+    query($ids: [ID!]) {
+      items(ids: $ids) {
+        id
+        column_values(ids: ["files"]) {
+          id
+          value
+        }
+      }
+    }
+    '''
+    data = monday_graphql(query, {'ids': [str(item_id)]})
+    items = data.get('items') or []
+    if not items:
+        return []
+    col = None
+    for cv in items[0].get('column_values') or []:
+        if cv.get('id') == COL_FILES:
+            col = cv
+            break
+    return parse_files_column(col) if col else []
+
+
 def parse_files_column(column_value):
     """column_value is the raw `value` JSON string from the `files` column —
     returns a list of {name, assetId, createdAt} dicts, newest-looking last

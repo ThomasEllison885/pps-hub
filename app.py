@@ -3703,12 +3703,13 @@ def dashboard():
 
     # Pipeline Board: resolve off the *real* logged-in identity, not the
     # admin role-preview override above — a preview shouldn't grant a pair's
-    # live data, and admin's own real role already lets them preview any pair.
-    pipeline_board_pair_key = pipeline_board.get_pair_key(USERS, user_key)
-    pipeline_board_access = bool(
-        pipeline_board_pair_key
-        and pipeline_board.can_access_board(USERS, user_key, pipeline_board_pair_key)
+    # live data. Admin sees every board in the admin lane; field users see
+    # only the boards on their explicit roster.
+    pipeline_boards = (
+        [] if view_as else pipeline_board.list_accessible_boards(USERS, user_key)
     )
+    pipeline_board_pair_key = pipeline_board.get_pair_key(USERS, user_key)
+    pipeline_board_access = bool(pipeline_boards)
     # Office Ops: Stephanie + Thomas (and any future office_manager/admin).
     # Use real identity, not role-preview, so admin preview-as-PM does not open it.
     office_ops_access = office_ops.can_access_office_ops(USERS, user_key)
@@ -3766,6 +3767,7 @@ def dashboard():
         pm_training_open=pm_training_open,
         pipeline_board_access=pipeline_board_access,
         pipeline_board_pair_key=pipeline_board_pair_key,
+        pipeline_boards=pipeline_boards,
         office_ops_access=office_ops_access,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,

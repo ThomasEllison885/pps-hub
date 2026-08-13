@@ -341,14 +341,15 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if pipeline_board_access and user_role in ('consultant', 'pm', 'office_manager', 'admin') %}
-          <a href="/pipeline-board" class="pps-tool-card">
+          {% if pipeline_boards and user_role in ('consultant', 'office_manager') %}
+          {% for b in pipeline_boards %}
+          <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">Pipeline Board</div>
-            <div class="pps-tool-desc">Live shared proposal tracker with your PM — pricing, status, notes.</div>
-            <span class="tool-badge">Pilot</span>
+            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
+            <div class="pps-tool-desc">{{ b.consultant_display }} &amp; {{ b.pm_display }} — live shared proposal tracker.</div>
             <div class="tool-meta">Open →</div>
           </a>
+          {% endfor %}
           {% endif %}
 
           {% if psc_training_enrolled %}
@@ -441,14 +442,15 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if pipeline_board_access and user_role == 'pm' %}
-          <a href="/pipeline-board" class="pps-tool-card">
+          {% if pipeline_boards and user_role == 'pm' %}
+          {% for b in pipeline_boards %}
+          <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">Pipeline Board</div>
-            <div class="pps-tool-desc">Live shared proposal tracker with your Consultant — pricing, status, notes.</div>
-            <span class="tool-badge">Pilot</span>
+            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
+            <div class="pps-tool-desc">{{ b.consultant_display }} &amp; {{ b.pm_display }} — live shared proposal tracker.</div>
             <div class="tool-meta">Open →</div>
           </a>
+          {% endfor %}
           {% endif %}
 
           {% if pm_training_open %}
@@ -529,21 +531,14 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          <a href="/pipeline-board?pair=andy_potts" class="pps-tool-card">
+          {% for b in pipeline_boards %}
+          <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">Pipeline Board — Andy / Ben</div>
-            <div class="pps-tool-desc">Preview the live shared proposal tracker (admin doesn't have a pair of their own).</div>
-            <span class="tool-badge">Pilot</span>
+            <div class="pps-tool-name">Pipeline Board — {{ b.consultant_display }} / {{ b.pm_display }}</div>
+            <div class="pps-tool-desc">Live shared proposal tracker (admin doesn't have a pair of their own).</div>
             <div class="tool-meta">Open →</div>
           </a>
-
-          <a href="/pipeline-board?pair=rachel_farler" class="pps-tool-card">
-            <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">Pipeline Board — Rachel / Derek</div>
-            <div class="pps-tool-desc">Preview the live shared proposal tracker (admin doesn't have a pair of their own).</div>
-            <span class="tool-badge">Pilot</span>
-            <div class="tool-meta">Open →</div>
-          </a>
+          {% endfor %}
 
           {% if office_ops_access %}
           <a href="/office-ops" class="pps-tool-card">

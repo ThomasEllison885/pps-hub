@@ -13,9 +13,15 @@ REST endpoints needs no special worker class, no monkey-patching, and cannot
 regress the rest of the Hub's performance again by construction: this module
 now has zero effect on how gunicorn runs.
 
-Pilot (2026-07-29): Andy Potts <-> Ben Ramsey, Rachel Farler <-> Derek Kidney.
-A pair's board is keyed by the *consultant's* user_key (`pair_key`) since the
-consultant owns the client relationship; the paired PM writes to the same board.
+One board per consultant, keyed by the consultant's user_key (`pair_key`) —
+the consultant owns the client relationship; everyone on that board's access
+list writes the same rows. Opened past the two-pair pilot 2026-08-13:
+Adam / Andy / Tony / Rachel. Access is an explicit per-board roster
+(`BOARD_ACCESS`), not `USERS[...]['proposal_access']` — that field is a
+broader proposal-vault grant and is the wrong shape here (James floats Andy
+and Adam; Jordan's `proposal_access` is still `'all'` from an older grant;
+Phil's `'all'` must not open every pipeline). Trey is on Adam's board only
+(largest shared production book — Jordan + James + Andy + Ben already there).
 
 Status values were chosen by reviewing two real exported sheets (Rachel Farler's
 and another consultant's) rather than guessed — see chat history 2026-07-29.
@@ -30,19 +36,45 @@ from datetime import datetime, date
 import openpyxl
 from psycopg2.extras import RealDictCursor
 
-PILOT_PAIR_CONSULTANTS = frozenset({'andy_potts', 'rachel_farler'})
+# Consultant keys that have a live board. Order is the default-home
+# tiebreak for people who can open more than one (James, admin pickers).
+BOARD_CONSULTANTS = ('andy_potts', 'adam_cupito', 'tony_cumella', 'rachel_farler')
+BOARD_CONSULTANT_SET = frozenset(BOARD_CONSULTANTS)
 
-# The specific 1:1 working pair this board represents, keyed by consultant.
+# Header label: the 1:1 working PM for that consultant's board.
 # Deliberately NOT derived from USERS[...]['proposal_access'] -- that field
-# is a broader "who can touch this consultant's proposals" grant (e.g.
-# James Boling floats as backup PM across both Andy and Adam), not the same
-# thing as "who is this consultant's actual PM pair." Scanning proposal_access
-# picked whichever PM happened to be defined first in the USERS dict, which
-# was James, not Ben -- confirmed wrong 2026-07-30.
-PILOT_PM_FOR_CONSULTANT = {
+# is a broader "who can touch this consultant's proposals" grant (James
+# floats Andy and Adam; Jordan's Hub grant is still `'all'`), not the same
+# thing as "who is this consultant's actual PM pair." Scanning
+# proposal_access once picked James for Andy by dict order — confirmed
+# wrong 2026-07-30. Same rule still holds after the 2026-08-13 expansion.
+PRIMARY_PM_FOR_CONSULTANT = {
     'andy_potts': 'ben_ramsey',
+    'adam_cupito': 'jordan_allen',
+    'tony_cumella': 'nick_triplett',
     'rachel_farler': 'derek_kidney',
 }
+
+# Extra people who can open this consultant's board (the consultant and
+# admin are implied). Thomas 2026-08-13. Trey → Adam only, see module
+# docstring. Do not add Phil / Stephanie / Nick-to-Adam here without a
+# new explicit ask.
+BOARD_ACCESS = {
+    'andy_potts': frozenset({
+        'ben_ramsey', 'adam_cupito', 'jordan_allen', 'james_boling',
+    }),
+    'adam_cupito': frozenset({
+        'jordan_allen', 'james_boling', 'andy_potts', 'ben_ramsey',
+        'trey_hollmeyer',
+    }),
+    'tony_cumella': frozenset({'nick_triplett'}),
+    'rachel_farler': frozenset({'derek_kidney'}),
+}
+
+# Back-compat aliases — a couple of comments / older tests used the
+# pilot names. Prefer BOARD_* above.
+PILOT_PAIR_CONSULTANTS = BOARD_CONSULTANT_SET
+PILOT_PM_FOR_CONSULTANT = PRIMARY_PM_FOR_CONSULTANT
 PRESENCE_TTL_SECONDS = 12  # no explicit "disconnect" under polling; just expire
 
 # Ordered roughly by pipeline stage so the dropdown reads top-to-bottom as
@@ -245,61 +277,57 @@ def cleanup_legacy_import_notes(cur):
             )
 
 
-def get_pair_key(users, user_key):
-    """Resolve which pair board a user belongs to. Consultants use their own
-    key; PMs resolve via PILOT_PM_FOR_CONSULTANT (preferred) or proposal_access.
-
-    proposal_access may be the string 'all' (Trey / Jordan / Phil) — never index
-    that as a list (access[0] would be the letter 'a').
-    """
-    user = users.get(user_key, {})
-    role = user.get('role')
-    if role == 'consultant':
-        return user_key
-    if role == 'pm':
-        # Prefer explicit pilot pairing table over proposal_access order
-        for consultant_key, pm_key in PILOT_PM_FOR_CONSULTANT.items():
-            if pm_key == user_key:
-                return consultant_key
-        access = user.get('proposal_access') or []
-        if access == 'all':
-            # Production / float PMs: no single default board; admin-style pick
-            # is handled at the route. First pilot consultant as a sensible home.
-            for ck in PILOT_PAIR_CONSULTANTS:
-                return ck
-            return None
-        if isinstance(access, (list, tuple)) and access:
-            # Prefer a pilot consultant they can access
-            for ck in access:
-                if ck in PILOT_PAIR_CONSULTANTS:
-                    return ck
-            return access[0]
-        return None
-    return None
-
-
 def can_access_board(users, user_key, pair_key):
-    """Pilot members of that specific pair, or admin (preview).
+    """Owner of that consultant's board, someone on BOARD_ACCESS, or admin.
 
-    PMs with proposal_access 'all' (e.g. Trey) may open any pilot board.
-    PMs paired to a consultant may open that consultant's pilot board.
+    Intentionally ignores USERS[...]['proposal_access'] — including the
+    string `'all'` that Trey / Jordan / Phil still carry. Pipeline access
+    is the explicit roster above, not the proposal-vault grant.
     """
-    if pair_key not in PILOT_PAIR_CONSULTANTS:
+    if pair_key not in BOARD_CONSULTANT_SET:
         return False
     user = users.get(user_key, {})
     if user.get('role') == 'admin':
         return True
-    if user.get('role') == 'consultant' and user_key == pair_key:
+    if user_key == pair_key:
         return True
-    if user.get('role') == 'pm':
-        access = user.get('proposal_access')
-        if access == 'all':
-            return True
-        if isinstance(access, (list, tuple)) and pair_key in access:
-            return True
-        if PILOT_PM_FOR_CONSULTANT.get(pair_key) == user_key:
-            return True
-    return get_pair_key(users, user_key) == pair_key
+    return user_key in BOARD_ACCESS.get(pair_key, ())
+
+
+def get_pair_key(users, user_key):
+    """Default board when opening /pipeline-board with no ?pair=.
+
+    Consultants land on their own board. Primary PMs land on their 1:1
+    consultant. Everyone else (James, Trey, a consultant opening a
+    teammate's board) lands on the first board they can actually open.
+    Admin has no default — they pick via ?pair=.
+    """
+    user = users.get(user_key, {})
+    if user.get('role') == 'admin':
+        return None
+    if user.get('role') == 'consultant' and user_key in BOARD_CONSULTANT_SET:
+        return user_key
+    for consultant_key, pm_key in PRIMARY_PM_FOR_CONSULTANT.items():
+        if pm_key == user_key:
+            return consultant_key
+    for ck in BOARD_CONSULTANTS:
+        if can_access_board(users, user_key, ck):
+            return ck
+    return None
+
+
+def list_accessible_boards(users, user_key):
+    """Ordered list of boards this user can open, for the switcher / dashboard."""
+    boards = []
+    for ck in BOARD_CONSULTANTS:
+        if can_access_board(users, user_key, ck):
+            pm_key = PRIMARY_PM_FOR_CONSULTANT.get(ck)
+            boards.append({
+                'key': ck,
+                'consultant_display': _display(users, ck),
+                'pm_display': _display(users, pm_key) if pm_key else 'PM',
+            })
+    return boards
 
 
 def _display(users, user_key):
@@ -962,16 +990,20 @@ def register_routes(app, get_db_fn, users, require_login):
     from flask import jsonify, render_template, request, session, redirect, url_for
 
     def _current_pair(fallback_query_override_for_admin=True):
-        """Resolve the pair_key this request should operate on."""
+        """Resolve the pair_key this request should operate on.
+
+        Anyone who can open more than one board (Adam/Andy, Ben, James,
+        Jordan, admin) switches via ?pair=. The override is honored only
+        when can_access_board says yes — a stray query string cannot
+        open a board the user is not on.
+        """
         user_key = session['user_key']
-        pair_key = get_pair_key(users, user_key)
-        if fallback_query_override_for_admin and users.get(user_key, {}).get('role') == 'admin':
-            override = (request.args.get('pair')
-                        or request.form.get('pair')
-                        or (request.get_json(silent=True) or {}).get('pair'))
-            if override:
-                pair_key = override
-        return user_key, pair_key
+        override = (request.args.get('pair')
+                    or request.form.get('pair')
+                    or (request.get_json(silent=True) or {}).get('pair'))
+        if override and can_access_board(users, user_key, override):
+            return user_key, override
+        return user_key, get_pair_key(users, user_key)
 
     @app.route('/pipeline-board')
     @require_login
@@ -979,7 +1011,8 @@ def register_routes(app, get_db_fn, users, require_login):
         user_key, pair_key = _current_pair()
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return redirect(url_for('dashboard'))
-        pm_key = PILOT_PM_FOR_CONSULTANT.get(pair_key)
+        pm_key = PRIMARY_PM_FOR_CONSULTANT.get(pair_key)
+        accessible = list_accessible_boards(users, user_key)
         return render_template(
             'pipeline_board.html',
             pair_key=pair_key,
@@ -989,6 +1022,7 @@ def register_routes(app, get_db_fn, users, require_login):
             completed_statuses=sorted(COMPLETED_STATUSES),
             user_key=user_key,
             user_display=_display(users, user_key),
+            accessible_boards=accessible,
             is_admin_preview=(users.get(user_key, {}).get('role') == 'admin'
                               and get_pair_key(users, user_key) != pair_key),
         )

@@ -33,7 +33,7 @@
   td { padding:4px 6px; border-bottom:1px solid #f0f4f8; font-size:13px; vertical-align:middle; overflow:hidden; }
   tr.archiving td { opacity:0.35; }
   /* In-progress rows (not Sent / Awarded / Cancelled) — quick visual for
-     what still needs Andy or Ben's attention when scanning the board. */
+     what still needs attention when scanning the board. */
   tr.row-in-progress td { background:#FFF8E7; }
   tr.row-in-progress:hover td { background:#FFF3D6; }
   tr.row-in-progress td:first-child { box-shadow:inset 3px 0 0 #F9A825; }
@@ -88,6 +88,13 @@
     padding:9px 14px; font-size:12px; margin-bottom:14px;
   }
   .install-hint button { background:none; border:none; color:#1565C0; font-size:14px; cursor:pointer; padding:0 4px; }
+  .board-switcher { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 14px; }
+  .board-switcher a {
+    font-size:12px; font-weight:600; text-decoration:none; padding:6px 10px; border-radius:8px;
+    border:1.5px solid var(--border); color:var(--dark-blue); background:white;
+  }
+  .board-switcher a:hover { border-color:rgba(0,150,214,0.45); }
+  .board-switcher a.active { background:var(--dark-blue); color:white; border-color:var(--dark-blue); }
 </style>
 </head>
 <body>
@@ -113,6 +120,14 @@
       <div class="presence-row" id="presence-row"></div>
     </div>
   </div>
+
+  {% if accessible_boards and accessible_boards|length > 1 %}
+  <nav class="board-switcher" aria-label="Switch pipeline board">
+    {% for b in accessible_boards %}
+    <a href="/pipeline-board?pair={{ b.key }}" class="{% if b.key == pair_key %}active{% endif %}">{{ b.consultant_display }} / {{ b.pm_display }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
 
   <div class="card">
     <div class="table-scroll">
@@ -181,14 +196,11 @@ let saveTimers = {};
 // the poller wiped every row from the UI even though data was still on disk.)
 const CACHE_KEY = `pipelineBoardCache:${PAIR_KEY}`;
 
-// Admin preview URLs look like /pipeline-board?pair=andy_potts — the page route
-// reads that fine, but every API call below is a separate request and needs
-// the same override threaded through, or the server can't resolve which
-// pair's board admin means and (correctly) rejects it.
-const PAIR_OVERRIDE = new URLSearchParams(window.location.search).get('pair');
+// Always pin API calls to the board this page rendered. People who can
+// open more than one board (Adam/Andy, Ben, James, Jordan, admin) switch
+// via ?pair= — without this, a poll would hit their default board instead.
 function apiUrl(path) {
-  if (!PAIR_OVERRIDE) return path;
-  return path + (path.includes('?') ? '&' : '?') + 'pair=' + encodeURIComponent(PAIR_OVERRIDE);
+  return path + (path.includes('?') ? '&' : '?') + 'pair=' + encodeURIComponent(PAIR_KEY);
 }
 
 function cacheEntries(list) {

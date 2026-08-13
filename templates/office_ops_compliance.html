@@ -62,6 +62,32 @@
     .toast { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; }
     .toast.ok { display: block; background: #ECFDF5; color: var(--ok); }
     .toast.err { display: block; background: #FEF2F2; color: var(--danger); }
+    .btn-view {
+      background: #fff; color: var(--navy); border: 1px solid var(--border);
+      padding: 6px 12px; font-size: 13px;
+    }
+    .btn-view:hover { border-color: var(--blue); }
+    .coi-modal {
+      display: none; position: fixed; inset: 0; z-index: 80;
+      background: rgba(11,29,54,0.62); padding: 24px 16px;
+      align-items: center; justify-content: center;
+    }
+    .coi-modal.open { display: flex; }
+    .coi-dialog {
+      background: #fff; border-radius: 14px; max-width: 920px; width: 100%;
+      max-height: 92vh; display: flex; flex-direction: column;
+      box-shadow: 0 16px 48px rgba(11,29,54,0.28);
+    }
+    .coi-head {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border);
+    }
+    .coi-head strong { font-size: 14px; }
+    .coi-head a { font-size: 13px; color: var(--blue); }
+    .coi-body { overflow: auto; padding: 12px; background: #111; min-height: 240px; text-align: center; }
+    .coi-body img { max-width: 100%; height: auto; background: #fff; }
+    .coi-body iframe { width: 100%; height: 72vh; border: 0; background: #fff; }
+    .coi-fallback { color: #ddd; padding: 40px 16px; font-size: 14px; }
   </style>
 </head>
 <body>
@@ -94,6 +120,16 @@
       </div>
     </div>
 
+    {% macro view_coi_btn(r) %}
+      {% if r.has_viewable_coi %}
+      <button type="button" class="btn btn-view js-view-coi"
+              data-item-id="{{ r.item_id }}"
+              data-name="{{ r.name }}"
+              data-kind="{{ r.coi_kind or '' }}"
+              data-filename="{{ r.coi_name or '' }}">View COI</button>
+      {% endif %}
+    {% endmacro %}
+
     {% macro row_list(items, empty_msg, show_source=true) %}
       {% if items %}
         {% for r in items %}
@@ -103,8 +139,10 @@
             <div class="detail">
               {{ r.group }}
               {% if show_source and r.effective_ins %} · expires {{ r.effective_ins.strftime('%m/%d/%Y') }} [{{ r.effective_source }}]{% endif %}
+              {% if r.coi_kind == 'image' %} · photo on file{% endif %}
             </div>
           </div>
+          {{ view_coi_btn(r) }}
         </div>
         {% endfor %}
       {% else %}
@@ -182,6 +220,7 @@
             <div class="name">{{ r.name }}</div>
             <div class="detail">board says {{ r.manual_ins.strftime('%m/%d/%Y') if r.manual_ins else '—' }}, COI PDF says {{ r.extracted_ins.strftime('%m/%d/%Y') if r.extracted_ins else '—' }}</div>
           </div>
+          {{ view_coi_btn(r) }}
         </div>
         {% endfor %}
       {% else %}
@@ -202,19 +241,37 @@
             <div class="name">{{ r.name }}</div>
             <div class="detail">
               {{ r.group }}
-              {% if r.coi_name %} · "{{ r.coi_name }}" — no text to read{% else %} · no COI on file{% endif %}
+              {% if r.coi_kind == 'image' %} · "{{ r.coi_name }}" — photo, open to read
+              {% elif r.coi_name %} · "{{ r.coi_name }}" — no text to read
+              {% else %} · no COI on file{% endif %}
               {% if r.manual_ins %} · board date {{ r.manual_ins.strftime('%m/%d/%Y') }} (fallback){% endif %}
             </div>
           </div>
-          <form class="override-form" data-item-id="{{ r.item_id }}">
-            <input type="date" required>
-            <button type="submit" class="btn btn-primary">Save</button>
-          </form>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            {{ view_coi_btn(r) }}
+            <form class="override-form" data-item-id="{{ r.item_id }}">
+              <input type="date" required>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+          </div>
         </div>
         {% endfor %}
       {% else %}
         <p class="muted" style="margin:0">None.</p>
       {% endif %}
+    </div>
+  </div>
+
+  <div class="coi-modal" id="coi-modal" role="dialog" aria-modal="true" aria-labelledby="coi-title">
+    <div class="coi-dialog">
+      <div class="coi-head">
+        <strong id="coi-title">Certificate of Insurance</strong>
+        <div style="display:flex;gap:12px;align-items:center">
+          <a id="coi-open-tab" href="#" target="_blank" rel="noopener">Open in new tab</a>
+          <button type="button" class="btn btn-view" id="coi-close">Close</button>
+        </div>
+      </div>
+      <div class="coi-body" id="coi-body"></div>
     </div>
   </div>
 
@@ -272,6 +329,46 @@
         btn.disabled = false;
         btn.textContent = 'Save';
       }
+    });
+  });
+
+  const coiModal = document.getElementById('coi-modal');
+  const coiBody = document.getElementById('coi-body');
+  const coiTitle = document.getElementById('coi-title');
+  const coiOpenTab = document.getElementById('coi-open-tab');
+  function closeCoi() {
+    coiModal.classList.remove('open');
+    coiBody.innerHTML = '';
+  }
+  document.getElementById('coi-close').addEventListener('click', closeCoi);
+  coiModal.addEventListener('click', (e) => { if (e.target === coiModal) closeCoi(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCoi(); });
+
+  document.querySelectorAll('.js-view-coi').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const itemId = btn.getAttribute('data-item-id');
+      const name = btn.getAttribute('data-name') || 'COI';
+      const kind = btn.getAttribute('data-kind') || '';
+      const filename = btn.getAttribute('data-filename') || '';
+      const url = '/office-ops/compliance/coi/' + encodeURIComponent(itemId);
+      coiTitle.textContent = name + (filename ? ' — ' + filename : '');
+      coiOpenTab.href = url;
+      coiBody.innerHTML = '';
+      if (kind === 'pdf') {
+        const frame = document.createElement('iframe');
+        frame.src = url;
+        frame.title = name + ' certificate';
+        coiBody.appendChild(frame);
+      } else {
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = name + ' certificate';
+        img.addEventListener('error', () => {
+          coiBody.innerHTML = '<div class="coi-fallback">This file will not display in the browser (often an iPhone HEIC). Use <strong>Open in new tab</strong> and download it, then type the expiration below.</div>';
+        });
+        coiBody.appendChild(img);
+      }
+      coiModal.classList.add('open');
     });
   });
   </script>
