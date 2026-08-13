@@ -341,7 +341,7 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if pipeline_boards and user_role in ('consultant', 'office_manager') %}
+          {% if pipeline_boards and user_role == 'consultant' %}
           {% for b in pipeline_boards %}
           <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
@@ -442,7 +442,7 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {% if pipeline_boards and user_role == 'pm' %}
+          {% if pipeline_boards and user_role in ('pm', 'office_manager') %}
           {% for b in pipeline_boards %}
           <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>

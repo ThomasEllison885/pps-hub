@@ -242,6 +242,7 @@ _USERS = {
     'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant'},
     'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'proposal_access': 'all'},
     'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'proposal_access': 'all'},
+    'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager'},
     'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin'},
 }
 
@@ -264,8 +265,11 @@ def test_get_pair_key_admin_has_no_pair_of_their_own():
     assert pb.get_pair_key(_USERS, 'thomas_ellison') is None
 
 
-def test_get_pair_key_trey_defaults_to_adam():
-    assert pb.get_pair_key(_USERS, 'trey_hollmeyer') == 'adam_cupito'
+def test_get_pair_key_oversight_defaults_to_first_board():
+    # Trey / Stephanie can open every board; default is BOARD_CONSULTANTS[0]
+    # (Andy) so /pipeline-board without ?pair= still lands somewhere.
+    assert pb.get_pair_key(_USERS, 'trey_hollmeyer') == 'andy_potts'
+    assert pb.get_pair_key(_USERS, 'stephanie_whetstone') == 'andy_potts'
 
 
 def test_get_pair_key_ignores_proposal_access_all():
@@ -288,7 +292,6 @@ def test_can_access_board_owner_and_named_roster():
     assert pb.can_access_board(_USERS, 'james_boling', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'andy_potts', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'ben_ramsey', 'adam_cupito') is True
-    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'nick_triplett', 'tony_cumella') is True
     assert pb.can_access_board(_USERS, 'derek_kidney', 'rachel_farler') is True
 
@@ -296,23 +299,24 @@ def test_can_access_board_owner_and_named_roster():
 def test_can_access_board_wrong_pair_denied():
     assert pb.can_access_board(_USERS, 'derek_kidney', 'andy_potts') is False
     assert pb.can_access_board(_USERS, 'nick_triplett', 'adam_cupito') is False
-    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'andy_potts') is False
-    assert pb.can_access_board(_USERS, 'trey_hollmeyer', 'tony_cumella') is False
     assert pb.can_access_board(_USERS, 'rachel_farler', 'adam_cupito') is False
 
 
-def test_can_access_board_admin_allowed_on_every_live_board():
-    for ck in pb.BOARD_CONSULTANTS:
-        assert pb.can_access_board(_USERS, 'thomas_ellison', ck) is True
+def test_can_access_board_oversight_all_boards():
+    for user_key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone'):
+        for ck in pb.BOARD_CONSULTANTS:
+            assert pb.can_access_board(_USERS, user_key, ck) is True, (user_key, ck)
 
 
 def test_list_accessible_boards_for_multi_board_users():
     andy = [b['key'] for b in pb.list_accessible_boards(_USERS, 'andy_potts')]
     assert andy == ['andy_potts', 'adam_cupito']
-    trey = [b['key'] for b in pb.list_accessible_boards(_USERS, 'trey_hollmeyer')]
-    assert trey == ['adam_cupito']
     nick = [b['key'] for b in pb.list_accessible_boards(_USERS, 'nick_triplett')]
     assert nick == ['tony_cumella']
+    trey = [b['key'] for b in pb.list_accessible_boards(_USERS, 'trey_hollmeyer')]
+    assert trey == list(pb.BOARD_CONSULTANTS)
+    steph = [b['key'] for b in pb.list_accessible_boards(_USERS, 'stephanie_whetstone')]
+    assert steph == list(pb.BOARD_CONSULTANTS)
 
 
 # --- Import column mapping --------------------------------------------------

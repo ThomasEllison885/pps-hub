@@ -20,8 +20,9 @@ Adam / Andy / Tony / Rachel. Access is an explicit per-board roster
 (`BOARD_ACCESS`), not `USERS[...]['proposal_access']` — that field is a
 broader proposal-vault grant and is the wrong shape here (James floats Andy
 and Adam; Jordan's `proposal_access` is still `'all'` from an older grant;
-Phil's `'all'` must not open every pipeline). Trey is on Adam's board only
-(largest shared production book — Jordan + James + Andy + Ben already there).
+Phil's `'all'` must not open every pipeline). Thomas, Trey, and Stephanie
+can open every board (`BOARD_ACCESS_ALL`, 2026-08-13) — production + office
+oversight, not a working-pair membership.
 
 Status values were chosen by reviewing two real exported sheets (Rachel Farler's
 and another consultant's) rather than guessed — see chat history 2026-07-29.
@@ -55,21 +56,29 @@ PRIMARY_PM_FOR_CONSULTANT = {
     'rachel_farler': 'derek_kidney',
 }
 
-# Extra people who can open this consultant's board (the consultant and
-# admin are implied). Thomas 2026-08-13. Trey → Adam only, see module
-# docstring. Do not add Phil / Stephanie / Nick-to-Adam here without a
-# new explicit ask.
+# Extra people who can open this consultant's board (the consultant
+# themselves and BOARD_ACCESS_ALL are implied). Working-pair roster only —
+# do not put Trey / Stephanie / Thomas here; they belong on BOARD_ACCESS_ALL.
+# Phil is not on a board. Thomas 2026-08-13.
 BOARD_ACCESS = {
     'andy_potts': frozenset({
         'ben_ramsey', 'adam_cupito', 'jordan_allen', 'james_boling',
     }),
     'adam_cupito': frozenset({
         'jordan_allen', 'james_boling', 'andy_potts', 'ben_ramsey',
-        'trey_hollmeyer',
     }),
     'tony_cumella': frozenset({'nick_triplett'}),
     'rachel_farler': frozenset({'derek_kidney'}),
 }
+
+# Oversight: every live board. Explicit names, not role==admin and not
+# proposal_access=='all' (Jordan and Phil still carry that Hub grant and
+# must not inherit this). Thomas asked 2026-08-13.
+BOARD_ACCESS_ALL = frozenset({
+    'thomas_ellison',
+    'trey_hollmeyer',
+    'stephanie_whetstone',
+})
 
 # Back-compat aliases — a couple of comments / older tests used the
 # pilot names. Prefer BOARD_* above.
@@ -278,14 +287,17 @@ def cleanup_legacy_import_notes(cur):
 
 
 def can_access_board(users, user_key, pair_key):
-    """Owner of that consultant's board, someone on BOARD_ACCESS, or admin.
+    """Owner of that consultant's board, someone on BOARD_ACCESS,
+    BOARD_ACCESS_ALL (Thomas / Trey / Stephanie), or admin.
 
     Intentionally ignores USERS[...]['proposal_access'] — including the
-    string `'all'` that Trey / Jordan / Phil still carry. Pipeline access
-    is the explicit roster above, not the proposal-vault grant.
+    string `'all'` that Jordan / Phil still carry. Pipeline access is the
+    explicit roster above, not the proposal-vault grant.
     """
     if pair_key not in BOARD_CONSULTANT_SET:
         return False
+    if user_key in BOARD_ACCESS_ALL:
+        return True
     user = users.get(user_key, {})
     if user.get('role') == 'admin':
         return True
