@@ -27,6 +27,14 @@ OFFICE_OPS_USER_KEYS = frozenset({'stephanie_whetstone', 'thomas_ellison'})
 OFFICE_OPS_ROLES = frozenset({'office_manager', 'admin'})
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+# Each vision-pass row is a real network round-trip (plus a pdftoppm render
+# for scanned PDFs) -- a board-wide run over dozens of rows in one request
+# can outlast gunicorn's 120s worker timeout and just look like "Network
+# error" in the browser. The route enforces this cap server-side regardless
+# of what the client asks for, so the run-in-batches property can't be
+# bypassed by a client bug.
+VISION_PASS_BATCH_SIZE = 6
 # ar_aging kept for early uploads; new kinds are explicit.
 ALLOWED_KINDS = frozenset({
     'ar_aging',
@@ -2225,8 +2233,14 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         if blocked:
             return jsonify({'success': False, 'error': 'Not allowed.'}), 403
         user_key = session.get('user_key')
+        data = request.get_json(silent=True) or {}
         try:
-            result = insurance_compliance.run_vision_pass(get_db_fn, claude_api_key, claude_model)
+            limit = int(data.get('limit') or VISION_PASS_BATCH_SIZE)
+        except (TypeError, ValueError):
+            limit = VISION_PASS_BATCH_SIZE
+        limit = max(1, min(limit, VISION_PASS_BATCH_SIZE))
+        try:
+            result = insurance_compliance.run_vision_pass(get_db_fn, claude_api_key, claude_model, limit=limit)
             if 'error' in result:
                 return jsonify({'success': False, 'error': result['error']}), 500
             from hub_usage import record_usage

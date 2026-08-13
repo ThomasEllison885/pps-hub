@@ -412,7 +412,7 @@ def _vision_ready_image(data, filename, content_type):
     return None, content_type, f"{content_type or filename or 'file type'} not supported for vision (iPhone HEIC is the usual case)"
 
 
-def run_vision_pass(get_db_fn, api_key, model):
+def run_vision_pass(get_db_fn, api_key, model, limit=None):
     """On-demand batch: try Claude vision on every 'needs manual entry'
     COI we can actually look at — photos, and PDFs whose text layer was
     empty (scans). Not run automatically; Thomas/Stephanie trigger it
@@ -421,15 +421,26 @@ def run_vision_pass(get_db_fn, api_key, model):
 
     A row that comes back uncertain still gets its confidence recorded
     but its date stays NULL rather than posting a guess.
+
+    limit caps how many rows this call processes. Each vision read is a
+    real network round-trip (plus a pdftoppm render for scanned PDFs), so
+    a board with dozens of rows needing a look can run past gunicorn's
+    120s worker timeout in one shot (--timeout 120, render.yaml) -- the
+    request gets killed mid-flight and the browser just sees a dropped
+    connection. The Compliance page calls this in small batches instead
+    of one big request; 'remaining' tells it whether to call again.
     """
     if not api_key:
         return {'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}
 
     rows, _ = get_latest_snapshot_rows(get_db_fn)
-    targets = [r for r in categorize_rows(rows, date.today())['needs_manual']
-               if is_vision_target(r)]
+    all_targets = [r for r in categorize_rows(rows, date.today())['needs_manual']
+                   if is_vision_target(r)]
+    targets = all_targets[:limit] if limit else all_targets
+    remaining = max(0, len(all_targets) - len(targets))
 
-    result = {'attempted': len(targets), 'dated': 0, 'uncertain': 0, 'errors': 0, 'details': []}
+    result = {'attempted': len(targets), 'dated': 0, 'uncertain': 0, 'errors': 0,
+              'remaining': remaining, 'details': []}
     if not targets:
         return result
 

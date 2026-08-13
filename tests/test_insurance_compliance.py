@@ -154,7 +154,7 @@ def test_run_vision_pass_writes_extracted_date_on_confident_read(monkeypatch):
     conn = _FakeVisionConn()
     result = ic.run_vision_pass(lambda: conn, api_key='k', model='m')
 
-    assert result == {'attempted': 1, 'dated': 1, 'uncertain': 0, 'errors': 0,
+    assert result == {'attempted': 1, 'dated': 1, 'uncertain': 0, 'errors': 0, 'remaining': 0,
                        'details': [{'name': 'Test Sub', 'outcome': 'read 2027-03-01'}]}
     assert conn.committed is True
     sql, params = conn.cur.executed[0]
@@ -194,3 +194,43 @@ def test_run_vision_pass_fetch_failure_counts_as_error_and_skips_update(monkeypa
     assert result['errors'] == 1
     assert result['attempted'] == 1
     assert conn.cur.executed == []  # never reached the UPDATE
+
+
+def test_run_vision_pass_limit_caps_batch_and_reports_remaining(monkeypatch):
+    # 5 rows, limit=2 -- a big board must not run as one long request that
+    # can outlast gunicorn's worker timeout (render.yaml: --timeout 120).
+    rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(5)]
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
+    monkeypatch.setattr(ic, 'load_coi_asset',
+                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_extract_coi_fields_vision',
+                         lambda data, content_type, api_key, model: {
+                             'gl_exp': date(2027, 1, 1), 'wc_exp': None,
+                             'additional_insured': None, 'confidence': 'vision_extracted',
+                         })
+
+    conn = _FakeVisionConn()
+    result = ic.run_vision_pass(lambda: conn, api_key='k', model='m', limit=2)
+
+    assert result['attempted'] == 2
+    assert result['dated'] == 2
+    assert result['remaining'] == 3
+    assert len(conn.cur.executed) == 2
+
+
+def test_run_vision_pass_no_limit_processes_everything_with_zero_remaining(monkeypatch):
+    rows = [_needs_manual_row(item_id=f'item-{i}', name=f'Sub {i}') for i in range(3)]
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: (rows, None))
+    monkeypatch.setattr(ic, 'load_coi_asset',
+                         lambda get_db_fn, item_id: (b'fake-bytes', 'photo.jpg', 'image/jpeg', None))
+    monkeypatch.setattr(ic, '_extract_coi_fields_vision',
+                         lambda data, content_type, api_key, model: {
+                             'gl_exp': date(2027, 1, 1), 'wc_exp': None,
+                             'additional_insured': None, 'confidence': 'vision_extracted',
+                         })
+
+    conn = _FakeVisionConn()
+    result = ic.run_vision_pass(lambda: conn, api_key='k', model='m')
+
+    assert result['attempted'] == 3
+    assert result['remaining'] == 0

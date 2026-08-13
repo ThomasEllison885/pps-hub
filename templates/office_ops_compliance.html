@@ -313,22 +313,43 @@
   if (visionBtn) {
     visionBtn.addEventListener('click', async () => {
       visionBtn.disabled = true;
-      visionToast.className = 'toast ok';
-      visionToast.textContent = 'Reading remaining COIs — this can take a bit…';
+      // Runs in small server-enforced batches, not one request for the whole
+      // board -- 40+ rows of vision + PDF-render calls in a single request
+      // can outlast gunicorn's worker timeout and show up as "Network error"
+      // with nothing actually wrong. Looping here keeps each call fast and
+      // shows real progress instead of one long silent wait.
+      let totalDated = 0, totalUncertain = 0, totalErrors = 0, totalAttempted = 0;
+      let round = 0;
       try {
-        const res = await fetch('/office-ops/compliance/vision-pass', { method: 'POST' });
-        const data = await res.json();
-        if (!data.success) {
-          visionToast.className = 'toast err';
-          visionToast.textContent = data.error || 'Vision pass failed';
-          visionBtn.disabled = false;
-          return;
+        while (true) {
+          round += 1;
+          visionToast.className = 'toast ok';
+          visionToast.textContent = totalAttempted
+            ? `Read ${totalDated} of ${totalAttempted} so far — still going…`
+            : 'Reading COIs — this can take a bit…';
+          const res = await fetch('/office-ops/compliance/vision-pass', { method: 'POST' });
+          const data = await res.json();
+          if (!data.success) {
+            visionToast.className = 'toast err';
+            visionToast.textContent = (totalAttempted ? `Read ${totalDated} of ${totalAttempted} before this failed: ` : '')
+              + (data.error || 'Vision pass failed');
+            visionBtn.disabled = false;
+            return;
+          }
+          totalDated += data.dated;
+          totalUncertain += data.uncertain;
+          totalErrors += data.errors;
+          totalAttempted += data.attempted;
+          if (!data.remaining || data.attempted === 0) break;
+          if (round > 30) break; // safety stop, not expected at this board's size
         }
-        visionToast.textContent = `Read ${data.dated} of ${data.attempted} — ${data.uncertain} still unclear, ${data.errors} errors. Refreshing…`;
+        visionToast.textContent = `Read ${totalDated} of ${totalAttempted} — ${totalUncertain} still unclear, ${totalErrors} errors. Refreshing…`;
         setTimeout(() => window.location.reload(), 1200);
       } catch (e) {
         visionToast.className = 'toast err';
-        visionToast.textContent = 'Network error';
+        visionToast.textContent = totalAttempted
+          ? `Read ${totalDated} of ${totalAttempted} before a network error — you can click again to pick up the rest.`
+          : 'Network error';
         visionBtn.disabled = false;
       }
     });
