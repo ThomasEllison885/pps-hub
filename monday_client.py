@@ -301,8 +301,11 @@ def resolve_asset_urls(asset_ids):
     """Return {asset_id: public_url} for a batch of Monday file asset IDs."""
     if not asset_ids:
         return {}
+    # assets.ids is [ID!]! (non-null list). [ID!] is a type error on
+    # current Monday GraphQL — View COI 2026-08-13: "Variable $ids of
+    # type [ID!] used in position expecting type [ID!]!".
     query = '''
-    query($ids: [ID!]) {
+    query($ids: [ID!]!) {
       assets(ids: $ids) {
         id
         name
@@ -331,7 +334,7 @@ def fetch_item_files(item_id):
     if not item_id:
         return []
     query = '''
-    query($ids: [ID!]) {
+    query($ids: [ID!]!) {
       items(ids: $ids) {
         id
         column_values(ids: ["files"]) {
