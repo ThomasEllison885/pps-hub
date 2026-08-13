@@ -2078,7 +2078,8 @@ def list_recent_files(get_db_fn, kind=None, limit=12):
         return []
 
 
-def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
+def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
+                     claude_api_key=None, claude_model=None):
     from io import BytesIO
 
     from flask import jsonify, redirect, render_template, request, send_file, session, url_for
@@ -2203,6 +2204,27 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
             return jsonify({'success': True})
         except Exception as e:
             print(f'Office Ops compliance override error ({user_key}): {e}')
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    @app.route('/office-ops/compliance/vision-pass', methods=['POST'])
+    @require_login
+    def office_ops_compliance_vision_pass():
+        """On-demand: try Claude vision on every 'needs manual entry' sub
+        whose COI is a photo. Not automatic — Thomas/Stephanie trigger this
+        from the page. Same Stephanie+Thomas gate as the rest of Office Ops."""
+        blocked = _gate()
+        if blocked:
+            return jsonify({'success': False, 'error': 'Not allowed.'}), 403
+        user_key = session.get('user_key')
+        try:
+            result = insurance_compliance.run_vision_pass(get_db_fn, claude_api_key, claude_model)
+            if 'error' in result:
+                return jsonify({'success': False, 'error': result['error']}), 500
+            return jsonify({'success': True, **result})
+        except Exception as e:
+            print(f'Office Ops vision pass error ({user_key}): {e}')
+            import traceback
+            traceback.print_exc()
             return jsonify({'success': False, 'error': str(e)}), 500
 
     @app.route('/office-ops/compliance/coi/<item_id>')

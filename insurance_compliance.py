@@ -246,6 +246,155 @@ def _extract_coi_fields(pdf_bytes):
     }
 
 
+# Claude's vision input only accepts these four image types. HEIC/HEIF and
+# TIFF/BMP sniff as 'image' for display purposes (Grok's viewer proxies them
+# straight to the browser via <img>, which does render some of these
+# depending on client), but a vision API call needs one of the four below.
+_VISION_SUPPORTED_TYPES = frozenset({'image/jpeg', 'image/png', 'image/gif', 'image/webp'})
+
+
+def _strip_json_fences(raw):
+    text = (raw or '').strip()
+    if text.startswith('```'):
+        text = text.split('\n', 1)[-1]
+        if text.endswith('```'):
+            text = text.rsplit('```', 1)[0]
+        text = text.strip()
+        if text.lower().startswith('json'):
+            text = text[4:].strip()
+    return text
+
+
+def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeout=45.0):
+    """Same job as _extract_coi_fields, for a COI that's a photo instead of
+    a PDF with a text layer — reads the certificate visually with Claude.
+
+    Same calibrated-honest posture as the text path: a low-confidence or
+    unreadable read comes back with gl_exp=None rather than a guess, so it
+    stays in 'needs manual entry' instead of silently posing as verified.
+    """
+    if content_type not in _VISION_SUPPORTED_TYPES:
+        return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
+                'confidence': 'unsupported_image_type'}
+
+    import base64
+    import json
+    import time
+    import anthropic
+
+    b64 = base64.standard_b64encode(image_bytes).decode('ascii')
+    prompt = (
+        "This is a photo of a Certificate of Insurance (ACORD 25 or similar). "
+        "Find the General Liability expiration date and the Workers Compensation "
+        "expiration date (the EXP/expiration date, not the effective date — COIs "
+        "usually list both). Reply with ONLY this JSON, no other text:\n"
+        '{"gl_exp": "MM/DD/YYYY or null", "wc_exp": "MM/DD/YYYY or null", '
+        '"confident": true or false}\n'
+        "Set confident to false if the photo is blurry, cropped, glare-obscured, "
+        "or you are not sure you are reading the right field."
+    )
+    cl = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+    last_err = None
+    for attempt in range(2):
+        try:
+            msg = cl.messages.create(
+                model=model,
+                max_tokens=300,
+                messages=[{
+                    'role': 'user',
+                    'content': [
+                        {'type': 'image', 'source': {'type': 'base64', 'media_type': content_type, 'data': b64}},
+                        {'type': 'text', 'text': prompt},
+                    ],
+                }],
+            )
+            raw = msg.content[0].text
+            parsed = json.loads(_strip_json_fences(raw))
+            gl_exp = _parse_date_token(parsed.get('gl_exp')) if parsed.get('gl_exp') else None
+            wc_exp = _parse_date_token(parsed.get('wc_exp')) if parsed.get('wc_exp') else None
+            confident = bool(parsed.get('confident'))
+            if not confident or (not gl_exp and not wc_exp):
+                return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
+                        'confidence': 'vision_uncertain'}
+            return {'gl_exp': gl_exp, 'wc_exp': wc_exp, 'additional_insured': None,
+                    'confidence': 'vision_extracted'}
+        except Exception as e:
+            last_err = e
+            err_name = type(e).__name__
+            transient = err_name in (
+                'APITimeoutError', 'APIConnectionError', 'RateLimitError', 'InternalServerError',
+            ) or 'timeout' in str(e).lower() or 'overloaded' in str(e).lower()
+            if attempt == 0 and transient:
+                time.sleep(1.5)
+                continue
+            print(f"COI vision extract error ({err_name}): {e}")
+    return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
+            'confidence': f'vision_error: {last_err}'[:300]}
+
+
+def run_vision_pass(get_db_fn, api_key, model):
+    """On-demand batch: try Claude vision on every sub currently in 'needs
+    manual entry' whose COI is a photo (not a PDF — the text-layer path
+    already handles PDFs, weekly and here). Not run automatically; Thomas
+    triggers it from the Compliance page. Writes into the same
+    insurance_expires_extracted / extract_confidence columns the PDF path
+    uses, so a vision read slots into the existing extracted > override >
+    manual priority without new schema or a second code path downstream.
+
+    A row that comes back uncertain still gets its confidence recorded (so
+    the page can show 'vision tried, couldn't read it') but its date stays
+    NULL rather than posting a guess — same discipline as _extract_coi_fields.
+    """
+    if not api_key:
+        return {'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}
+
+    rows, _ = get_latest_snapshot_rows(get_db_fn)
+    targets = [r for r in categorize_rows(rows, date.today())['needs_manual']
+               if r['coi_kind'] == 'image']
+
+    result = {'attempted': len(targets), 'dated': 0, 'uncertain': 0, 'errors': 0, 'details': []}
+    if not targets:
+        return result
+
+    conn = get_db_fn()
+    try:
+        cur = conn.cursor()
+        for r in targets:
+            item_id = r['item_id']
+            try:
+                data, filename, content_type, err = load_coi_asset(get_db_fn, item_id)
+                if err:
+                    result['errors'] += 1
+                    result['details'].append({'name': r['name'], 'outcome': f'fetch failed: {err}'})
+                    continue
+                extracted = _extract_coi_fields_vision(data, content_type, api_key, model)
+            except Exception as e:
+                result['errors'] += 1
+                result['details'].append({'name': r['name'], 'outcome': f'error: {e}'})
+                continue
+
+            cur.execute(
+                'UPDATE office_ops_tp_snapshot '
+                'SET insurance_expires_extracted = %s, extract_confidence = %s, updated_at = NOW() '
+                'WHERE monday_item_id = %s',
+                (extracted['gl_exp'], extracted['confidence'], item_id),
+            )
+            if extracted['gl_exp']:
+                result['dated'] += 1
+                result['details'].append({'name': r['name'], 'outcome': f"read {extracted['gl_exp']}"})
+            elif extracted['confidence'] == 'unsupported_image_type':
+                result['errors'] += 1
+                result['details'].append({'name': r['name'], 'outcome': f"{content_type or 'file type'} not supported for vision"})
+            else:
+                result['uncertain'] += 1
+                result['details'].append({'name': r['name'], 'outcome': 'photo unclear, still needs a human look'})
+        conn.commit()
+    finally:
+        conn.close()
+
+    return result
+
+
 def _pick_latest_coi_file(files):
     """Files are usually in upload order; prefer names with a recent-looking
     year range (e.g. '25-26') and otherwise fall back to the last uploaded."""
@@ -447,7 +596,8 @@ def get_latest_snapshot_rows(get_db_fn):
                 last_run_at = updated_at
 
             if extracted_ins:
-                effective_ins, effective_source = extracted_ins, 'coi_pdf'
+                src = 'coi_vision' if (confidence or '').startswith('vision') else 'coi_pdf'
+                effective_ins, effective_source = extracted_ins, src
             elif override_ins:
                 effective_ins, effective_source = override_ins, 'override'
             elif manual_ins:

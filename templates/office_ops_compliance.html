@@ -234,6 +234,14 @@
         No readable COI and no usable date on file. Look up the real expiration and enter it below —
         it will be used going forward until a readable COI beats it.
       </p>
+      {% set photo_count = needs_manual|selectattr('coi_kind', 'equalto', 'image')|list|length %}
+      {% if photo_count %}
+      <div style="margin:0 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-generate" id="btn-vision-pass">Try vision on {{ photo_count }} photo{{ 's' if photo_count != 1 else '' }}</button>
+        <span class="muted" style="font-size:.85em">Claude reads each photo COI directly — still shows up here for you to check, doesn't auto-trust a low-confidence read.</span>
+        <div class="toast" id="toast-vision" style="max-width:320px"></div>
+      </div>
+      {% endif %}
       {% if needs_manual %}
         {% for r in needs_manual %}
         <div class="row">
@@ -299,6 +307,32 @@
       refreshBtn.disabled = false;
     }
   });
+
+  const visionBtn = document.getElementById('btn-vision-pass');
+  const visionToast = document.getElementById('toast-vision');
+  if (visionBtn) {
+    visionBtn.addEventListener('click', async () => {
+      visionBtn.disabled = true;
+      visionToast.className = 'toast ok';
+      visionToast.textContent = 'Reading photo COIs with Claude vision — this can take a bit…';
+      try {
+        const res = await fetch('/office-ops/compliance/vision-pass', { method: 'POST' });
+        const data = await res.json();
+        if (!data.success) {
+          visionToast.className = 'toast err';
+          visionToast.textContent = data.error || 'Vision pass failed';
+          visionBtn.disabled = false;
+          return;
+        }
+        visionToast.textContent = `Read ${data.dated} of ${data.attempted} — ${data.uncertain} still unclear, ${data.errors} errors. Refreshing…`;
+        setTimeout(() => window.location.reload(), 1200);
+      } catch (e) {
+        visionToast.className = 'toast err';
+        visionToast.textContent = 'Network error';
+        visionBtn.disabled = false;
+      }
+    });
+  }
 
   document.querySelectorAll('.override-form').forEach(form => {
     form.addEventListener('submit', async (e) => {
