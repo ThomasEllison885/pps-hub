@@ -234,11 +234,11 @@
         No readable COI and no usable date on file. Look up the real expiration and enter it below —
         it will be used going forward until a readable COI beats it.
       </p>
-      {% set photo_count = needs_manual|selectattr('coi_kind', 'equalto', 'image')|list|length %}
-      {% if photo_count %}
+      {% set vision_count = needs_manual|selectattr('has_viewable_coi')|list|length %}
+      {% if vision_count %}
       <div style="margin:0 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button type="button" class="btn btn-generate" id="btn-vision-pass">Try vision on {{ photo_count }} photo{{ 's' if photo_count != 1 else '' }}</button>
-        <span class="muted" style="font-size:.85em">Claude reads each photo COI directly — still shows up here for you to check, doesn't auto-trust a low-confidence read.</span>
+        <button type="button" class="btn btn-generate" id="btn-vision-pass">Read {{ vision_count }} remaining COI{{ 's' if vision_count != 1 else '' }}</button>
+        <span class="muted" style="font-size:.85em">Reads photos and scanned PDFs. Skips iPhone HEIC and files with no image we can send. Unclear reads stay here for you to type.</span>
         <div class="toast" id="toast-vision" style="max-width:320px"></div>
       </div>
       {% endif %}
@@ -314,7 +314,7 @@
     visionBtn.addEventListener('click', async () => {
       visionBtn.disabled = true;
       visionToast.className = 'toast ok';
-      visionToast.textContent = 'Reading photo COIs with Claude vision — this can take a bit…';
+      visionToast.textContent = 'Reading remaining COIs — this can take a bit…';
       try {
         const res = await fetch('/office-ops/compliance/vision-pass', { method: 'POST' });
         const data = await res.json();

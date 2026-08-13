@@ -37,6 +37,16 @@ def test_content_type_for_images_and_pdfs():
     assert ic.content_type_for_coi('image', 'shot.HEIC') == 'image/heic'
 
 
+def test_parse_date_string_accepts_iso_and_slash_and_match():
+    assert ic._parse_date_string('2027-03-01') == date(2027, 3, 1)
+    assert ic._parse_date_string('03/01/2027') == date(2027, 3, 1)
+    assert ic._parse_date_string('3/1/27') == date(2027, 3, 1)
+    assert ic._parse_date_string('null') is None
+    assert ic._parse_date_string('') is None
+    m = ic._DATE_RE.search('exp 03/15/2026 something')
+    assert ic._parse_date_string(m) == date(2026, 3, 15)
+
+
 # --- vision pass (2026-08-13) -----------------------------------------------
 # Claude vision auto-reads photo COIs that have no PDF text layer, filling
 # the same insurance_expires_extracted/extract_confidence columns the PDF
@@ -99,16 +109,35 @@ def test_run_vision_pass_no_api_key_returns_error_without_touching_db(monkeypatc
     assert result == {'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}
 
 
-def test_run_vision_pass_skips_pdf_rows_in_needs_manual(monkeypatch):
-    # A PDF that failed text extraction still lands in needs_manual, but the
-    # vision pass is scoped to photos only -- the text path already owns PDFs.
-    monkeypatch.setattr(ic, 'get_latest_snapshot_rows',
-                         lambda get_db_fn: ([_needs_manual_row(coi_kind='pdf')], None))
+def test_is_vision_target_photos_and_scanned_pdfs_not_empty_rows():
+    photo = _needs_manual_row(coi_kind='image')
+    scanned = _needs_manual_row(coi_kind='pdf')
+    scanned['confidence'] = 'no_dates_found'
+    empty = _needs_manual_row(coi_kind=None)
+    empty['coi_name'] = None
+    empty['has_viewable_coi'] = False
+    assert ic.is_vision_target(photo) is True
+    assert ic.is_vision_target(scanned) is True
+    assert ic.is_vision_target(empty) is False
 
-    def get_db_fn_should_not_be_called():
-        raise AssertionError('no image-kind rows -- run_vision_pass should never open a DB connection')
-    result = ic.run_vision_pass(get_db_fn_should_not_be_called, api_key='k', model='m')
-    assert result == {'attempted': 0, 'dated': 0, 'uncertain': 0, 'errors': 0, 'details': []}
+
+def test_run_vision_pass_includes_scanned_pdfs(monkeypatch):
+    row = _needs_manual_row(coi_kind='pdf')
+    row['confidence'] = 'no_dates_found'
+    row['coi_name'] = 'scan.pdf'
+    monkeypatch.setattr(ic, 'get_latest_snapshot_rows', lambda get_db_fn: ([row], None))
+    monkeypatch.setattr(ic, 'load_coi_asset',
+                         lambda get_db_fn, item_id: (b'%PDF-fake', 'scan.pdf', 'application/pdf', None))
+    monkeypatch.setattr(ic, '_pdf_first_page_jpeg', lambda data: b'jpeg-bytes')
+    monkeypatch.setattr(ic, '_extract_coi_fields_vision',
+                         lambda data, content_type, api_key, model: {
+                             'gl_exp': date(2027, 6, 1), 'wc_exp': None,
+                             'additional_insured': None, 'confidence': 'vision_extracted',
+                         })
+    conn = _FakeVisionConn()
+    result = ic.run_vision_pass(lambda: conn, api_key='k', model='m')
+    assert result['dated'] == 1
+    assert result['attempted'] == 1
 
 
 def test_run_vision_pass_writes_extracted_date_on_confident_read(monkeypatch):

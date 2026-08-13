@@ -13,7 +13,10 @@ send_email_fn(subject, text_body, html_body, recipients) -> bool
 from __future__ import annotations
 
 import difflib
+import os
 import re
+import subprocess
+import tempfile
 from datetime import date, datetime
 from html import escape
 
@@ -140,6 +143,26 @@ def _parse_date_token(m):
         return date(yr, mo, day)
     except ValueError:
         return None
+
+
+def _parse_date_string(val):
+    """Accept a regex match (PDF text path) or a '03/01/2027' / '2027-03-01'
+    string (Claude vision JSON). The vision pass used to call
+    _parse_date_token on the raw string — that crashes on .group() and
+    every photo read came back as vision_error."""
+    if val is None or val == '':
+        return None
+    if hasattr(val, 'group'):
+        return _parse_date_token(val)
+    text = str(val).strip()
+    if not text or text.lower() in ('null', 'none', 'n/a'):
+        return None
+    try:
+        return datetime.strptime(text[:10], '%Y-%m-%d').date()
+    except ValueError:
+        pass
+    m = _DATE_RE.search(text)
+    return _parse_date_token(m) if m else None
 
 
 def _ext(name):
@@ -310,8 +333,8 @@ def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeou
             )
             raw = msg.content[0].text
             parsed = json.loads(_strip_json_fences(raw))
-            gl_exp = _parse_date_token(parsed.get('gl_exp')) if parsed.get('gl_exp') else None
-            wc_exp = _parse_date_token(parsed.get('wc_exp')) if parsed.get('wc_exp') else None
+            gl_exp = _parse_date_string(parsed.get('gl_exp'))
+            wc_exp = _parse_date_string(parsed.get('wc_exp'))
             confident = bool(parsed.get('confident'))
             if not confident or (not gl_exp and not wc_exp):
                 return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
@@ -332,25 +355,79 @@ def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeou
             'confidence': f'vision_error: {last_err}'[:300]}
 
 
-def run_vision_pass(get_db_fn, api_key, model):
-    """On-demand batch: try Claude vision on every sub currently in 'needs
-    manual entry' whose COI is a photo (not a PDF — the text-layer path
-    already handles PDFs, weekly and here). Not run automatically; Thomas
-    triggers it from the Compliance page. Writes into the same
-    insurance_expires_extracted / extract_confidence columns the PDF path
-    uses, so a vision read slots into the existing extracted > override >
-    manual priority without new schema or a second code path downstream.
+_SCANNED_PDF_CONFIDENCE = frozenset({'no_dates_found', 'unreadable', 'image_file'})
 
-    A row that comes back uncertain still gets its confidence recorded (so
-    the page can show 'vision tried, couldn't read it') but its date stays
-    NULL rather than posting a guess — same discipline as _extract_coi_fields.
+
+def is_vision_target(row):
+    """Photos always. PDFs only when the text layer already failed —
+    those are scans/photos saved as .pdf. Skip rows with no file at all."""
+    if not row.get('has_viewable_coi') and not row.get('coi_name'):
+        return False
+    kind = row.get('coi_kind')
+    if kind == 'image':
+        return True
+    if kind == 'pdf' and (row.get('confidence') or '') in _SCANNED_PDF_CONFIDENCE:
+        return True
+    return False
+
+
+def _pdf_first_page_jpeg(pdf_bytes):
+    """Render page 1 of a scanned PDF so Claude vision can read it.
+    Uses pdftoppm from poppler-utils (already in Aptfile for estimators)."""
+    if not pdf_bytes:
+        return None
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, 'coi.pdf')
+            with open(src, 'wb') as f:
+                f.write(pdf_bytes)
+            dest = os.path.join(tmp, 'page')
+            subprocess.run(
+                ['pdftoppm', '-jpeg', '-f', '1', '-l', '1', '-r', '150', src, dest],
+                check=True, capture_output=True, timeout=30,
+            )
+            out = dest + '-1.jpg'
+            if os.path.exists(out):
+                with open(out, 'rb') as f:
+                    return f.read()
+    except Exception as e:
+        print(f'pdftoppm COI render failed: {e}')
+    return None
+
+
+def _vision_ready_image(data, filename, content_type):
+    """Turn whatever we downloaded into jpeg/png/gif/webp bytes, or
+    return (None, reason) if Claude cannot see this file."""
+    kind = sniff_coi_kind(filename, data)
+    if kind == 'pdf' or (content_type or '').startswith('application/pdf') or (
+        data and data.startswith(b'%PDF')
+    ):
+        jpeg = _pdf_first_page_jpeg(data)
+        if not jpeg:
+            return None, None, 'could not render PDF page'
+        return jpeg, 'image/jpeg', None
+    media = content_type if content_type in _VISION_SUPPORTED_TYPES else content_type_for_coi(kind, filename)
+    if media in _VISION_SUPPORTED_TYPES:
+        return data, media, None
+    return None, content_type, f"{content_type or filename or 'file type'} not supported for vision (iPhone HEIC is the usual case)"
+
+
+def run_vision_pass(get_db_fn, api_key, model):
+    """On-demand batch: try Claude vision on every 'needs manual entry'
+    COI we can actually look at — photos, and PDFs whose text layer was
+    empty (scans). Not run automatically; Thomas/Stephanie trigger it
+    from the Compliance page. Writes into the same extracted/confidence
+    columns the PDF text path uses.
+
+    A row that comes back uncertain still gets its confidence recorded
+    but its date stays NULL rather than posting a guess.
     """
     if not api_key:
         return {'error': 'Claude API key not configured on hub (CLAUDE_API_KEY).'}
 
     rows, _ = get_latest_snapshot_rows(get_db_fn)
     targets = [r for r in categorize_rows(rows, date.today())['needs_manual']
-               if r['coi_kind'] == 'image']
+               if is_vision_target(r)]
 
     result = {'attempted': len(targets), 'dated': 0, 'uncertain': 0, 'errors': 0, 'details': []}
     if not targets:
@@ -367,7 +444,12 @@ def run_vision_pass(get_db_fn, api_key, model):
                     result['errors'] += 1
                     result['details'].append({'name': r['name'], 'outcome': f'fetch failed: {err}'})
                     continue
-                extracted = _extract_coi_fields_vision(data, content_type, api_key, model)
+                image_bytes, media, prep_err = _vision_ready_image(data, filename, content_type)
+                if prep_err:
+                    result['errors'] += 1
+                    result['details'].append({'name': r['name'], 'outcome': prep_err})
+                    continue
+                extracted = _extract_coi_fields_vision(image_bytes, media, api_key, model)
             except Exception as e:
                 result['errors'] += 1
                 result['details'].append({'name': r['name'], 'outcome': f'error: {e}'})
