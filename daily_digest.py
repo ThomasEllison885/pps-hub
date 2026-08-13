@@ -1,4 +1,13 @@
-"""Nightly Eastern-time activity digest for hub administrators."""
+"""Nightly Eastern-time activity digest for hub administrators.
+
+Sources:
+  * Built-in log tables (proposal_log, ppm_log, …) — already queried below.
+  * Pipeline Board rows / imports — queried from pipeline_board_* tables
+    (cell polls are not logged; opens go through hub_usage_events).
+  * Compliance date overrides — office_ops_tp_snapshot.override_at.
+  * hub_usage_events — **automatic**. New modules call
+    ``hub_usage.record_usage(...)`` and show up here with no digest edit.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +17,7 @@ from datetime import datetime, timedelta, time, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
+from hub_usage import event_label
 from psc_training_data import PSC_TRAINING_META, get_training_curriculum
 
 ET = ZoneInfo('America/New_York')
@@ -204,6 +214,138 @@ def _item(user_key, display_name, kind, kind_label, title, meta, at, extra=''):
         'at': at,
         'time_str': _time_label(at),
     }
+
+
+def _ex_clause(column, exclude_list):
+    if not exclude_list:
+        return '', ()
+    return f' AND {column} NOT IN %s', (tuple(exclude_list),)
+
+
+def _board_title(users, pair_key):
+    name = _display_name(users, pair_key)
+    return f"{name}'s board" if name else pair_key
+
+
+def _collect_pipeline_board(cur, users, exclude_list, start, end, add):
+    """Summarize real board work (new / edit / remove) plus spreadsheet imports.
+
+    Does not use hub_usage_events for cell edits — those would flood. Page
+    opens are logged separately via record_usage('pipeline', 'open').
+    """
+    try:
+        ex_sql, ex_args = _ex_clause('actor', exclude_list)
+        cur.execute(
+            f'''SELECT actor, pair_key, n_new, n_edit, n_arch, last_at FROM (
+                  SELECT COALESCE(updated_by, created_by) AS actor,
+                         pair_key,
+                         COUNT(*) FILTER (
+                             WHERE created_at >= %s AND created_at < %s
+                         ) AS n_new,
+                         COUNT(*) FILTER (
+                             WHERE updated_at >= %s AND updated_at < %s
+                               AND archived = FALSE
+                               AND created_at < %s
+                         ) AS n_edit,
+                         COUNT(*) FILTER (
+                             WHERE archived = TRUE
+                               AND updated_at >= %s AND updated_at < %s
+                         ) AS n_arch,
+                         MAX(GREATEST(created_at, updated_at)) AS last_at
+                    FROM pipeline_board_entries
+                   WHERE (created_at >= %s AND created_at < %s)
+                      OR (updated_at >= %s AND updated_at < %s)
+                   GROUP BY 1, 2
+                ) s
+                WHERE actor IS NOT NULL{ex_sql}''',
+            (start, end, start, end, start, start, end,
+             start, end, start, end, *ex_args),
+        )
+        for actor, pair_key, n_new, n_edit, n_arch, last_at in cur.fetchall():
+            parts = []
+            if n_new:
+                parts.append(f'{n_new} new')
+            if n_edit:
+                parts.append(f'{n_edit} edit{"s" if n_edit != 1 else ""}')
+            if n_arch:
+                parts.append(f'{n_arch} removed')
+            if not parts:
+                continue
+            add(_item(
+                actor, _display_name(users, actor), 'pipeline', 'Pipeline',
+                _board_title(users, pair_key), ' · '.join(parts), last_at,
+            ))
+    except Exception as e:
+        print(f'Daily digest pipeline collect error: {e}')
+
+    try:
+        ex_sql, ex_args = _ex_clause('created_by', exclude_list)
+        cur.execute(
+            f'''SELECT created_by, pair_key, entry_count, created_at
+                  FROM pipeline_board_backups
+                 WHERE reason = 'import'
+                   AND created_at >= %s AND created_at < %s{ex_sql}
+                 ORDER BY created_at''',
+            (start, end, *ex_args),
+        )
+        for created_by, pair_key, entry_count, created_at in cur.fetchall():
+            add(_item(
+                created_by, _display_name(users, created_by),
+                'pipeline', 'Pipeline',
+                f'Imported spreadsheet · {_board_title(users, pair_key)}',
+                f'{entry_count} rows' if entry_count is not None else '',
+                created_at,
+            ))
+    except Exception as e:
+        print(f'Daily digest pipeline import collect error: {e}')
+
+
+def _collect_compliance_overrides(cur, users, exclude_list, start, end, add):
+    try:
+        ex_sql, ex_args = _ex_clause('override_by', exclude_list)
+        cur.execute(
+            f'''SELECT override_by, name, insurance_expires_override, override_at
+                  FROM office_ops_tp_snapshot
+                 WHERE override_at >= %s AND override_at < %s
+                   AND override_by IS NOT NULL{ex_sql}
+                 ORDER BY override_at''',
+            (start, end, *ex_args),
+        )
+        for override_by, name, exp, at in cur.fetchall():
+            meta = exp.strftime('%m/%d/%Y') if exp else ''
+            add(_item(
+                override_by, _display_name(users, override_by),
+                'compliance', 'Compliance',
+                name or 'Sub',
+                f'set expiration {meta}'.strip() if meta else 'set expiration',
+                at,
+            ))
+    except Exception as e:
+        print(f'Daily digest compliance override collect error: {e}')
+
+
+def _collect_usage_events(cur, users, exclude_list, start, end, add):
+    """Any feature that called record_usage() — no per-feature digest code."""
+    try:
+        ex_sql, ex_args = _ex_clause('user_key', exclude_list)
+        cur.execute(
+            f'''SELECT user_key, feature, action, title,
+                       COUNT(*) AS n, MAX(created_at) AS last_at, MAX(meta) AS meta
+                  FROM hub_usage_events
+                 WHERE created_at >= %s AND created_at < %s{ex_sql}
+                 GROUP BY user_key, feature, action, title
+                 ORDER BY last_at''',
+            (start, end, *ex_args),
+        )
+        for user_key, feature, action, title, n, last_at, meta in cur.fetchall():
+            kind_label, head, extra = event_label(feature, action, title or '', n)
+            add(_item(
+                user_key, _display_name(users, user_key),
+                feature or 'hub', kind_label,
+                head, meta or '', last_at, extra,
+            ))
+    except Exception as e:
+        print(f'Daily digest usage-events collect error: {e}')
 
 
 def collect_digest_items(get_db, users, exclude, report_date, format_template_label):
@@ -449,6 +591,10 @@ def collect_digest_items(get_db, users, exclude, report_date, format_template_la
                 PSC_TRAINING_META.get('title', 'PSC Training'), f'enrolled by {by}' if by else '', r[2],
             ))
 
+        _collect_pipeline_board(cur, users, exclude_list, start, end, add)
+        _collect_compliance_overrides(cur, users, exclude_list, start, end, add)
+        _collect_usage_events(cur, users, exclude_list, start, end, add)
+
         cur.close()
         conn.close()
     except Exception as e:
@@ -477,12 +623,22 @@ def _kind_totals(counts):
         ('psc_notes', 'PSC notes'),
         ('psc_signoff', 'PSC sign-offs'),
         ('psc_enrolled', 'PSC enrollments'),
+        ('pipeline', 'Pipeline Board'),
+        ('compliance', 'Compliance'),
+        ('office_ops', 'Office Ops'),
     ]
     lines = []
+    seen = set()
     for key, label in labels:
+        seen.add(key)
         n = counts.get(key, 0)
         if n:
             lines.append((label, n))
+    # New modules that only write hub_usage_events still appear here
+    # without a digest-code change.
+    for key, n in sorted(counts.items()):
+        if key not in seen and n:
+            lines.append((key.replace('_', ' ').title(), n))
     return lines
 
 

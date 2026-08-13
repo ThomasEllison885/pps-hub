@@ -1025,6 +1025,11 @@ def register_routes(app, get_db_fn, users, require_login):
             return redirect(url_for('dashboard'))
         pm_key = PRIMARY_PM_FOR_CONSULTANT.get(pair_key)
         accessible = list_accessible_boards(users, user_key)
+        from hub_usage import record_usage
+        record_usage(
+            get_db_fn, user_key, 'pipeline', 'open',
+            _display(users, pair_key),
+        )
         return render_template(
             'pipeline_board.html',
             pair_key=pair_key,

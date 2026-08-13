@@ -2110,6 +2110,8 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         if blocked:
             return blocked
         user_key = session.get('user_key')
+        from hub_usage import record_usage
+        record_usage(get_db_fn, user_key, 'office_ops', 'open', 'Numbers page')
         pack = get_latest_pack(get_db_fn)
         monday = get_latest_monday_pack(get_db_fn)
         files = list_recent_files(get_db_fn)
@@ -2138,6 +2140,8 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         blocked = _gate()
         if blocked:
             return blocked
+        from hub_usage import record_usage
+        record_usage(get_db_fn, session.get('user_key'), 'compliance', 'open', 'Compliance page')
         rows, last_run_at = insurance_compliance.get_latest_snapshot_rows(get_db_fn)
         from datetime import date as date_type
         cats = insurance_compliance.categorize_rows(rows, date_type.today())
@@ -2173,6 +2177,11 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         try:
             recipients = [users['stephanie_whetstone']['email'], users['thomas_ellison']['email']]
             result = insurance_compliance.run_weekly_compliance_check(get_db_fn, send_email_fn, recipients)
+            from hub_usage import record_usage
+            record_usage(
+                get_db_fn, user_key, 'compliance', 'refresh',
+                f"{result.get('checked', 0)} subs",
+            )
             return jsonify({'success': True, **result})
         except Exception as e:
             print(f'Office Ops compliance refresh error ({user_key}): {e}')
@@ -2220,6 +2229,11 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
             result = insurance_compliance.run_vision_pass(get_db_fn, claude_api_key, claude_model)
             if 'error' in result:
                 return jsonify({'success': False, 'error': result['error']}), 500
+            from hub_usage import record_usage
+            record_usage(
+                get_db_fn, user_key, 'compliance', 'vision',
+                f"{result.get('dated', 0)} dated of {result.get('attempted', 0)}",
+            )
             return jsonify({'success': True, **result})
         except Exception as e:
             print(f'Office Ops vision pass error ({user_key}): {e}')
@@ -2245,6 +2259,11 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
             return (f'Could not load COI: {e}', 502)
         if err:
             return (err, 404)
+        from hub_usage import record_usage
+        record_usage(
+            get_db_fn, session.get('user_key'), 'compliance', 'view',
+            filename or item_id,
+        )
         return send_file(
             BytesIO(data),
             mimetype=content_type or 'application/octet-stream',
@@ -2296,6 +2315,8 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         )
         if not saved.get('success'):
             return jsonify(saved), 400
+        from hub_usage import record_usage
+        record_usage(get_db_fn, user_key, 'office_ops', 'upload', f.filename or kind, kind)
 
         # P&L store only — used on next Generate
         if kind == KIND_PL:
@@ -2400,6 +2421,8 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         result = generate_thursday_pack(get_db_fn, user_key)
         if not result.get('success'):
             return jsonify(result), 400
+        from hub_usage import record_usage
+        record_usage(get_db_fn, user_key, 'office_ops', 'generate', 'Thursday pack')
         return jsonify(result)
 
     @app.route('/api/office-ops/latest')

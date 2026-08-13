@@ -1115,6 +1115,8 @@ def init_db():
     pipeline_board.cleanup_legacy_import_notes(cur)
     office_ops.init_tables(cur)
     insurance_compliance.init_tables(cur)
+    import hub_usage
+    hub_usage.init_tables(cur)
 
     # Seed users with default password if configured
     default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
