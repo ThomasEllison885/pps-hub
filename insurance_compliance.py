@@ -288,13 +288,22 @@ def _strip_json_fences(raw):
     return text
 
 
-def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeout=20.0):
+def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeout=15.0):
     """Same job as _extract_coi_fields, for a COI that's a photo instead of
     a PDF with a text layer — reads the certificate visually with Claude.
 
     Same calibrated-honest posture as the text path: a low-confidence or
     unreadable read comes back with gl_exp=None rather than a guess, so it
     stays in 'needs manual entry' instead of silently posing as verified.
+
+    Single attempt, no manual retry, and max_retries=0 on the client. The
+    first cut of this (2026-08-13) did 2 manual attempts on top of the
+    Anthropic SDK's own *default* retry behavior (unset -> SDK retries
+    internally too) -- a hidden multiplier that made "20s timeout, 2
+    attempts" actually cost well over 100s on a single unlucky row and
+    kept tripping gunicorn's WORKER TIMEOUT even after batching. A failed
+    row here isn't lost -- it stays eligible for is_vision_target() below
+    and gets picked up again next time the batch runs.
     """
     if content_type not in _VISION_SUPPORTED_TYPES:
         return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
@@ -302,7 +311,6 @@ def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeou
 
     import base64
     import json
-    import time
     import anthropic
 
     b64 = base64.standard_b64encode(image_bytes).decode('ascii')
@@ -316,58 +324,58 @@ def _extract_coi_fields_vision(image_bytes, content_type, api_key, model, timeou
         "Set confident to false if the photo is blurry, cropped, glare-obscured, "
         "or you are not sure you are reading the right field."
     )
-    cl = anthropic.Anthropic(api_key=api_key, timeout=timeout)
-    last_err = None
-    for attempt in range(2):
-        try:
-            msg = cl.messages.create(
-                model=model,
-                max_tokens=300,
-                messages=[{
-                    'role': 'user',
-                    'content': [
-                        {'type': 'image', 'source': {'type': 'base64', 'media_type': content_type, 'data': b64}},
-                        {'type': 'text', 'text': prompt},
-                    ],
-                }],
-            )
-            raw = msg.content[0].text
-            parsed = json.loads(_strip_json_fences(raw))
-            gl_exp = _parse_date_string(parsed.get('gl_exp'))
-            wc_exp = _parse_date_string(parsed.get('wc_exp'))
-            confident = bool(parsed.get('confident'))
-            if not confident or (not gl_exp and not wc_exp):
-                return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
-                        'confidence': 'vision_uncertain'}
-            return {'gl_exp': gl_exp, 'wc_exp': wc_exp, 'additional_insured': None,
-                    'confidence': 'vision_extracted'}
-        except Exception as e:
-            last_err = e
-            err_name = type(e).__name__
-            transient = err_name in (
-                'APITimeoutError', 'APIConnectionError', 'RateLimitError', 'InternalServerError',
-            ) or 'timeout' in str(e).lower() or 'overloaded' in str(e).lower()
-            if attempt == 0 and transient:
-                time.sleep(1.5)
-                continue
-            print(f"COI vision extract error ({err_name}): {e}")
-    return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
-            'confidence': f'vision_error: {last_err}'[:300]}
+    cl = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=0)
+    try:
+        msg = cl.messages.create(
+            model=model,
+            max_tokens=300,
+            messages=[{
+                'role': 'user',
+                'content': [
+                    {'type': 'image', 'source': {'type': 'base64', 'media_type': content_type, 'data': b64}},
+                    {'type': 'text', 'text': prompt},
+                ],
+            }],
+        )
+        raw = msg.content[0].text
+        parsed = json.loads(_strip_json_fences(raw))
+        gl_exp = _parse_date_string(parsed.get('gl_exp'))
+        wc_exp = _parse_date_string(parsed.get('wc_exp'))
+        confident = bool(parsed.get('confident'))
+        if not confident or (not gl_exp and not wc_exp):
+            return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
+                    'confidence': 'vision_uncertain'}
+        return {'gl_exp': gl_exp, 'wc_exp': wc_exp, 'additional_insured': None,
+                'confidence': 'vision_extracted'}
+    except Exception as e:
+        print(f"COI vision extract error ({type(e).__name__}): {e}")
+        return {'gl_exp': None, 'wc_exp': None, 'additional_insured': None,
+                'confidence': f'vision_error: {e}'[:300]}
 
 
-_SCANNED_PDF_CONFIDENCE = frozenset({'no_dates_found', 'unreadable', 'image_file'})
+# Confidence prefixes that mean "no usable date yet, still worth trying
+# vision" -- includes vision_error/vision_uncertain so a row that failed on
+# a previous vision attempt (timeout, transient API error, blurry read)
+# gets retried on the next batch instead of getting silently stuck forever.
+# A dedicated helper because vision_error embeds the exception message, so
+# it can't be an exact-match frozenset like the original three values.
+_SCANNED_PDF_CONFIDENCE_PREFIXES = (
+    'no_dates_found', 'unreadable', 'image_file', 'vision_uncertain', 'vision_error',
+)
 
 
 def is_vision_target(row):
-    """Photos always. PDFs only when the text layer already failed —
-    those are scans/photos saved as .pdf. Skip rows with no file at all."""
+    """Photos always. PDFs only when there's no usable extracted date yet —
+    scans/photos saved as .pdf, or a prior vision attempt that didn't pan
+    out. Skip rows with no file at all."""
     if not row.get('has_viewable_coi') and not row.get('coi_name'):
         return False
     kind = row.get('coi_kind')
     if kind == 'image':
         return True
-    if kind == 'pdf' and (row.get('confidence') or '') in _SCANNED_PDF_CONFIDENCE:
-        return True
+    if kind == 'pdf':
+        confidence = row.get('confidence') or ''
+        return any(confidence.startswith(p) for p in _SCANNED_PDF_CONFIDENCE_PREFIXES)
     return False
 
 
@@ -384,7 +392,7 @@ def _pdf_first_page_jpeg(pdf_bytes):
             dest = os.path.join(tmp, 'page')
             subprocess.run(
                 ['pdftoppm', '-jpeg', '-f', '1', '-l', '1', '-r', '150', src, dest],
-                check=True, capture_output=True, timeout=30,
+                check=True, capture_output=True, timeout=15,
             )
             out = dest + '-1.jpg'
             if os.path.exists(out):
@@ -412,7 +420,7 @@ def _vision_ready_image(data, filename, content_type):
     return None, content_type, f"{content_type or filename or 'file type'} not supported for vision (iPhone HEIC is the usual case)"
 
 
-def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=70):
+def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=30):
     """On-demand batch: try Claude vision on every 'needs manual entry'
     COI we can actually look at — photos, and PDFs whose text layer was
     empty (scans). Not run automatically; Thomas/Stephanie trigger it
@@ -423,15 +431,25 @@ def run_vision_pass(get_db_fn, api_key, model, limit=None, time_budget_seconds=7
     but its date stays NULL rather than posting a guess.
 
     limit caps how many rows this call *starts*, but row count alone
-    doesn't bound wall-clock time -- a single vision call can retry once
-    on a timeout (up to ~2x its own timeout, worse under real network
-    jitter), so a handful of slow rows in one batch can still outlast
-    gunicorn's 120s worker timeout (confirmed live 2026-08-13: "WORKER
-    TIMEOUT" -> SIGKILL in the Render log after clicking this with a
-    limit=6 batch). time_budget_seconds is the real guard: checked before
-    *starting* each row, so the function always returns with whatever's
-    done so far well inside the worker timeout, instead of gunicorn
-    killing it mid-flight. 'remaining' tells the Compliance page whether
+    doesn't bound wall-clock time. This tripped gunicorn's WORKER TIMEOUT
+    twice live on 2026-08-13: first with a plain limit=6 batch (row count
+    doesn't bound how long a slow row's retry can run), then again after
+    adding this same time_budget_seconds check with a 70s default and a
+    20s/2-attempt vision call. The second failure's real cause: the
+    Anthropic SDK does its own retries by default *underneath* the manual
+    retry loop -- a hidden multiplier neither fix accounted for, so "20s
+    timeout, 2 attempts" could actually cost well over 100s on one row.
+    Fixed at the source (max_retries=0, single attempt, in
+    _extract_coi_fields_vision) rather than by shrinking the budget
+    further, since an unbounded hidden retry layer would have kept
+    eating whatever margin was left. With that fixed, one row's real
+    worst case is bounded (~30s download + ~15s pdftoppm + ~15s vision,
+    no retries anywhere) -- 30s of budget here leaves room for a full
+    worst-case row to finish with real margin under the 120s ceiling, not
+    a razor's edge. time_budget_seconds is checked before *starting* each
+    row, so the function always returns with whatever's done so far,
+    instead of gunicorn killing it mid-flight.
+    'remaining' tells the Compliance page whether
     to call again -- same shape whether the stop was limit or time.
     """
     if not api_key:
