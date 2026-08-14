@@ -516,6 +516,56 @@ def _parse_sales_reps(raw):
     return out
 
 
+def _looks_like_aging_bucket(text):
+    t = (text or '').strip().lower()
+    if not t:
+        return False
+    return (
+        'past due' in t
+        or t in ('current', 'not yet due')
+        or 'or more' in t
+        or bool(re.search(r'\d+\s*[-–—]\s*\d+', t))
+    )
+
+
+def _is_unspecified_rep_label(text):
+    t = (text or '').strip().lower()
+    return t in (
+        'not specified', 'unspecified', 'unassigned', 'none',
+        'no sales rep', 'no salesman', '(unassigned)',
+    )
+
+
+def _is_plausible_rep_group_label(text):
+    """QB group-header text: 'Adam / Andy', 'Tony', 'Adam Cupito'."""
+    t = (text or '').strip()
+    if not t or t.lower().startswith('total'):
+        return False
+    if _looks_like_aging_bucket(t) or _is_unspecified_rep_label(t):
+        return False
+    firsts = [
+        p.strip().split()[0].lower()
+        for p in re.split(r'\s*/\s*|\s+and\s+|&', t)
+        if p.strip()
+    ]
+    if firsts and all(f in _SALES_REP_ALIASES for f in firsts):
+        return True
+    # Full known name
+    if t.lower() in {v.lower() for v in _SALES_REP_ALIASES.values()}:
+        return True
+    # First Last — future reps, not a sentence
+    parts = t.split()
+    if (
+        len(parts) == 2
+        and parts[0][0].isalpha()
+        and parts[1][0].isalpha()
+        and not any(ch.isdigit() for ch in t)
+        and len(t) < 40
+    ):
+        return True
+    return False
+
+
 def _invoice_date_str(val):
     """Normalize QB / Sheets / Excel dates to YYYY-MM-DD for the Numbers pack."""
     if val is None or val == '':
@@ -632,7 +682,7 @@ def _parse_invoice_list(filename, raw_bytes):
 
     if 'num' not in col or 'name' not in col:
         raise ValueError('Invoice List missing Num or Name/Customer column.')
-    missing_sales = 'sales_rep' not in col
+    missing_sales_col = 'sales_rep' not in col
 
     def cell(row, key):
         idx = col.get(key)
@@ -641,39 +691,59 @@ def _parse_invoice_list(filename, raw_bytes):
         return row[idx]
 
     invoices = []
+    current_group_raw = None
+    used_group_headers = False
     for row in rows[header_idx + 1:]:
         if not row or all(v in (None, '') for v in row):
             continue
         lead = next((str(c).strip() for c in row if c not in (None, '')), '')
         if lead.lower().startswith('total for'):
             continue
-        # Section headers like "Adam / Andy" alone in first column — skip
+
         txn = cell(row, 'type')
         num = cell(row, 'num')
         name = cell(row, 'name')
+        date_v = cell(row, 'date')
+
+        # QB now groups Invoice List by sales rep: a row that is only
+        # "Adam / Andy" (no invoice #). On a flattened Excel the name sits
+        # in the Date column. Carry that onto the rows below.
+        filled = [c for c in row if c not in (None, '')]
+        is_group = (
+            num in (None, '')
+            and (txn in (None, '') or str(txn).strip().lower() not in (
+                'invoice', 'credit memo', 'sales receipt',
+            ))
+            and len(filled) == 1
+            and (
+                _is_plausible_rep_group_label(lead)
+                or _is_unspecified_rep_label(lead)
+            )
+        )
+        if is_group:
+            current_group_raw = None if _is_unspecified_rep_label(lead) else lead
+            used_group_headers = True
+            continue
+
         if not num and not name:
             continue
         if txn is not None and str(txn).strip().lower() not in (
             'invoice', 'credit memo', 'sales receipt', ''
         ):
-            # Still allow if it has invoice number + amount
             if not num:
                 continue
-        if txn is None and name is None:
-            continue
-        # Skip pure group headers (rep name only, no num)
-        if num is None and name is None:
-            continue
         if num is None:
             continue
 
         open_bal = _money(cell(row, 'open'))
         amount = _money(cell(row, 'amount'))
         rep_raw = cell(row, 'sales_rep')
+        if not (rep_raw not in (None, '') and str(rep_raw).strip()):
+            rep_raw = current_group_raw
         reps = _parse_sales_reps(rep_raw)
         is_split = len(reps) >= 2
         inv = {
-            'date': _invoice_date_str(cell(row, 'date')),
+            'date': _invoice_date_str(date_v),
             'type': str(txn or 'Invoice').strip(),
             'num': str(int(num)) if isinstance(num, float) and num == int(num) else str(num).strip(),
             'customer': str(name or '').strip(),
@@ -684,7 +754,6 @@ def _parse_invoice_list(filename, raw_bytes):
             'sales_rep_raw': str(rep_raw).strip() if rep_raw else None,
             'sales_reps': reps,
             'is_50_50_style': is_split,
-            # Equal share among listed reps when open balance remains
             'open_share_each': (open_bal / len(reps)) if reps and open_bal else 0.0,
         }
         invoices.append(inv)
@@ -725,13 +794,15 @@ def _parse_invoice_list(filename, raw_bytes):
         'open_ar_from_list': open_total,
         'split_invoice_count': split_count,
         'sales_rep_open_ar': rep_table,
-        'salesman_field_present': not missing_sales,
+        'salesman_field_present': (not missing_sales_col) or used_group_headers,
         'notes_for_humans': (
             [
-                'This Invoice List has no Sales Rep column (QuickBooks dropped it on the new report). '
-                'Team invoiced totals still fill. Per-rep / 50/50 actuals will show as unassigned '
-                'until QB lets you add Sales Rep again.',
-            ] if missing_sales else [
+                'Sales Rep taken from QuickBooks group headers (the “Adam / Andy” section rows). '
+                'Multi-name values count as 50/50.',
+            ] if used_group_headers and missing_sales_col else [
+                'This Invoice List has no Sales Rep column and no group headers we recognized. '
+                'Team invoiced totals still fill. Per-rep / 50/50 will show as unassigned.',
+            ] if missing_sales_col else [
                 'Sales Rep from Invoice List: multi-name values like “Adam / Andy” count as 50/50-style '
                 '(open AR attributed equally across listed reps until you tell us a different split rule).',
                 'Match open AR aging to salesmen by invoice number when Detail + Invoice List are both uploaded.',

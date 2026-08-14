@@ -40,6 +40,33 @@ OLD_STYLE = [
 ]
 
 
+# QB 2026: no Sales Rep column — groups invoices under a section header.
+GROUPED_BY_REP = [
+    ['PPSOH LLC'],
+    ['Invoice List by Date'],
+    ['January 1-August 13, 2026'],
+    [],
+    [None, 'Date', 'Transaction Type', 'Num', 'Name', 'Memo/Description', 'Due Date', 'Amount', 'Open Balance'],
+    ['Adam / Andy'],
+    [None, '01/08/2026', 'Invoice', 6561, 'Morgan Properties', None, '02/07/2026', 42394.6, 0.0],
+    [None, '01/08/2026', 'Invoice', 6568, 'Morgan Properties', None, '02/07/2026', 2000.0, 0.0],
+    ['Total for Adam / Andy', None, None, None, None, None, None, 44394.6, 0.0],
+    ['Tony'],
+    [None, '08/10/2026', 'Invoice', 7201, 'Connor Group', None, '09/09/2026', 5000.0, 5000.0],
+    ['Total for Tony', None, None, None, None, None, None, 5000.0, 5000.0],
+]
+
+
+# Stephanie's manual flatten: headers on row 1, group labels still in the sheet.
+MANUAL_EXCEL = [
+    ['Date', 'Transaction Type', 'Num', 'Name', 'Amount', 'Open Balance'],
+    ['Adam / Andy'],
+    ['01/08/2026', 'Invoice', 6561, 'Morgan Properties', 42394.6, 0.0],
+    ['Tony Cumella'],
+    ['08/10/2026', 'Invoice', 7201, 'Connor Group', 5000.0, 5000.0],
+]
+
+
 NEW_NO_SALES = [
     ['PPSOH LLC'],
     ['Invoice List by Date'],
@@ -80,6 +107,30 @@ def test_old_invoice_list_still_parses():
     out = oo.parse_ar_aging_bytes('PPSOH LLC_Invoice List by Date.xlsx', raw, expect='invoice_list')
     assert out['invoice_list_count'] == 2
     assert out['salesman_field_present'] is True
+    assert out['invoice_list'][0]['sales_reps'] == ['Adam Cupito', 'Andy Potts']
+    assert out['invoice_list'][1]['sales_reps'] == ['Tony Cumella']
+
+
+def test_grouped_by_sales_rep_without_column():
+    """QB dropped the Sales Rep column and groups rows under the rep name."""
+    raw = _xlsx(GROUPED_BY_REP)
+    out = oo.parse_ar_aging_bytes('Invoice List by Date.xlsx', raw, expect='invoice_list')
+    assert out['invoice_list_count'] == 3
+    assert out['salesman_field_present'] is True
+    assert out['invoice_list'][0]['sales_reps'] == ['Adam Cupito', 'Andy Potts']
+    assert out['invoice_list'][1]['sales_reps'] == ['Adam Cupito', 'Andy Potts']
+    assert out['invoice_list'][2]['sales_reps'] == ['Tony Cumella']
+    sales = aggregate_sales_from_invoice_list(out['invoice_list'], year=2026)
+    # 50/50 on the Adam/Andy pair
+    assert sales['by_rep_month']['Adam Cupito'][1] == pytest.approx((42394.6 + 2000.0) / 2)
+    assert sales['by_rep_month']['Tony Cumella'][8] == pytest.approx(5000.0)
+    assert '(unassigned)' not in sales['by_rep_month']
+
+
+def test_manual_excel_with_group_headers_still_reads():
+    raw = _xlsx(MANUAL_EXCEL)
+    out = oo.parse_ar_aging_bytes('invoices_fixed.xlsx', raw, expect='invoice_list')
+    assert out['invoice_list_count'] == 2
     assert out['invoice_list'][0]['sales_reps'] == ['Adam Cupito', 'Andy Potts']
     assert out['invoice_list'][1]['sales_reps'] == ['Tony Cumella']
 
