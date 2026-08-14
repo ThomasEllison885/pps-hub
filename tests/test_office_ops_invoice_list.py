@@ -177,6 +177,30 @@ def test_parse_invoice_date_accepts_date_objects_and_long_names():
     assert _parse_invoice_date('2026-08-10').date() == date(2026, 8, 10)
 
 
+def test_rep_sales_ytd_filename_is_invoice_list():
+    assert oo._name_says_invoice_list('PPSOH+LLC_Rep+Sales+YTD.xlsx')
+    assert oo._name_says_invoice_list('Rep Sales YTD')
+    assert oo._name_says_invoice_list('PPSOH LLC_Invoice List by Date.xlsx')
+    assert not oo._name_says_invoice_list('PPSOH LLC_Sales by Customer Type Detail.xlsx')
+
+
+def test_stephanies_rep_sales_ytd_export():
+    path = os.path.join(os.path.dirname(__file__), 'fixtures', 'PPSOH_LLC_Rep_Sales_YTD.xlsx')
+    raw = open(path, 'rb').read()
+    assert oo.detect_ar_report_type('PPSOH+LLC_Rep+Sales+YTD.xlsx', raw) == 'invoice_list'
+    out = oo.parse_ar_aging_bytes('PPSOH+LLC_Rep+Sales+YTD.xlsx', raw, expect='invoice_list')
+    assert out['invoice_list_count'] >= 600
+    assert out['salesman_field_present'] is True
+    assert out['split_invoice_count'] >= 1
+    unassigned = [i for i in out['invoice_list'] if not i['sales_reps']]
+    assert unassigned == []
+    sales = aggregate_sales_from_invoice_list(out['invoice_list'], year=2026)
+    assert sum(sales['team_month'].values()) > 7_000_000
+    assert 'Adam Cupito' in sales['by_rep_month']
+    assert 'Tony Cumella' in sales['by_rep_month']
+    assert '(unassigned)' not in sales['by_rep_month']
+
+
 def test_real_aug4_file_still_parses():
     path = os.path.join(
         os.path.dirname(__file__),

@@ -226,12 +226,32 @@ def _title_blob(rows, limit=8):
     return ' '.join(parts)
 
 
+# Filenames / sheet titles Stephanie's QB memoized report uses.
+_INVOICE_LIST_NAME_HINTS = (
+    'invoice list',
+    'invoice_list',
+    'rep sales',
+    'sales ytd',
+    'sales by rep',
+    'sales by salesman',
+    'invoices by date',
+)
+
+
+def _name_says_invoice_list(text):
+    t = re.sub(r'[+_\-]+', ' ', (text or '').lower())
+    t = re.sub(r'\s+', ' ', t)
+    if 'sales by customer type' in t:
+        return False
+    return any(h in t for h in _INVOICE_LIST_NAME_HINTS)
+
+
 def detect_ar_report_type(filename, raw_bytes):
     """Return 'summary' | 'detail' | 'invoice_list' | None from filename + content peek."""
     name = (filename or '').lower().replace('+', ' ')
     if 'sales by customer type' in name:
         return None
-    if 'invoice list' in name or 'invoice_list' in name:
+    if _name_says_invoice_list(name):
         return 'invoice_list'
     if 'detail' in name and 'aging' in name:
         return 'detail'
@@ -241,11 +261,11 @@ def detect_ar_report_type(filename, raw_bytes):
     # because QB's new Invoice List has been saved as "Sheet1.xlsx".
 
     # Peek rows without full parse
-    rows = _load_tabular_rows(filename, raw_bytes, max_rows=40)
+    rows = _load_tabular_rows(filename, raw_bytes, max_rows=40, prefer_invoice_list=True)
     title = _title_blob(rows)
     if 'sales by customer type' in title:
         return None
-    if 'invoice list' in title:
+    if _name_says_invoice_list(title):
         return 'invoice_list'
     if 'aging detail' in title:
         return 'detail'
@@ -269,7 +289,7 @@ def detect_ar_report_type(filename, raw_bytes):
     return None
 
 
-def _load_tabular_rows(filename, raw_bytes, max_rows=None):
+def _load_tabular_rows(filename, raw_bytes, max_rows=None, prefer_invoice_list=False):
     name = (filename or '').lower()
     if name.endswith('.csv') or name.endswith('.txt'):
         text = raw_bytes.decode('utf-8-sig', errors='replace')
@@ -282,7 +302,7 @@ def _load_tabular_rows(filename, raw_bytes, max_rows=None):
         return rows
     import openpyxl
     wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True, read_only=True)
-    ws = wb.active
+    ws = _pick_invoice_list_sheet(wb) if prefer_invoice_list and len(wb.sheetnames) > 1 else wb.active
     rows = []
     for i, row in enumerate(ws.iter_rows(values_only=True), 1):
         rows.append(list(row))
@@ -290,6 +310,36 @@ def _load_tabular_rows(filename, raw_bytes, max_rows=None):
             break
     wb.close()
     return rows
+
+
+def _preview_sheet_rows(ws, limit=12):
+    rows = []
+    for i, row in enumerate(ws.iter_rows(values_only=True), 1):
+        rows.append(list(row))
+        if i >= limit:
+            break
+    return rows
+
+
+def _pick_invoice_list_sheet(wb):
+    """Prefer a sheet named / titled Invoice List or Rep Sales YTD over a blank first tab."""
+    best = wb.active
+    best_score = -1
+    for name in wb.sheetnames:
+        ws = wb[name]
+        preview = _preview_sheet_rows(ws)
+        score = 0
+        if _name_says_invoice_list(name):
+            score += 3
+        title = _title_blob(preview)
+        if _name_says_invoice_list(title):
+            score += 3
+        if any(_is_invoice_list_header_row(r) or _is_invoice_list_header_row_loose(r) for r in preview):
+            score += 2
+        if score > best_score:
+            best_score = score
+            best = ws
+    return best if best_score > 0 else wb.active
 
 
 def _map_aging_cols(header_cells):
@@ -647,7 +697,7 @@ def _map_invoice_list_columns(header):
 
 def _parse_invoice_list(filename, raw_bytes):
     """Parse QB Invoice List by Date (Sales Rep when present — 50/50 uses 'A / B')."""
-    rows = _load_tabular_rows(filename, raw_bytes)
+    rows = _load_tabular_rows(filename, raw_bytes, prefer_invoice_list=True)
     if not rows:
         raise ValueError('Invoice List is empty.')
 
