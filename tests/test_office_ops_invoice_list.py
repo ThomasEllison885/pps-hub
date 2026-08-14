@@ -1,0 +1,140 @@
+"""Invoice List parser — QB 2026 report redesign.
+
+No Postgres. Builds tiny xlsx fixtures in memory.
+Run: python -m pytest tests/test_office_ops_invoice_list.py -v
+"""
+import io
+import os
+import sys
+from datetime import date, datetime
+
+import openpyxl
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import office_ops as oo
+from office_ops_generate import _parse_invoice_date, aggregate_sales_from_invoice_list
+
+
+def _xlsx(rows, sheet='Sheet1'):
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+OLD_STYLE = [
+    ['PPSOH LLC'],
+    ['Invoice List by Date'],
+    ['January 1 - August 13, 2026'],
+    [],
+    [None, 'Date', 'Transaction Type', 'Num', 'Name', 'Memo/Description', 'Due Date', 'Amount', 'Open Balance', 'Sales Rep'],
+    ['Adam / Andy'],
+    [None, '01/08/2026', 'Invoice', 6561, 'Morgan Properties', None, '02/07/2026', 42394.6, 0.0, 'Adam / Andy'],
+    [None, '08/10/2026', 'Invoice', 7201, 'Connor Group', None, '09/09/2026', 5000.0, 5000.0, 'Tony'],
+]
+
+
+NEW_NO_SALES = [
+    ['PPSOH LLC'],
+    ['Invoice List by Date'],
+    ['January 1-August 13, 2026'],
+    [],
+    [None, 'Transaction date', 'Transaction type', 'Num', 'Customer', 'Due date', 'Amount', 'Open balance'],
+    [None, datetime(2026, 1, 8), 'Invoice', '6561', 'Morgan Properties', datetime(2026, 2, 7), 42394.6, 0.0],
+    [None, date(2026, 8, 10), 'Invoice', '7201', 'Connor Group', date(2026, 9, 9), 5000.0, 5000.0],
+]
+
+
+SALES_BY_TYPE = [
+    ['PPSOH LLC'],
+    ['Sales by Customer Type Detail'],
+    ['January 1-August 12, 2026'],
+    [],
+    [None, 'Transaction date', 'Transaction type', 'Num', 'Product/Service full name', 'Description', 'Quantity', 'Sales price', 'Amount', 'Balance'],
+    ['Apartment'],
+    [None, '05/06/2026', 'Invoice', '6871', 'Exterior Renovations', 'Red Bank', 1.0, 575.0, 575.0, 575.0],
+    ['Total for Apartment', None, None, None, None, None, 1.0, None, 575.0],
+]
+
+
+AGING_DETAIL = [
+    ['PPSOH LLC'],
+    ['A/R Aging Detail Report'],
+    ['As of Aug 12, 2026'],
+    [],
+    [None, 'Date', 'Transaction type', 'Num', 'Customer full name', 'Due date', 'Amount', 'Open balance'],
+    ['91 or more days past due'],
+    [None, '06/16/2022', 'Invoice', '3827', 'Bridges of Pine Creek:BOPC Pebble Phase 3', '07/16/2022', 80397.05, 80397.05],
+]
+
+
+def test_old_invoice_list_still_parses():
+    raw = _xlsx(OLD_STYLE)
+    assert oo.detect_ar_report_type('PPSOH LLC_Invoice List by Date.xlsx', raw) == 'invoice_list'
+    out = oo.parse_ar_aging_bytes('PPSOH LLC_Invoice List by Date.xlsx', raw, expect='invoice_list')
+    assert out['invoice_list_count'] == 2
+    assert out['salesman_field_present'] is True
+    assert out['invoice_list'][0]['sales_reps'] == ['Adam Cupito', 'Andy Potts']
+    assert out['invoice_list'][1]['sales_reps'] == ['Tony Cumella']
+
+
+def test_new_qb_invoice_list_without_sales_rep():
+    raw = _xlsx(NEW_NO_SALES)
+    assert oo.detect_ar_report_type('PPSOH LLC_Invoice List by Date.xlsx', raw) == 'invoice_list'
+    out = oo.parse_ar_aging_bytes('InvoiceList.xlsx', raw, expect='invoice_list')
+    assert out['invoice_list_count'] == 2
+    assert out['salesman_field_present'] is False
+    assert out['invoice_list'][0]['date'] == '2026-01-08'
+    assert out['invoice_list'][1]['date'] == '2026-08-10'
+    assert out['invoice_list'][0]['customer'] == 'Morgan Properties'
+    sales = aggregate_sales_from_invoice_list(out['invoice_list'], year=2026)
+    assert sales['team_month'][1] == pytest.approx(42394.6)
+    assert sales['team_month'][8] == pytest.approx(5000.0)
+    assert '(unassigned)' in sales['by_rep_month']
+
+
+def test_new_list_not_misread_as_aging_detail():
+    raw = _xlsx(NEW_NO_SALES)
+    # Filename stripped of "invoice list" — title still wins
+    assert oo.detect_ar_report_type('QB_export.xlsx', raw) == 'invoice_list'
+
+
+def test_sales_by_customer_type_is_rejected_with_clear_error():
+    raw = _xlsx(SALES_BY_TYPE)
+    assert oo.detect_ar_report_type('PPSOH LLC_Sales by Customer Type Detail.xlsx', raw) is None
+    with pytest.raises(ValueError, match='Sales by Customer Type Detail'):
+        oo.parse_ar_aging_bytes(
+            'PPSOH LLC_Sales by Customer Type Detail.xlsx', raw, expect='invoice_list',
+        )
+
+
+def test_aging_detail_still_detected_as_detail():
+    raw = _xlsx(AGING_DETAIL)
+    assert oo.detect_ar_report_type('PPSOH LLC_A_R Aging Detail Report.xlsx', raw) == 'detail'
+
+
+def test_parse_invoice_date_accepts_date_objects_and_long_names():
+    assert _parse_invoice_date(date(2026, 8, 10)).date() == date(2026, 8, 10)
+    assert _parse_invoice_date(datetime(2026, 1, 8, 0, 0)).date() == date(2026, 1, 8)
+    assert _parse_invoice_date('August 10, 2026').date() == date(2026, 8, 10)
+    assert _parse_invoice_date('2026-08-10').date() == date(2026, 8, 10)
+
+
+def test_real_aug4_file_still_parses():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        '..', '..', 'business-intel', 'qb_reports', 'source_files',
+        'PPSOH_LLC_Invoice_List_by_Date_2026-08-04.xlsx',
+    )
+    if not os.path.isfile(path):
+        pytest.skip('checked-in Aug 4 Invoice List not on disk')
+    raw = open(path, 'rb').read()
+    out = oo.parse_ar_aging_bytes(os.path.basename(path), raw, expect='invoice_list')
+    assert out['invoice_list_count'] >= 500
+    assert out['salesman_field_present'] is True

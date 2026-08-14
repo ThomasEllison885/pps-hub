@@ -64,14 +64,27 @@ MONTH_COLS = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11:
 
 
 def _parse_invoice_date(val):
-    if val is None:
+    if val is None or val == '':
         return None
     if isinstance(val, datetime):
         return val
-    s = str(val).strip()
-    for fmt in ('%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y', '%Y-%m-%d %H:%M:%S'):
+    from datetime import date as date_cls
+    if isinstance(val, date_cls):
+        return datetime(val.year, val.month, val.day)
+    if isinstance(val, (int, float)) and 20000 < float(val) < 80000:
         try:
-            return datetime.strptime(s[:19], fmt)
+            from datetime import timedelta
+            d = date_cls(1899, 12, 30) + timedelta(days=int(val))
+            return datetime(d.year, d.month, d.day)
+        except (OverflowError, ValueError):
+            return None
+    s = str(val).strip()
+    for fmt in (
+        '%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y', '%Y-%m-%d %H:%M:%S',
+        '%B %d, %Y', '%b %d, %Y', '%m-%d-%Y',
+    ):
+        try:
+            return datetime.strptime(s[:19] if '%Y-%m-%d %H:%M:%S' == fmt else s, fmt)
         except ValueError:
             continue
     return None

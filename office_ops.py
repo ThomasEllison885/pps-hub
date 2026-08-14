@@ -150,11 +150,19 @@ def _is_summary_header_row(cells):
 
 def _is_detail_header_row(cells):
     """QB A/R Aging Detail: Date | Transaction type | Num | Customer full name | …"""
-    joined = ' '.join(_norm_header(c) for c in cells if c is not None)
+    joined = _header_joined(cells)
+    # Invoice List also has Transaction type + customer + open balance. A Sales
+    # Rep column (or an Invoice List title handled elsewhere) means it is not aging.
+    if _has_sales_rep_header(joined):
+        return False
     return (
-        'transaction type' in joined
-        or ('date' in joined and 'customer' in joined and 'open balance' in joined)
-        or ('customer full name' in joined and 'open balance' in joined)
+        ('customer full name' in joined and 'open balance' in joined)
+        or (
+            'date' in joined
+            and 'customer' in joined
+            and 'open balance' in joined
+            and 'transaction' in joined
+        )
     )
 
 
@@ -163,32 +171,87 @@ def _is_header_row(cells):
     return _is_summary_header_row(cells)
 
 
-def _is_invoice_list_header_row(cells):
-    """QB Invoice List by Date: Date | Transaction Type | Num | Name | … | Sales Rep."""
-    joined = ' '.join(_norm_header(c) for c in cells if c is not None)
-    has_sales = 'sales rep' in joined or 'salesman' in joined or 'salesperson' in joined
-    has_num = 'num' in joined or 'no.' in joined
+def _header_joined(cells):
+    return ' '.join(_norm_header(c) for c in cells if c is not None)
+
+
+def _has_sales_rep_header(joined):
+    """True if a header row names a sales-rep column (QB keeps renaming this)."""
+    if not joined:
+        return False
+    if any(tok in joined for tok in (
+        'sales rep', 'salesman', 'salesperson', 'salesrep', 'sales-rep',
+        'sales rep name', 'rep name',
+    )):
+        return True
+    # lone "rep" / "reps" column, but not "description" / "open"
+    tokens = set(joined.split())
+    return 'rep' in tokens or 'reps' in tokens
+
+
+def _has_invoice_list_identity(joined):
+    """Date + invoice # + customer + dollars — the Invoice List core, Sales Rep optional.
+
+    QB's 2026 report redesign dropped or renamed Sales Rep on Invoice List by Date
+    and relabeled Date → Transaction date. Identity without Sales Rep still means
+    Invoice List, not aging.
+    """
+    has_num = (
+        'num' in joined or 'no.' in joined or 'number' in joined
+        or 'invoice #' in joined or 'invoice no' in joined
+    )
     has_name = 'name' in joined or 'customer' in joined
-    has_open = 'open balance' in joined or 'amount' in joined
-    return has_sales and has_num and has_name and has_open
+    has_amt = 'open balance' in joined or 'amount' in joined
+    has_date = 'date' in joined
+    return bool(has_num and has_name and has_amt and has_date)
+
+
+def _is_invoice_list_header_row(cells):
+    """QB Invoice List by Date with a Sales Rep column (old / preferred export)."""
+    joined = _header_joined(cells)
+    return _has_invoice_list_identity(joined) and _has_sales_rep_header(joined)
+
+
+def _is_invoice_list_header_row_loose(cells):
+    """Same identity without requiring Sales Rep (QB 2026 dropped that column)."""
+    return _has_invoice_list_identity(_header_joined(cells))
+
+
+def _title_blob(rows, limit=8):
+    parts = []
+    for row in (rows or [])[:limit]:
+        for cell in row:
+            if cell and isinstance(cell, str) and cell.strip():
+                parts.append(cell.strip().lower())
+    return ' '.join(parts)
 
 
 def detect_ar_report_type(filename, raw_bytes):
     """Return 'summary' | 'detail' | 'invoice_list' | None from filename + content peek."""
     name = (filename or '').lower().replace('+', ' ')
+    if 'sales by customer type' in name:
+        return None
     if 'invoice list' in name or 'invoice_list' in name:
         return 'invoice_list'
     if 'detail' in name and 'aging' in name:
         return 'detail'
     if 'summary' in name and 'aging' in name:
         return 'summary'
-    if 'detail' in name:
-        return 'detail'
-    if 'summary' in name:
-        return 'summary'
+    # Bare "detail" / "summary" in the filename is last resort — title wins below
+    # because QB's new Invoice List has been saved as "Sheet1.xlsx".
 
     # Peek rows without full parse
-    rows = _load_tabular_rows(filename, raw_bytes, max_rows=30)
+    rows = _load_tabular_rows(filename, raw_bytes, max_rows=40)
+    title = _title_blob(rows)
+    if 'sales by customer type' in title:
+        return None
+    if 'invoice list' in title:
+        return 'invoice_list'
+    if 'aging detail' in title:
+        return 'detail'
+    if 'aging summary' in title:
+        return 'summary'
+
     for row in rows:
         if _is_invoice_list_header_row(row):
             return 'invoice_list'
@@ -196,15 +259,13 @@ def detect_ar_report_type(filename, raw_bytes):
             return 'detail'
         if _is_summary_header_row(row):
             return 'summary'
-    # Title rows
-    for row in rows[:5]:
-        joined = ' '.join(str(c) for c in row if c).lower()
-        if 'invoice list' in joined:
-            return 'invoice_list'
-        if 'aging detail' in joined:
-            return 'detail'
-        if 'aging summary' in joined:
-            return 'summary'
+
+    # Filename fallback after title (so "Report Detail.xlsx" that is really
+    # Invoice List by Date still classifies from the title above).
+    if 'detail' in name:
+        return 'detail'
+    if 'summary' in name:
+        return 'summary'
     return None
 
 
@@ -364,16 +425,25 @@ def parse_ar_aging_bytes(filename, raw_bytes, expect=None):
     detected = detect_ar_report_type(filename, raw_bytes)
     kind = expect or detected
     if expect and detected and expect != detected:
-        pretty = {
-            'summary': 'A/R Aging Summary',
-            'detail': 'A/R Aging Detail',
-            'invoice_list': 'Invoice List by Date',
-        }
-        raise ValueError(
-            f'This file looks like {pretty.get(detected, detected)}, '
-            f'but it was uploaded as {pretty.get(expect, expect)}. '
-            f'Use the matching drop zone (or upload again — we auto-detect).'
-        )
+        title = _title_blob(_load_tabular_rows(filename, raw_bytes, max_rows=8))
+        fname = (filename or '').lower()
+        # New Invoice List (no Sales Rep) header-detects as aging detail.
+        if expect == 'invoice_list' and detected == 'detail' and 'aging' not in title and not (
+            'aging' in fname and 'detail' in fname
+        ):
+            detected = 'invoice_list'
+            kind = 'invoice_list'
+        else:
+            pretty = {
+                'summary': 'A/R Aging Summary',
+                'detail': 'A/R Aging Detail',
+                'invoice_list': 'Invoice List by Date',
+            }
+            raise ValueError(
+                f'This file looks like {pretty.get(detected, detected)}, '
+                f'but it was uploaded as {pretty.get(expect, expect)}. '
+                f'Use the matching drop zone (or upload again — we auto-detect).'
+            )
     if kind == 'invoice_list':
         return _parse_invoice_list(filename, raw_bytes)
     if kind == 'detail':
@@ -384,11 +454,19 @@ def parse_ar_aging_bytes(filename, raw_bytes, expect=None):
             return _parse_ar_csv(raw_bytes)
         return _parse_ar_xlsx(raw_bytes)
     # Unknown
+    peek = _title_blob(_load_tabular_rows(filename, raw_bytes, max_rows=8))
+    if 'sales by customer type' in peek or 'sales by customer type' in (filename or '').lower():
+        raise ValueError(
+            'This is QuickBooks “Sales by Customer Type Detail” — line items, no customer '
+            'and no Sales Rep. That will not fill the Numbers board.\n'
+            'Export Reports → Sales → Invoice List by Date (Excel). Sales Rep is helpful '
+            'but no longer required. Do not use Sales by Customer Type Detail.'
+        )
     raise ValueError(
         'Could not identify the export. From QuickBooks use one of:\n'
         '• A/R Aging Summary — CURRENT / 1-30 / … / Total\n'
         '• A/R Aging Detail — Date / Transaction type / Customer / Open balance\n'
-        '• Invoice List by Date — with Sales Rep column (for 50/50 & salesman tracking)\n'
+        '• Invoice List by Date — one row per invoice (Sales Rep if QB still offers it)\n'
         'Then use the matching upload box on Office Ops.'
     )
 
@@ -438,62 +516,123 @@ def _parse_sales_reps(raw):
     return out
 
 
+def _invoice_date_str(val):
+    """Normalize QB / Sheets / Excel dates to YYYY-MM-DD for the Numbers pack."""
+    if val is None or val == '':
+        return ''
+    if isinstance(val, datetime):
+        return val.strftime('%Y-%m-%d')
+    if isinstance(val, date):
+        return val.strftime('%Y-%m-%d')
+    if isinstance(val, (int, float)) and 20000 < float(val) < 80000:
+        try:
+            from datetime import timedelta
+            d = date(1899, 12, 30) + timedelta(days=int(val))
+            return d.strftime('%Y-%m-%d')
+        except (OverflowError, ValueError):
+            pass
+    return str(val).strip()
+
+
+def _collapse_invoice_list_line_items(invoices):
+    """If QB exported line items (same Num more than once), roll up to one invoice."""
+    if not invoices:
+        return invoices
+    counts = {}
+    for inv in invoices:
+        counts[inv['num']] = counts.get(inv['num'], 0) + 1
+    if all(c == 1 for c in counts.values()):
+        return invoices
+    rolled = {}
+    order = []
+    for inv in invoices:
+        key = (inv['num'], (inv.get('type') or 'Invoice').lower())
+        if key not in rolled:
+            rolled[key] = dict(inv)
+            order.append(key)
+            continue
+        slot = rolled[key]
+        slot['amount'] = (slot.get('amount') or 0) + (inv.get('amount') or 0)
+        # Keep the remaining open balance (same on each line) — do not sum it
+        if inv.get('customer') and not slot.get('customer'):
+            slot['customer'] = inv['customer']
+        if inv.get('sales_reps') and not slot.get('sales_reps'):
+            slot['sales_reps'] = inv['sales_reps']
+            slot['sales_rep_raw'] = inv.get('sales_rep_raw')
+            slot['is_50_50_style'] = inv.get('is_50_50_style', False)
+    return [rolled[k] for k in order]
+
+
+def _map_invoice_list_columns(header):
+    """Map Invoice List header cells → keys. Tolerates QB 2026 label changes."""
+    col = {}
+    for i, h in enumerate(header):
+        n = _norm_header(h)
+        if not n:
+            continue
+        if n in ('date', 'transaction date', 'invoice date') or (
+            n.endswith(' date') and 'due' not in n
+        ):
+            col.setdefault('date', i)
+        elif 'transaction' in n or n == 'type':
+            col.setdefault('type', i)
+        elif n in ('num', 'no.', 'no', 'number', '#', 'invoice #', 'invoice no', 'invoice no.', 'invoice number'):
+            col.setdefault('num', i)
+        elif n in ('name', 'customer', 'customer name', 'customer full name'):
+            col.setdefault('name', i)
+        elif 'memo' in n or n == 'description':
+            col.setdefault('memo', i)
+        elif 'due' in n:
+            col.setdefault('due', i)
+        elif n == 'amount':
+            col.setdefault('amount', i)
+        elif 'open' in n and 'balance' in n:
+            col.setdefault('open', i)
+        elif _has_sales_rep_header(n):
+            col.setdefault('sales_rep', i)
+        elif n in ('rep', 'reps'):
+            col.setdefault('sales_rep', i)
+    return col
+
+
 def _parse_invoice_list(filename, raw_bytes):
-    """Parse QB Invoice List by Date (includes Sales Rep — 50/50 uses 'A / B')."""
+    """Parse QB Invoice List by Date (Sales Rep when present — 50/50 uses 'A / B')."""
     rows = _load_tabular_rows(filename, raw_bytes)
     if not rows:
         raise ValueError('Invoice List is empty.')
 
+    title = _title_blob(rows)
+    if 'sales by customer type' in title or 'sales by customer type' in (filename or '').lower():
+        raise ValueError(
+            'This is QuickBooks “Sales by Customer Type Detail” — line items, no customer '
+            'and no Sales Rep. Export Invoice List by Date instead.'
+        )
+
     date_range = None
-    for row in rows[:6]:
+    for row in rows[:8]:
         for cell in row:
             if cell and isinstance(cell, str) and re.search(r'\d{4}', cell) and ('-' in cell or 'to' in cell.lower()):
                 date_range = cell.strip()
                 break
 
     header_idx = None
-    for i, row in enumerate(rows[:25]):
-        if _is_invoice_list_header_row(row):
+    for i, row in enumerate(rows[:40]):
+        if _is_invoice_list_header_row(row) or _is_invoice_list_header_row_loose(row):
             header_idx = i
             break
     if header_idx is None:
         raise ValueError(
-            'Could not find Invoice List header (expected Date, Num, Name, Open Balance, Sales Rep). '
-            'In QuickBooks: Reports → Sales → Invoice List by Date, include Sales Rep, Export Excel.'
+            'Could not find Invoice List header (expected Date, Num, Name/Customer, Amount). '
+            'In QuickBooks: Reports → Sales → Invoice List by Date, Export Excel. '
+            'Sales Rep is optional if QB no longer lets you add it.'
         )
 
     header = rows[header_idx]
-    col = {}
-    for i, h in enumerate(header):
-        n = _norm_header(h)
-        if not n:
-            continue
-        if n == 'date':
-            col['date'] = i
-        elif 'transaction' in n or n == 'type':
-            col['type'] = i
-        elif n in ('num', 'no.', 'number', '#'):
-            col['num'] = i
-        elif n in ('name', 'customer', 'customer full name'):
-            col['name'] = i
-        elif 'memo' in n or 'description' in n:
-            col['memo'] = i
-        elif 'due' in n:
-            col['due'] = i
-        elif n == 'amount':
-            col['amount'] = i
-        elif 'open' in n and 'balance' in n:
-            col['open'] = i
-        elif 'sales' in n:
-            col['sales_rep'] = i
+    col = _map_invoice_list_columns(header)
 
     if 'num' not in col or 'name' not in col:
-        raise ValueError('Invoice List missing Num or Name column.')
-    if 'sales_rep' not in col:
-        raise ValueError(
-            'Invoice List is missing the Sales Rep column. '
-            'Customize the report in QB to include Sales Rep, then re-export.'
-        )
+        raise ValueError('Invoice List missing Num or Name/Customer column.')
+    missing_sales = 'sales_rep' not in col
 
     def cell(row, key):
         idx = col.get(key)
@@ -504,6 +643,9 @@ def _parse_invoice_list(filename, raw_bytes):
     invoices = []
     for row in rows[header_idx + 1:]:
         if not row or all(v in (None, '') for v in row):
+            continue
+        lead = next((str(c).strip() for c in row if c not in (None, '')), '')
+        if lead.lower().startswith('total for'):
             continue
         # Section headers like "Adam / Andy" alone in first column — skip
         txn = cell(row, 'type')
@@ -531,12 +673,12 @@ def _parse_invoice_list(filename, raw_bytes):
         reps = _parse_sales_reps(rep_raw)
         is_split = len(reps) >= 2
         inv = {
-            'date': str(cell(row, 'date') or ''),
+            'date': _invoice_date_str(cell(row, 'date')),
             'type': str(txn or 'Invoice').strip(),
             'num': str(int(num)) if isinstance(num, float) and num == int(num) else str(num).strip(),
             'customer': str(name or '').strip(),
             'memo': str(cell(row, 'memo') or '').strip() or None,
-            'due_date': str(cell(row, 'due') or ''),
+            'due_date': _invoice_date_str(cell(row, 'due')),
             'amount': amount,
             'open_balance': open_bal,
             'sales_rep_raw': str(rep_raw).strip() if rep_raw else None,
@@ -546,6 +688,8 @@ def _parse_invoice_list(filename, raw_bytes):
             'open_share_each': (open_bal / len(reps)) if reps and open_bal else 0.0,
         }
         invoices.append(inv)
+
+    invoices = _collapse_invoice_list_line_items(invoices)
 
     # Open-AR attribution by rep (equal split for multi-rep)
     by_rep = {}
@@ -581,12 +725,18 @@ def _parse_invoice_list(filename, raw_bytes):
         'open_ar_from_list': open_total,
         'split_invoice_count': split_count,
         'sales_rep_open_ar': rep_table,
-        'salesman_field_present': True,
-        'notes_for_humans': [
-            'Sales Rep from Invoice List: multi-name values like “Adam / Andy” count as 50/50-style '
-            '(open AR attributed equally across listed reps until you tell us a different split rule).',
-            'Match open AR aging to salesmen by invoice number when Detail + Invoice List are both uploaded.',
-        ],
+        'salesman_field_present': not missing_sales,
+        'notes_for_humans': (
+            [
+                'This Invoice List has no Sales Rep column (QuickBooks dropped it on the new report). '
+                'Team invoiced totals still fill. Per-rep / 50/50 actuals will show as unassigned '
+                'until QB lets you add Sales Rep again.',
+            ] if missing_sales else [
+                'Sales Rep from Invoice List: multi-name values like “Adam / Andy” count as 50/50-style '
+                '(open AR attributed equally across listed reps until you tell us a different split rule).',
+                'Match open AR aging to salesmen by invoice number when Detail + Invoice List are both uploaded.',
+            ]
+        ),
     }
 
 
@@ -1410,10 +1560,18 @@ def process_ar_file(get_db_fn, file_id, user_key, expect=None):
                 expect = 'summary'
 
         raw = bytes(frow['file_data'])
-        # Auto-correct kind if content disagrees (user used wrong box)
+        # Auto-correct kind if content disagrees (user used wrong box).
+        # Invoice List without Sales Rep header-detects as aging detail — keep
+        # the Invoice List slot unless the file is clearly an aging report.
         detected = detect_ar_report_type(frow['filename'], raw)
         if detected and expect and detected != expect:
-            expect = detected  # trust content; still process successfully
+            title = _title_blob(_load_tabular_rows(frow['filename'], raw, max_rows=8))
+            fname = (frow['filename'] or '').lower()
+            clearly_aging = 'aging' in title or ('aging' in fname and 'detail' in fname)
+            if expect == 'invoice_list' and detected == 'detail' and not clearly_aging:
+                detected = 'invoice_list'
+            else:
+                expect = detected  # trust content; still process successfully
 
         parsed = parse_ar_aging_bytes(frow['filename'], raw, expect=expect)
         parsed['source_filename'] = frow['filename']
@@ -1741,7 +1899,7 @@ def generate_thursday_pack(get_db_fn, user_key):
             conn.close()
             return {
                 'success': False,
-                'error': 'Upload Invoice List by Date (with Sales Rep) first.',
+                'error': 'Upload Invoice List by Date first.',
             }
         inv_raw = bytes(inv_row['file_data'])
         inv_parsed = parse_ar_aging_bytes(inv_row['filename'], inv_raw, expect='invoice_list')
@@ -2309,15 +2467,17 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
             return jsonify({'success': False, 'error': 'Choose a file to upload.'}), 400
         raw = f.read()
         fname = (f.filename or '').lower().replace('+', ' ')
-        # Content wins over wrong drop-zone label (AR types)
+        # Content wins over wrong drop-zone label (AR types). Do not steal an
+        # Invoice List drop into Aging Detail — QB's 2026 Invoice List without
+        # Sales Rep looks like detail headers.
         if kind not in (KIND_OUTLOOK, KIND_PL) and 'outlook' not in fname and 'profit' not in fname and 'p&l' not in fname:
             detected = detect_ar_report_type(f.filename, raw)
-            if detected == 'detail':
-                kind = KIND_DETAIL
-            elif detected == 'summary':
-                kind = KIND_SUMMARY
-            elif detected == 'invoice_list':
+            if detected == 'invoice_list':
                 kind = KIND_INVOICE_LIST
+            elif detected == 'detail' and kind != KIND_INVOICE_LIST:
+                kind = KIND_DETAIL
+            elif detected == 'summary' and kind != KIND_INVOICE_LIST:
+                kind = KIND_SUMMARY
         if 'outlook' in fname or 'monthly' in fname:
             kind = KIND_OUTLOOK
         if 'profit' in fname or 'p&l' in fname or 'pnl' in fname or 'loss' in fname:
