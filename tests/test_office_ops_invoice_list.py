@@ -213,3 +213,20 @@ def test_real_aug4_file_still_parses():
     out = oo.parse_ar_aging_bytes(os.path.basename(path), raw, expect='invoice_list')
     assert out['invoice_list_count'] >= 500
     assert out['salesman_field_present'] is True
+
+
+def test_office_ops_access_rj_not_admin():
+    """RJ is on the Office Ops key list with role=pm — not role=admin."""
+    users = {
+        'thomas_ellison': {'role': 'admin'},
+        'stephanie_whetstone': {'role': 'office_manager'},
+        'trey_hollmeyer': {'role': 'pm'},
+        'rj': {'role': 'pm'},
+        'phil_miller': {'role': 'pm'},
+    }
+    assert oo.can_access_office_ops(users, 'thomas_ellison') is True
+    assert oo.can_access_office_ops(users, 'stephanie_whetstone') is True
+    assert oo.can_access_office_ops(users, 'rj') is True
+    assert oo.can_access_office_ops(users, 'trey_hollmeyer') is False
+    assert oo.can_access_office_ops(users, 'phil_miller') is False
+    assert users['rj']['role'] != 'admin'

@@ -253,6 +253,20 @@ USERS = {
         'title': 'Office Manager',
         'email': 'Stephanie@purepropsolutions.com',
     },
+    # Privileged field login (Thomas 2026-08-18): consultant + PM + Stephanie
+    # surfaces, password RJ2026. Role is deliberately NOT admin — /admin stays
+    # Thomas-only. Office Ops / every pipeline board are explicit allowlists
+    # (same pattern as Stephanie), not role==admin.
+    'rj': {
+        'display': 'RJ',
+        'role': 'pm',
+        'proposal_access': 'all',
+        'ppm_access': True,
+        'team_view': False,
+        'team_view_scope': None,
+        'title': 'Operations',
+        'email': '',
+    },
 }
 
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
@@ -1131,6 +1145,11 @@ def init_db():
                        VALUES (%s, %s, %s, %s, TRUE)''',
                     (key, user['display'], hashed, user['role'])
                 )
+
+    # RJ: set the password Thomas asked for if the account has never signed in.
+    # DEFAULT_PASSWORD above may have just created the row with must_change=TRUE
+    # — overwrite that unused seed. Do not clobber a later password change.
+    _seed_rj_login_password(cur)
 
     # Backfill last_login from tool activity where logs are more recent
     try:
@@ -3132,6 +3151,41 @@ def _ensure_hub_users_password_schema(cur):
         cur.execute('ALTER TABLE hub_users ALTER COLUMN password_hash TYPE TEXT')
     except Exception as e:
         print(f'hub_users password_hash migrate: {e}')
+
+
+def _seed_rj_login_password(cur):
+    """Activate RJ with RJ2026 on first boot. Skip once they have a last_login."""
+    user_key = 'rj'
+    user_def = USERS.get(user_key)
+    if not user_def:
+        return
+    try:
+        hashed = generate_password_hash('RJ2026', method='pbkdf2:sha256')
+    except Exception as e:
+        print(f'_seed_rj_login_password hash failed: {e}')
+        return
+    cur.execute(
+        'SELECT last_login FROM hub_users WHERE user_key = %s',
+        (user_key,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.execute(
+            '''INSERT INTO hub_users
+               (user_key, display_name, password_hash, role, must_change_password)
+               VALUES (%s, %s, %s, %s, FALSE)''',
+            (user_key, user_def['display'], hashed, user_def.get('role', 'pm')),
+        )
+        return
+    last_login = row[0] if not isinstance(row, dict) else row.get('last_login')
+    if last_login is None:
+        cur.execute(
+            '''UPDATE hub_users
+               SET password_hash = %s, must_change_password = FALSE,
+                   display_name = %s, role = %s
+               WHERE user_key = %s''',
+            (hashed, user_def['display'], user_def.get('role', 'pm'), user_key),
+        )
 
 
 def _upsert_hub_user_password(user_key, new_password, must_change=False):
