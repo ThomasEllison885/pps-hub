@@ -19,7 +19,7 @@ from psc_training_data import (
     get_training_curriculum,
 )
 
-CURATORS = frozenset({'thomas_ellison', 'tony_cumella', 'trey_hollmeyer'})
+CURATORS = frozenset({'thomas_ellison', 'tony_cumella', 'trey_hollmeyer', 'admin'})
 
 CATEGORIES = [
     'voice_language',

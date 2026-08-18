@@ -253,21 +253,28 @@ USERS = {
         'title': 'Office Manager',
         'email': 'Stephanie@purepropsolutions.com',
     },
-    # Privileged field login (Thomas 2026-08-18): picker name "Admin",
-    # password RJ2026, consultant + PM + Stephanie surfaces. Role is
-    # deliberately pm — not admin — so /admin stays Thomas-only.
-    # Office Ops / every pipeline board are explicit allowlists.
+    # Picker name "Admin" (Thomas 2026-08-18). Role is deliberately pm —
+    # not admin — so /admin, pricing, and password resets stay Thomas-only.
+    # Access is the union of Trey (production), Stephanie (ops), Tony (sales):
+    #   Trey  — proposal_access all, team_view scope all, PM training oversight,
+    #           every pipeline board, Ask PPS curator
+    #   Steph — Office Ops (OFFICE_OPS_USER_KEYS)
+    #   Tony  — Team View (covered by Trey's scope all) + PSC training oversight
     'admin': {
         'display': 'Admin',
         'role': 'pm',
         'proposal_access': 'all',
         'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'team_view': True,
+        'team_view_scope': 'all',
         'title': 'Operations',
         'email': '',
     },
 }
+
+# Picker login "Admin" — user_key only. Role on that row is pm, not admin.
+FIELD_ADMIN_USER_KEY = 'admin'
+FIELD_ADMIN_PASSWORD = 'RJ2026'
 
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
 PROPOSAL_NUMBER_SEQ_DIGITS = 3
@@ -1262,6 +1269,7 @@ CONTACTS_USER_KEYS = frozenset({
     'tony_cumella',
     'stephanie_whetstone',
     'trey_hollmeyer',
+    'admin',
 })
 # PMs included: they use Proposal Generator and must save contacts (Trey reported 403).
 CONTACTS_ROLES = frozenset({'admin', 'consultant', 'office_manager', 'pm'})
@@ -1728,7 +1736,8 @@ def can_psc_training_oversight(user_key):
     user = USERS.get(user_key, {})
     if user.get('role') == 'admin':
         return True
-    return user_key == PSC_TRAINING_MANAGER
+    # Field Admin picker gets Tony's sales oversight (role stays pm).
+    return user_key in (PSC_TRAINING_MANAGER, FIELD_ADMIN_USER_KEY)
 
 
 def is_psc_training_enrolled(user_key):
@@ -2090,7 +2099,8 @@ def can_pm_training_oversight(user_key):
     user = USERS.get(user_key, {})
     if user.get('role') == 'admin':
         return True
-    return user_key == PM_TRAINING_MANAGER
+    # Field Admin picker gets Trey's production oversight (role stays pm).
+    return user_key in (PM_TRAINING_MANAGER, FIELD_ADMIN_USER_KEY)
 
 
 def is_pm_training_enrolled(user_key):
@@ -3151,10 +3161,6 @@ def _ensure_hub_users_password_schema(cur):
         cur.execute('ALTER TABLE hub_users ALTER COLUMN password_hash TYPE TEXT')
     except Exception as e:
         print(f'hub_users password_hash migrate: {e}')
-
-
-FIELD_ADMIN_USER_KEY = 'admin'
-FIELD_ADMIN_PASSWORD = 'RJ2026'
 
 
 def _seed_field_admin_login_password(cur):
@@ -6308,7 +6314,7 @@ def team_view():
                        'james_boling','jordan_allen','ben_ramsey']
     else:
         # 'all' (Trey) and admin default — full roster
-        member_keys = list(USERS.keys())
+        member_keys = [k for k in USERS.keys() if k != FIELD_ADMIN_USER_KEY]
 
     for key in member_keys:
         u = USERS.get(key, {})
