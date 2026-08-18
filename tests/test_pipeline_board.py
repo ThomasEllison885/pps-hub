@@ -244,7 +244,7 @@ _USERS = {
     'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'proposal_access': 'all'},
     'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager'},
     'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin'},
-    'rj': {'display': 'RJ', 'role': 'pm', 'proposal_access': 'all'},
+    'admin': {'display': 'Admin', 'role': 'pm', 'proposal_access': 'all'},
 }
 
 
@@ -271,7 +271,7 @@ def test_get_pair_key_oversight_defaults_to_first_board():
     # (Andy) so /pipeline-board without ?pair= still lands somewhere.
     assert pb.get_pair_key(_USERS, 'trey_hollmeyer') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'stephanie_whetstone') == 'andy_potts'
-    assert pb.get_pair_key(_USERS, 'rj') == 'andy_potts'
+    assert pb.get_pair_key(_USERS, 'admin') == 'andy_potts'
 
 
 def test_get_pair_key_ignores_proposal_access_all():
@@ -305,7 +305,7 @@ def test_can_access_board_wrong_pair_denied():
 
 
 def test_can_access_board_oversight_all_boards():
-    for user_key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone', 'rj'):
+    for user_key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone', 'admin'):
         for ck in pb.BOARD_CONSULTANTS:
             assert pb.can_access_board(_USERS, user_key, ck) is True, (user_key, ck)
 
@@ -319,8 +319,8 @@ def test_list_accessible_boards_for_multi_board_users():
     assert trey == list(pb.BOARD_CONSULTANTS)
     steph = [b['key'] for b in pb.list_accessible_boards(_USERS, 'stephanie_whetstone')]
     assert steph == list(pb.BOARD_CONSULTANTS)
-    rj = [b['key'] for b in pb.list_accessible_boards(_USERS, 'rj')]
-    assert rj == list(pb.BOARD_CONSULTANTS)
+    field_admin = [b['key'] for b in pb.list_accessible_boards(_USERS, 'admin')]
+    assert field_admin == list(pb.BOARD_CONSULTANTS)
 
 
 # --- Import column mapping --------------------------------------------------

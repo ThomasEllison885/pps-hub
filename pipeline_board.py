@@ -73,13 +73,13 @@ BOARD_ACCESS = {
 
 # Oversight: every live board. Explicit names, not role==admin and not
 # proposal_access=='all' (Jordan and Phil still carry that Hub grant and
-# must not inherit this). Thomas asked 2026-08-13. RJ added 2026-08-18
-# (same Stephanie-level board grant; role stays pm so /admin stays closed).
+# must not inherit this). Thomas asked 2026-08-13. Field Admin picker
+# added 2026-08-18 (same Stephanie-level board grant; role stays pm).
 BOARD_ACCESS_ALL = frozenset({
     'thomas_ellison',
     'trey_hollmeyer',
     'stephanie_whetstone',
-    'rj',
+    'admin',
 })
 
 # Back-compat aliases — a couple of comments / older tests used the

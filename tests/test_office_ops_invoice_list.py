@@ -221,12 +221,12 @@ def test_office_ops_access_rj_not_admin():
         'thomas_ellison': {'role': 'admin'},
         'stephanie_whetstone': {'role': 'office_manager'},
         'trey_hollmeyer': {'role': 'pm'},
-        'rj': {'role': 'pm'},
+        'admin': {'role': 'pm'},
         'phil_miller': {'role': 'pm'},
     }
     assert oo.can_access_office_ops(users, 'thomas_ellison') is True
     assert oo.can_access_office_ops(users, 'stephanie_whetstone') is True
-    assert oo.can_access_office_ops(users, 'rj') is True
+    assert oo.can_access_office_ops(users, 'admin') is True
     assert oo.can_access_office_ops(users, 'trey_hollmeyer') is False
     assert oo.can_access_office_ops(users, 'phil_miller') is False
-    assert users['rj']['role'] != 'admin'
+    assert users['admin']['role'] != 'admin'

@@ -253,12 +253,12 @@ USERS = {
         'title': 'Office Manager',
         'email': 'Stephanie@purepropsolutions.com',
     },
-    # Privileged field login (Thomas 2026-08-18): consultant + PM + Stephanie
-    # surfaces, password RJ2026. Role is deliberately NOT admin — /admin stays
-    # Thomas-only. Office Ops / every pipeline board are explicit allowlists
-    # (same pattern as Stephanie), not role==admin.
-    'rj': {
-        'display': 'RJ',
+    # Privileged field login (Thomas 2026-08-18): picker name "Admin",
+    # password RJ2026, consultant + PM + Stephanie surfaces. Role is
+    # deliberately pm — not admin — so /admin stays Thomas-only.
+    # Office Ops / every pipeline board are explicit allowlists.
+    'admin': {
+        'display': 'Admin',
         'role': 'pm',
         'proposal_access': 'all',
         'ppm_access': True,
@@ -1146,10 +1146,10 @@ def init_db():
                     (key, user['display'], hashed, user['role'])
                 )
 
-    # RJ: set the password Thomas asked for if the account has never signed in.
+    # Admin picker login: set RJ2026 if the account has never signed in.
     # DEFAULT_PASSWORD above may have just created the row with must_change=TRUE
     # — overwrite that unused seed. Do not clobber a later password change.
-    _seed_rj_login_password(cur)
+    _seed_field_admin_login_password(cur)
 
     # Backfill last_login from tool activity where logs are more recent
     try:
@@ -3153,16 +3153,20 @@ def _ensure_hub_users_password_schema(cur):
         print(f'hub_users password_hash migrate: {e}')
 
 
-def _seed_rj_login_password(cur):
-    """Activate RJ with RJ2026 on first boot. Skip once they have a last_login."""
-    user_key = 'rj'
+FIELD_ADMIN_USER_KEY = 'admin'
+FIELD_ADMIN_PASSWORD = 'RJ2026'
+
+
+def _seed_field_admin_login_password(cur):
+    """Activate the Admin picker login with RJ2026. Skip once they have a last_login."""
+    user_key = FIELD_ADMIN_USER_KEY
     user_def = USERS.get(user_key)
     if not user_def:
         return
     try:
-        hashed = generate_password_hash('RJ2026', method='pbkdf2:sha256')
+        hashed = generate_password_hash(FIELD_ADMIN_PASSWORD, method='pbkdf2:sha256')
     except Exception as e:
-        print(f'_seed_rj_login_password hash failed: {e}')
+        print(f'_seed_field_admin_login_password hash failed: {e}')
         return
     cur.execute(
         'SELECT last_login FROM hub_users WHERE user_key = %s',
@@ -3437,6 +3441,29 @@ def login():
         db_user = cur.fetchone()
         cur.close()
         conn.close()
+
+        # First-boot / missed-seed activation: init_db can return before the
+        # password row is written (DB not ready on worker start). If they
+        # picked Admin and typed RJ2026, create the row here and continue.
+        if (
+            not db_user
+            and user_key == FIELD_ADMIN_USER_KEY
+            and password == FIELD_ADMIN_PASSWORD
+        ):
+            ok, _ = _upsert_hub_user_password(
+                FIELD_ADMIN_USER_KEY, FIELD_ADMIN_PASSWORD, must_change=False
+            )
+            if ok:
+                conn = get_db()
+                if conn:
+                    cur = conn.cursor(cursor_factory=RealDictCursor)
+                    cur.execute(
+                        'SELECT * FROM hub_users WHERE user_key = %s',
+                        (user_key,),
+                    )
+                    db_user = cur.fetchone()
+                    cur.close()
+                    conn.close()
 
         if db_user and _safe_check_password(db_user.get('password_hash'), password):
             user = USERS.get(user_key, {})
