@@ -2,6 +2,7 @@ import os
 import re
 import json
 import time
+import secrets
 import threading
 import base64
 from io import BytesIO
@@ -13,6 +14,7 @@ import insurance_compliance
 import crm_contact_sync
 import estimate_assignments
 import weekly_recap
+import password_campaign
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -1156,19 +1158,31 @@ def init_db():
     import hub_usage
     hub_usage.init_tables(cur)
 
-    # Seed users with default password if configured
-    default_password = os.environ.get('DEFAULT_PASSWORD', '').strip()
-    if default_password:
-        for key, user in USERS.items():
-            cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (key,))
-            if not cur.fetchone():
-                hashed = generate_password_hash(default_password)
-                cur.execute(
-                    '''INSERT INTO hub_users
-                       (user_key, display_name, password_hash, role, must_change_password)
-                       VALUES (%s, %s, %s, %s, TRUE)''',
-                    (key, user['display'], hashed, user['role'])
-                )
+    # Seed missing accounts with an UNUSABLE password, never a shared one.
+    #
+    # This used to plant os.environ['DEFAULT_PASSWORD'] on every account that
+    # had no row yet, which is where the shared password came from in the first
+    # place. Retiring the current one (password_campaign.py) would have been
+    # pointless while this stayed: the next person added to USERS would be
+    # seeded with the same secret everyone already knew, including anyone who
+    # had since left. DEFAULT_PASSWORD is now ignored even if it is still set
+    # on the Render service — deleting the env var is good hygiene, but the
+    # code no longer depends on anyone remembering to.
+    #
+    # A new hire gets a row they cannot log into, and reaches the Hub the same
+    # way everyone else does after a reset: Forgot Password, or Thomas sending
+    # them a link from /admin. One less shared secret, permanently.
+    for key, user in USERS.items():
+        cur.execute('SELECT id FROM hub_users WHERE user_key = %s', (key,))
+        if not cur.fetchone():
+            unusable = generate_password_hash(secrets.token_urlsafe(48), method='pbkdf2:sha256')
+            cur.execute(
+                '''INSERT INTO hub_users
+                   (user_key, display_name, password_hash, role, must_change_password)
+                   VALUES (%s, %s, %s, %s, TRUE)''',
+                (key, user['display'], unusable, user['role'])
+            )
+            print(f'seeded {key} with no usable password — send them a reset link')
 
     # Revoke the retired shared "Admin" login (removed 2026-08-21, see USERS above).
     # Dropping it from USERS already blocks sign-in — the login route rejects any
@@ -8733,6 +8747,99 @@ def logout():
         nxt = urllib.parse.quote(final, safe='')
         return redirect(f'{PROPOSAL_URL}/logout?next={nxt}')
     return redirect(url_for('login'))
+
+
+def _report_password_campaign(result):
+    """Tell Thomas the campaign fired, and who still needs a hand.
+
+    It runs unattended on deploy, so without this the only record is a line in
+    the Render log. Anyone in email_failed kept their old password — that is the
+    one remaining window the campaign does not close by itself, and it stays
+    open until someone acts on it, so it goes to an inbox rather than a log.
+    """
+    if not result:
+        return
+    try:
+        emailed = result.get('emailed') or []
+        failed = result.get('email_failed') or []
+        skipped = result.get('skipped') or []
+        subject = 'Hub passwords reset' + (f' — {len(failed)} need attention' if failed else '')
+        lines = [
+            f"Shared password retired ({result.get('campaign_id')}).",
+            '',
+            f'Reset link sent, old password now dead: {len(emailed)}',
+        ]
+        for k in emailed:
+            lines.append(f'  - {USERS.get(k, {}).get("display", k)}')
+        if failed:
+            lines += [
+                '',
+                'COULD NOT EMAIL — these people KEEP their old password until they',
+                'next sign in. Reset them by hand at /admin:',
+            ]
+            for k in failed:
+                lines.append(f'  - {USERS.get(k, {}).get("display", k)} ({USERS.get(k, {}).get("email") or "no email"})')
+        if skipped:
+            lines += ['', 'Skipped (excluded or no email): ' + ', '.join(skipped)]
+        body = '\n'.join(lines)
+        _send_digest_email(subject, body, None, _hub_notify_recipients())
+    except Exception as e:
+        print(f'password campaign report failed: {e}')
+
+
+def _run_password_campaign():
+    """One-time retirement of the shared password (2026-08-21).
+
+    Deliberately NOT inside _run_db_startup(): that runs at import line ~1281,
+    long before _send_digest_email is defined at ~5334, so calling it there
+    NameErrors and takes the whole app down on boot. It lives at the bottom of
+    the module instead, where everything it needs exists.
+
+    Also deliberately not guarded by _db_startup_done — that flag is
+    per-process, so two gunicorn workers would each pass it, and every future
+    deploy would pass it again. The real guard is an atomic claim in Postgres
+    (password_campaign.claim); bumping CAMPAIGN_ID is the only way to re-fire.
+    """
+    try:
+        conn = get_db()
+        if not conn:
+            print('password campaign: no database, will retry next boot')
+            return
+        cur = conn.cursor()
+        password_campaign.init_tables(cur)
+        claimed = password_campaign.claim(cur)
+        conn.commit()
+        cur.close()
+        conn.close()
+        if not claimed:
+            return
+        print(f'password campaign {password_campaign.CAMPAIGN_ID}: claimed, running')
+        result = password_campaign.run_campaign(
+            get_db,
+            USERS,
+            _send_digest_email,
+            lambda key, ttl: create_password_reset_token(get_db, key, ttl_hours=ttl),
+            reset_url_for_token,
+            lambda pw: generate_password_hash(pw, method='pbkdf2:sha256'),
+            # Nobody is excluded, Thomas included (his call, 2026-08-21).
+            # Leaving the owner account out would have left /admin, the vault
+            # and every financial page on the one password the campaign exists
+            # to retire. He is not exposed to a lockout by this: run_campaign
+            # only invalidates a password after its reset email actually sends,
+            # so a mail failure leaves him on his current password rather than
+            # stranding him. MASTER_PASSWORD stays set on Render until he has
+            # confirmed he is back in — that is the break-glass for this
+            # window, and it should come off straight afterwards.
+            exclude=(),
+        )
+        _report_password_campaign(result)
+    except Exception as e:
+        print(f'password campaign error: {e}')
+        import traceback
+        traceback.print_exc()
+
+
+_run_password_campaign()
 
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)

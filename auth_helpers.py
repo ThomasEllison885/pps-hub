@@ -180,7 +180,14 @@ def exchange_sso_code(get_db, code):
         return None
 
 
-def create_password_reset_token(get_db, user_key):
+def create_password_reset_token(get_db, user_key, ttl_hours=None):
+    """ttl_hours overrides the default 1h — see password_campaign.py.
+
+    One hour is right for someone who just clicked "I forgot" and is sitting at
+    the screen. It is wrong for mail that arrives unprompted and might be read
+    the next morning, so a broadcast reset passes a longer window.
+    """
+    ttl_hours = RESET_TOKEN_TTL_HOURS if ttl_hours is None else ttl_hours
     token = secrets.token_urlsafe(32)
     try:
         conn = get_db()
@@ -191,7 +198,7 @@ def create_password_reset_token(get_db, user_key):
         cur.execute(
             '''INSERT INTO password_reset_tokens (token, user_key, expires_at)
                VALUES (%s, %s, NOW() + make_interval(hours => %s))''',
-            (token, user_key, RESET_TOKEN_TTL_HOURS),
+            (token, user_key, ttl_hours),
         )
         conn.commit()
         cur.close()
