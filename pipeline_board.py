@@ -348,6 +348,38 @@ def _display(users, user_key):
     return users.get(user_key, {}).get('display', user_key)
 
 
+def _norm_property_name(name):
+    return ' '.join((name or '').lower().split())
+
+
+def last_used_client_contact(entries, property_name, exclude_id=None):
+    """Client / property-manager name last used on this board for the same property.
+
+    Rachel (2026-08): she expects Client Contact to fill itself the way the
+    old sheet did — the *client's* manager, not the PPS PM. Prefer the
+    most recently updated row with the same property name (case/spacing
+    ignored). Empty contacts and the row being edited are skipped.
+    """
+    key = _norm_property_name(property_name)
+    if not key or not entries:
+        return ''
+    best = ''
+    best_ts = ''
+    for entry in entries:
+        if exclude_id is not None and str(entry.get('id')) == str(exclude_id):
+            continue
+        if _norm_property_name(entry.get('property_name')) != key:
+            continue
+        contact = (entry.get('client_contact') or '').strip()
+        if not contact:
+            continue
+        ts = str(entry.get('updated_at') or '')
+        if not best or ts >= best_ts:
+            best = contact
+            best_ts = ts
+    return best
+
+
 def _row_to_dict(row):
     d = dict(row)
     for k in ('amount', 'sub_pay'):

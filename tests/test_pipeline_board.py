@@ -323,6 +323,46 @@ def test_list_accessible_boards_for_multi_board_users():
     assert field_admin == list(pb.BOARD_CONSULTANTS)
 
 
+# --- Client contact last-used (Rachel 2026-08: client's manager, not PPS PM)
+
+def test_last_used_client_contact_prefers_newest_same_property():
+    entries = [
+        {'id': 1, 'property_name': 'Macaulay', 'client_contact': 'Old Mgr',
+         'updated_at': '2026-01-01T00:00:00'},
+        {'id': 2, 'property_name': 'Macaulay', 'client_contact': 'New Mgr',
+         'updated_at': '2026-08-01T00:00:00'},
+        {'id': 3, 'property_name': 'Drexel', 'client_contact': 'Someone Else',
+         'updated_at': '2026-08-20T00:00:00'},
+    ]
+    assert pb.last_used_client_contact(entries, 'macaulay') == 'New Mgr'
+    assert pb.last_used_client_contact(entries, '  Macaulay  ') == 'New Mgr'
+
+
+def test_last_used_client_contact_skips_empty_and_the_row_being_edited():
+    entries = [
+        {'id': 1, 'property_name': 'Macaulay', 'client_contact': 'Keep',
+         'updated_at': '2026-01-01T00:00:00'},
+        {'id': 2, 'property_name': 'Macaulay', 'client_contact': '   ',
+         'updated_at': '2026-08-01T00:00:00'},
+        {'id': 3, 'property_name': 'Macaulay', 'client_contact': 'Self',
+         'updated_at': '2026-08-20T00:00:00'},
+    ]
+    assert pb.last_used_client_contact(entries, 'Macaulay', exclude_id=3) == 'Keep'
+    assert pb.last_used_client_contact(entries, '') == ''
+    assert pb.last_used_client_contact([], 'Macaulay') == ''
+
+
+def test_last_used_client_contact_is_the_client_not_a_pps_pm():
+    # Guard: this helper only reads client_contact. A PPS PM name on the
+    # board title must not leak in just because the pair is Rachel/Derek.
+    entries = [
+        {'id': 1, 'property_name': 'Sugar Glenn', 'client_contact': 'Lisa',
+         'updated_at': '2026-08-01T00:00:00'},
+    ]
+    assert pb.last_used_client_contact(entries, 'Sugar Glenn') == 'Lisa'
+    assert 'Derek' not in pb.last_used_client_contact(entries, 'Sugar Glenn')
+
+
 # --- Import column mapping --------------------------------------------------
 
 def _workbook_with_headers(headers):
