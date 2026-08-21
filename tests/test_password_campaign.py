@@ -108,9 +108,39 @@ def test_pending_honours_exclude():
     assert 'thomas_ellison' not in pending
 
 
-def test_pending_returns_nothing_when_the_database_is_unreachable():
-    """Emailing nobody is always the safe direction; emailing twice is not."""
-    assert pc.pending_user_keys(lambda: None, _USERS) == []
+def test_pending_returns_none_when_the_database_is_unreachable():
+    """None, not [] — "could not check" must not look like "everyone is done".
+
+    Both mean email nobody right now, which is the safe direction. Only one of
+    them means the campaign is finished, and the summary email has to be able
+    to say which.
+    """
+    assert pc.pending_user_keys(lambda: None, _USERS) is None
+
+
+def test_run_aborts_and_flags_db_error_rather_than_reporting_success():
+    result = pc.run_campaign(
+        lambda: None, _USERS, lambda *a: True,
+        lambda k, t: f'tok-{k}', lambda t: f'u/{t}', _hash,
+    )
+    assert result['db_error'] is True
+    assert result['emailed'] == []
+    assert result['pending_at_start'] is None
+
+
+def test_completed_run_is_distinguishable_from_a_failed_read():
+    """Everyone done: db_error False, pending 0, and they are listed as
+    already_done rather than lumped in with the excluded."""
+    conn = _Conn(epochs={k: 1 for k in _USERS})
+    result = pc.run_campaign(
+        lambda: conn, _USERS, lambda *a: True,
+        lambda k, t: f'tok-{k}', lambda t: f'u/{t}', _hash,
+    )
+    assert result['db_error'] is False
+    assert result['pending_at_start'] == 0
+    assert 'andy_potts' in result['already_done']
+    assert 'no_email' in result['excluded']
+    assert 'no_email' not in result['already_done']
 
 
 def test_a_completed_campaign_is_a_no_op_on_a_second_run():
@@ -124,6 +154,7 @@ def test_a_completed_campaign_is_a_no_op_on_a_second_run():
     assert sent == []
     assert result['emailed'] == []
     assert result['pending_at_start'] == 0
+    assert result['db_error'] is False
 
 
 # --- Bounded by wall clock, not row count -----------------------------------
@@ -216,7 +247,7 @@ def test_excluded_user_is_untouched():
     """Thomas keeps his password so there is always a way in."""
     conn = _Conn()
     result, _ = _runner(conn, lambda *a: True)
-    assert 'thomas_ellison' in result['skipped']
+    assert 'thomas_ellison' in result['excluded']
     assert 'thomas_ellison' not in result['emailed']
     assert not [a for s, a in conn.statements
                 if a and 'thomas_ellison' in (a or ())]
@@ -227,7 +258,7 @@ def test_user_without_an_email_is_skipped_not_invalidated():
     Thomas handle it, rather than stranding them."""
     conn = _Conn()
     result, _ = _runner(conn, lambda *a: True)
-    assert 'no_email' in result['skipped']
+    assert 'no_email' in result['excluded']
     assert not [a for s, a in conn.statements if a and 'no_email' in (a or ())]
 
 

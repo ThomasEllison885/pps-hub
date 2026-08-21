@@ -70,14 +70,19 @@ def pending_user_keys(get_db_fn, users, exclude=()):
     above either already got theirs or has since set a password — and must not
     be mailed again, still less have a working password re-randomized.
 
-    Returns [] on any DB failure. Sending nobody an email is always the safe
-    direction here; sending a second one is not.
+    Returns None if the database could not be read, and a list otherwise —
+    including an empty one when everybody is genuinely done. The distinction
+    matters: both mean "email nobody right now", which is the safe direction,
+    but only one of them means the campaign is finished. Collapsing them into
+    [] made the summary email report a failed read and a completed run
+    identically, which is exactly the ambiguity you do not want in the tool
+    whose whole job is not doing this twice.
     """
     conn = None
     try:
         conn = get_db_fn()
         if not conn:
-            return []
+            return None
         exclude = set(exclude or ())
         candidates = [
             k for k, u in users.items()
@@ -96,7 +101,7 @@ def pending_user_keys(get_db_fn, users, exclude=()):
         return [k for k in candidates if k in pending]
     except Exception as e:
         print(f'password campaign: could not read pending users ({e})')
-        return []
+        return None
     finally:
         if conn:
             try:
@@ -180,8 +185,16 @@ def run_campaign(
     started = time.monotonic()
     exclude = set(exclude or ())
     pending = pending_user_keys(get_db_fn, users, exclude)
-    # Everyone not in play this run: excluded, no inbox, or already processed.
-    skipped = [k for k in users if k not in pending]
+    if pending is None:
+        print('password campaign: ABORTED — could not read who is still pending')
+        return {
+            'campaign_id': campaign_id,
+            'db_error': True,
+            'emailed': [], 'email_failed': [], 'remaining': None,
+            'pending_at_start': None, 'already_done': [], 'excluded': sorted(exclude),
+        }
+    excluded = [k for k in users if k in exclude or not (users[k].get('email') or '').strip()]
+    already_done = [k for k in users if k not in pending and k not in excluded]
     emailed, email_failed = [], []
     remaining = 0
 
@@ -222,7 +235,9 @@ def run_campaign(
         'email_failed': email_failed,
         'remaining': remaining,
         'pending_at_start': len(pending),
-        'skipped': skipped,
+        'already_done': already_done,
+        'excluded': excluded,
+        'db_error': False,
     }
     if email_failed:
         print(f'password campaign: MANUAL RESET NEEDED for {", ".join(email_failed)}')

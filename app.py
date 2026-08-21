@@ -8750,39 +8750,63 @@ def logout():
 
 
 def _report_password_campaign(result):
-    """Tell Thomas the campaign fired, and who still needs a hand.
+    """Tell Thomas what actually happened, unambiguously.
 
-    It runs unattended on deploy, so without this the only record is a line in
-    the Render log. Anyone in email_failed kept their old password — that is the
-    one remaining window the campaign does not close by itself, and it stays
-    open until someone acts on it, so it goes to an inbox rather than a log.
+    The first version of this said "Skipped (excluded or no email)" for people
+    who were really *already done*, and reported a failed database read
+    identically to a completed run — both showed 0 emailed and everyone
+    skipped. In a tool whose entire job is not emailing anyone twice, "nothing
+    happened" and "nothing needed to happen" have to look different.
     """
     if not result:
         return
     try:
+        if result.get('db_error'):
+            _send_digest_email(
+                'Hub password campaign COULD NOT RUN',
+                'The campaign could not read the database, so nothing was done and\n'
+                'nobody was emailed. No passwords changed. Run it again:\n\n'
+                '  POST /admin/run-password-campaign\n',
+                None, _hub_notify_recipients())
+            return
+
         emailed = result.get('emailed') or []
         failed = result.get('email_failed') or []
-        skipped = result.get('skipped') or []
-        subject = 'Hub passwords reset' + (f' — {len(failed)} need attention' if failed else '')
-        lines = [
-            f"Shared password retired ({result.get('campaign_id')}).",
-            '',
-            f'Reset link sent, old password now dead: {len(emailed)}',
-        ]
-        for k in emailed:
-            lines.append(f'  - {USERS.get(k, {}).get("display", k)}')
+        done = result.get('already_done') or []
+        excluded = result.get('excluded') or []
+        remaining = result.get('remaining') or 0
+
+        if not emailed and not failed and not remaining:
+            subject = 'Hub passwords — nothing left to do'
+        elif failed:
+            subject = f'Hub passwords reset — {len(failed)} need attention'
+        else:
+            subject = 'Hub passwords reset'
+
+        def names(keys):
+            return [f'  - {USERS.get(k, {}).get("display", k)}' for k in keys]
+
+        lines = [f"Shared password retired ({result.get('campaign_id')}).", '']
+        if emailed:
+            lines += [f'Reset link sent, old password now dead: {len(emailed)}'] + names(emailed)
+        if done:
+            lines += ['',
+                      f'Already had their reset — not emailed again: {len(done)}'] + names(done)
         if failed:
-            lines += [
-                '',
-                'COULD NOT EMAIL — these people KEEP their old password until they',
-                'next sign in. Reset them by hand at /admin:',
-            ]
+            lines += ['', 'COULD NOT EMAIL — these people KEEP their old password until they',
+                      'next sign in. Reset them by hand at /admin:']
             for k in failed:
-                lines.append(f'  - {USERS.get(k, {}).get("display", k)} ({USERS.get(k, {}).get("email") or "no email"})')
-        if skipped:
-            lines += ['', 'Skipped (excluded or no email): ' + ', '.join(skipped)]
-        body = '\n'.join(lines)
-        _send_digest_email(subject, body, None, _hub_notify_recipients())
+                u = USERS.get(k, {})
+                lines.append(f'  - {u.get("display", k)} ({u.get("email") or "no email"})')
+        if excluded:
+            lines += ['', 'Excluded or no email on file: ' + ', '.join(excluded)]
+        if remaining:
+            lines += ['', f'{remaining} still pending — the time budget ran out.',
+                      'Run POST /admin/run-password-campaign again to finish them.']
+        if not emailed and not failed and not remaining:
+            lines += ['', 'Everyone is done. Nothing was sent and nothing changed.']
+
+        _send_digest_email(subject, '\n'.join(lines), None, _hub_notify_recipients())
     except Exception as e:
         print(f'password campaign report failed: {e}')
 
