@@ -6418,15 +6418,27 @@ def team_view():
             for key in member_keys:
                 udata = {}
                 if scope == 'consultants' or load_all_activity:
+                    # Credit the person who GENERATED it, not whose book it was
+                    # (2026-08-21, Thomas). This read consultant_key, so a PM
+                    # writing a proposal under a consultant's name saw the work
+                    # land on the consultant's row and got nothing for it —
+                    # Trey's case exactly. proposal_log stores both columns, so
+                    # this re-attributes every historical row correctly with no
+                    # backfill. The consultant is still shown on the row as
+                    # context: credit moves, the book it belonged to does not.
                     cur.execute(
-                        'SELECT * FROM proposal_log WHERE consultant_key = %s ORDER BY generated_at DESC',
+                        'SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC',
                         (key,)
                     )
                     udata['proposals'] = _serialize_log_rows(cur.fetchall())
                 if scope == 'pms' or load_all_activity:
+                    # generated_by only. This was `generated_by = %s OR pm_key = %s`,
+                    # which put one PPM on two people's lists — the maker's and the
+                    # assigned PM's — so team totals counted it twice and an
+                    # assigned PM appeared to have done work they had not.
                     cur.execute(
-                        'SELECT * FROM ppm_log WHERE generated_by = %s OR pm_key = %s ORDER BY generated_at DESC',
-                        (key, key)
+                        'SELECT * FROM ppm_log WHERE generated_by = %s ORDER BY generated_at DESC',
+                        (key,)
                     )
                     udata['ppms'] = _serialize_log_rows(cur.fetchall())
                     cur.execute(

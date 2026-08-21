@@ -90,9 +90,11 @@
 <div class="main">
   <div class="page-title">Team View</div>
   <p class="page-sub">
-    {% if scope == 'consultants' %}Sales team activity — proposals generated for each consultant.
-    {% elif scope == 'pms' %}Operations team activity — PPMs and Trade Partner Scopes.
-    {% endif %}
+    Who did the work. Everything here is credited to the person who generated
+    it, not to whose name is on the document — a proposal written under another
+    consultant's book counts for whoever wrote it, and shows "for" that
+    consultant as context.</p>
+  <p class="page-sub">
   </p>
 
   <div class="filter-bar">
@@ -346,7 +348,7 @@ function showMember(key) {
         const tpl = formatTemplateLabel(p.template_type);
         html += `<div class="act-item" onclick="showProposalMeta(${origIdx}, '${key}')">
           <div class="act-name">${p.property_name || p.client_name || 'Unnamed'}</div>
-          <div class="act-meta">${tpl} · ${p.property_type||''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
+          <div class="act-meta">${tpl} · ${p.property_type||''}${p.consultant_name ? ' · for ' + p.consultant_name : ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
         </div>`;
       });
     } else {

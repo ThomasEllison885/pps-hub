@@ -74,6 +74,25 @@ def test_dst_week_is_not_exactly_168_hours():
     assert (end - start) == timedelta(hours=167)
 
 
+def test_rolling_window_is_twelve_whole_weeks_ending_where_the_week_ends():
+    """Shares its end with the weekly window, so the rolling figure includes
+    the week being reported rather than stopping just short of it."""
+    w_start, w_end = wr.last_week_bounds(today=date(2026, 8, 24))
+    r_start, r_end = wr.rolling_bounds(today=date(2026, 8, 24))
+    assert r_end == w_end
+    assert r_start < w_start
+    assert (r_end - r_start).days == 7 * wr.ROLLING_WEEKS
+
+
+def test_rolling_window_survives_a_dst_boundary():
+    """Twelve weeks crosses a DST change about half the year; deriving it as
+    end - timedelta(weeks=12) would land an hour off."""
+    r_start, r_end = wr.rolling_bounds(today=date(2026, 12, 7))
+    assert r_start.tzinfo is None and r_end.tzinfo is None
+    # Not exactly 12*7*24 hours, because one of those weeks gained an hour.
+    assert (r_end - r_start) == timedelta(days=84, hours=1)
+
+
 def test_week_label_handles_month_boundaries():
     assert wr.week_label(datetime(2026, 8, 17)) == 'Aug 17–23'
     assert wr.week_label(datetime(2026, 8, 31)) == 'Aug 31 – Sep 6'
@@ -132,6 +151,36 @@ def test_everyone_appears_including_a_zero_week():
     rows = {r['user_key']: r for g in groups for r in g['rows']}
     assert set(rows) == set(_USERS)
     assert rows['phil_miller']['total'] == 0
+
+
+def test_rolling_total_rides_alongside_without_changing_the_ranking():
+    """Ranked on the week. The 12-week figure is context for reading it —
+    ranking on the rolling total would make the board nearly static and stop
+    rewarding a good week."""
+    week = {'andy_potts': {'proposal': 5}, 'adam_cupito': {'proposal': 2}}
+    rolling = {'andy_potts': {'proposal': 6}, 'adam_cupito': {'proposal': 90}}
+    groups = wr.build_groups(_USERS, week, rolling=rolling)
+    rows = {r['user_key']: r for g in groups for r in g['rows']}
+    assert rows['andy_potts']['rank'] == 1      # won the week
+    assert rows['adam_cupito']['rank'] == 2     # despite a far bigger quarter
+    assert rows['adam_cupito']['rolling'] == 90
+    assert rows['andy_potts']['rolling'] == 6
+
+
+def test_rolling_defaults_to_zero_when_not_supplied():
+    groups = wr.build_groups(_USERS, {'andy_potts': {'proposal': 1}})
+    rows = {r['user_key']: r for g in groups for r in g['rows']}
+    assert rows['andy_potts']['rolling'] == 0
+
+
+def test_email_shows_both_numbers():
+    week = {'andy_potts': {'proposal': 5}}
+    rolling = {'andy_potts': {'proposal': 41}}
+    groups = wr.build_groups(_USERS, week, rolling=rolling)
+    _s, text, html = wr.build_recap_email(groups, datetime(2026, 8, 17), 'andy_potts', _USERS)
+    assert '41' in text and '41' in html
+    assert f'{wr.ROLLING_WEEKS} weeks' in text
+    assert '12 WK' in text
 
 
 def test_ties_share_a_rank():

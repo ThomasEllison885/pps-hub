@@ -118,6 +118,29 @@ def last_week_bounds(today=None):
     )
 
 
+ROLLING_WEEKS = 12
+
+
+def rolling_bounds(today=None, weeks=ROLLING_WEEKS):
+    """(start, end) for the N whole weeks ending where last week ended.
+
+    Shares its end with last_week_bounds(), so the rolling figure always
+    includes the week being reported rather than stopping just short of it.
+    Built from real Eastern midnights for the same reason as the weekly window
+    — over twelve weeks the span crosses a DST boundary about half the year,
+    and `end - timedelta(weeks=12)` would quietly land an hour off.
+    """
+    today = today or eastern_now().date()
+    this_monday = today - timedelta(days=today.weekday())
+    first_monday = this_monday - timedelta(days=7 * weeks)
+    start_et = datetime.combine(first_monday, time.min, tzinfo=ET)
+    end_et = datetime.combine(this_monday, time.min, tzinfo=ET)
+    return (
+        start_et.astimezone(timezone.utc).replace(tzinfo=None),
+        end_et.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
 def week_label(start):
     end_day = start + timedelta(days=6)
     if start.month == end_day.month:
@@ -259,14 +282,21 @@ def _collect_training(conn, users, start, end, scores):
 
 # ── Ranking ─────────────────────────────────────────────────────────────────
 
-def build_groups(users, scores, exclude=None):
-    """[{'name', 'rows': [{user_key, display, total, breakdown, rank}]}].
+def build_groups(users, scores, exclude=None, rolling=None):
+    """[{'name', 'rows': [{user_key, display, total, rolling, breakdown, rank}]}].
+
+    Ranked on the WEEK, not the rolling figure. The weekly number is the one
+    meant to change behaviour; the 12-week column is context for reading it —
+    it separates "quiet week" from "quiet quarter", which a single number
+    cannot. Ranking on the rolling total instead would make the board almost
+    static and stop rewarding a good week.
 
     Everyone on the roster appears, including a zero week — the absence of a
     name would be read as an oversight, and a visible 0 is the entire point of
     what Thomas asked for. Ties share a rank.
     """
     exclude = exclude or set()
+    rolling = rolling or {}
     groups = []
     for group_name, roles in ROLE_GROUPS:
         rows = []
@@ -278,9 +308,10 @@ def build_groups(users, scores, exclude=None):
                 'user_key': user_key,
                 'display': user.get('display', user_key),
                 'total': sum(breakdown.values()),
+                'rolling': sum((rolling.get(user_key) or {}).values()),
                 'breakdown': breakdown,
             })
-        rows.sort(key=lambda r: (-r['total'], r['display']))
+        rows.sort(key=lambda r: (-r['total'], -r['rolling'], r['display']))
         last_total, last_rank = None, 0
         for i, row in enumerate(rows, start=1):
             if row['total'] != last_total:
@@ -341,7 +372,8 @@ def build_recap_email(groups, start, recipient_key=None, users=None):
     if you:
         g, r = you
         n_in_group = len(g['rows'])
-        text.append(f"You: {r['total']} this week — #{r['rank']} of {n_in_group} in {g['name']}")
+        text.append(f"You: {r['total']} this week — #{r['rank']} of {n_in_group} in {g['name']}"
+                    f"  ({r['rolling']} in the last {ROLLING_WEEKS} weeks)")
         if r['breakdown']:
             text.append(f"  {breakdown_line(r['breakdown'])}")
         else:
@@ -350,16 +382,19 @@ def build_recap_email(groups, start, recipient_key=None, users=None):
 
     for g in groups:
         text.append(g['name'].upper())
+        text.append(f"{'':>4}{'':<24}{'WEEK':>6}{'12 WK':>8}")
         for r in g['rows']:
-            mark = ' <-- you' if r['user_key'] == recipient_key else ''
-            line = f"  {r['rank']}. {r['display']} — {r['total']}"
+            mark = '  <-- you' if r['user_key'] == recipient_key else ''
+            name = r['display'][:24]
+            text.append(f"  {r['rank']}. {name:<24}{r['total']:>6}{r['rolling']:>8}{mark}")
             detail = breakdown_line(r['breakdown'])
             if detail:
-                line += f' ({detail})'
-            text.append(line + mark)
+                text.append(f"        {detail}")
         text.append('')
 
-    text.append(f'Team total: {total}')
+    text.append(f'Team total: {total} this week · '
+                f'{sum(r["rolling"] for g in groups for r in g["rows"])} '
+                f'over {ROLLING_WEEKS} weeks')
     text.append('')
     text.append('Counts completed work only — proposals, PPMs, TPS scopes, estimates,')
     text.append('site visits, pipeline rows, Office Ops packs, training. Opening a page')
@@ -389,6 +424,14 @@ def _html_body(groups, label, total, recipient_key):
             f'text-transform:uppercase;color:{navy};margin:22px 0 8px;">{g["name"]}</div>'
         )
         out.append('<table style="width:100%;border-collapse:collapse;font-size:14px;">')
+        out.append(
+            f'<tr><td></td><td></td>'
+            f'<td style="padding:0 8px 4px;text-align:right;font-size:10px;'
+            f'letter-spacing:.08em;text-transform:uppercase;color:{muted};">Week</td>'
+            f'<td style="padding:0 8px 4px;text-align:right;font-size:10px;'
+            f'letter-spacing:.08em;text-transform:uppercase;color:{muted};">'
+            f'{ROLLING_WEEKS} wk</td></tr>'
+        )
         for r in g['rows']:
             mine = r['user_key'] == recipient_key
             bg = '#f4f8fc' if mine else 'transparent'
@@ -406,12 +449,15 @@ def _html_body(groups, label, total, recipient_key):
                 + '</td>'
                 f'<td style="padding:7px 8px;border-bottom:1px solid {rule};'
                 f'text-align:right;font-weight:700;font-variant-numeric:tabular-nums;">'
-                f'{r["total"]}</td></tr>'
+                f'{r["total"]}</td>'
+                f'<td style="padding:7px 8px;border-bottom:1px solid {rule};'
+                f'text-align:right;color:{muted};font-variant-numeric:tabular-nums;">'
+                f'{r["rolling"]}</td></tr>'
             )
         out.append('</table>')
     out.append(
         f'<div style="margin-top:24px;padding-top:14px;border-top:2px solid {navy};'
-        f'font-size:14px;"><b>Team total: {total}</b></div>'
+        f'font-size:14px;"><b>Team total: {total}</b> this week</div>'
     )
     out.append(
         f'<div style="color:{muted};font-size:12px;margin-top:14px;">'
@@ -436,9 +482,14 @@ def run_weekly_recap(get_db, users, send_email_fn, force=False, today=None):
         return {'skipped': True, 'reason': 'disabled'}
 
     start, end = last_week_bounds(today)
+    roll_start, roll_end = rolling_bounds(today)
     exclude = _excluded_keys()
     scores = collect_scores(get_db, users, start, end)
-    groups = build_groups(users, scores, exclude)
+    # Same queries, wider window. Runs once a week, so a second pass is cheaper
+    # than keeping a running tally that could drift out of step with the source
+    # tables — this is always derived from the logs, never from a stored count.
+    rolling = collect_scores(get_db, users, roll_start, roll_end)
+    groups = build_groups(users, scores, exclude, rolling)
     if not groups:
         return {'skipped': True, 'reason': 'no_roster'}
 
@@ -465,4 +516,6 @@ def run_weekly_recap(get_db, users, send_email_fn, force=False, today=None):
         'sent': sent,
         'failed': failed,
         'total_actions': sum(r['total'] for g in groups for r in g['rows']),
+        'rolling_weeks': ROLLING_WEEKS,
+        'rolling_actions': sum(r['rolling'] for g in groups for r in g['rows']),
     }
