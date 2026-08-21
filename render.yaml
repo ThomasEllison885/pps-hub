@@ -47,6 +47,17 @@ services:
         value: thomas_ellison
       - key: DAILY_DIGEST_EMAIL
         sync: false
+      # Weekly team recap (weekly_recap.py) — the one Hub email that goes TO the
+      # team rather than to Thomas. On by default. WEEKLY_RECAP_EXCLUDE is a
+      # comma-separated key list and is deliberately EMPTY: Thomas is on the
+      # scoreboard with everyone else. He stays out of his own nightly digest
+      # (DAILY_DIGEST_EXCLUDE above) so his clicks don't drown out the team's,
+      # but an owner who exempts himself from the leaderboard reads exactly the
+      # way you would expect it to.
+      - key: WEEKLY_RECAP_ENABLED
+        value: "true"
+      - key: WEEKLY_RECAP_EXCLUDE
+        value: ""
       - key: MONDAY_API_TOKEN
         sync: false
       - key: MONDAY_SUB_INFO_BOARD_ID
@@ -84,6 +95,22 @@ services:
         sync: false
       - key: HUB_PUBLIC_URL
         value: https://hub.purepropsolutions.com
+
+  - type: cron
+    name: pps-hub-weekly-recap
+    runtime: python
+    # 11 UTC Monday ≈ 7am US/Eastern (EDT/EST). Lands before the week starts,
+    # which is the point — a scoreboard read Monday morning can still change
+    # what someone does on Tuesday.
+    schedule: "0 11 * * 1"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_weekly_recap.py
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com
+      # Set WEEKLY_RECAP_FORCE=true + Trigger Run to send outside the schedule.
 
   - type: cron
     name: pps-hub-weekly-crm-sync

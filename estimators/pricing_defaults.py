@@ -91,7 +91,7 @@ def get_pricing_defaults(get_db_fn):
 def save_pricing_defaults(get_db_fn, trades, user_key, display_name=''):
     """Persist admin overrides (trades dict with siding/roofing/gutter keys)."""
     import json
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     cleaned = {}
     for trade in ('siding', 'roofing', 'gutter', 'painting'):
@@ -106,7 +106,11 @@ def save_pricing_defaults(get_db_fn, trades, user_key, display_name=''):
 
     payload = {
         'trades': cleaned,
-        'updated_at': datetime.utcnow().isoformat() + 'Z',
+        # .replace(tzinfo=None) is load-bearing: datetime.now(timezone.utc)
+        # .isoformat() already ends in '+00:00', so appending 'Z' to it would
+        # emit '...+00:00Z'. Stripping tzinfo first keeps this byte-identical
+        # to the datetime.utcnow() call it replaced.
+        'updated_at': datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + 'Z',
         'updated_by': user_key,
         'updated_by_name': display_name,
     }

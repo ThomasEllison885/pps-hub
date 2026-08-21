@@ -17,15 +17,21 @@ import csv
 import io
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from psycopg2.extras import RealDictCursor
 
+from tiers import is_leadership
+
 # Who may open /office-ops and upload. Admin always; Stephanie by key + role.
-# Picker login "Admin" is on the key list (Thomas 2026-08-18) with role=pm so /admin stays closed.
-OFFICE_OPS_USER_KEYS = frozenset({'stephanie_whetstone', 'thomas_ellison', 'admin'})
-OFFICE_OPS_ROLES = frozenset({'office_manager', 'admin'})
+# Office Ops (AR aging, rep sales dollars, COI compliance) is Leadership tier:
+# Thomas, Stephanie, Tony, Trey (2026-08-21, Thomas). Tony and Trey are a
+# deliberate widening — Trey had picked this up once as an accidental side
+# effect of an unrelated feature commit and it was reverted the same week
+# (c61e43d); this time it is the intended grant, made on its own commit.
+# The old OFFICE_OPS_USER_KEYS / OFFICE_OPS_ROLES pair is gone: two lists that
+# had to agree is exactly the pattern the tier rework removes.
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
@@ -65,12 +71,8 @@ BOPC_ALIASES = ('bridges of pine creek', 'bopc')
 
 
 def can_access_office_ops(users, user_key):
-    if not user_key:
-        return False
-    if user_key in OFFICE_OPS_USER_KEYS:
-        return True
-    role = (users.get(user_key) or {}).get('role')
-    return role in OFFICE_OPS_ROLES
+    """Leadership tier and above. Signature unchanged — callers pass USERS."""
+    return is_leadership(users, user_key)
 
 
 def init_tables(cur):
@@ -464,7 +466,7 @@ def parse_pl_bytes(filename, raw_bytes):
         'gross_profit_py': (gp or {}).get('py'),
         'net_income_ty': (ni or {}).get('ty'),
         'net_income_py': (ni or {}).get('py'),
-        'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
 
 
@@ -838,7 +840,7 @@ def _parse_invoice_list(filename, raw_bytes):
         'report_kind': 'invoice_list',
         'source_format': 'invoice_list_xlsx',
         'date_range': date_range,
-        'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'invoice_list': invoices,
         'invoice_list_count': len(invoices),
         'open_invoice_count': len(open_invoices),
@@ -1336,7 +1338,7 @@ def _build_summary(customers, as_of_label, source):
         'report': 'A/R Aging Summary',
         'as_of_label': as_of_label,
         'source_format': source,
-        'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         'customer_count': len(customers),
         'grand_total': grand,
         'operating_ex_bopc': operating,
@@ -1566,7 +1568,7 @@ def _merge_pack_payload(existing, incoming):
             _attach_invoice_samples(out)
         if out.get('invoice_list'):
             _apply_sales_rep_map(out)
-        out['parsed_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        out['parsed_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         return out
     if not incoming:
         return existing
@@ -1642,7 +1644,7 @@ def _merge_pack_payload(existing, incoming):
             sales_rep_open_ar=out.get('sales_rep_open_ar'),
         )
 
-    out['parsed_at'] = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+    out['parsed_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     out['sources'] = {
         'summary': out.get('summary_source_filename'),
         'detail': out.get('detail_source_filename'),
@@ -2128,7 +2130,7 @@ def generate_thursday_pack(get_db_fn, user_key):
             'bridges_lines': (ar_summary or {}).get('bridges_lines'),
             'meta': meta,
             'notes_count': len(notes_by_customer),
-            'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'recipients_note': (
                 'Email to Thomas + Tony; if sent from system/admin, include Stephanie.'
             ),
@@ -2240,7 +2242,7 @@ def process_monthly_outlook(get_db_fn, file_id, user_key):
             'bopc': (ar_summary or {}).get('bopc'),
             'operating_ex_bopc': (ar_summary or {}).get('operating_ex_bopc'),
             'meta': meta,
-            'parsed_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+            'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         }
         cur.execute(
             '''

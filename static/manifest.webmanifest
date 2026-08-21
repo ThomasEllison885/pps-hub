@@ -1,8 +1,8 @@
 {
   "name": "PPS Hub",
   "short_name": "PPS Hub",
-  "description": "Pure Property Solutions — sales and production tools for your team.",
-  "start_url": "/login",
+  "description": "Pure Property Solutions \u2014 sales and production tools for your team.",
+  "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",

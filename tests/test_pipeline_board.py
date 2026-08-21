@@ -230,21 +230,25 @@ def test_live_presence_no_conn_returns_empty_list():
 
 # --- Access gating ----------------------------------------------------------
 
+# Mirrors app.USERS after the 2026-08-21 tier rework: display / role / tier.
+# `proposal_access`, `ppm_access`, `team_view` and `team_view_scope` are gone.
+# The retired shared 'admin' login is deliberately ABSENT — removal means
+# removal from the roster, and that absence is what the guard test asserts on.
 _USERS = {
-    'andy_potts': {'display': 'Andy Potts', 'role': 'consultant'},
-    'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm'},
-    'rachel_farler': {'display': 'Rachel Farler', 'role': 'consultant'},
-    'derek_kidney': {'display': 'Derek Kidney', 'role': 'pm'},
-    'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant'},
-    'james_boling': {'display': 'James Boling', 'role': 'pm'},
-    'jordan_allen': {'display': 'Jordan Allen', 'role': 'pm', 'proposal_access': 'all'},
-    'nick_triplett': {'display': 'Nick Triplett', 'role': 'pm'},
-    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant'},
-    'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'proposal_access': 'all'},
-    'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'proposal_access': 'all'},
-    'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager'},
-    'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin'},
-    'admin': {'display': 'Admin', 'role': 'pm', 'proposal_access': 'all'},
+    'andy_potts': {'display': 'Andy Potts', 'role': 'consultant', 'tier': 'team'},
+    'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm', 'tier': 'team'},
+    'rachel_farler': {'display': 'Rachel Farler', 'role': 'consultant', 'tier': 'team'},
+    'derek_kidney': {'display': 'Derek Kidney', 'role': 'pm', 'tier': 'team'},
+    'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant', 'tier': 'team'},
+    'james_boling': {'display': 'James Boling', 'role': 'pm', 'tier': 'team'},
+    'jordan_allen': {'display': 'Jordan Allen', 'role': 'pm', 'tier': 'team'},
+    'nick_triplett': {'display': 'Nick Triplett', 'role': 'pm', 'tier': 'team'},
+    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant', 'tier': 'leadership'},
+    'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'tier': 'leadership'},
+    'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'tier': 'team'},
+    'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager',
+                            'tier': 'leadership'},
+    'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin', 'tier': 'owner'},
 }
 
 
@@ -262,7 +266,8 @@ def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'nick_triplett') == 'tony_cumella'
 
 
-def test_get_pair_key_admin_has_no_pair_of_their_own():
+def test_get_pair_key_owner_has_no_pair_of_their_own():
+    # Thomas picks a board via ?pair=; he is nobody's working pair.
     assert pb.get_pair_key(_USERS, 'thomas_ellison') is None
 
 
@@ -271,16 +276,21 @@ def test_get_pair_key_oversight_defaults_to_first_board():
     # (Andy) so /pipeline-board without ?pair= still lands somewhere.
     assert pb.get_pair_key(_USERS, 'trey_hollmeyer') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'stephanie_whetstone') == 'andy_potts'
-    assert pb.get_pair_key(_USERS, 'admin') == 'andy_potts'
 
 
-def test_get_pair_key_ignores_proposal_access_all():
-    # Jordan and Phil both carry proposal_access 'all' in Hub. Pipeline
-    # access is the explicit roster — Phil is on no board, Jordan is on
-    # Adam (primary) + Andy, not Tony/Rachel.
-    assert pb.get_pair_key(_USERS, 'phil_miller') is None
-    assert pb.can_access_board(_USERS, 'phil_miller', 'andy_potts') is False
-    assert pb.can_access_board(_USERS, 'jordan_allen', 'tony_cumella') is False
+def test_assignment_is_not_permission():
+    """Phil has no working-pair assignment and still opens every board.
+
+    This is the whole point of the 2026-08-21 split. Before it, "who is this
+    consultant's PM" and "who may open this board" were tangled together in
+    overlapping rosters, and the fix for each new gap was another list. Now
+    assignment only decides where you LAND — Phil, having none, falls through
+    to the first board rather than being locked out of all of them.
+    """
+    assert pb.get_pair_key(_USERS, 'phil_miller') == pb.BOARD_CONSULTANTS[0]
+    for ck in pb.BOARD_CONSULTANTS:
+        assert pb.can_access_board(_USERS, 'phil_miller', ck) is True, ck
+        assert pb.can_access_board(_USERS, 'jordan_allen', ck) is True, ck
 
 
 def test_can_access_board_owner_and_named_roster():
@@ -298,29 +308,54 @@ def test_can_access_board_owner_and_named_roster():
     assert pb.can_access_board(_USERS, 'derek_kidney', 'rachel_farler') is True
 
 
-def test_can_access_board_wrong_pair_denied():
-    assert pb.can_access_board(_USERS, 'derek_kidney', 'andy_potts') is False
-    assert pb.can_access_board(_USERS, 'nick_triplett', 'adam_cupito') is False
-    assert pb.can_access_board(_USERS, 'rachel_farler', 'adam_cupito') is False
+def test_can_access_board_still_fails_closed_on_bad_input():
+    """Open to everyone means everyone who works here — not anyone at all."""
+    # Not a real board.
+    assert pb.can_access_board(_USERS, 'derek_kidney', 'phil_miller') is False
+    assert pb.can_access_board(_USERS, 'derek_kidney', 'nobody_at_all') is False
+    assert pb.can_access_board(_USERS, 'derek_kidney', '') is False
+    # Not on the roster — this is what makes removing someone from USERS
+    # actually revoke their boards.
+    assert pb.can_access_board(_USERS, 'former_employee', 'andy_potts') is False
+    assert pb.can_access_board(_USERS, '', 'andy_potts') is False
+    assert pb.can_access_board(_USERS, None, 'andy_potts') is False
 
 
 def test_can_access_board_oversight_all_boards():
-    for user_key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone', 'admin'):
+    for user_key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone'):
         for ck in pb.BOARD_CONSULTANTS:
             assert pb.can_access_board(_USERS, user_key, ck) is True, (user_key, ck)
 
 
-def test_list_accessible_boards_for_multi_board_users():
-    andy = [b['key'] for b in pb.list_accessible_boards(_USERS, 'andy_potts')]
-    assert andy == ['andy_potts', 'adam_cupito']
-    nick = [b['key'] for b in pb.list_accessible_boards(_USERS, 'nick_triplett')]
-    assert nick == ['tony_cumella']
-    trey = [b['key'] for b in pb.list_accessible_boards(_USERS, 'trey_hollmeyer')]
-    assert trey == list(pb.BOARD_CONSULTANTS)
-    steph = [b['key'] for b in pb.list_accessible_boards(_USERS, 'stephanie_whetstone')]
-    assert steph == list(pb.BOARD_CONSULTANTS)
-    field_admin = [b['key'] for b in pb.list_accessible_boards(_USERS, 'admin')]
-    assert field_admin == list(pb.BOARD_CONSULTANTS)
+def test_retired_shared_admin_login_has_no_boards():
+    """The shared 'admin' picker login was removed 2026-08-21 (F-01).
+
+    Now that every board is open to everyone on the roster, the roster IS the
+    boundary — so this asserts the removal all the way through: 'admin' is not
+    in _USERS, and therefore opens nothing and gets no default board. If anyone
+    re-adds that key to USERS, this test goes green again and should be read as
+    a deliberate decision, not an accident.
+    """
+    assert 'admin' not in _USERS
+    assert pb.get_pair_key(_USERS, 'admin') is None
+    assert pb.list_accessible_boards(_USERS, 'admin') == []
+    for ck in pb.BOARD_CONSULTANTS:
+        assert pb.can_access_board(_USERS, 'admin', ck) is False, ck
+
+
+def test_list_accessible_boards_is_every_board_for_everyone():
+    """Every roster member gets the full switcher (2026-08-21)."""
+    for user_key in _USERS:
+        keys = [b['key'] for b in pb.list_accessible_boards(_USERS, user_key)]
+        assert keys == list(pb.BOARD_CONSULTANTS), user_key
+
+
+def test_list_accessible_boards_labels_the_working_pair():
+    """Assignment survives as a label even though it gates nothing."""
+    boards = {b['key']: b for b in pb.list_accessible_boards(_USERS, 'phil_miller')}
+    assert boards['andy_potts']['pm_display'] == 'Ben Ramsey'
+    assert boards['rachel_farler']['pm_display'] == 'Derek Kidney'
+    assert boards['andy_potts']['consultant_display'] == 'Andy Potts'
 
 
 # --- Client contact last-used (Rachel 2026-08: client's manager, not PPS PM)

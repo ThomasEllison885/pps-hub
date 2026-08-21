@@ -14,15 +14,15 @@ regress the rest of the Hub's performance again by construction: this module
 now has zero effect on how gunicorn runs.
 
 One board per consultant, keyed by the consultant's user_key (`pair_key`) —
-the consultant owns the client relationship; everyone on that board's access
-list writes the same rows. Opened past the two-pair pilot 2026-08-13:
-Adam / Andy / Tony / Rachel. Access is an explicit per-board roster
-(`BOARD_ACCESS`), not `USERS[...]['proposal_access']` — that field is a
-broader proposal-vault grant and is the wrong shape here (James floats Andy
-and Adam; Jordan's `proposal_access` is still `'all'` from an older grant;
-Phil's `'all'` must not open every pipeline). Thomas, Trey, and Stephanie
-can open every board (`BOARD_ACCESS_ALL`, 2026-08-13) — production + office
-oversight, not a working-pair membership.
+the consultant owns the client relationship; everyone writes the same rows.
+Opened past the two-pair pilot 2026-08-13: Adam / Andy / Tony / Rachel.
+
+**Access, as of 2026-08-21: every board is open to everyone on the roster.**
+The old per-board `BOARD_ACCESS` roster and the `BOARD_ACCESS_ALL` oversight
+set are both deleted — see the note above their former location. What remains
+is `PRIMARY_PM_FOR_CONSULTANT`, which is assignment (where you land, whose
+name is in the header), not permission. If a board ever needs restricting
+again, that belongs in `tiers.py`, not in a new dict in this file.
 
 Status values were chosen by reviewing two real exported sheets (Rachel Farler's
 and another consultant's) rather than guessed — see chat history 2026-07-29.
@@ -56,31 +56,18 @@ PRIMARY_PM_FOR_CONSULTANT = {
     'rachel_farler': 'derek_kidney',
 }
 
-# Extra people who can open this consultant's board (the consultant
-# themselves and BOARD_ACCESS_ALL are implied). Working-pair roster only —
-# do not put Trey / Stephanie / Thomas here; they belong on BOARD_ACCESS_ALL.
-# Phil is not on a board. Thomas 2026-08-13.
-BOARD_ACCESS = {
-    'andy_potts': frozenset({
-        'ben_ramsey', 'adam_cupito', 'jordan_allen', 'james_boling',
-    }),
-    'adam_cupito': frozenset({
-        'jordan_allen', 'james_boling', 'andy_potts', 'ben_ramsey',
-    }),
-    'tony_cumella': frozenset({'nick_triplett'}),
-    'rachel_farler': frozenset({'derek_kidney'}),
-}
-
-# Oversight: every live board. Explicit names, not role==admin and not
-# proposal_access=='all' (Jordan and Phil still carry that Hub grant and
-# must not inherit this). Thomas asked 2026-08-13. Field Admin picker
-# added 2026-08-18 (same Stephanie-level board grant; role stays pm).
-BOARD_ACCESS_ALL = frozenset({
-    'thomas_ellison',
-    'trey_hollmeyer',
-    'stephanie_whetstone',
-    'admin',
-})
+# BOARD_ACCESS and BOARD_ACCESS_ALL were deleted 2026-08-21: every board is now
+# open to everyone on the roster (Thomas — "everyone can really have the same
+# access"). Those two lists were the clearest case for the tier rework: they
+# existed only because `proposal_access` could not be trusted to answer "who is
+# on this board", so a second roster got built beside it, and then a third set
+# on top for oversight. All three are gone.
+#
+# PRIMARY_PM_FOR_CONSULTANT above survives, but purely as ASSIGNMENT — which
+# board opens when you hit /pipeline-board with no ?pair=, and whose name shows
+# in the header. It grants nothing. Keeping that distinction visible is the
+# point: if a future change needs to restrict a board, it belongs in tiers.py,
+# not in a new dict here.
 
 # Back-compat aliases — a couple of comments / older tests used the
 # pilot names. Prefer BOARD_* above.
@@ -289,35 +276,28 @@ def cleanup_legacy_import_notes(cur):
 
 
 def can_access_board(users, user_key, pair_key):
-    """Owner of that consultant's board, someone on BOARD_ACCESS,
-    BOARD_ACCESS_ALL (Thomas / Trey / Stephanie), or admin.
+    """Any person on the roster may open any live board (2026-08-21).
 
-    Intentionally ignores USERS[...]['proposal_access'] — including the
-    string `'all'` that Jordan / Phil still carry. Pipeline access is the
-    explicit roster above, not the proposal-vault grant.
+    Still validates `pair_key` against BOARD_CONSULTANT_SET and `user_key`
+    against the roster — "open to everyone" means everyone who works here, and
+    an unknown or stale key must still fail closed. That check is what makes
+    removing someone from USERS actually revoke their board access.
     """
     if pair_key not in BOARD_CONSULTANT_SET:
         return False
-    if user_key in BOARD_ACCESS_ALL:
-        return True
-    user = users.get(user_key, {})
-    if user.get('role') == 'admin':
-        return True
-    if user_key == pair_key:
-        return True
-    return user_key in BOARD_ACCESS.get(pair_key, ())
+    return bool(user_key) and user_key in (users or {})
 
 
 def get_pair_key(users, user_key):
     """Default board when opening /pipeline-board with no ?pair=.
 
-    Consultants land on their own board. Primary PMs land on their 1:1
-    consultant. Everyone else (James, Trey, a consultant opening a
-    teammate's board) lands on the first board they can actually open.
-    Admin has no default — they pick via ?pair=.
+    Pure assignment, not permission — everyone can open every board, this
+    only decides where they land first. Consultants get their own board;
+    primary PMs get their 1:1 consultant; everyone else gets the first board.
+    Thomas has no default — he picks via ?pair=.
     """
     user = users.get(user_key, {})
-    if user.get('role') == 'admin':
+    if user.get('tier') == 'owner':
         return None
     if user.get('role') == 'consultant' and user_key in BOARD_CONSULTANT_SET:
         return user_key

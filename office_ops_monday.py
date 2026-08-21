@@ -13,7 +13,7 @@ from __future__ import annotations
 import io
 import re
 from copy import copy
-from datetime import datetime
+from datetime import datetime, timezone
 
 from openpyxl import load_workbook
 from openpyxl.formatting.rule import CellIsRule
@@ -390,6 +390,6 @@ def generate_monday_report(outlook_bytes, ar_summary=None):
     meta = {
         'bytes': len(raw),
         'sheets': wb.sheetnames,
-        'generated_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
     return raw, insights, meta

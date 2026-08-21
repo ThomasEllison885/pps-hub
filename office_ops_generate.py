@@ -15,7 +15,7 @@ import os
 import re
 from collections import defaultdict
 from calendar import month_abbr
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -809,7 +809,7 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
             'by_rep_ytd': {r: sum(m.values()) for r, m in sales_agg['by_rep_month'].items()},
         },
         'pl_included': bool(pl_summary),
-        'generated_at': datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'generated_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
 
 

@@ -1,0 +1,316 @@
+"""Weekly team recap — ranking, grouping, and what counts.
+
+Pure logic plus a fake cursor; no Postgres, no SMTP. Matches this repo's test
+convention (see tests/test_pipeline_board.py).
+
+Run: python -m pytest tests/test_weekly_recap.py -v
+"""
+import os
+import sys
+from datetime import date, datetime, timedelta
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import weekly_recap as wr
+
+
+_USERS = {
+    'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin',
+                       'tier': 'owner', 'email': 'thomas@pps.com'},
+    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant',
+                     'tier': 'leadership', 'email': 'tony@pps.com'},
+    'andy_potts': {'display': 'Andy Potts', 'role': 'consultant',
+                   'tier': 'team', 'email': 'andy@pps.com'},
+    'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant',
+                    'tier': 'team', 'email': 'adam@pps.com'},
+    'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm',
+                   'tier': 'team', 'email': 'ben@pps.com'},
+    'phil_miller': {'display': 'Phil Miller', 'role': 'pm',
+                    'tier': 'team', 'email': 'phil@pps.com'},
+    'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager',
+                            'tier': 'leadership', 'email': 'steph@pps.com'},
+}
+
+
+# --- Week boundaries --------------------------------------------------------
+
+def test_last_week_bounds_is_the_monday_that_just_ended():
+    # Monday 2026-08-24 → the week of Mon 8/17 through Sun 8/23.
+    start, end = wr.last_week_bounds(today=date(2026, 8, 24))
+    assert start.date() == date(2026, 8, 17)
+    assert (end - start).days == 7
+
+
+def test_last_week_bounds_from_midweek_still_looks_back_a_full_week():
+    """A Trigger Run on a Wednesday must not report a half-finished week."""
+    start, end = wr.last_week_bounds(today=date(2026, 8, 26))
+    assert start.date() == date(2026, 8, 17)
+    assert (end - start).days == 7
+
+
+def test_last_week_bounds_are_eastern_midnight_expressed_as_naive_utc():
+    """Naive, because every timestamp column in the Hub is naive UTC — an aware
+    datetime raises the moment it's compared against one. Eastern midnight in
+    August (EDT, -4) is 04:00 UTC."""
+    start, end = wr.last_week_bounds(today=date(2026, 8, 24))
+    assert start.tzinfo is None and end.tzinfo is None
+    assert start.hour == 4
+    assert end.hour == 4
+
+
+def test_dst_week_is_not_exactly_168_hours():
+    """US DST ends Sun Nov 1 2026, so the week of Mon Oct 26 runs 169 hours.
+
+    Deriving the end as start + 7 days would place the boundary an hour early
+    and drop anything logged in that hour. Both ends come from a real Eastern
+    midnight instead.
+    """
+    start, end = wr.last_week_bounds(today=date(2026, 11, 2))
+    assert start.date() == date(2026, 10, 26)
+    assert (end - start) == timedelta(hours=169)
+    # Spring forward, Sun Mar 8 2026 → the week of Mon Mar 2 runs 167 hours.
+    start, end = wr.last_week_bounds(today=date(2026, 3, 9))
+    assert start.date() == date(2026, 3, 2)
+    assert (end - start) == timedelta(hours=167)
+
+
+def test_week_label_handles_month_boundaries():
+    assert wr.week_label(datetime(2026, 8, 17)) == 'Aug 17–23'
+    assert wr.week_label(datetime(2026, 8, 31)) == 'Aug 31 – Sep 6'
+
+
+# --- What counts ------------------------------------------------------------
+
+def test_page_opens_are_never_scored():
+    """The single most important line in this file.
+
+    A leaderboard that counts opens teaches people to open things. Opens are
+    still recorded via hub_usage.record_usage — they feed Thomas's diagnostic
+    view, not this ranking.
+    """
+    assert 'open' not in wr.SCORED_USAGE_ACTIONS
+
+
+def test_scored_sources_have_no_duplicate_tables():
+    """A table listed twice would silently double every point from it."""
+    tables = [src[2] for src in wr.SCORED_SOURCES]
+    assert len(tables) == len(set(tables))
+
+
+# --- Ranking ----------------------------------------------------------------
+
+def test_groups_rank_within_role_not_across_the_company():
+    """Stephanie generates two Office Ops packs a week; Andy generates five
+    proposals. On one flat list the office sits at the bottom permanently, for
+    reasons that have nothing to do with effort — which is exactly how a
+    scoreboard loses its authority. Groups keep the comparison honest.
+    """
+    scores = {
+        'andy_potts': {'proposal': 5},
+        'adam_cupito': {'proposal': 2},
+        'stephanie_whetstone': {'office_ops': 2},
+        'ben_ramsey': {'ppm': 3},
+    }
+    groups = wr.build_groups(_USERS, scores)
+    by_name = {g['name']: g for g in groups}
+    assert list(by_name) == ['Consultants', 'Project Managers', 'Office']
+
+    consultants = {r['user_key']: r for r in by_name['Consultants']['rows']}
+    assert consultants['andy_potts']['rank'] == 1
+    assert consultants['adam_cupito']['rank'] == 2
+
+    # Stephanie tops her own group on 2 points; on a flat list she'd be last.
+    office = by_name['Office']['rows']
+    assert office[0]['user_key'] == 'stephanie_whetstone'
+    assert office[0]['rank'] == 1
+
+
+def test_everyone_appears_including_a_zero_week():
+    """A visible 0 is the point of what was asked for. An omitted name reads
+    as an oversight and lets people assume they were simply missed."""
+    groups = wr.build_groups(_USERS, {'andy_potts': {'proposal': 1}})
+    rows = {r['user_key']: r for g in groups for r in g['rows']}
+    assert set(rows) == set(_USERS)
+    assert rows['phil_miller']['total'] == 0
+
+
+def test_ties_share_a_rank():
+    scores = {'andy_potts': {'proposal': 3}, 'adam_cupito': {'proposal': 3},
+              'tony_cumella': {'proposal': 1}}
+    groups = wr.build_groups(_USERS, scores)
+    rows = {r['user_key']: r for g in groups for r in g['rows']}
+    assert rows['andy_potts']['rank'] == 1
+    assert rows['adam_cupito']['rank'] == 1
+    assert rows['tony_cumella']['rank'] == 3   # not 2 — standard competition ranking
+
+
+def test_totals_sum_every_kind_not_just_the_biggest():
+    scores = {'ben_ramsey': {'ppm': 2, 'tps': 3, 'pipeline_touch': 4}}
+    groups = wr.build_groups(_USERS, scores)
+    ben = [r for g in groups for r in g['rows'] if r['user_key'] == 'ben_ramsey'][0]
+    assert ben['total'] == 9
+
+
+def test_exclude_removes_someone_from_the_board_entirely():
+    groups = wr.build_groups(_USERS, {}, exclude={'thomas_ellison'})
+    keys = {r['user_key'] for g in groups for r in g['rows']}
+    assert 'thomas_ellison' not in keys
+    assert 'stephanie_whetstone' in keys
+
+
+# --- Copy -------------------------------------------------------------------
+
+def test_breakdown_line_singularizes_and_orders_by_size():
+    line = wr.breakdown_line({'proposal': 1, 'ppm': 3})
+    assert line == '3 PPMs · 1 proposal'
+
+
+def test_breakdown_line_keeps_acronyms_upper_case():
+    """Stripping an 's' and lowercasing produced "2 ppms" and "1 tps scope",
+    which looks careless in an email people are being ranked by."""
+    assert wr.breakdown_line({'ppm': 2}) == '2 PPMs'
+    assert wr.breakdown_line({'tps': 1}) == '1 TPS scope'
+    assert wr.breakdown_line({'tps': 3}) == '3 TPS scopes'
+    assert wr.breakdown_line({'office_ops': 1}) == '1 Office Ops pack'
+
+
+def test_every_scored_kind_has_an_inline_label():
+    """A new source without a label would print a raw column name at people."""
+    for kind, _label, *_rest in wr.SCORED_SOURCES:
+        assert kind in wr.INLINE_LABELS, kind
+    for kind in ('pipeline_new', 'pipeline_touch', 'hub_actions', 'training'):
+        assert kind in wr.INLINE_LABELS, kind
+
+
+def test_breakdown_line_is_empty_for_a_zero_week():
+    assert wr.breakdown_line({}) == ''
+    assert wr.breakdown_line({'proposal': 0}) == ''
+
+
+def test_recipient_sees_their_own_standing_first():
+    scores = {'andy_potts': {'proposal': 5}, 'adam_cupito': {'proposal': 9}}
+    groups = wr.build_groups(_USERS, scores)
+    subject, text, html = wr.build_recap_email(
+        groups, datetime(2026, 8, 17), 'andy_potts', _USERS,
+    )
+    assert 'Aug 17' in subject
+    # 3 consultants in the fixture: Tony, Andy, Adam.
+    assert 'You: 5 this week — #2 of 3 in Consultants' in text
+    assert 'Andy Potts (you)' in html
+
+
+def test_zero_week_is_stated_plainly_not_hidden():
+    groups = wr.build_groups(_USERS, {})
+    _subject, text, _html = wr.build_recap_email(
+        groups, datetime(2026, 8, 17), 'phil_miller', _USERS,
+    )
+    assert 'Nothing logged in the Hub last week.' in text
+
+
+def test_email_explains_what_counts():
+    """People will argue with their number; the email should pre-empt it."""
+    groups = wr.build_groups(_USERS, {'andy_potts': {'proposal': 1}})
+    _s, text, html = wr.build_recap_email(groups, datetime(2026, 8, 17), 'andy_potts', _USERS)
+    for body in (text, html):
+        assert 'Opening a page does not count' in body or \
+               'does not count' in body
+
+
+# --- Runner -----------------------------------------------------------------
+
+class _FakeCursor:
+    def __init__(self, rows_by_call):
+        self._rows = list(rows_by_call)
+        self._current = []
+
+    def execute(self, sql, args=None):
+        self._current = self._rows.pop(0) if self._rows else []
+
+    def fetchall(self):
+        return self._current
+
+    def close(self):
+        pass
+
+
+class _FakeConn:
+    def __init__(self, rows_by_call):
+        self._cursor = _FakeCursor(rows_by_call)
+        self.rolled_back = 0
+
+    def cursor(self, *a, **k):
+        return self._cursor
+
+    def rollback(self):
+        self.rolled_back += 1
+
+    def close(self):
+        pass
+
+
+def test_collect_scores_ignores_rows_for_people_not_on_the_roster():
+    """Stale user_keys (a departed employee, the retired shared login) still
+    have rows in these tables. They must not appear on the board."""
+    rows = [[('andy_potts', 3), ('admin', 99)]] + [[] for _ in range(20)]
+    conn = _FakeConn(rows)
+    scores = wr.collect_scores(lambda: conn, _USERS, datetime(2026, 8, 17), datetime(2026, 8, 24))
+    assert scores.get('andy_potts', {}).get('proposal') == 3
+    assert 'admin' not in scores
+
+
+def test_run_weekly_recap_sends_one_email_per_person():
+    sent = []
+
+    def fake_send(subject, text, html, recipients):
+        sent.append((subject, recipients))
+        return True
+
+    conn = _FakeConn([[] for _ in range(30)])
+    result = wr.run_weekly_recap(
+        lambda: conn, _USERS, fake_send, force=True, today=date(2026, 8, 24),
+    )
+    assert result['skipped'] is False
+    assert len(sent) == len(_USERS)
+    # One recipient each — nobody is BCC'd a list to scan for their own name.
+    assert all(len(r) == 1 for _s, r in sent)
+    assert set(result['sent']) == set(_USERS)
+
+
+def test_run_weekly_recap_skips_people_with_no_email():
+    sent = []
+    users = dict(_USERS, no_email={'display': 'No Email', 'role': 'pm',
+                                   'tier': 'team', 'email': ''})
+    conn = _FakeConn([[] for _ in range(30)])
+    result = wr.run_weekly_recap(
+        lambda: conn, users, lambda *a: sent.append(a) or True,
+        force=True, today=date(2026, 8, 24),
+    )
+    assert 'no_email' not in result['sent']
+    # ...but they still appear on everyone else's scoreboard.
+    _s, text, _h = wr.build_recap_email(
+        wr.build_groups(users, {}), datetime(2026, 8, 17), 'ben_ramsey', users,
+    )
+    assert 'No Email' in text
+
+
+def test_run_weekly_recap_reports_send_failures_rather_than_raising():
+    def failing_send(*a):
+        raise RuntimeError('smtp down')
+
+    conn = _FakeConn([[] for _ in range(30)])
+    result = wr.run_weekly_recap(
+        lambda: conn, _USERS, failing_send, force=True, today=date(2026, 8, 24),
+    )
+    assert result['sent'] == []
+    assert set(result['failed']) == set(_USERS)
+
+
+def test_disabled_recap_sends_nothing():
+    os.environ['WEEKLY_RECAP_ENABLED'] = 'false'
+    try:
+        result = wr.run_weekly_recap(lambda: None, _USERS, lambda *a: True,
+                                     today=date(2026, 8, 24))
+        assert result['skipped'] is True
+        assert result['reason'] == 'disabled'
+    finally:
+        os.environ.pop('WEEKLY_RECAP_ENABLED', None)

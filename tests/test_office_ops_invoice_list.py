@@ -215,18 +215,51 @@ def test_real_aug4_file_still_parses():
     assert out['salesman_field_present'] is True
 
 
-def test_office_ops_access_rj_not_admin():
-    """RJ is on the Office Ops key list with role=pm — not role=admin."""
-    users = {
-        'thomas_ellison': {'role': 'admin'},
-        'stephanie_whetstone': {'role': 'office_manager'},
-        'trey_hollmeyer': {'role': 'pm'},
-        'admin': {'role': 'pm'},
-        'phil_miller': {'role': 'pm'},
-    }
-    assert oo.can_access_office_ops(users, 'thomas_ellison') is True
-    assert oo.can_access_office_ops(users, 'stephanie_whetstone') is True
-    assert oo.can_access_office_ops(users, 'admin') is True
-    assert oo.can_access_office_ops(users, 'trey_hollmeyer') is False
-    assert oo.can_access_office_ops(users, 'phil_miller') is False
-    assert users['admin']['role'] != 'admin'
+# Mirrors app.USERS after the 2026-08-21 tier rework.
+_USERS = {
+    'thomas_ellison': {'role': 'admin', 'tier': 'owner'},
+    'stephanie_whetstone': {'role': 'office_manager', 'tier': 'leadership'},
+    'tony_cumella': {'role': 'consultant', 'tier': 'leadership'},
+    'trey_hollmeyer': {'role': 'pm', 'tier': 'leadership'},
+    'phil_miller': {'role': 'pm', 'tier': 'team'},
+    'andy_potts': {'role': 'consultant', 'tier': 'team'},
+}
+
+
+def test_office_ops_is_leadership_tier():
+    """Office Ops is AR aging and rep sales dollars — Leadership and above.
+
+    Tony and Trey were added 2026-08-21 by explicit decision. Worth knowing
+    that Trey once picked this up by accident, as a side effect bundled into an
+    unrelated feature commit (ea1e9c9), and it was reverted within the week
+    (c61e43d). The grant is the same; what changed is that it was made
+    deliberately and on its own commit.
+    """
+    assert oo.can_access_office_ops(_USERS, 'thomas_ellison') is True
+    assert oo.can_access_office_ops(_USERS, 'stephanie_whetstone') is True
+    assert oo.can_access_office_ops(_USERS, 'tony_cumella') is True
+    assert oo.can_access_office_ops(_USERS, 'trey_hollmeyer') is True
+
+
+def test_office_ops_closed_to_team_tier():
+    """Team tier is unrestricted everywhere EXCEPT here. Financials stop at
+    Leadership — the one line the 'everyone sees everything' rework holds."""
+    assert oo.can_access_office_ops(_USERS, 'phil_miller') is False
+    assert oo.can_access_office_ops(_USERS, 'andy_potts') is False
+    # Off the roster entirely, and malformed input, both fail closed.
+    assert oo.can_access_office_ops(_USERS, 'former_employee') is False
+    assert oo.can_access_office_ops(_USERS, '') is False
+    assert oo.can_access_office_ops(_USERS, None) is False
+
+
+def test_retired_shared_admin_login_has_no_office_ops():
+    """The shared 'admin' picker login was removed 2026-08-21 (F-01).
+
+    It held Office Ops from 2026-08-18. A stale 'admin' key must not reach AR
+    data — and a tier it does not recognise must fail closed, not default open.
+    """
+    assert oo.can_access_office_ops(_USERS, 'admin') is False
+    stale = dict(_USERS, admin={'role': 'pm'})           # no tier at all
+    assert oo.can_access_office_ops(stale, 'admin') is False
+    typo = dict(_USERS, admin={'role': 'pm', 'tier': 'leadershp'})  # typo'd tier
+    assert oo.can_access_office_ops(typo, 'admin') is False

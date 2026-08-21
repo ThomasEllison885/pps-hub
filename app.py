@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import threading
 import base64
 from io import BytesIO
@@ -11,6 +12,7 @@ import office_ops
 import insurance_compliance
 import crm_contact_sync
 import estimate_assignments
+import weekly_recap
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -83,7 +85,17 @@ app.config.update(
     SESSION_COOKIE_SECURE=not _IS_DEBUG,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE='Lax',
-    PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
+    # 30 days, idle — raised from 8 hours 2026-08-21. Flask re-signs the cookie
+    # on every request (SESSION_REFRESH_EACH_REQUEST below), so this is an idle
+    # window, not an absolute one. At 8 hours that sounded generous, but every
+    # night is longer than eight hours: a PM who last used the Hub at 4pm was
+    # signed out before he opened it next morning, and the sign-in he hit was a
+    # 13-name dropdown plus a password, on a phone, on a job site.
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    # Already Flask's default — pinned because the 30-day window above is only
+    # tolerable while it stays an IDLE timeout. Flipping this to False silently
+    # turns it into "log everyone out 30 days after they first signed in."
+    SESSION_REFRESH_EACH_REQUEST=True,
 )
 
 GENERIC_API_ERROR = 'Something went wrong. Please try again or contact Thomas.'
@@ -119,162 +131,158 @@ def _wants_json_response():
     return accept == 'application/json'
 
 
+# ── ACCESS TIERS ────────────────────────────────────────────────────────────────
+#
+# Rewritten 2026-08-21 (Thomas). There used to be NINE independent access
+# mechanisms — role, proposal_access, ppm_access, team_view, team_view_scope,
+# CONTACTS_USER_KEYS/ROLES, BOARD_ACCESS/BOARD_ACCESS_ALL, OFFICE_OPS_USER_KEYS,
+# CURATORS, and the two training-manager constants — spread across four files.
+# Answering "can Ben see this?" meant checking up to four of them. Two symptoms
+# of how far that drifted: `ppm_access` was set True on all 13 people and read
+# nowhere, and `proposal_access` stopped meaning what its name says (Jordan,
+# Phil and Trey carry 'all' from old grants nobody intends), which is why
+# Pipeline Board had to build a second roster to route around it.
+#
+# Now there is one axis — `tier` — and three values:
+#
+#   owner       Thomas. /admin, pricing defaults, password resets, feedback
+#               inbox, vault delete, proposal diffs.
+#   leadership  Stephanie, Tony, Trey. Office Ops (Numbers + Compliance),
+#               PSC + PM training oversight, Ask PPS curation.
+#   team        Everyone else. Every tool, every pipeline board, all history,
+#               Team View. Deliberately unrestricted — Thomas 2026-08-21:
+#               "I don't really want/need a lot of restrictions."
+#
+# The important distinction: a tier is what you may SEE. It is separate from
+# ASSIGNMENT — which pipeline board opens by default, whose name prefills on a
+# proposal. Assignment lives in pipeline_board.PRIMARY_PM_FOR_CONSULTANT and
+# grants nothing. Most of the nine old mechanisms were assignment wearing a
+# permission costume; that confusion is what this split removes.
+#
+# `role` survives, but only to describe WHAT SOMEONE DOES (consultant / pm /
+# office_manager / admin) — proposal number initials, PSC training eligibility,
+# dashboard framing, recap grouping. It no longer grants anything on its own
+# except the legacy `role == 'admin'` owner checks, which are equivalent to
+# tier 'owner' because Thomas is the only admin. See has_tier() below.
+
+# Definitions live in tiers.py so app.py, office_ops.py, ask_pps.py and
+# pipeline_board.py share one source instead of four copies that drift.
+from tiers import (
+    TIER_OWNER, TIER_LEADERSHIP, TIER_TEAM, DEFAULT_TIER,
+    tier_label,
+)
+import tiers as _tiers
+
+
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
 
 USERS = {
     'thomas_ellison': {
         'display': 'Thomas Ellison',
         'role': 'admin',
-        'proposal_access': 'all',
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_OWNER,
         'title': 'President',
         'email': 'thomas@purepropsolutions.com',
     },
     'tony_cumella': {
         'display': 'Tony Cumella',
         'role': 'consultant',
-        'proposal_access': ['tony_cumella'],
-        'ppm_access': True,
-        'team_view': True,
-        'team_view_scope': 'consultants',
+        'tier': TIER_LEADERSHIP,
         'title': 'VP of Sales',
         'email': 'Tony@purepropsolutions.com',
     },
     'adam_cupito': {
         'display': 'Adam Cupito',
         'role': 'consultant',
-        'proposal_access': ['adam_cupito'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Adam@purepropsolutions.com',
     },
     'rachel_farler': {
         'display': 'Rachel Farler',
         'role': 'consultant',
-        'proposal_access': ['rachel_farler'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Rachel@purepropsolutions.com',
     },
     'andy_potts': {
         'display': 'Andy Potts',
         'role': 'consultant',
-        'proposal_access': ['andy_potts'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Andy@purepropsolutions.com',
     },
     'phil_miller': {
         'display': 'Phil Miller',
         'role': 'pm',
-        'proposal_access': 'all',
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'phil@purepropsolutions.com',
     },
     'derek_kidney': {
         'display': 'Derek Kidney',
         'role': 'pm',
-        'proposal_access': ['rachel_farler'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'Derek@purepropsolutions.com',
     },
     'nick_triplett': {
         'display': 'Nick Triplett',
         'role': 'pm',
-        'proposal_access': ['tony_cumella'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'nick@purepropsolutions.com',
     },
     'trey_hollmeyer': {
         'display': 'Trey Hollmeyer',
         'role': 'pm',
-        'proposal_access': 'all',
-        'ppm_access': True,
-        'team_view': True,
-        # Production cohort + full sales/ops visibility (Tony/Stephanie-level tools).
-        'team_view_scope': 'all',
+        'tier': TIER_LEADERSHIP,
         'title': 'Production Manager',
         'email': 'trey@purepropsolutions.com',
     },
     'james_boling': {
         'display': 'James Boling',
         'role': 'pm',
-        'proposal_access': ['andy_potts', 'adam_cupito'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'James@purepropsolutions.com',
     },
     'jordan_allen': {
         'display': 'Jordan Allen',
         'role': 'pm',
-        'proposal_access': 'all',
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'jordan@purepropsolutions.com',
     },
     'ben_ramsey': {
         'display': 'Ben Ramsey',
         'role': 'pm',
-        'proposal_access': ['andy_potts'],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'ben@purepropsolutions.com',
     },
     'stephanie_whetstone': {
         'display': 'Stephanie Whetstone',
         'role': 'office_manager',
-        'proposal_access': [],
-        'ppm_access': True,
-        'team_view': False,
-        'team_view_scope': None,
+        'tier': TIER_LEADERSHIP,
         'title': 'Office Manager',
         'email': 'Stephanie@purepropsolutions.com',
     },
-    # Picker name "Admin" (Thomas 2026-08-18). Role is deliberately pm —
-    # not admin — so /admin, pricing, and password resets stay Thomas-only.
-    # Access is the union of Trey (production), Stephanie (ops), Tony (sales):
-    #   Trey  — proposal_access all, team_view scope all, PM training oversight,
-    #           every pipeline board, Ask PPS curator
-    #   Steph — Office Ops (OFFICE_OPS_USER_KEYS)
-    #   Tony  — Team View (covered by Trey's scope all) + PSC training oversight
-    'admin': {
-        'display': 'Admin',
-        'role': 'pm',
-        'proposal_access': 'all',
-        'ppm_access': True,
-        'team_view': True,
-        'team_view_scope': 'all',
-        'title': 'Operations',
-        'email': '',
-    },
 }
 
-# Picker login "Admin" — user_key only. Role on that row is pm, not admin.
-FIELD_ADMIN_USER_KEY = 'admin'
-FIELD_ADMIN_PASSWORD = 'RJ2026'
+# REMOVED 2026-08-21 — the shared "Admin" picker login (user_key 'admin',
+# hardcoded password, added 2026-08-18 as the RJ login in 2f6dd58/d570f81/e07043b).
+# Removed at Thomas's request: it was issued to a trusted person outside PPS, the
+# credential is now known, and it lived in plaintext in this repo's history.
+# Two reasons not to reintroduce a shared login of any kind:
+#   1. Every action through it recorded as user_key 'admin', so per-person usage
+#      for whoever used it was unrecoverable — see docs/HUB_REVIEW_2026-08-21.md F-01.
+#   2. No email on the row, so Forgot Password could never work; the only recovery
+#      path was editing this file.
+# Give a real named USERS entry instead, and put them on the specific rosters
+# (BOARD_ACCESS_ALL, OFFICE_OPS_USER_KEYS, CURATORS, CONTACTS_USER_KEYS) they need.
+# Historical rows created by 'admin' still render — display names fall back to the
+# key, so old proposals/board entries read "Admin" rather than going blank.
 
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
 PROPOSAL_NUMBER_SEQ_DIGITS = 3
@@ -964,6 +972,15 @@ def init_db():
         )
     ''')
     try:
+        # Session-invalidation stamp — see _session_password_stale(). Added here
+        # as well as in _ensure_hub_users_password_schema so the column exists
+        # from startup, not only after someone's first password write.
+        cur.execute(
+            'ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS password_epoch INTEGER DEFAULT 0'
+        )
+    except Exception as e:
+        print(f'hub_users password_epoch migrate: {e}')
+    try:
         cur.execute('ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE')
     except Exception:
         pass
@@ -1153,10 +1170,14 @@ def init_db():
                     (key, user['display'], hashed, user['role'])
                 )
 
-    # Admin picker login: set RJ2026 if the account has never signed in.
-    # DEFAULT_PASSWORD above may have just created the row with must_change=TRUE
-    # — overwrite that unused seed. Do not clobber a later password change.
-    _seed_field_admin_login_password(cur)
+    # Revoke the retired shared "Admin" login (removed 2026-08-21, see USERS above).
+    # Dropping it from USERS already blocks sign-in — the login route rejects any
+    # user_key not in USERS — but the hub_users row would otherwise keep a working
+    # password hash for a known credential. Idempotent; a no-op once the row is gone.
+    try:
+        cur.execute("DELETE FROM hub_users WHERE user_key = 'admin'")
+    except Exception as e:
+        print(f'retired admin login cleanup: {e}')
 
     # Backfill last_login from tool activity where logs are more recent
     try:
@@ -1235,11 +1256,82 @@ def get_current_user():
     return session.get('user_key')
 
 
+# Thin wrappers that bind tiers.py's functions to this app's USERS roster, so
+# call sites read `is_owner(user_key)` rather than threading USERS through.
+def user_tier(user_key):
+    return _tiers.user_tier(USERS, user_key)
+
+
+def has_tier(user_key, minimum):
+    return _tiers.has_tier(USERS, user_key, minimum)
+
+
+def is_owner(user_key):
+    return _tiers.is_owner(USERS, user_key)
+
+
+def is_leadership(user_key):
+    return _tiers.is_leadership(USERS, user_key)
+
+
+# How often a live session re-checks that its password is still current.
+# Not per-request on purpose: there is no connection pool yet (see
+# docs/HUB_REVIEW_2026-08-21.md F-05), so a SELECT on every request would mean
+# a fresh Postgres connect on every request. The cost of the throttle is that a
+# password reset can take up to this long to evict other devices — acceptable
+# for "someone lost a phone", and worth revisiting once pooling lands, at which
+# point this can safely drop to every request.
+PASSWORD_EPOCH_RECHECK_SECONDS = 15 * 60
+
+
+def _session_password_stale(user_key):
+    """True when this session was opened with a password that has since changed.
+
+    Returns False on any DB trouble — an unreachable database must not sign the
+    whole company out. Fails open by design; the roster check above fails closed.
+    """
+    try:
+        now = time.time()
+        checked_at = float(session.get('pw_checked_at') or 0)
+        if now - checked_at < PASSWORD_EPOCH_RECHECK_SECONDS:
+            return False
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT COALESCE(password_epoch, 0) FROM hub_users WHERE user_key = %s',
+            (user_key,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return False
+        session['pw_checked_at'] = now
+        return int(row[0] or 0) != int(session.get('pw_epoch') or 0)
+    except Exception as e:
+        print(f'password epoch check error for {user_key}: {e}')
+        return False
+
+
 def require_login(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('user_key'):
+        current_key = session.get('user_key')
+        # Offboarding actually revokes access. A signed session cookie is valid
+        # until it expires, so before this check, deleting someone from USERS
+        # left their open session working for the rest of its lifetime — the
+        # cookie carries the identity and nothing re-checked the roster. That
+        # matters more the longer sessions live (see PERMANENT_SESSION_LIFETIME).
+        if current_key and current_key not in USERS:
+            session.clear()
+            current_key = None
+        if current_key and _session_password_stale(current_key):
+            session.clear()
+            current_key = None
+        if not current_key:
             # Prefer a clean relative next so mobile Safari doesn't loop on full
             # auth URLs (login?next=login?next=…).
             nxt = safe_next_url(request.full_path if request.query_string else request.path)
@@ -1253,53 +1345,49 @@ def require_login(f):
 
 
 def require_admin(f):
+    """Owner tier only (Thomas). Name kept — 10 routes and the 25 inline
+    `session.get('role') != 'admin'` checks elsewhere all mean the same thing,
+    since Thomas is the only admin-role user. Renaming those is churn with real
+    regression risk and no behavior change; left as a follow-up."""
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('user_key') or session.get('role') != 'admin':
+        if not is_owner(session.get('user_key')):
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated
 
 
-# Client/contacts database: sales + office + PMs who build proposals (need to add contacts).
-# Dashboard always linked /clients; page used to be Thomas-only.
-CONTACTS_USER_KEYS = frozenset({
-    'thomas_ellison',
-    'tony_cumella',
-    'stephanie_whetstone',
-    'trey_hollmeyer',
-    'admin',
-})
-# PMs included: they use Proposal Generator and must save contacts (Trey reported 403).
-CONTACTS_ROLES = frozenset({'admin', 'consultant', 'office_manager', 'pm'})
-
-
 def can_manage_contacts(user_key):
-    """Who may open /clients and create/update contact records."""
-    if not user_key:
-        return False
-    if user_key in CONTACTS_USER_KEYS:
-        return True
-    role = (USERS.get(user_key) or {}).get('role')
-    return role in CONTACTS_ROLES
+    """Who may open /clients and create/update contact records.
+
+    Everyone on the roster (2026-08-21, tier rework). Contacts are shared sales
+    infrastructure; the old CONTACTS_USER_KEYS/CONTACTS_ROLES pair only ever
+    produced 403s for people who needed to save a client mid-proposal — Trey
+    reported exactly that, and the fix at the time was widening the role list,
+    which is how these accumulate.
+    """
+    return bool(user_key) and user_key in USERS
 
 
 def get_user_proposal_access(user_key):
-    user = USERS.get(user_key, {})
-    access = user.get('proposal_access', [])
-    if access == 'all':
-        return list(CONSULTANTS.keys())
-    return list(access or [])
+    """Which consultants' books this person may work in — everyone, all of them.
+
+    Was a per-user `proposal_access` field (2026-08-21 tier rework). It had five
+    different shapes across thirteen people and had drifted far enough from its
+    name that Pipeline Board built a second roster rather than read it. Kept as
+    a function, not inlined, because a dozen call sites want the consultant list
+    and this is the one place to narrow it again if that day comes.
+    """
+    if not user_key or user_key not in USERS:
+        return []
+    return list(CONSULTANTS.keys())
 
 
 def user_can_access_consultant_proposals(user_key, consultant_key):
     """True if this user may view/prefill proposals for that consultant's book."""
     if not user_key or not consultant_key:
         return False
-    user = USERS.get(user_key) or {}
-    if user.get('role') == 'admin':
-        return True
     return consultant_key in get_user_proposal_access(user_key)
 
 
@@ -1733,11 +1821,7 @@ def save_psc_training_progress(user_key, progress_dict):
 
 def can_psc_training_oversight(user_key):
     """President (admin) and VP Sales track enrolled trainee progress."""
-    user = USERS.get(user_key, {})
-    if user.get('role') == 'admin':
-        return True
-    # Field Admin picker gets Tony's sales oversight (role stays pm).
-    return user_key in (PSC_TRAINING_MANAGER, FIELD_ADMIN_USER_KEY)
+    return is_leadership(user_key)
 
 
 def is_psc_training_enrolled(user_key):
@@ -2096,11 +2180,7 @@ def save_pm_training_progress(user_key, progress_dict):
 
 def can_pm_training_oversight(user_key):
     """Admin and Production Manager (Trey) track PM training progress."""
-    user = USERS.get(user_key, {})
-    if user.get('role') == 'admin':
-        return True
-    # Field Admin picker gets Trey's production oversight (role stays pm).
-    return user_key in (PM_TRAINING_MANAGER, FIELD_ADMIN_USER_KEY)
+    return is_leadership(user_key)
 
 
 def is_pm_training_enrolled(user_key):
@@ -3089,6 +3169,30 @@ def cron_weekly_tp_compliance():
         return _api_error(e, ok=False)
 
 
+@app.route('/api/cron/weekly-recap', methods=['POST'])
+def cron_weekly_recap():
+    """Monday-morning team recap — the one Hub email that goes TO the team.
+
+    Everyone with an email on the roster gets their own copy, with their own
+    row highlighted. Unlike the nightly digest (Thomas only), this is not gated
+    on a send window: the cron fires Mondays and this endpoint does what it is
+    asked, so a manual Trigger Run in Render works without a force flag.
+    """
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    force = (request.args.get('force') or '').strip().lower() in ('1', 'true', 'yes')
+    try:
+        result = weekly_recap.run_weekly_recap(
+            get_db, USERS, _send_digest_email, force=force,
+        )
+        return jsonify(result), 200
+    except Exception as e:
+        print(f'Weekly recap cron error: {e}')
+        import traceback
+        traceback.print_exc()
+        return _api_error(e, ok=False)
+
+
 @app.route('/api/cron/weekly-crm-sync', methods=['POST'])
 def cron_weekly_crm_sync():
     """Weekly sync: new Monday CRM contacts into the Hub /clients picker."""
@@ -3161,41 +3265,17 @@ def _ensure_hub_users_password_schema(cur):
         cur.execute('ALTER TABLE hub_users ALTER COLUMN password_hash TYPE TEXT')
     except Exception as e:
         print(f'hub_users password_hash migrate: {e}')
-
-
-def _seed_field_admin_login_password(cur):
-    """Activate the Admin picker login with RJ2026. Skip once they have a last_login."""
-    user_key = FIELD_ADMIN_USER_KEY
-    user_def = USERS.get(user_key)
-    if not user_def:
-        return
     try:
-        hashed = generate_password_hash(FIELD_ADMIN_PASSWORD, method='pbkdf2:sha256')
+        # Bumped on every password write; stamped into the session at login and
+        # re-checked in require_login. This is what makes a password reset log
+        # out other devices. It matters now that sessions live 30 days: without
+        # it, a reset would not evict the session on a lost phone until the
+        # phone had been idle a month, which is not a remedy.
+        cur.execute(
+            'ALTER TABLE hub_users ADD COLUMN IF NOT EXISTS password_epoch INTEGER DEFAULT 0'
+        )
     except Exception as e:
-        print(f'_seed_field_admin_login_password hash failed: {e}')
-        return
-    cur.execute(
-        'SELECT last_login FROM hub_users WHERE user_key = %s',
-        (user_key,),
-    )
-    row = cur.fetchone()
-    if not row:
-        cur.execute(
-            '''INSERT INTO hub_users
-               (user_key, display_name, password_hash, role, must_change_password)
-               VALUES (%s, %s, %s, %s, FALSE)''',
-            (user_key, user_def['display'], hashed, user_def.get('role', 'pm')),
-        )
-        return
-    last_login = row[0] if not isinstance(row, dict) else row.get('last_login')
-    if last_login is None:
-        cur.execute(
-            '''UPDATE hub_users
-               SET password_hash = %s, must_change_password = FALSE,
-                   display_name = %s, role = %s
-               WHERE user_key = %s''',
-            (hashed, user_def['display'], user_def.get('role', 'pm'), user_key),
-        )
+        print(f'hub_users password_epoch migrate: {e}')
 
 
 def _upsert_hub_user_password(user_key, new_password, must_change=False):
@@ -3227,7 +3307,8 @@ def _upsert_hub_user_password(user_key, new_password, must_change=False):
         exists = cur.fetchone()
         if exists:
             cur.execute(
-                'UPDATE hub_users SET password_hash = %s, must_change_password = %s WHERE user_key = %s',
+                'UPDATE hub_users SET password_hash = %s, must_change_password = %s, '
+                'password_epoch = COALESCE(password_epoch, 0) + 1 WHERE user_key = %s',
                 (hashed, bool(must_change), user_key),
             )
             action = 'updated'
@@ -3270,9 +3351,13 @@ def _establish_session(user_key, user_def, db_user=None):
     session['display_name'] = user_def.get('display', '')
     session['user_email'] = user_def.get('email', '')
     session['role'] = user_def.get('role', 'consultant')
+    session['tier'] = user_def.get('tier', DEFAULT_TIER)
     session['proposal_access'] = get_user_proposal_access(user_key)
-    session['team_view'] = user_def.get('team_view', False)
-    session['team_view_scope'] = user_def.get('team_view_scope')
+    # Stamp the password generation so a reset invalidates sessions on other
+    # devices. Without this a 30-day session outlives the password that opened
+    # it, and "reset their password" stops being a real remedy for a lost phone.
+    session['pw_epoch'] = int((db_user or {}).get('password_epoch') or 0)
+    session['pw_checked_at'] = time.time()
     if db_user and db_user.get('must_change_password'):
         session['must_change_password'] = True
 
@@ -3447,29 +3532,6 @@ def login():
         db_user = cur.fetchone()
         cur.close()
         conn.close()
-
-        # First-boot / missed-seed activation: init_db can return before the
-        # password row is written (DB not ready on worker start). If they
-        # picked Admin and typed RJ2026, create the row here and continue.
-        if (
-            not db_user
-            and user_key == FIELD_ADMIN_USER_KEY
-            and password == FIELD_ADMIN_PASSWORD
-        ):
-            ok, _ = _upsert_hub_user_password(
-                FIELD_ADMIN_USER_KEY, FIELD_ADMIN_PASSWORD, must_change=False
-            )
-            if ok:
-                conn = get_db()
-                if conn:
-                    cur = conn.cursor(cursor_factory=RealDictCursor)
-                    cur.execute(
-                        'SELECT * FROM hub_users WHERE user_key = %s',
-                        (user_key,),
-                    )
-                    db_user = cur.fetchone()
-                    cur.close()
-                    conn.close()
 
         if db_user and _safe_check_password(db_user.get('password_hash'), password):
             user = USERS.get(user_key, {})
@@ -3723,14 +3785,8 @@ def dashboard():
         # Archetype: standard PSC (consultant) — both tool lanes open
         is_admin = False
         user_role = 'consultant'
-        team_view = False
-        team_view_scope = None
-        # Typical sales tool access: one consultant book
-        accessible_consultants = {
-            k: CONSULTANTS[k]
-            for k in ('andy_potts',)
-            if k in CONSULTANTS
-        } or {k: v for k, v in list(CONSULTANTS.items())[:1]}
+        team_view = True
+        accessible_consultants = dict(CONSULTANTS)
         psc_training_enrolled = True  # show training card as a normal enrolled PSC would
         psc_training_stats = compute_psc_training_stats(user_key)  # your progress while previewing
         psc_training_oversight = False
@@ -3747,14 +3803,8 @@ def dashboard():
         # Archetype: standard PM — both tool lanes open
         is_admin = False
         user_role = 'pm'
-        team_view = False
-        team_view_scope = None
-        # Typical PM proposal access is limited (paired consultant)
-        accessible_consultants = {
-            k: CONSULTANTS[k]
-            for k in ('rachel_farler',)
-            if k in CONSULTANTS
-        } or {k: v for k, v in list(CONSULTANTS.items())[:1]}
+        team_view = True
+        accessible_consultants = dict(CONSULTANTS)
         psc_training_enrolled = False
         psc_training_stats = None
         psc_training_oversight = False
@@ -3770,8 +3820,7 @@ def dashboard():
     else:
         is_admin = real_is_admin
         user_role = real_role
-        team_view = user.get('team_view', False)
-        team_view_scope = user.get('team_view_scope')
+        team_view = True
         psc_training_enrolled = is_psc_training_enrolled(user_key)
         psc_training_stats = (
             compute_psc_training_stats(user_key) if psc_training_enrolled else None
@@ -3841,7 +3890,6 @@ def dashboard():
         production_lane_open=production_lane_open,
         admin_lane_open=is_admin and not view_as,
         team_view=team_view,
-        team_view_scope=team_view_scope,
         consultants=accessible_consultants,
         recent_proposals=recent_proposals,
         recent_ppms=recent_ppms,
@@ -4484,13 +4532,14 @@ def _template_label_filter(val):
 
 
 def _can_view_activity_row(user_key, role, activity_type, row):
-    if role == 'admin':
-        return True
-    if row.get('generated_by') == user_key:
-        return True
-    if activity_type == 'ppm' and row.get('pm_key') == user_key:
-        return True
-    return False
+    """Any signed-in person may open any activity row (2026-08-21 tier rework).
+
+    Deliberate: the same proposal/PPM/TPS activity is now on Team View for
+    everyone and in the weekly team recap, so gating the detail drawer while
+    publishing the summary would just be inconsistent. Signature kept so
+    callers don't change; `role` and `activity_type` are unused now.
+    """
+    return bool(user_key) and user_key in USERS
 
 
 def _activity_detail_row(label, value):
@@ -4980,6 +5029,32 @@ def admin_daily_digest_test():
     except Exception as e:
         print(f'Admin digest test error: {e}')
         return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/admin/weekly-recap-test', methods=['POST'])
+@require_admin
+def admin_weekly_recap_test():
+    """Send Thomas his own copy of last week's recap, on demand.
+
+    Same code path as the cron, addressed only to him — so the format can be
+    checked before it goes company-wide on a Monday. Mirrors
+    /admin/daily-digest-test.
+    """
+    try:
+        start, _end = weekly_recap.last_week_bounds()
+        scores = weekly_recap.collect_scores(get_db, USERS, *weekly_recap.last_week_bounds())
+        groups = weekly_recap.build_groups(USERS, scores, weekly_recap._excluded_keys())
+        subject, text_body, html_body = weekly_recap.build_recap_email(
+            groups, start, session.get('user_key'), USERS,
+        )
+        me = USERS.get(session.get('user_key'), {}).get('email', '')
+        if not me:
+            return jsonify({'ok': False, 'error': 'no email on your account'}), 400
+        ok = _send_digest_email(f'[TEST] {subject}', text_body, html_body, [me])
+        return jsonify({'ok': bool(ok), 'sent_to': me, 'week': weekly_recap.week_label(start)})
+    except Exception as e:
+        print(f'Weekly recap test error: {e}')
+        return _api_error(e, ok=False)
 
 
 @app.route('/admin/search')
@@ -6299,10 +6374,10 @@ def team_view():
         return redirect(url_for('login'))
     user_key = session['user_key']
     user = USERS.get(user_key, {})
-    if not user.get('team_view') and session.get('role') != 'admin':
-        return redirect(url_for('dashboard'))
-
-    scope = user.get('team_view_scope')
+    # Open to everyone (2026-08-21). Team View shows per-person proposal / PPM /
+    # TPS activity — exactly what the weekly team recap now emails to the whole
+    # company. Mailing out the summary while locking the page did not hold up.
+    scope = 'all'
     members = []
     member_data = {}
 
@@ -6314,7 +6389,7 @@ def team_view():
                        'james_boling','jordan_allen','ben_ramsey']
     else:
         # 'all' (Trey) and admin default — full roster
-        member_keys = [k for k in USERS.keys() if k != FIELD_ADMIN_USER_KEY]
+        member_keys = list(USERS.keys())
 
     for key in member_keys:
         u = USERS.get(key, {})
@@ -6381,20 +6456,11 @@ def admin_tpscopes():
     return render_template('admin_tpscopes.html', rows=rows)
 
 
-@app.route('/admin/reset-team-view', methods=['POST'])
-def reset_team_view():
-    """Toggle team_view for a user — admin only."""
-    if session.get('role') != 'admin':
-        return jsonify({'error': 'Unauthorized'}), 401
-    user_key = request.form.get('user_key')
-    enabled = request.form.get('enabled') == 'true'
-    scope = request.form.get('scope', '')
-    if user_key in USERS:
-        USERS[user_key]['team_view'] = enabled
-        if scope:
-            USERS[user_key]['team_view_scope'] = scope
-        return jsonify({'success': True, 'team_view': USERS[user_key]['team_view']})
-    return jsonify({'error': 'User not found'}), 404
+# /admin/reset-team-view removed 2026-08-21. It toggled the per-user `team_view`
+# field, which no longer exists — Team View is open to everyone. It was also
+# quietly broken: it mutated the in-process USERS dict, so a change only ever
+# applied to whichever of the two gunicorn workers served that request and was
+# lost on the next deploy. No template linked it.
 
 
 @app.route('/site-visit')
@@ -7590,7 +7656,8 @@ def change_password():
                     else:
                         hashed = generate_password_hash(new_password)
                         cur.execute(
-                            'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE WHERE user_key = %s',
+                            'UPDATE hub_users SET password_hash = %s, must_change_password = FALSE, '
+                            'password_epoch = COALESCE(password_epoch, 0) + 1 WHERE user_key = %s',
                             (hashed, user_key),
                         )
                         conn.commit()

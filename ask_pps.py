@@ -13,13 +13,19 @@ from psycopg2.extras import RealDictCursor
 
 from estimators.pricing_defaults import SYSTEM_DEFAULTS, get_pricing_defaults
 from production_board_reference import production_board_ask_pps_entries
+from tiers import is_leadership
 from psc_training_data import (
     PSC_CORE_VALUES,
     PSC_COMPANY_OPERATIONS,
     get_training_curriculum,
 )
 
-CURATORS = frozenset({'thomas_ellison', 'tony_cumella', 'trey_hollmeyer', 'admin'})
+# Curation (approve/reject/edit knowledge entries) is Leadership tier — Thomas,
+# Stephanie, Tony, Trey (2026-08-21). The old hardcoded CURATORS set is gone;
+# `_USERS` is bound once in register_routes() so the eight is_curator() call
+# sites keep their single-argument signature. Stephanie is new here, arriving
+# with the tier rather than as a separate decision.
+_USERS = {}
 
 CATEGORIES = [
     'voice_language',
@@ -95,7 +101,7 @@ KNOWLEDGE ENTRIES:
 
 
 def is_curator(user_key):
-    return user_key in CURATORS
+    return is_leadership(_USERS, user_key)
 
 
 def require_ask_pps_curator(f):
@@ -2467,6 +2473,11 @@ def get_digest_line(get_db_fn, start, end, users=None):
 
 
 def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require_login):
+    # Bind the roster once so is_curator() stays a one-argument call at its
+    # eight sites, several of which have no request context to read from.
+    global _USERS
+    _USERS = users
+
     @app.route('/ask-pps')
     @require_login
     def ask_pps_page():
@@ -2784,7 +2795,7 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         return render_template(
             'admin_ask_pps.html',
             categories=CATEGORIES,
-            curators=CURATORS,
+            curators=sorted(k for k in users if is_leadership(users, k)),
             assignable_users=assignable_users,
             prompt_target_roles=PROMPT_TARGET_ROLES,
             **data,
