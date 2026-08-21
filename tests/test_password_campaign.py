@@ -24,29 +24,29 @@ _USERS = {
 class _Cursor:
     def __init__(self, conn):
         self._conn = conn
-        self.rowcount = 0
+        self.rowcount = 1
+        self._rows = []
 
     def execute(self, sql, args=None):
-        self._conn.statements.append((' '.join(sql.split()), args))
-        if 'INSERT INTO password_campaigns' in sql:
-            cid = args[0]
-            if cid in self._conn.claimed:
-                self.rowcount = 0          # ON CONFLICT DO NOTHING
-            else:
-                self._conn.claimed.add(cid)
-                self.rowcount = 1
-        else:
-            self.rowcount = 1
+        q = ' '.join(sql.split())
+        self._conn.statements.append((q, args))
+        if 'COALESCE(password_epoch, 0) = 0' in q:
+            # Mirrors the real query: candidates still at epoch 0.
+            self._rows = [(k,) for k in args[0] if self._conn.epochs.get(k, 0) == 0]
+
+    def fetchall(self):
+        return self._rows
 
     def close(self):
         pass
 
 
 class _Conn:
-    """Shared claim state across connections, the way one database would be."""
+    """One fake database. `epochs` maps user_key -> password_epoch; anyone
+    absent is treated as 0, i.e. not yet processed."""
 
-    def __init__(self, claimed=None, statements=None):
-        self.claimed = claimed if claimed is not None else set()
+    def __init__(self, epochs=None, statements=None):
+        self.epochs = epochs if epochs is not None else {}
         self.statements = statements if statements is not None else []
 
     def cursor(self, *a, **k):
@@ -82,37 +82,69 @@ def _runner(conn, sender, users=None, exclude=('thomas_ellison',)):
     return result, tokens
 
 
-# --- The once-only guard ----------------------------------------------------
+# --- Never email the same person twice --------------------------------------
 
-def test_claim_succeeds_exactly_once():
-    """The guard between a routine deploy and re-randomizing every password.
-
-    Render redeploys on every push and gunicorn imports the app per worker, so
-    "once on deploy" has to mean once ever — across processes and across all
-    future deploys.
-    """
-    conn = _Conn()
-    assert pc.claim(conn.cursor(), 'camp-1') is True
-    assert pc.claim(conn.cursor(), 'camp-1') is False
-    assert pc.claim(conn.cursor(), 'camp-1') is False
+def _pending_conn(epochs):
+    return _Conn(epochs=epochs)
 
 
-def test_claim_is_per_campaign_id():
-    """A future campaign needs a new id; a spent one must stay spent."""
-    conn = _Conn()
-    assert pc.claim(conn.cursor(), 'camp-1') is True
-    assert pc.claim(conn.cursor(), 'camp-2') is True
-    assert pc.claim(conn.cursor(), 'camp-1') is False
+def test_pending_skips_anyone_already_processed():
+    """password_epoch is the guard. The first run died mid-flight without a
+    ledger, so who-was-emailed has to be derived from state."""
+    conn = _pending_conn({'andy_potts': 1, 'ben_ramsey': 0, 'thomas_ellison': 2})
+    pending = pc.pending_user_keys(lambda: conn, _USERS)
+    assert pending == ['ben_ramsey']
 
 
-def test_claim_uses_on_conflict_not_select_then_insert():
-    """Two workers booting together must not both win. A SELECT-then-INSERT
-    would race; the primary key can't."""
-    conn = _Conn()
-    pc.claim(conn.cursor(), 'camp-1')
-    sql, _args = conn.statements[-1]
-    assert 'ON CONFLICT' in sql
-    assert 'DO NOTHING' in sql
+def test_pending_skips_people_with_no_email():
+    conn = _pending_conn({'andy_potts': 0, 'ben_ramsey': 0, 'thomas_ellison': 0})
+    pending = pc.pending_user_keys(lambda: conn, _USERS)
+    assert 'no_email' not in pending
+
+
+def test_pending_honours_exclude():
+    conn = _pending_conn({'andy_potts': 0, 'ben_ramsey': 0, 'thomas_ellison': 0})
+    pending = pc.pending_user_keys(lambda: conn, _USERS, exclude={'thomas_ellison'})
+    assert 'thomas_ellison' not in pending
+
+
+def test_pending_returns_nothing_when_the_database_is_unreachable():
+    """Emailing nobody is always the safe direction; emailing twice is not."""
+    assert pc.pending_user_keys(lambda: None, _USERS) == []
+
+
+def test_a_completed_campaign_is_a_no_op_on_a_second_run():
+    """Everyone at epoch >= 1 -> nothing sent, nothing changed."""
+    conn = _pending_conn({k: 1 for k in _USERS})
+    sent = []
+    result = pc.run_campaign(
+        lambda: conn, _USERS, lambda *a: sent.append(a) or True,
+        lambda k, t: f'tok-{k}', lambda t: f'u/{t}', _hash,
+    )
+    assert sent == []
+    assert result['emailed'] == []
+    assert result['pending_at_start'] == 0
+
+
+# --- Bounded by wall clock, not row count -----------------------------------
+
+def test_time_budget_stops_the_batch_and_reports_the_remainder():
+    """The COI vision-pass lesson: a row limit does not bound wall time, and
+    anything past gunicorn's 120s gets SIGKILLed mid-flight."""
+    import time as _t
+    conn = _pending_conn({'andy_potts': 0, 'ben_ramsey': 0, 'thomas_ellison': 0})
+
+    def slow(*a):
+        _t.sleep(0.05)
+        return True
+
+    result = pc.run_campaign(
+        lambda: conn, _USERS, slow, lambda k, t: f'tok-{k}', lambda t: f'u/{t}',
+        _hash, time_budget_seconds=0.0,
+    )
+    # Budget already spent before the first send — nothing goes out, all remain.
+    assert result['emailed'] == []
+    assert result['remaining'] == result['pending_at_start'] > 0
 
 
 # --- Email first, invalidate second -----------------------------------------

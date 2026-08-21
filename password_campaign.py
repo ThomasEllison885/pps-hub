@@ -7,21 +7,27 @@ point the shared secret opens *every* account, not just theirs. Removing a
 person from ``USERS`` closes their own login and their live session, but it does
 nothing about a password that still works on everyone else's.
 
-So this runs once, on deploy, and does three things per person:
+It does three things per person:
 
 1. Emails them a password-reset link.
 2. Replaces their password hash with random bytes nobody holds, so the old
    shared password stops working immediately rather than person by person.
 3. Bumps ``password_epoch``, which evicts any session they have open anywhere.
 
-## Two safety properties worth not breaking
+## Three safety properties worth not breaking
 
-**It claims the run atomically, so it cannot fire twice.** Render redeploys on
-every push and gunicorn imports the app in each worker, so "run once on deploy"
-has to mean once *ever*, across processes and across all future deploys — not
-once per boot. The claim is an INSERT ... ON CONFLICT DO NOTHING on a campaign
-id; only the worker whose insert reports a row proceeds. Without this, every
-subsequent push would silently re-randomize everyone's password.
+**It never emails the same person twice.** The set of people still to process is
+derived from ``password_epoch = 0`` rather than from a ledger — see
+``pending_user_keys``. That matters because the first attempt died mid-run
+without leaving one, and a duplicate "set your password" email is both confusing
+and, if it re-randomized an account someone had already fixed, destructive.
+
+**It is bounded by wall clock and never runs at import.** The first attempt
+called this from the bottom of app.py, so gunicorn was still importing the
+module while it worked through thirteen SMTP sends; Render's port scan timed out
+first and the deploy was cancelled with "No open ports detected". It is now a
+manual, owner-only endpoint that processes what it can inside a time budget and
+reports ``remaining``. Same shape as the COI vision pass, for the same reason.
 
 **A failed email never locks anyone out.** The email goes first, and the
 password is only invalidated if it actually sent. If the send fails, that person
@@ -40,56 +46,63 @@ recoverable anyway — Forgot Password issues a fresh one.
 from __future__ import annotations
 
 import secrets
+import time
 
-# Bump this string to run a NEW campaign. Never reuse a spent id, and never
-# edit a spent one in place — the id is the only thing standing between a
-# routine deploy and re-randomizing everyone's password.
+# Labels the run in logs and in the summary email. It is NOT the idempotency
+# guard any more — password_epoch is (see pending_user_keys).
 CAMPAIGN_ID = '2026-08-21-retire-shared-password'
 
 RESET_TTL_HOURS = 72
 
 
-def init_tables(cur):
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS password_campaigns (
-            campaign_id VARCHAR(120) PRIMARY KEY,
-            claimed_at TIMESTAMP DEFAULT NOW(),
-            finished_at TIMESTAMP,
-            result TEXT
-        )
-    ''')
+def pending_user_keys(get_db_fn, users, exclude=()):
+    """Who has NOT been processed yet. The guard against duplicate emails.
 
+    Idempotency is derived from state rather than tracked in a ledger, because
+    the first run (2026-08-21) died mid-flight without leaving one: gunicorn was
+    still importing app.py when Render's port scan timed out, so the deploy was
+    cancelled with an unknown number of people already emailed.
 
-def claim(cur, campaign_id=CAMPAIGN_ID):
-    """True for exactly one caller, ever. False for everyone after.
+    ``password_epoch`` is the marker. The column was added the same day and
+    defaults to 0, and the only things that bump it are this campaign, a
+    password change, and a reset. So epoch = 0 means *nothing has touched this
+    account*, which is exactly the set that still needs an email. Anyone at 1 or
+    above either already got theirs or has since set a password — and must not
+    be mailed again, still less have a working password re-randomized.
 
-    Relies on the primary key, not on a SELECT-then-INSERT, so two workers
-    booting simultaneously cannot both win.
+    Returns [] on any DB failure. Sending nobody an email is always the safe
+    direction here; sending a second one is not.
     """
-    cur.execute(
-        'INSERT INTO password_campaigns (campaign_id) VALUES (%s) '
-        'ON CONFLICT (campaign_id) DO NOTHING',
-        (campaign_id,),
-    )
-    return cur.rowcount == 1
-
-
-def _finish(get_db_fn, campaign_id, result):
+    conn = None
     try:
         conn = get_db_fn()
         if not conn:
-            return
+            return []
+        exclude = set(exclude or ())
+        candidates = [
+            k for k, u in users.items()
+            if k not in exclude and (u.get('email') or '').strip()
+        ]
+        if not candidates:
+            return []
         cur = conn.cursor()
         cur.execute(
-            'UPDATE password_campaigns SET finished_at = NOW(), result = %s '
-            'WHERE campaign_id = %s',
-            (str(result)[:4000], campaign_id),
+            'SELECT user_key FROM hub_users '
+            'WHERE user_key = ANY(%s) AND COALESCE(password_epoch, 0) = 0',
+            (candidates,),
         )
-        conn.commit()
+        pending = {row[0] for row in cur.fetchall()}
         cur.close()
-        conn.close()
+        return [k for k in candidates if k in pending]
     except Exception as e:
-        print(f'password campaign: could not record result ({e})')
+        print(f'password campaign: could not read pending users ({e})')
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def build_email(display_name, reset_url):
@@ -146,24 +159,41 @@ def run_campaign(
     hash_password,
     exclude=(),
     campaign_id=CAMPAIGN_ID,
+    time_budget_seconds=60,
 ):
-    """Email everyone a reset link and retire the shared password.
+    """Email the people who have not been emailed yet, and retire their password.
+
+    Resumable and safe to call repeatedly: it only touches accounts still at
+    ``password_epoch = 0``, so a second call after a complete run does nothing
+    at all, and a call after a partial run finishes exactly the remainder.
+
+    Bounded by wall clock, not row count. This is the repo's hard-won lesson
+    from the COI vision pass (see CLAUDE.md): a row limit does not bound time,
+    and anything slower than gunicorn's 120s timeout gets SIGKILLed mid-flight.
+    Thirteen SMTP sends at up to 30s each is well past that, which is exactly
+    how the first attempt took the whole deploy down. Returns ``remaining`` so
+    the caller can run it again rather than being cut off.
 
     Dependencies are passed in rather than imported so this module stays
-    testable without Flask, Postgres, or SMTP — same convention as the rest of
-    the Hub's non-route modules.
+    testable without Flask, Postgres, or SMTP.
     """
+    started = time.monotonic()
     exclude = set(exclude or ())
-    emailed, email_failed, skipped = [], [], []
+    pending = pending_user_keys(get_db_fn, users, exclude)
+    # Everyone not in play this run: excluded, no inbox, or already processed.
+    skipped = [k for k in users if k not in pending]
+    emailed, email_failed = [], []
+    remaining = 0
 
-    for user_key, user in users.items():
-        if user_key in exclude:
-            skipped.append(user_key)
-            continue
+    for i, user_key in enumerate(pending):
+        # Checked BEFORE starting a send, so a slow one cannot overrun the
+        # budget it was admitted under.
+        if time.monotonic() - started > time_budget_seconds:
+            remaining = len(pending) - i
+            break
+
+        user = users.get(user_key) or {}
         email = (user.get('email') or '').strip()
-        if not email:
-            skipped.append(user_key)
-            continue
 
         # 1. Token + email FIRST. Nothing is invalidated until this succeeds.
         try:
@@ -179,6 +209,8 @@ def run_campaign(
         # 2. Only now retire the old password — and only for people who can
         #    actually get back in. A failed send falls back to forcing a change
         #    at next sign-in, which is weaker but never locks anyone out.
+        #    Either branch bumps password_epoch, so this person drops out of
+        #    pending_user_keys and can never be emailed a second time.
         if _apply(get_db_fn, user_key, hash_password, invalidate=bool(sent)):
             (emailed if sent else email_failed).append(user_key)
         else:
@@ -188,12 +220,14 @@ def run_campaign(
         'campaign_id': campaign_id,
         'emailed': emailed,
         'email_failed': email_failed,
+        'remaining': remaining,
+        'pending_at_start': len(pending),
         'skipped': skipped,
     }
-    _finish(get_db_fn, campaign_id, result)
     if email_failed:
         print(f'password campaign: MANUAL RESET NEEDED for {", ".join(email_failed)}')
-    print(f'password campaign: {len(emailed)} emailed, {len(email_failed)} need attention')
+    print(f'password campaign: {len(emailed)} emailed, {len(email_failed)} need attention, '
+          f'{remaining} still pending')
     return result
 
 

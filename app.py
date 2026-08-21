@@ -8787,33 +8787,24 @@ def _report_password_campaign(result):
         print(f'password campaign report failed: {e}')
 
 
+@app.route('/admin/run-password-campaign', methods=['POST'])
+@require_admin
 def _run_password_campaign():
-    """One-time retirement of the shared password (2026-08-21).
+    """Retire the shared password — owner-only, triggered by hand.
 
-    Deliberately NOT inside _run_db_startup(): that runs at import line ~1281,
-    long before _send_digest_email is defined at ~5334, so calling it there
-    NameErrors and takes the whole app down on boot. It lives at the bottom of
-    the module instead, where everything it needs exists.
+    This ran at import on 2026-08-21 and took the deploy down: gunicorn was
+    still importing app.py while it worked through thirteen synchronous SMTP
+    sends, so Render's port scan gave up first ("No open ports detected") and
+    cancelled the release. Reset emails had already gone out by then, against
+    the shared database, which is why run_campaign is now idempotent per person
+    rather than gated on a single claim — see password_campaign.py.
 
-    Also deliberately not guarded by _db_startup_done — that flag is
-    per-process, so two gunicorn workers would each pass it, and every future
-    deploy would pass it again. The real guard is an atomic claim in Postgres
-    (password_campaign.claim); bumping CAMPAIGN_ID is the only way to re-fire.
+    Never move this back onto the import path. Nothing that talks to SMTP or
+    loops over the roster belongs in module scope; the app has to bind a port
+    first. Safe to POST repeatedly: it only touches accounts still untouched,
+    and stops inside a time budget, reporting how many are left.
     """
     try:
-        conn = get_db()
-        if not conn:
-            print('password campaign: no database, will retry next boot')
-            return
-        cur = conn.cursor()
-        password_campaign.init_tables(cur)
-        claimed = password_campaign.claim(cur)
-        conn.commit()
-        cur.close()
-        conn.close()
-        if not claimed:
-            return
-        print(f'password campaign {password_campaign.CAMPAIGN_ID}: claimed, running')
         result = password_campaign.run_campaign(
             get_db,
             USERS,
@@ -8833,13 +8824,13 @@ def _run_password_campaign():
             exclude=(),
         )
         _report_password_campaign(result)
+        return jsonify(result)
     except Exception as e:
         print(f'password campaign error: {e}')
         import traceback
         traceback.print_exc()
+        return _api_error(e, ok=False)
 
-
-_run_password_campaign()
 
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
