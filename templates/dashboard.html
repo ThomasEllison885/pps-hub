@@ -748,9 +748,14 @@ const recentProposals = [
     document.getElementById('pdRegenerate').style.display = activeProposalLogId ? 'inline-block' : 'none';
     document.getElementById('pdModal').style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,40,80,0.5);z-index:999;align-items:center;justify-content:center;';
   }
+  // recentPPMsById / recentTPSById are built further down, in the same script
+  // block as the arrays they read. They used to live here, which threw
+  // "recentPPMs is not defined" on every dashboard load: recentProposals is
+  // declared in an earlier <script>, but recentPPMs and recentTPS are declared
+  // in the NEXT one, and scripts run in order. The throw killed the rest of
+  // this block, so closePd(), regenerateProposal() and showRecentProposal()
+  // were never defined — the proposal modal had no working close button.
   const recentProposalsById = Object.fromEntries(recentProposals.map(p => [p.logId, p]));
-  const recentPPMsById = Object.fromEntries(recentPPMs.map(p => [p.logId, p]));
-  const recentTPSById = Object.fromEntries(recentTPS.map(s => [s.logId, s]));
 
   function showRecentProposal(item) {
     if (!item) return;
@@ -828,6 +833,9 @@ const recentProposals = [
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
+
+  const recentPPMsById = Object.fromEntries(recentPPMs.map(p => [p.logId, p]));
+  const recentTPSById = Object.fromEntries(recentTPS.map(s => [s.logId, s]));
 
   function openPPMModal(p) {
     if (!p) return;
