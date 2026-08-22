@@ -44,22 +44,14 @@
   .reset-btn:hover{border-color:var(--blue);background:var(--light-bg);}
   .last-login{font-size:12px;color:#aaa;}
 
-  /* Activity tables */
-  .activity-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
-  .act-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;}
-  .act-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
-  .act-card-header h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;}
+  /* Activity feed bits (the per-list card classes went with the three
+     parallel lists they laid out, 2026-08-22) */
   .clear-btn{background:#FEE;color:#C00;border:1px solid #fcc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .clear-btn:hover{background:#fcc;}
-  .act-item{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;margin-bottom:7px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
-  .act-item-content .act-name{font-size:13px;font-weight:600;color:var(--dark-blue);}
-  .act-item-content .act-meta{font-size:11px;color:#888;margin-top:2px;}
-  .act-date{font-size:11px;color:#aaa;white-space:nowrap;flex-shrink:0;}
   .delete-btn{background:transparent;border:none;color:#ccc;cursor:pointer;font-size:14px;padding:0 2px;line-height:1;transition:color 0.2s;flex-shrink:0;}
   .delete-btn:hover{color:#C00;}
   .download-btn{background:var(--light-bg);border:1px solid var(--border);color:var(--dark-blue);border-radius:6px;padding:4px 9px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;flex-shrink:0;transition:all 0.2s;font-family:'DM Sans',sans-serif;}
   .download-btn:hover{border-color:var(--blue);color:var(--blue);background:white;}
-  .act-item-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;}
   .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
 
   /* Feedback unread badge */
@@ -106,16 +98,6 @@
   .search-item-actions{margin-left:auto;display:flex;gap:6px;flex-shrink:0;align-items:center;}
   .search-empty{font-size:13px;color:#bbb;padding:16px 0;text-align:center;}
 
-  /* Breakdown */
-  .breakdown-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:28px;}
-  .breakdown-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;}
-  .breakdown-card h4{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
-  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;}
-  .bar-label{width:110px;flex-shrink:0;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .bar-track{flex:1;height:8px;background:#eef4f9;border-radius:4px;overflow:hidden;}
-  .bar-fill{height:100%;background:linear-gradient(90deg,var(--dark-blue),var(--blue));border-radius:4px;}
-  .bar-count{width:28px;text-align:right;font-weight:600;color:var(--dark-blue);font-size:12px;}
-
   /* Vault */
   .vault-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
   .vault-stat{background:var(--light-bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;text-align:center;}
@@ -123,17 +105,43 @@
   .vault-stat .vlbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
   .vault-del{background:#FEE;color:#C00;border:1px solid #fcc;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .vault-del:hover{background:#fcc;}
-  .alert-banner{border-radius:var(--radius);padding:14px 18px;margin-bottom:20px;font-size:14px;line-height:1.5;}
-  .alert-banner.warn{background:#FFF8E1;border:1.5px solid #FFD54F;color:#E65100;}
-  .alert-banner.error{background:#FFEBEE;border:1.5px solid #EF9A9A;color:#B71C1C;}
-  .health-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px;}
-  .health-item{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;background:var(--light-bg);border-radius:6px;border:1px solid var(--border);}
-  .health-item.ok .health-dot{background:#27ae60;}
-  .health-item.warn .health-dot{background:#E6A817;}
-  .health-item.bad .health-dot{background:#C00000;}
-  .health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-  @media(max-width:900px){.breakdown-grid,.vault-summary,.health-grid{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
-  @media(max-width:600px){.breakdown-grid,.vault-summary,.stats{grid-template-columns:1fr;}}
+
+  /* Tools menu — nine header links collapsed to one (2026-08-22) */
+  .tools-wrap{position:relative;display:inline-block;}
+  .tools-menu{position:absolute;right:0;top:calc(100% + 8px);background:white;border-radius:10px;
+              box-shadow:0 8px 30px rgba(0,40,80,0.22);border:1px solid var(--border);
+              min-width:210px;padding:6px;z-index:200;display:none;}
+  .tools-wrap.open .tools-menu{display:block;}
+  .tools-menu a{display:block;padding:9px 12px;font-size:13.5px;color:var(--dark-blue);
+                text-decoration:none;border-radius:7px;white-space:nowrap;}
+  .tools-menu a:hover{background:var(--light-bg);}
+  .tools-menu .sep{height:1px;background:var(--border);margin:5px 8px;}
+
+  /* Tier badge */
+  .tier-badge{display:inline-block;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;
+              text-transform:capitalize;}
+  .tier-owner{background:#FFF3E0;color:#E65100;border:1px solid #FFB74D;}
+  .tier-leadership{background:#EDE7F6;color:#4527A0;border:1px solid #B39DDB;}
+  .tier-team{background:var(--light-bg);color:var(--dark-blue);border:1px solid var(--border);}
+
+  /* Merged activity feed */
+  .feed{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 22px;margin-bottom:24px;}
+  .feed-head{display:flex;align-items:center;justify-content:space-between;gap:12px;
+             margin-bottom:12px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .feed-head h3{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;}
+  .feed-item{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);
+             border-radius:8px;margin-bottom:7px;background:var(--light-bg);cursor:pointer;}
+  .feed-item:hover{border-color:var(--blue);}
+  .feed-body{min-width:0;flex:1;}
+  .feed-title{font-size:13.5px;font-weight:600;color:var(--dark-blue);}
+  .feed-meta{font-size:11.5px;color:#888;margin-top:2px;}
+  .feed-actions{margin-left:auto;display:flex;gap:6px;align-items:center;flex-shrink:0;
+                align-self:center;min-width:54px;justify-content:flex-end;}
+  .feed-when{font-size:11px;color:#aaa;white-space:nowrap;flex-shrink:0;align-self:center;}
+  .feed-chip.is-on{background:var(--dark-blue);color:white;border-color:var(--dark-blue);}
+  .feed-chip.is-on:hover{background:var(--dark-blue);}
+  @media(max-width:900px){.vault-summary{grid-template-columns:1fr 1fr;}.stats{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:600px){.vault-summary,.stats{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -144,15 +152,30 @@
     <span class="pps-header-title">Admin Panel</span>
   </a>
   <div class="pps-header-right">
+    {# Only the three that carry a number or an alarm stay visible. The rest were
+       nine equally-weighted links, which is a list to read rather than a nav. #}
     <a href="/admin/system-state" class="pps-btn-header">System State</a>
-    <a href="/admin/pricing-defaults" class="pps-btn-header">Estimating Defaults</a>
-    <a href="/clients" class="pps-btn-header">Client Database</a>
-    <a href="#vault" class="pps-btn-header">Vault</a>
-    <a href="/psc-training/oversight" class="pps-btn-header">PSC Training</a>
-    <a href="/admin/site-visits" class="pps-btn-header">Site Visits</a>
-    <a href="/admin/diffs" class="pps-btn-header">Proposal Diffs</a>
     <a href="/admin/feedback" class="pps-btn-header">Feedback {% if unread_feedback > 0 %}<span class="unread-badge">{{ unread_feedback }}</span>{% endif %}</a>
     <a href="/admin/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_pending_cnt is defined and ask_pps_pending_cnt > 0 %} <span class="unread-badge">{{ ask_pps_pending_cnt }}</span>{% endif %}</a>
+    <span class="tools-wrap" id="toolsWrap">
+      <button type="button" class="pps-btn-header" id="toolsBtn" aria-haspopup="true" aria-expanded="false"
+              onclick="toggleTools(event)">Tools ▾</button>
+      <div class="tools-menu" role="menu">
+        <a href="/clients">Client Database</a>
+        <a href="/admin/proposals">All Proposals</a>
+        <a href="/admin/tpscopes">All Trade Partner Scopes</a>
+        <a href="/admin/site-visits">Site Visits</a>
+        <a href="/admin/diffs">Proposal Diffs</a>
+        <div class="sep"></div>
+        <a href="/admin/breakdown">Trade &amp; Template Mix</a>
+        <a href="/admin/pricing-defaults">Estimating Defaults</a>
+        <div class="sep"></div>
+        <a href="/psc-training/oversight">PSC Training</a>
+        <a href="/pm-training/oversight">PM Training</a>
+        <div class="sep"></div>
+        <a href="#vault">Document Vault</a>
+      </div>
+    </span>
     <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
     <a href="/logout" class="pps-btn-header">Sign Out</a>
   </div>
@@ -162,12 +185,10 @@
   <div class="page-title">Team Overview</div>
   <p class="page-sub">Pure Property Solutions · All users and activity</p>
 
-  <div id="healthAlert" class="alert-banner error" style="display:none;">
-    <strong>Environment alignment issue detected.</strong> One or more services are misconfigured — see System Health below.
-  </div>
-  <div id="healthWarn" class="alert-banner warn" style="display:none;">
-    <strong>Temporary service throttle.</strong> A health check hit a rate limit — services should still work. Refresh in a minute if needed.
-  </div>
+  {# System Health moved to /admin/system-state (2026-08-22). It reported on
+     env alignment and cross-service connectivity, which is the same question
+     that page exists to answer — and it sat between the search box and the
+     team table, where nobody was looking for it. #}
 
   <div class="stats">
     <div class="stat">
@@ -175,15 +196,15 @@
       <div class="lbl">Team Members</div>
     </div>
     <a href="/admin/proposals" class="stat stat-link">
-      <div class="num">{{ proposals_30d }} <span class="all-time">/ {{ all_proposals|length }}</span></div>
+      <div class="num">{{ proposals_30d }} <span class="all-time">/ {{ proposals_all }}</span></div>
       <div class="lbl">Proposals <span class="period-note">30d / all</span></div>
     </a>
     <div class="stat">
-      <div class="num">{{ ppms_30d }} <span class="all-time">/ {{ all_ppms|length }}</span></div>
+      <div class="num">{{ ppms_30d }} <span class="all-time">/ {{ ppms_all }}</span></div>
       <div class="lbl">PPMs <span class="period-note">30d / all</span></div>
     </div>
     <a href="/admin/tpscopes" class="stat stat-link">
-      <div class="num">{{ subscopes_30d }} <span class="all-time">/ {{ all_subscopes|length }}</span></div>
+      <div class="num">{{ subscopes_30d }} <span class="all-time">/ {{ subscopes_all }}</span></div>
       <div class="lbl">Trade Partner Scopes <span class="period-note">30d / all</span></div>
     </a>
     <a href="/clients" class="stat stat-link">
@@ -206,56 +227,122 @@
     <div class="search-results" id="searchResults" style="display:none;"></div>
   </div>
 
-  <!-- TRADE & TEMPLATE BREAKDOWN -->
-  <div class="pps-section-head">Trade & Template Breakdown</div>
-  <div class="breakdown-grid">
-    {% macro render_bars(items) %}
-      {% if items %}
-        {% set max_cnt = items[0].cnt %}
-        {% for row in items %}
-        <div class="bar-row">
-          <div class="bar-label" title="{{ row.label }}">{{ row.label }}</div>
-          <div class="bar-track"><div class="bar-fill" style="width:{{ ((row.cnt / max_cnt) * 100)|round|int }}%;"></div></div>
-          <div class="bar-count">{{ row.cnt }}</div>
-        </div>
+  {# Trade & Template Breakdown moved to /admin/breakdown (2026-08-22), and the
+     System Health card to /admin/system-state. Neither changed between two page
+     loads; together they were the whole middle of the page. #}
+
+  <!-- TEAM TABLE -->
+  <div class="pps-section-head">Team Members</div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Role</th><th>Tier</th><th>Last Active</th><th>Password</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        {% set udef = user_definitions.get(u.user_key, {}) %}
+        <tr{% if u.login_locked or u.missing_hub_row %} style="background:{% if u.login_locked %}#fff5f5{% else %}#fffbeb{% endif %};"{% endif %}>
+          <td>
+            <a href="/admin/member/{{ u.user_key }}" class="name-link">{{ u.display_name }}</a>
+            {% if u.login_locked %}
+            <div style="font-size:11px;color:#c00;font-weight:600;margin-top:3px;">
+              🔒 Locked{% if u.login_mins_left %} · ~{{ u.login_mins_left }}m left{% endif %}
+              {% if u.login_failures %} · {{ u.login_failures }} fails{% endif %}
+            </div>
+            {% elif u.missing_hub_row %}
+            <div style="font-size:11px;color:#b45309;font-weight:600;margin-top:3px;">
+              ⚠ No password set — use Reset to activate
+            </div>
+            {% endif %}
+          </td>
+          <td>
+            <span class="role-badge {{ u.role }}">
+              {% if u.role == 'pm' %}PM
+              {% elif u.role == 'office_manager' %}Office Manager
+              {% elif u.role == 'consultant' %}Consultant
+              {% elif u.role == 'admin' %}Admin
+              {% else %}{{ u.role }}{% endif %}
+            </span>
+            {% set udef = user_definitions.get(u.user_key, {}) %}
+            {% if udef.get('title') %}
+            <div style="font-size:11px;color:#aaa;margin-top:3px;">{{ udef.title }}</div>
+            {% endif %}
+          </td>
+          {# Was "Proposal Access" (the field was deleted in the tier rework, so
+             every row read "None") and a "Team View" checkbox posting to
+             /admin/reset-team-view, removed at the same time — it failed
+             silently on click. Tier replaces both: it is what actually decides
+             what a person can see, and it was displayed nowhere. #}
+          <td>
+            <span class="tier-badge tier-{{ u.tier }}">{{ u.tier }}</span>
+          </td>
+          <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
+          <td style="white-space:nowrap;">
+            <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
+            <button class="reset-btn" style="margin-left:6px;background:{% if u.login_locked %}#fee;color:#c00;border-color:#f5c2c2;{% else %}#f0f6fb;color:var(--dark-blue);{% endif %}" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
+          </td>
+        </tr>
         {% endfor %}
-      {% else %}
-        <div class="empty">No data yet</div>
-      {% endif %}
-    {% endmacro %}
-    <div class="breakdown-card">
-      <h4>Proposal Property Types</h4>
-      {{ render_bars(breakdown.get('property_types', [])) }}
-    </div>
-    <div class="breakdown-card">
-      <h4>Proposal Templates</h4>
-      {{ render_bars(breakdown.get('templates', [])) }}
-    </div>
-    <div class="breakdown-card">
-      <h4>PPM Project Types</h4>
-      {{ render_bars(breakdown.get('ppm_types', [])) }}
-    </div>
-    <div class="breakdown-card">
-      <h4>TPS Languages</h4>
-      {{ render_bars(breakdown.get('tps_languages', [])) }}
-    </div>
+      </tbody>
+    </table>
   </div>
 
-  <!-- SYSTEM HEALTH -->
-  <div class="pps-section-head">System Health</div>
-  <div class="card" style="padding:18px 20px;margin-bottom:28px;">
-    <p style="font-size:13px;color:#888;margin-bottom:4px;">Cross-service env alignment — loads in the background so this page opens immediately.</p>
-    <div class="health-grid" id="healthGrid">
-      <div class="health-item" style="grid-column:1/-1;color:#888;font-size:13px;">Checking services…</div>
-    </div>
-    <div style="margin-top:16px;padding-top:14px;border-top:1.5px solid var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:12px;">
-      <div style="flex:1;min-width:200px;">
-        <p style="font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;">Midnight activity digest</p>
-        <p style="font-size:13px;color:#888;line-height:1.5;">Sends yesterday’s team activity to <code>DAILY_DIGEST_EMAIL</code>. Use this if you did not receive the nightly email.</p>
+  <!-- ACTIVITY -->
+  {# One time-ordered feed, replacing three parallel lists of twenty (2026-08-22).
+     Three lists answered "what are the last twenty proposals". The question
+     actually being asked here is "what happened in the Hub this week", which
+     used to mean reading three columns and merging them by eye. #}
+  <div class="feed">
+    <div class="feed-head">
+      <h3>Recent Activity</h3>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span id="feedCount" style="font-size:11px;color:#aaa;"></span>
+        <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
       </div>
-      <button type="button" class="reset-btn" id="digestTestBtn" onclick="sendDigestTest()">Send test digest now</button>
-      <span id="digestTestMsg" style="font-size:13px;color:#666;"></span>
     </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
+      <button class="reset-btn feed-chip is-on" data-kind="all" onclick="filterFeed('all', this)">All</button>
+      <button class="reset-btn feed-chip" data-kind="proposal" onclick="filterFeed('proposal', this)">Proposals</button>
+      <button class="reset-btn feed-chip" data-kind="ppm" onclick="filterFeed('ppm', this)">PPMs</button>
+      <button class="reset-btn feed-chip" data-kind="tps" onclick="filterFeed('tps', this)">TPS</button>
+    </div>
+    <div id="feedList">
+    {% for a in recent_activity %}
+      <div class="feed-item" data-kind="{{ a.kind }}" id="{{ a.kind }}_{{ a.id }}"
+           onclick="openActivityDetail('{{ a.kind }}', {{ a.id }})">
+        <span class="type-badge type-{{ a.kind }}">{{ a.kind if a.kind != 'ppm' else 'PPM' }}</span>
+        <div class="feed-body">
+          <div class="feed-title">{{ a.title }}</div>
+          <div class="feed-meta">
+            {# The arrow only earns its place when credit and book differ — a
+               consultant writing their own proposal was rendering
+               "Rachel Farler → Rachel Farler". #}
+            {{ a.who }}{% if a.context and a.context != a.who %} → {{ a.context }}{% endif %}{% if a.extra %} · {{ a.extra }}{% endif %}
+          </div>
+        </div>
+        <div class="feed-when">{{ a.when.strftime('%b %d') if a.when else '—' }}</div>
+        <div class="feed-actions">
+          {% if a.document_id %}
+          <a href="/api/documents/{{ a.document_id }}/download" class="download-btn"
+             onclick="event.stopPropagation();" title="Download">&#8595;</a>
+          {% endif %}
+          {% if a.kind in ('proposal', 'ppm') %}
+          <button class="delete-btn" title="Delete"
+                  onclick="event.stopPropagation();deleteItem('{{ a.kind }}', {{ a.id }}, '{{ a.user_key }}')">&#10005;</button>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="empty">Nothing logged yet</div>
+    {% endfor %}
+    </div>
+    <p style="font-size:12px;color:#aaa;margin-top:10px;">
+      Newest 30 across proposals, PPMs and trade partner scopes. Full history:
+      <a href="/admin/proposals" style="color:var(--blue);">proposals</a> ·
+      <a href="/admin/tpscopes" style="color:var(--blue);">scopes</a>.
+    </p>
   </div>
 
   <!-- DOCUMENT VAULT -->
@@ -306,140 +393,6 @@
     {% else %}
     <div class="empty">No files in the vault yet. New proposals are stored automatically on generation.</div>
     {% endif %}
-  </div>
-
-  <!-- TEAM TABLE -->
-  <div class="pps-section-head">Team Members</div>
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th><th>Role</th><th>Proposal Access</th><th>Last Active</th><th>Team View</th><th>Password</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for u in users %}
-        {% set udef = user_definitions.get(u.user_key, {}) %}
-        <tr{% if u.login_locked or u.missing_hub_row %} style="background:{% if u.login_locked %}#fff5f5{% else %}#fffbeb{% endif %};"{% endif %}>
-          <td>
-            <a href="/admin/member/{{ u.user_key }}" class="name-link">{{ u.display_name }}</a>
-            {% if u.login_locked %}
-            <div style="font-size:11px;color:#c00;font-weight:600;margin-top:3px;">
-              🔒 Locked{% if u.login_mins_left %} · ~{{ u.login_mins_left }}m left{% endif %}
-              {% if u.login_failures %} · {{ u.login_failures }} fails{% endif %}
-            </div>
-            {% elif u.missing_hub_row %}
-            <div style="font-size:11px;color:#b45309;font-weight:600;margin-top:3px;">
-              ⚠ No password set — use Reset to activate
-            </div>
-            {% endif %}
-          </td>
-          <td>
-            <span class="role-badge {{ u.role }}">
-              {% if u.role == 'pm' %}PM
-              {% elif u.role == 'office_manager' %}Office Manager
-              {% elif u.role == 'consultant' %}Consultant
-              {% elif u.role == 'admin' %}Admin
-              {% else %}{{ u.role }}{% endif %}
-            </span>
-            {% set udef = user_definitions.get(u.user_key, {}) %}
-            {% if udef.get('title') %}
-            <div style="font-size:11px;color:#aaa;margin-top:3px;">{{ udef.title }}</div>
-            {% endif %}
-          </td>
-          <td style="font-size:13px;color:#888;">
-            {% set access = udef.get('proposal_access', []) %}
-            {% if access == 'all' %}All Consultants
-            {% elif access|length == 0 %}None
-            {% else %}{{ access|join(', ')|replace('_',' ')|title }}{% endif %}
-          </td>
-          <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
-          <td>
-            {% set udef = user_definitions.get(u.user_key, {}) %}
-            {% if udef.get('team_view_scope') %}
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
-              <input type="checkbox" {% if udef.get('team_view') %}checked{% endif %}
-                onchange="toggleTeamView('{{ u.user_key }}', this.checked, '{{ udef.get('team_view_scope','') }}')">
-              {{ udef.get('team_view_scope','') }}
-            </label>
-            {% else %}
-            <span style="color:#ddd;font-size:12px;">—</span>
-            {% endif %}
-          </td>
-          <td style="white-space:nowrap;">
-            <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
-            <button class="reset-btn" style="margin-left:6px;background:{% if u.login_locked %}#fee;color:#c00;border-color:#f5c2c2;{% else %}#f0f6fb;color:var(--dark-blue);{% endif %}" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ACTIVITY -->
-  <div class="pps-section-head">Recent Activity</div>
-  <div class="activity-row">
-    <div class="act-card">
-      <div class="act-card-header">
-        <h3>Proposals Generated</h3>
-        <div style="display:flex;gap:6px;">
-          <button class="clear-btn" onclick="clearMyData()">Clear My Test Data</button>
-        </div>
-      </div>
-      {% if all_proposals %}
-      {% for p in all_proposals[:20] %}
-      <div class="act-item" id="proposal_{{ p.id }}" style="cursor:pointer;" onclick="openActivityDetail('proposal', {{ p.id }})">
-        <div class="act-item-content">
-          <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
-          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} → {{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
-        </div>
-        <div class="act-item-actions">
-          {% if p.document_id %}
-          <a href="/api/documents/{{ p.document_id }}/download" class="download-btn" onclick="event.stopPropagation();" title="Download proposal">⬇ Download</a>
-          {% endif %}
-          <button class="delete-btn" onclick="event.stopPropagation();deleteItem('proposal', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
-        </div>
-      </div>
-      {% endfor %}
-      {% else %}<div class="empty">No proposals logged yet</div>{% endif %}
-    </div>
-
-    <div class="act-card">
-      <div class="act-card-header">
-        <h3>PPMs Generated</h3>
-      </div>
-      {% if all_ppms %}
-      {% for p in all_ppms[:20] %}
-      <div class="act-item" id="ppm_{{ p.id }}" style="cursor:pointer;" onclick="openActivityDetail('ppm', {{ p.id }})">
-        <div class="act-item-content">
-          <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
-          <div class="act-meta">{{ p.generated_by.replace('_',' ').title() }} · {{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d') if p.generated_at else '' }}</div>
-        </div>
-        <button class="delete-btn" onclick="event.stopPropagation();deleteItem('ppm', {{ p.id }}, '{{ p.generated_by }}')" title="Delete">✕</button>
-      </div>
-      {% endfor %}
-      {% else %}<div class="empty">No PPMs logged yet</div>{% endif %}
-    </div>
-  </div>
-
-  <!-- TRADE PARTNER SCOPES -->
-  <div class="activity-row" style="margin-top:0;">
-    <div class="act-card">
-      <div class="act-card-header">
-        <h3>Recent Trade Partner Scopes</h3>
-      </div>
-      {% if all_subscopes %}
-      {% for s in all_subscopes[:20] %}
-      <div class="act-item" style="cursor:pointer;" onclick="openActivityDetail('tps', {{ s.id }})">
-        <div class="act-item-content">
-          <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
-          <div class="act-meta">{{ s.generated_by.replace('_',' ').title() }} · {{ s.consultant_name or '' }} · {{ s.language|title if s.language else '' }}{% if s.po_number %} · PO {{ s.po_number }}{% endif %} · {{ s.generated_at.strftime('%b %d') if s.generated_at else '' }}</div>
-        </div>
-      </div>
-      {% endfor %}
-      {% else %}<div class="empty">No Trade Partner Scopes logged yet</div>{% endif %}
-    </div>
-    <div class="act-card" style="visibility:hidden;"></div>
   </div>
 
   <div class="pps-footer">
@@ -495,64 +448,48 @@
 </div>
 
 <script>
-  async function loadSystemHealth() {
-    const grid = document.getElementById('healthGrid');
-    const alert = document.getElementById('healthAlert');
-    const warn = document.getElementById('healthWarn');
-    if (!grid) return;
-    try {
-      const resp = await fetch('/admin/system-health', { credentials: 'same-origin' });
-      const data = await resp.json();
-      const checks = data.checks || [];
-      if (!checks.length) {
-        grid.innerHTML = '<div class="health-item" style="grid-column:1/-1;color:#888;">No health data returned.</div>';
-        return;
-      }
-      grid.innerHTML = checks.map(c => {
-        const cls = c.ok ? 'ok' : (c.transient ? 'warn' : 'bad');
-        const name = (c.name || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
-        let extra = '';
-        if (!c.ok && c.error) extra = ': ' + c.error;
-        else if (c.detail) extra = ': ' + c.detail;
-        return `<div class="health-item ${cls}"><span class="health-dot"></span><span>${name}${extra}</span></div>`;
-      }).join('');
-      const hasTransient = checks.some(c => c.transient && !c.ok);
-      const hasConfigIssue = checks.some(c => !c.ok && !c.transient);
-      if (warn && hasTransient && !hasConfigIssue) warn.style.display = 'block';
-      if (alert && hasConfigIssue) alert.style.display = 'block';
-    } catch (e) {
-      grid.innerHTML = '<div class="health-item bad" style="grid-column:1/-1;"><span class="health-dot"></span><span>Could not load system health</span></div>';
-    }
-  }
-  async function sendDigestTest() {
-    const btn = document.getElementById('digestTestBtn');
-    const msg = document.getElementById('digestTestMsg');
-    if (!btn || !msg) return;
-    btn.disabled = true;
-    msg.textContent = 'Sending…';
-    msg.style.color = '#666';
-    try {
-      const resp = await fetch('/admin/daily-digest-test', { method: 'POST', credentials: 'same-origin' });
-      const data = await resp.json().catch(() => ({}));
-      if (resp.ok && data.sent) {
-        msg.textContent = `Sent (${data.item_count || 0} items for ${data.report_date || 'yesterday'}). Check your inbox.`;
-        msg.style.color = '#1E8449';
-        loadSystemHealth();
-      } else if (data.skipped) {
-        msg.textContent = 'Skipped: ' + (data.reason || 'unknown');
-        msg.style.color = '#E6A817';
-      } else {
-        msg.textContent = data.warning || data.error || 'Send failed — see System Health above.';
-        msg.style.color = '#C00000';
-      }
-    } catch (e) {
-      msg.textContent = 'Request failed. Try again.';
-      msg.style.color = '#C00000';
-    }
-    btn.disabled = false;
-  }
+  // loadSystemHealth() and sendDigestTest() moved to admin_system_state.html
+  // (2026-08-22) along with the card they drove.
 
-  loadSystemHealth();
+  // Tools menu. Click-outside and Escape both close it; no dialogs anywhere,
+  // because a modal here would block the extension mid-session.
+  function toggleTools(ev) {
+    ev.stopPropagation();
+    const wrap = document.getElementById('toolsWrap');
+    const open = wrap.classList.toggle('open');
+    document.getElementById('toolsBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  document.addEventListener('click', function (ev) {
+    const wrap = document.getElementById('toolsWrap');
+    if (!wrap || !wrap.classList.contains('open')) return;
+    if (wrap.contains(ev.target)) return;
+    wrap.classList.remove('open');
+    document.getElementById('toolsBtn').setAttribute('aria-expanded', 'false');
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Escape') return;
+    const wrap = document.getElementById('toolsWrap');
+    if (wrap) {
+      wrap.classList.remove('open');
+      const btn = document.getElementById('toolsBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // Feed filter. Filters what is already rendered — no refetch, so it stays
+  // instant and cannot leave the page showing a stale mix on a failed request.
+  function filterFeed(kind, btn) {
+    document.querySelectorAll('.feed-chip').forEach(c => c.classList.remove('is-on'));
+    if (btn) btn.classList.add('is-on');
+    let shown = 0;
+    document.querySelectorAll('#feedList .feed-item').forEach(item => {
+      const match = (kind === 'all' || item.dataset.kind === kind);
+      item.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    const count = document.getElementById('feedCount');
+    if (count) count.textContent = (kind === 'all') ? '' : shown + ' shown';
+  }
 
   let activeUserKey = null;
 
@@ -738,15 +675,10 @@
 
   function closeAdminMeta() { document.getElementById('adminMetaModal').style.display='none'; }
 
-  async function toggleTeamView(userKey, enabled, scope) {
-    const fd = new FormData();
-    fd.append('user_key', userKey);
-    fd.append('enabled', enabled.toString());
-    fd.append('scope', scope);
-    const r = await fetch('/admin/reset-team-view', {method:'POST', body:fd});
-    const d = await r.json();
-    if (!d.success) alert('Failed to update: ' + (d.error||'unknown error'));
-  }
+  // toggleTeamView() removed 2026-08-22 with the control that called it. It
+  // POSTed to /admin/reset-team-view, deleted in the tier rework, so every
+  // click hit a 404 and then threw on r.json() — silently, because the throw
+  // happened before the alert that would have reported it.
 
   async function clearMyData() {
     if (!confirm('Clear all your test proposals and PPMs? This cannot be undone.')) return;

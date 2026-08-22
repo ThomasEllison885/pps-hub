@@ -130,6 +130,62 @@ def is_login_locked(get_db, user_key):
         return False, 0, None
 
 
+def login_lock_map(get_db):
+    """Lockout state for everyone with recent failures, in one query.
+
+    ``is_login_locked`` opens its own Postgres connection. The Admin page called
+    it once per person inside a loop, so rendering a thirteen-person roster
+    opened fourteen connections and paid fourteen TLS handshakes before the page
+    could return — on a page whose only job is to show a table.
+
+    Returns ``{user_key: (locked, failures, minutes_left)}`` containing only
+    people who have failed a sign-in inside the lockout window. Callers must
+    treat a missing key as "not locked" — that is the overwhelmingly common case
+    and storing a row for it would make the map thirteen entries of nothing.
+
+    Returns ``{}`` when the database is unreachable, which reads downstream as
+    "nobody is locked out". That is the same answer ``is_login_locked`` already
+    gives on error, and it is the right failure direction here: a status column
+    that wrongly says "locked" would send Thomas chasing a problem that does not
+    exist, while a missed lock costs at most one confused message.
+    """
+    out = {}
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return out
+        cur = conn.cursor()
+        cur.execute(
+            '''SELECT user_key, COUNT(*),
+                      EXTRACT(EPOCH FROM (MAX(attempted_at)
+                              + make_interval(mins => %s) - NOW())) / 60.0
+               FROM login_attempts
+               WHERE success = FALSE
+                 AND attempted_at > NOW() - make_interval(mins => %s)
+               GROUP BY user_key''',
+            (LOGIN_LOCKOUT_MINUTES, LOGIN_LOCKOUT_MINUTES),
+        )
+        for user_key, count, mins in cur.fetchall():
+            count = int(count or 0)
+            locked = count >= MAX_LOGIN_FAILURES
+            mins_left = None
+            if locked and mins is not None:
+                mins_left = max(1, int(float(mins) + 0.999))
+            out[user_key] = (locked, count, mins_left)
+        cur.close()
+    except Exception as e:
+        print(f'login lock map error: {e}')
+        return {}
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return out
+
+
 def generate_sso_code(get_db, user_key, display_name, role):
     code = secrets.token_urlsafe(32)
     try:

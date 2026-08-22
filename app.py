@@ -16,6 +16,7 @@ import estimate_assignments
 import weekly_recap
 import password_campaign
 import system_state
+from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -35,7 +36,8 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from auth_helpers import (
     HUB_PUBLIC_URL, PROPOSAL_URL, LOGIN_LOCKOUT_MINUTES, MAX_LOGIN_FAILURES,
-    safe_next_url, client_ip, record_login_attempt, is_login_locked, clear_login_failures,
+    safe_next_url, client_ip, record_login_attempt, is_login_locked, login_lock_map,
+    clear_login_failures,
     generate_sso_code, exchange_sso_code,
     create_password_reset_token, peek_password_reset_token,
     consume_password_reset_token, reset_url_for_token,
@@ -4841,7 +4843,6 @@ def admin():
     unread_feedback, _ = _admin_inbox_counts()
     client_count = 0
     proposals_30d = ppms_30d = subscopes_30d = 0
-    breakdown = {}
     vault = {
         'files': [], 'file_count': 0, 'total_bytes': 0,
         'proposals_with_file': 0, 'proposals_total': 0,
@@ -4852,7 +4853,7 @@ def admin():
         'storage_limit_mb': int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024)),
         'storage_remaining_mb': int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024)),
     }
-    system_health = {'ok': False, 'checks': []}
+    proposals_all = ppms_all = subscopes_all = 0
     ask_pps_pending_cnt = 0
     try:
         conn = get_db()
@@ -4872,7 +4873,16 @@ def admin():
             ppms_30d = cur.fetchone()['c'] or 0
             cur.execute("SELECT COUNT(*) AS c FROM subscope_log WHERE generated_at >= NOW() - INTERVAL '30 days'")
             subscopes_30d = cur.fetchone()['c'] or 0
-            breakdown = _fetch_admin_breakdown(cur)
+            # The all-time half of each tile was `all_proposals|length` — the
+            # length of a `LIMIT 50` result set. It read "30d / all" and stopped
+            # counting at 50, so the day the Hub passed fifty proposals the tile
+            # started under-reporting and never said so.
+            cur.execute('SELECT COUNT(*) AS c FROM proposal_log')
+            proposals_all = cur.fetchone()['c'] or 0
+            cur.execute('SELECT COUNT(*) AS c FROM ppm_log')
+            ppms_all = cur.fetchone()['c'] or 0
+            cur.execute('SELECT COUNT(*) AS c FROM subscope_log')
+            subscopes_all = cur.fetchone()['c'] or 0
             vault = _fetch_vault_summary(cur)
             try:
                 cur.execute('SELECT COUNT(*) as cnt FROM clients')
@@ -4892,18 +4902,19 @@ def admin():
         print(f"Admin error: {e}")
 
     # Annotate lockouts so admin can unlock stuck teammates at a glance.
+    #
+    # One query for the whole roster. This was `is_login_locked(get_db, key)`
+    # inside the loop, and again in the loop below — each call opens its own
+    # Postgres connection, so a thirteen-person roster opened fourteen and paid
+    # fourteen TLS handshakes before the table could render.
+    locks = login_lock_map(get_db)
     annotated = []
     for row in rows:
         item = dict(row)
-        try:
-            locked, fails, mins = is_login_locked(get_db, item.get('user_key'))
-            item['login_locked'] = locked
-            item['login_failures'] = fails
-            item['login_mins_left'] = mins
-        except Exception:
-            item['login_locked'] = False
-            item['login_failures'] = 0
-            item['login_mins_left'] = None
+        locked, fails, mins = locks.get(item.get('user_key'), (False, 0, None))
+        item['login_locked'] = locked
+        item['login_failures'] = fails
+        item['login_mins_left'] = mins
         item['missing_hub_row'] = False
         annotated.append(item)
     rows = annotated
@@ -4913,7 +4924,7 @@ def admin():
     for key, udef in USERS.items():
         if key in present:
             continue
-        locked, fails, mins = is_login_locked(get_db, key)
+        locked, fails, mins = locks.get(key, (False, 0, None))
         rows.append({
             'user_key': key,
             'display_name': udef.get('display', key),
@@ -4925,16 +4936,57 @@ def admin():
             'login_failures': fails,
             'login_mins_left': mins,
         })
+
+    # Tier is what actually governs access since the 2026-08-21 rework, and it
+    # was displayed nowhere. Read it here rather than in the template so the
+    # template does not need to know tiers.py exists.
+    for row in rows:
+        row['tier'] = user_tier(row.get('user_key'))
+
     rows = sorted(rows, key=lambda r: (r.get('display_name') or '').lower())
 
-    return render_template('admin.html', users=rows, all_proposals=all_proposals,
-                           all_ppms=all_ppms, all_subscopes=all_subscopes,
+    recent_activity = merge_activity(all_proposals, all_ppms, all_subscopes, limit=30)
+
+    return render_template('admin.html', users=rows,
+                           recent_activity=recent_activity,
                            unread_feedback=unread_feedback,
                            ask_pps_pending_cnt=ask_pps_pending_cnt,
                            client_count=client_count,
-                           proposals_30d=proposals_30d, ppms_30d=ppms_30d, subscopes_30d=subscopes_30d,
-                           breakdown=breakdown, vault=vault,
+                           proposals_30d=proposals_30d, ppms_30d=ppms_30d,
+                           subscopes_30d=subscopes_30d,
+                           proposals_all=proposals_all, ppms_all=ppms_all,
+                           subscopes_all=subscopes_all,
+                           vault=vault,
                            user_definitions=USERS)
+
+
+@app.route('/admin/breakdown')
+@require_admin
+def admin_breakdown():
+    """Trade and template mix. Lifted off /admin 2026-08-22.
+
+    Four bar charts of all-time proportions is reference material, not something
+    that changes between two page loads — it was occupying the middle of the
+    page Thomas opens to check on people and unlock accounts. Same query, same
+    charts, its own address.
+    """
+    breakdown = {}
+    conn = None
+    try:
+        conn = get_db()
+        if conn:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            breakdown = _fetch_admin_breakdown(cur)
+            cur.close()
+    except Exception as e:
+        print(f'Admin breakdown error: {e}')
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return render_template('admin_breakdown.html', breakdown=breakdown)
 
 
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])

@@ -39,6 +39,16 @@
        padding:1px 6px;border-radius:4px;color:var(--dark-blue);}
   .scroller{overflow-x:auto;}
   .note{font-size:12.5px;color:#8a94a0;margin-top:12px;line-height:1.55;}
+  .health-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px;}
+  .health-item{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;
+               background:var(--light-bg);border-radius:6px;border:1px solid var(--border);}
+  .health-item.ok .health-dot{background:var(--ok);}
+  .health-item.warn .health-dot{background:#E6A817;}
+  .health-item.bad .health-dot{background:var(--bad);}
+  .health-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .alert-banner{border-radius:var(--radius);padding:14px 18px;margin-bottom:20px;font-size:14px;line-height:1.5;}
+  .alert-banner.warn{background:#FFF8E1;border:1.5px solid #FFD54F;color:#E65100;}
+  .alert-banner.error{background:#FFEBEE;border:1.5px solid #EF9A9A;color:#B71C1C;}
   .actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;}
   .btn{border:1.5px solid var(--border);background:white;color:var(--dark-blue);border-radius:8px;
        padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
@@ -66,6 +76,15 @@
     What the Hub is running, where everyone stands, and whether the scheduled
     jobs actually fired. Owner only.
   </p>
+
+  <div id="healthAlert" class="alert-banner error" style="display:none;">
+    <strong>Environment alignment issue detected.</strong> One or more services
+    are misconfigured — see Environment checks below.
+  </div>
+  <div id="healthWarn" class="alert-banner warn" style="display:none;">
+    <strong>Temporary service throttle.</strong> A health check hit a rate limit —
+    services should still work. Refresh in a minute if needed.
+  </div>
 
   <div class="tiles">
     <div class="tile"><div class="n">{{ summary.pw_set }}/{{ summary.total }}</div>
@@ -117,6 +136,18 @@
       which is exactly the question that cost time on 2026-08-21.
     </p>
     {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Environment checks</h2>
+    <p class="note" style="margin-top:0;margin-bottom:4px;">
+      Cross-service env alignment. Moved here from the Admin page on 2026-08-22 —
+      it answers the same question this page exists to answer, and loads in the
+      background so nothing blocks on outbound HTTP.
+    </p>
+    <div class="health-grid" id="healthGrid">
+      <div class="health-item" style="grid-column:1/-1;color:#888;font-size:13px;">Checking services…</div>
+    </div>
   </div>
 
   <div class="card">
@@ -208,6 +239,39 @@
 </div>
 
 <script>
+  async function loadSystemHealth() {
+    const grid = document.getElementById('healthGrid');
+    const alertBox = document.getElementById('healthAlert');
+    const warnBox = document.getElementById('healthWarn');
+    if (!grid) return;
+    try {
+      const resp = await fetch('/admin/system-health', { credentials: 'same-origin' });
+      const data = await resp.json();
+      const checks = data.checks || [];
+      if (!checks.length) {
+        grid.innerHTML = '<div class="health-item" style="grid-column:1/-1;color:#888;">No health data returned.</div>';
+        return;
+      }
+      grid.innerHTML = checks.map(c => {
+        const cls = c.ok ? 'ok' : (c.transient ? 'warn' : 'bad');
+        const name = (c.name || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+        let extra = '';
+        if (!c.ok && c.error) extra = ': ' + c.error;
+        else if (c.detail) extra = ': ' + c.detail;
+        return `<div class="health-item ${cls}"><span class="health-dot"></span><span>${name}${extra}</span></div>`;
+      }).join('');
+      // A rate-limited check is not a misconfiguration. Showing the red banner
+      // for one sent Thomas looking for a broken env var that was fine.
+      const hasTransient = checks.some(c => c.transient && !c.ok);
+      const hasConfigIssue = checks.some(c => !c.ok && !c.transient);
+      if (warnBox) warnBox.style.display = (hasTransient && !hasConfigIssue) ? 'block' : 'none';
+      if (alertBox) alertBox.style.display = hasConfigIssue ? 'block' : 'none';
+    } catch (e) {
+      grid.innerHTML = '<div class="health-item bad" style="grid-column:1/-1;"><span class="health-dot"></span><span>Could not load system health</span></div>';
+    }
+  }
+  loadSystemHealth();
+
   async function run(url, btn) {
     const out = document.getElementById('out');
     const label = btn.textContent;

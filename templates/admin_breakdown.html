@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Trade &amp; Template Mix</title>
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;
+        --shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .main{max-width:900px;margin:0 auto;padding:32px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:26px;max-width:68ch;line-height:1.55;}
+  .breakdown-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+  .breakdown-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;}
+  .breakdown-card h4{font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;
+                     letter-spacing:0.08em;margin-bottom:14px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;}
+  .bar-label{width:120px;flex-shrink:0;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .bar-track{flex:1;height:8px;background:#eef4f9;border-radius:4px;overflow:hidden;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--dark-blue),var(--blue));border-radius:4px;}
+  .bar-count{width:34px;text-align:right;font-weight:600;color:var(--dark-blue);font-size:12px;
+             font-variant-numeric:tabular-nums;}
+  .empty{color:#bbb;font-size:13px;padding:12px 0;text-align:center;}
+  .note{font-size:12.5px;color:#98a2ad;margin-top:18px;line-height:1.6;}
+  @media(max-width:760px){.breakdown-grid{grid-template-columns:1fr;}.main{padding:24px 14px 44px;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Trade &amp; Template Mix</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Trade &amp; Template Mix</div>
+  <p class="page-sub">
+    All-time proportions across every proposal, PPM and trade partner scope in
+    the Hub. Counts are of logged records, so anything generated outside the Hub
+    is not represented here.
+  </p>
+
+  <div class="breakdown-grid">
+    {% macro render_bars(items) %}
+      {% if items %}
+        {% set max_cnt = items[0].cnt %}
+        {% for row in items %}
+        <div class="bar-row">
+          <div class="bar-label" title="{{ row.label }}">{{ row.label }}</div>
+          <div class="bar-track">
+            {# max_cnt comes off an ORDER BY cnt DESC, so it is the largest and
+               never zero when items is non-empty — but guard anyway rather than
+               divide by zero on an empty-string label group. #}
+            <div class="bar-fill" style="width:{{ ((row.cnt / max_cnt) * 100)|round|int if max_cnt else 0 }}%;"></div>
+          </div>
+          <div class="bar-count">{{ row.cnt }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty">No data yet</div>
+      {% endif %}
+    {% endmacro %}
+    <div class="breakdown-card">
+      <h4>Proposal Property Types</h4>
+      {{ render_bars(breakdown.get('property_types', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>Proposal Templates</h4>
+      {{ render_bars(breakdown.get('templates', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>PPM Project Types</h4>
+      {{ render_bars(breakdown.get('ppm_types', [])) }}
+    </div>
+    <div class="breakdown-card">
+      <h4>TPS Languages</h4>
+      {{ render_bars(breakdown.get('tps_languages', [])) }}
+    </div>
+  </div>
+
+  <p class="note">
+    Top 14 per category. Moved off the Admin page on 2026-08-22 — it sat between
+    the search box and the team table without changing between page loads.
+  </p>
+</div>
+</body>
+</html>
