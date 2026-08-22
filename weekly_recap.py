@@ -167,6 +167,81 @@ def week_label(start):
     return f'{start.strftime("%b %-d")} – {end_day.strftime("%b %-d")}'
 
 
+# ── Send-once guard ─────────────────────────────────────────────────────────
+#
+# `cron_weekly_recap.py` retries a failed POST three times. Sending thirteen
+# emails can outlast gunicorn's 120s worker timeout, so the server can finish
+# sending and *then* have the connection killed — the client sees a failure and
+# retries, and everyone gets the recap again. That is not hypothetical: it is
+# what happened on 2026-08-22.
+#
+# A retry has to be safe, so the send is recorded per week and refused if that
+# week has already gone out. Same shape as daily_digest's `daily_digest_sent`
+# marker. `force` still overrides, for a deliberate re-send.
+
+SENT_KEY = 'weekly_recap_last_sent_week'
+
+
+def already_sent_for(get_db_fn, week_start):
+    """True when this week's recap has already gone out. False on any DB error —
+    a broken read must not silently block the real Monday send."""
+    conn = None
+    try:
+        conn = get_db_fn()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute('SELECT value FROM hub_settings WHERE key = %s', (SENT_KEY,))
+        row = cur.fetchone()
+        cur.close()
+        if not row or not row[0]:
+            return False
+        value = row[0]
+        if isinstance(value, str):
+            import json as _json
+            try:
+                value = _json.loads(value)
+            except (TypeError, ValueError):
+                return False
+        return (value or {}).get('week') == week_start.date().isoformat()
+    except Exception as e:
+        print(f'weekly recap sent-check failed: {e}')
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def mark_sent(get_db_fn, week_start):
+    import json
+    conn = None
+    try:
+        conn = get_db_fn()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute(
+            '''INSERT INTO hub_settings (key, value, updated_at, updated_by)
+               VALUES (%s, %s::jsonb, NOW(), 'cron')
+               ON CONFLICT (key) DO UPDATE
+               SET value = EXCLUDED.value, updated_at = NOW(), updated_by = 'cron' ''',
+            (SENT_KEY, json.dumps({'week': week_start.date().isoformat()})),
+        )
+        conn.commit()
+        cur.close()
+    except Exception as e:
+        print(f'weekly recap mark-sent failed: {e}')
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 # ── Scoring ─────────────────────────────────────────────────────────────────
 
 def collect_scores(get_db, users, start, end):
@@ -513,6 +588,13 @@ def run_weekly_recap(get_db, users, send_email_fn, force=False, today=None, now=
         return {'skipped': True, 'reason': 'not_scheduled'}
 
     start, end = last_week_bounds(today)
+    if not force and already_sent_for(get_db, start):
+        return {'skipped': True, 'reason': 'already_sent', 'week_label': week_label(start)}
+    # Marked BEFORE the sending loop, not after. A retry is triggered by the
+    # first attempt failing *late* — often after the emails already went — so a
+    # marker written at the end would never be reached in exactly the case it
+    # needs to guard.
+    mark_sent(get_db, start)
     roll_start, roll_end = rolling_bounds(today)
     exclude = _excluded_keys()
     scores = collect_scores(get_db, users, start, end)

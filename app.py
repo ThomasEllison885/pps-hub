@@ -5079,9 +5079,18 @@ def admin_weekly_recap_test():
     /admin/daily-digest-test.
     """
     try:
-        start, _end = weekly_recap.last_week_bounds()
-        scores = weekly_recap.collect_scores(get_db, USERS, *weekly_recap.last_week_bounds())
-        groups = weekly_recap.build_groups(USERS, scores, weekly_recap._excluded_keys())
+        start, end = weekly_recap.last_week_bounds()
+        roll_start, roll_end = weekly_recap.rolling_bounds()
+        scores = weekly_recap.collect_scores(get_db, USERS, start, end)
+        # The rolling pass was missing here, so build_groups fell back to
+        # rolling=None and every 12-week figure rendered as 0 — lower than the
+        # week beside it, which is impossible since the week is inside the
+        # rolling window. The cron path always passed it; only this preview
+        # did not, which is precisely the path used to check the format.
+        rolling = weekly_recap.collect_scores(get_db, USERS, roll_start, roll_end)
+        groups = weekly_recap.build_groups(
+            USERS, scores, weekly_recap._excluded_keys(), rolling,
+        )
         subject, text_body, html_body = weekly_recap.build_recap_email(
             groups, start, session.get('user_key'), USERS,
         )

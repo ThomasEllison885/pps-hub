@@ -167,6 +167,17 @@ def test_rolling_total_rides_alongside_without_changing_the_ranking():
     assert rows['andy_potts']['rolling'] == 6
 
 
+def test_rolling_can_never_be_lower_than_the_week_it_contains():
+    """The week sits inside the 12-week window, so rolling < weekly is
+    impossible with real data — it only happens when a caller forgets to pass
+    the rolling scores, which is exactly what the admin preview did."""
+    week = {'andy_potts': {'proposal': 5}}
+    rolling = {'andy_potts': {'proposal': 5}}       # same week, nothing older
+    groups = wr.build_groups(_USERS, week, rolling=rolling)
+    row = [r for g in groups for r in g['rows'] if r['user_key'] == 'andy_potts'][0]
+    assert row['rolling'] >= row['total']
+
+
 def test_rolling_defaults_to_zero_when_not_supplied():
     groups = wr.build_groups(_USERS, {'andy_potts': {'proposal': 1}})
     rows = {r['user_key']: r for g in groups for r in g['rows']}
@@ -352,6 +363,38 @@ def test_run_weekly_recap_reports_send_failures_rather_than_raising():
     )
     assert result['sent'] == []
     assert set(result['failed']) == set(_USERS)
+
+
+def test_a_retry_does_not_send_the_recap_twice():
+    """cron_weekly_recap.py retries three times. Sending thirteen emails can
+    outlast gunicorn's timeout, so the server can finish sending and then have
+    the connection killed — the retry would send to everyone again."""
+    sent = []
+    marked = {}
+
+    class C:
+        def cursor(s, *a, **k): return s
+        def execute(s, sql, args=None):
+            q = ' '.join(sql.split())
+            if 'SELECT value FROM hub_settings' in q:
+                s._row = (marked.get('v'),)
+            elif 'INSERT INTO hub_settings' in q:
+                import json as _j
+                marked['v'] = _j.loads(args[1])
+                s._row = None
+            else:
+                s._row = None
+        def fetchone(s): return getattr(s, '_row', None)
+        def fetchall(s): return []
+        def close(s): pass
+        def commit(s): pass
+        def rollback(s): pass
+
+    monday = datetime(2026, 8, 24, 7, 0, tzinfo=wr.ET)
+    for _attempt in range(3):
+        wr.run_weekly_recap(lambda: C(), _USERS,
+                            lambda *a: sent.append(a) or True, now=monday)
+    assert len(sent) == len(_USERS), 'only the first attempt should have sent'
 
 
 def test_trigger_run_on_a_normal_day_sends_nothing():
