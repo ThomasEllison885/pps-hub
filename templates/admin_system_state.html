@@ -106,8 +106,8 @@
       {% endfor %}
     </div>
     <p class="note">
-      Both were passwords that opened every account. They were retired 2026-08-21
-      and the code ignores them; this row exists so a reappearance is loud.
+      <code>DEFAULT_PASSWORD</code> used to seed every new account with the shared
+      login. The code ignores it; this row exists so a reappearance is loud.
     </p>
     {% endif %}
     {% if not service.commit %}
@@ -171,16 +171,12 @@
             <td class="name">{{ j.label }}</td>
             <td class="muted">{{ j.schedule }}</td>
             <td>
-              {% if j.last_run %}{{ j.last_run.strftime('%b %d, %-I:%M%p') }}
+              {% if j.last_run_label %}{{ j.last_run_label }}
               {% else %}<span class="pill pill-warn">no run recorded</span>{% endif %}
             </td>
             <td class="muted" style="font-size:12.5px;">
-              {% if j.detail %}
-                {% if j.detail.get('skipped') %}skipped — {{ j.detail.get('reason','') }}
-                {% elif j.detail.get('error') %}<span class="pill pill-bad">error</span>
-                {% elif j.detail.get('sent') is not none %}sent {{ j.detail.get('sent') }}
-                {% endif %}
-                {% if j.detail.get('failed') %} · {{ j.detail.get('failed') }} failed{% endif %}
+              {% if j.detail_label == 'error' %}<span class="pill pill-bad">error</span>
+              {% elif j.detail_label %}{{ j.detail_label }}
               {% endif %}
             </td>
           </tr>

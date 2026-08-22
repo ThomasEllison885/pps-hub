@@ -27,8 +27,6 @@ services:
         sync: false
       - key: RESEND_FROM
         sync: false
-      - key: MASTER_PASSWORD
-        sync: false
       - key: CLAUDE_API_KEY
         sync: false
       - key: VAULT_STORAGE_LIMIT_MB

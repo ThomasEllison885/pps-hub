@@ -77,8 +77,6 @@ if not INTERNAL_API_KEY:
         'WARNING: INTERNAL_API_KEY is not set — proposal SSO and internal APIs '
         'will not work until you add the same key on hub and proposal services.'
     )
-MASTER_PASSWORD = os.environ.get('MASTER_PASSWORD', '').strip()
-
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB per file
 VAULT_STORAGE_LIMIT_BYTES = int(os.environ.get('VAULT_STORAGE_LIMIT_MB', '512')) * 1024 * 1024
@@ -3524,19 +3522,6 @@ def login():
     # Always verify credentials first. A correct password must work even during
     # a temporary lockout (lockout only blocks guessing, not real sign-in).
     try:
-        # Optional break-glass master password (env only, disabled when unset)
-        if MASTER_PASSWORD and password == MASTER_PASSWORD:
-            user = USERS.get(user_key)
-            if user:
-                session['role'] = 'admin'
-                session['admin'] = True
-                session['proposal_access'] = list(CONSULTANTS.keys())
-                _establish_session(user_key, user)
-                record_login_attempt(get_db, user_key, True, ip)
-                clear_login_failures(get_db, user_key)
-                _update_last_login(user_key)
-                return _post_login_redirect()
-
         conn = get_db()
         if not conn:
             return _login_redirect_with_error(
@@ -8893,9 +8878,7 @@ def _run_password_campaign():
             # to retire. He is not exposed to a lockout by this: run_campaign
             # only invalidates a password after its reset email actually sends,
             # so a mail failure leaves him on his current password rather than
-            # stranding him. MASTER_PASSWORD stays set on Render until he has
-            # confirmed he is back in — that is the break-glass for this
-            # window, and it should come off straight afterwards.
+            # stranding him.
             exclude=(),
         )
         _report_password_campaign(result)

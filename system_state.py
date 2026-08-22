@@ -34,8 +34,20 @@ page that 500s when something is wrong is worse than no status page.
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+ET = ZoneInfo('America/New_York')
+
+# Result keys copied into the last-run payload. Lists become counts.
+_DETAIL_KEYS = (
+    'skipped', 'reason', 'sent', 'failed', 'email_failed',
+    'remaining', 'total_actions', 'error', 'week_label',
+    'assignment_emails_sent', 'reminder_emails_sent',
+    'checked', 'new_assignments', 'completed', 'item_count',
+)
 
 # Jobs to show, in the order they appear. Key is the slug passed to
 # record_job_run(); the schedule text is the human-readable cron in render.yaml.
@@ -64,7 +76,7 @@ def record_job_run(get_db_fn, job, result=None, now=None):
     digest already stores its run this way — a second mechanism for the same
     idea is how you end up with two sources of truth that disagree.
     """
-    import json
+    conn = None
     try:
         conn = get_db_fn()
         if not conn:
@@ -74,8 +86,7 @@ def record_job_run(get_db_fn, job, result=None, now=None):
             'ok': bool((result or {}).get('ok', True)) if result else True,
         }
         if isinstance(result, dict):
-            for k in ('skipped', 'reason', 'sent', 'failed', 'email_failed',
-                      'remaining', 'total_actions', 'error', 'week_label'):
+            for k in _DETAIL_KEYS:
                 if k in result:
                     v = result[k]
                     payload[k] = len(v) if isinstance(v, (list, tuple)) else v
@@ -89,9 +100,14 @@ def record_job_run(get_db_fn, job, result=None, now=None):
         )
         conn.commit()
         cur.close()
-        conn.close()
     except Exception as e:
         print(f'record_job_run({job}) failed: {e}')
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def load_job_runs(get_db_fn):
@@ -109,7 +125,7 @@ def load_job_runs(get_db_fn):
         )
         for key, value, updated_at in cur.fetchall():
             slug = key[len(JOB_KEY_PREFIX):]
-            data = dict(value) if isinstance(value, dict) else {}
+            data = _json_object(value)
             data['updated_at'] = updated_at
             out[slug] = data
         cur.close()
@@ -120,7 +136,7 @@ def load_job_runs(get_db_fn):
         cur.execute("SELECT value, updated_at FROM hub_settings WHERE key = 'daily_digest_last_run'")
         row = cur.fetchone()
         if row and 'daily_digest' not in out:
-            data = dict(row[0]) if isinstance(row[0], dict) else {}
+            data = _json_object(row[0])
             data['updated_at'] = row[1]
             out['daily_digest'] = data
         cur.close()
@@ -135,17 +151,90 @@ def load_job_runs(get_db_fn):
     return out
 
 
+def _json_object(value):
+    """hub_settings.value is jsonb — psycopg2 may return a dict or a string."""
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return dict(parsed) if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _eastern_label(dt):
+    """Naive Hub timestamps are UTC. Show them in Eastern, labeled."""
+    if not dt or not hasattr(dt, 'strftime'):
+        return None
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        local = dt.astimezone(ET)
+    except Exception:
+        local = dt
+    return local.strftime('%b %d, %-I:%M%p ET')
+
+
+def format_job_detail(run):
+    """One line for the jobs table — handles bools, counts, and digest shapes."""
+    if not run:
+        return ''
+    if run.get('error'):
+        return 'error'
+    if run.get('skipped'):
+        reason = (run.get('reason') or '').strip()
+        return f'skipped — {reason}' if reason else 'skipped'
+    parts = []
+    sent = run.get('sent')
+    email_failed = run.get('email_failed')
+    if isinstance(sent, bool):
+        if sent:
+            parts.append('sent')
+        elif email_failed:
+            parts.append('email failed')
+        else:
+            parts.append('not sent')
+    elif isinstance(sent, (int, float)):
+        parts.append(f'sent {int(sent)}')
+    failed = run.get('failed')
+    if isinstance(failed, bool) and failed:
+        parts.append('failed')
+    elif isinstance(failed, (int, float)) and failed:
+        parts.append(f'{int(failed)} failed')
+    if email_failed and not isinstance(sent, bool):
+        if email_failed is True:
+            parts.append('email failed')
+        elif isinstance(email_failed, (int, float)) and email_failed:
+            parts.append(f'{int(email_failed)} email failed')
+    for key, tmpl in (
+        ('assignment_emails_sent', '{n} assignments mailed'),
+        ('reminder_emails_sent', '{n} reminders mailed'),
+        ('checked', 'checked {n}'),
+        ('new_assignments', '{n} new'),
+        ('item_count', '{n} items'),
+    ):
+        v = run.get(key)
+        if isinstance(v, (int, float)) and v:
+            parts.append(tmpl.format(n=int(v)))
+    return ' · '.join(parts)
+
+
 def job_rows(get_db_fn):
     runs = load_job_runs(get_db_fn)
     rows = []
     for slug, label, schedule in KNOWN_JOBS:
         run = runs.get(slug)
+        last = (run or {}).get('updated_at')
         rows.append({
             'slug': slug,
             'label': label,
             'schedule': schedule,
-            'last_run': (run or {}).get('updated_at'),
+            'last_run': last,
+            'last_run_label': _eastern_label(last),
             'detail': run or None,
+            'detail_label': format_job_detail(run) if run else '',
             'ever_ran': bool(run),
         })
     return rows
@@ -241,11 +330,10 @@ def service_rows():
             ('Weekly recap enabled',
              (os.environ.get('WEEKLY_RECAP_ENABLED', 'true') or '').lower() == 'true'),
         ],
-        # Both retired 2026-08-21. Shown so their absence is visible and a
-        # reappearance is loud — each was a password that opened every account.
+        # Retired 2026-08-21. Code ignores it; the row is here so a
+        # reappearance is loud.
         'retired_secrets': [
             ('DEFAULT_PASSWORD', bool((os.environ.get('DEFAULT_PASSWORD') or '').strip())),
-            ('MASTER_PASSWORD', bool((os.environ.get('MASTER_PASSWORD') or '').strip())),
         ],
     }
 

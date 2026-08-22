@@ -165,11 +165,36 @@ def test_nothing_raises_when_the_database_is_unreachable():
 
 
 def test_retired_secrets_are_reported_present_when_set(monkeypatch):
-    """Both were passwords that opened every account. Their absence should be
-    visible, and a reappearance loud."""
+    """DEFAULT_PASSWORD used to seed every account. Absence should be visible."""
     monkeypatch.delenv('DEFAULT_PASSWORD', raising=False)
     monkeypatch.delenv('MASTER_PASSWORD', raising=False)
-    assert dict(ss.service_rows()['retired_secrets']) == {
-        'DEFAULT_PASSWORD': False, 'MASTER_PASSWORD': False}
-    monkeypatch.setenv('MASTER_PASSWORD', 'oops')
-    assert dict(ss.service_rows()['retired_secrets'])['MASTER_PASSWORD'] is True
+    assert dict(ss.service_rows()['retired_secrets']) == {'DEFAULT_PASSWORD': False}
+    monkeypatch.setenv('DEFAULT_PASSWORD', 'oops')
+    assert dict(ss.service_rows()['retired_secrets'])['DEFAULT_PASSWORD'] is True
+
+
+def test_job_payload_string_jsonb_is_parsed():
+    """psycopg2 sometimes returns hub_settings.value as a str, not a dict."""
+    conn = _Conn(jobs=[
+        ('job_last_run:weekly_recap', '{"ok": true, "sent": 13}', NOW),
+    ])
+    rows = {r['slug']: r for r in ss.job_rows(lambda: conn)}
+    assert rows['weekly_recap']['detail']['sent'] == 13
+    assert rows['weekly_recap']['detail_label'] == 'sent 13'
+
+
+def test_job_last_run_is_labeled_eastern():
+    """updated_at is naive UTC. 17:00 UTC in August is 1:00 PM ET."""
+    conn = _Conn(jobs=[('job_last_run:weekly_recap', {'ok': True, 'sent': 1}, NOW)])
+    rows = {r['slug']: r for r in ss.job_rows(lambda: conn)}
+    assert rows['weekly_recap']['last_run_label'] == 'Aug 21, 1:00PM ET'
+
+
+def test_bool_sent_and_digest_email_failed_read_as_words_not_True():
+    assert ss.format_job_detail({'sent': True}) == 'sent'
+    assert ss.format_job_detail({'sent': False, 'email_failed': True}) == 'email failed'
+    assert ss.format_job_detail({'skipped': True, 'reason': 'already_sent'}) == (
+        'skipped — already_sent')
+    assert ss.format_job_detail({
+        'checked': 4, 'assignment_emails_sent': 2, 'reminder_emails_sent': 1,
+    }) == '2 assignments mailed · 1 reminders mailed · checked 4'
