@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · System State</title>
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;
+        --ok:#1B7A4B;--ok-bg:#E6F4EC;--warn:#8A5A05;--warn-bg:#FBF1DE;--bad:#B71C1C;--bad-bg:#FDECEA;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .main{max-width:980px;margin:0 auto;padding:32px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:22px;max-width:70ch;line-height:1.55;}
+  .card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:16px;}
+  .card h2{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--dark-blue);
+           margin-bottom:14px;padding-bottom:9px;border-bottom:1px solid var(--border);}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px;}
+  .tile{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:15px 16px;}
+  .tile .n{font-size:26px;font-weight:700;color:var(--dark-blue);font-variant-numeric:tabular-nums;line-height:1.1;}
+  .tile .n.warn{color:var(--warn);} .tile .n.bad{color:var(--bad);}
+  .tile .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8a94a0;margin-top:5px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#8a94a0;
+     padding:0 10px 8px 0;border-bottom:1px solid var(--border);font-weight:700;}
+  td{padding:9px 10px 9px 0;border-bottom:1px solid #EEF4F9;vertical-align:top;}
+  td.name{color:var(--dark-blue);font-weight:600;}
+  .muted{color:#98a2ad;}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap;}
+  .pill-ok{background:var(--ok-bg);color:var(--ok);}
+  .pill-warn{background:var(--warn-bg);color:var(--warn);}
+  .pill-bad{background:var(--bad-bg);color:var(--bad);}
+  .pill-idle{background:#EEF2F6;color:#7b8794;}
+  .kv{display:flex;flex-wrap:wrap;gap:8px 26px;font-size:13.5px;}
+  .kv div span{color:#8a94a0;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--light-bg);
+       padding:1px 6px;border-radius:4px;color:var(--dark-blue);}
+  .scroller{overflow-x:auto;}
+  .note{font-size:12.5px;color:#8a94a0;margin-top:12px;line-height:1.55;}
+  .actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px;}
+  .btn{border:1.5px solid var(--border);background:white;color:var(--dark-blue);border-radius:8px;
+       padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .btn:hover{background:var(--light-bg);}
+  .out{margin-top:12px;font-family:ui-monospace,monospace;font-size:12px;background:#F7FAFD;
+       border:1px solid var(--border);border-radius:8px;padding:11px 13px;white-space:pre-wrap;display:none;}
+  @media(max-width:700px){.main{padding:24px 14px 44px;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">System State</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">System State</div>
+  <p class="page-sub">
+    What the Hub is running, where everyone stands, and whether the scheduled
+    jobs actually fired. Owner only.
+  </p>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">{{ summary.pw_set }}/{{ summary.total }}</div>
+      <div class="k">Own password set</div></div>
+    <div class="tile"><div class="n {% if summary.pw_pending %}warn{% endif %}">{{ summary.pw_pending }}</div>
+      <div class="k">Reset not used yet</div></div>
+    <div class="tile"><div class="n {% if summary.pw_problem %}bad{% endif %}">{{ summary.pw_problem }}</div>
+      <div class="k">Needs attention</div></div>
+    <div class="tile"><div class="n {% if summary.never_signed_in %}warn{% endif %}">{{ summary.never_signed_in }}</div>
+      <div class="k">Never signed in</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Service</h2>
+    <div class="kv">
+      <div><span>Commit</span>
+        {% if service.commit %}<code>{{ service.commit }}</code>{% else %}<span class="muted">unknown</span>{% endif %}</div>
+      {% if service.branch %}<div><span>Branch</span> {{ service.branch }}</div>{% endif %}
+      <div><span>Database</span>
+        {% if db_ok %}<span class="pill pill-ok">connected</span>
+        {% else %}<span class="pill pill-bad">unreachable</span>{% endif %}</div>
+      <div><span>Server time</span> {{ now_label }}</div>
+    </div>
+    <div style="margin-top:14px;" class="kv">
+      {% for name, on in service.integrations %}
+      <div>{{ name }}
+        {% if on %}<span class="pill pill-ok">on</span>{% else %}<span class="pill pill-idle">off</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if service.retired_secrets %}
+    <div style="margin-top:14px;" class="kv">
+      {% for name, present in service.retired_secrets %}
+      <div><code>{{ name }}</code>
+        {% if present %}<span class="pill pill-bad">STILL SET — remove</span>
+        {% else %}<span class="pill pill-ok">removed</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <p class="note">
+      Both were passwords that opened every account. They were retired 2026-08-21
+      and the code ignores them; this row exists so a reappearance is loud.
+    </p>
+    {% endif %}
+    {% if not service.commit %}
+    <p class="note">
+      No commit shown means <code>RENDER_GIT_COMMIT</code> isn't set on the service.
+      Without it there's no way to tell from inside the app which version is live —
+      which is exactly the question that cost time on 2026-08-21.
+    </p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>People</h2>
+    <div class="scroller">
+      <table>
+        <thead><tr>
+          <th>Name</th><th>Tier</th><th>Password</th><th>Open reset link</th><th>Last active</th>
+        </tr></thead>
+        <tbody>
+        {% for p in people %}
+          <tr>
+            <td class="name">{{ p.display }}<div class="muted" style="font-size:12px;font-weight:400;">{{ p.role }}</div></td>
+            <td>{{ p.tier }}</td>
+            <td>
+              {% if p.pw_state == 'set' %}<span class="pill pill-ok">set</span>
+              {% elif p.pw_state == 'pending' %}<span class="pill pill-warn">not set yet</span>
+              {% elif p.pw_state == 'untouched' %}<span class="pill pill-bad">never reset</span>
+              {% else %}<span class="pill pill-bad">no account row</span>{% endif %}
+            </td>
+            <td>
+              {% if p.open_reset %}
+                <span class="muted">expires {{ p.open_reset.expires_at.strftime('%b %d, %-I:%M%p') if p.open_reset.expires_at else '—' }}</span>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </td>
+            <td>
+              {% if p.last_login %}{{ p.last_login.strftime('%b %d, %Y') }}
+              {% else %}<span class="pill pill-warn">never</span>{% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      <b>Not set yet</b> means a reset was issued and they haven't used it — they
+      cannot sign in until they do. Reset anyone by hand from
+      <a href="/admin">Admin</a>. Note that "processed" never meant "emailed":
+      a send that failed still marks the account, so a person stuck here may
+      simply never have received the mail.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Scheduled jobs</h2>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Job</th><th>Schedule</th><th>Last run</th><th></th></tr></thead>
+        <tbody>
+        {% for j in jobs %}
+          <tr>
+            <td class="name">{{ j.label }}</td>
+            <td class="muted">{{ j.schedule }}</td>
+            <td>
+              {% if j.last_run %}{{ j.last_run.strftime('%b %d, %-I:%M%p') }}
+              {% else %}<span class="pill pill-warn">no run recorded</span>{% endif %}
+            </td>
+            <td class="muted" style="font-size:12.5px;">
+              {% if j.detail %}
+                {% if j.detail.get('skipped') %}skipped — {{ j.detail.get('reason','') }}
+                {% elif j.detail.get('error') %}<span class="pill pill-bad">error</span>
+                {% elif j.detail.get('sent') is not none %}sent {{ j.detail.get('sent') }}
+                {% endif %}
+                {% if j.detail.get('failed') %} · {{ j.detail.get('failed') }} failed{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      "No run recorded" for a job that should have fired usually means its cron
+      service doesn't exist in Render, or its <code>INTERNAL_API_KEY</code> doesn't
+      match the web service. A job that quietly stops firing is otherwise invisible
+      until someone notices the emails stopped.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Actions</h2>
+    <div class="actions">
+      <button class="btn" onclick="run('/admin/run-password-campaign', this)">Finish password resets</button>
+      <button class="btn" onclick="run('/admin/weekly-recap-test', this)">Send me a test recap</button>
+      <button class="btn" onclick="run('/admin/daily-digest-test', this)">Send last night's digest</button>
+    </div>
+    <div class="out" id="out"></div>
+    <p class="note">
+      "Finish password resets" only touches accounts that never got one — safe to
+      press twice, and a no-op when everyone is done.
+    </p>
+  </div>
+</div>
+
+<script>
+  async function run(url, btn) {
+    const out = document.getElementById('out');
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Working…';
+    out.style.display = 'block'; out.textContent = url + ' …';
+    try {
+      const res = await fetch(url, {method: 'POST'});
+      const body = await res.text();
+      let pretty = body;
+      try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) {}
+      out.textContent = res.status + ' ' + res.statusText + '\n\n' + pretty;
+    } catch (e) {
+      out.textContent = 'Request failed: ' + e;
+    } finally {
+      btn.disabled = false; btn.textContent = label;
+    }
+  }
+</script>
+</body>
+</html>

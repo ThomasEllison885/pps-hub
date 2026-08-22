@@ -15,6 +15,7 @@ import crm_contact_sync
 import estimate_assignments
 import weekly_recap
 import password_campaign
+import system_state
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
@@ -3175,6 +3176,7 @@ def cron_weekly_tp_compliance():
             _send_digest_email,
             recipients,
         )
+        system_state.record_job_run(get_db, 'weekly_tp_compliance', result)
         return jsonify(result), 200
     except Exception as e:
         print(f'Weekly TP compliance cron error: {e}')
@@ -3199,6 +3201,7 @@ def cron_weekly_recap():
         result = weekly_recap.run_weekly_recap(
             get_db, USERS, _send_digest_email, force=force,
         )
+        system_state.record_job_run(get_db, 'weekly_recap', result)
         return jsonify(result), 200
     except Exception as e:
         print(f'Weekly recap cron error: {e}')
@@ -3219,6 +3222,7 @@ def cron_weekly_crm_sync():
             _send_digest_email,
             [USERS['thomas_ellison']['email']],
         )
+        system_state.record_job_run(get_db, 'weekly_crm_sync', result)
         return jsonify(result), 200
     except Exception as e:
         print(f'Weekly CRM contact sync cron error: {e}')
@@ -3235,6 +3239,7 @@ def cron_daily_estimate_check():
 
     try:
         result = estimate_assignments.run_daily_estimate_check(get_db, _send_digest_email)
+        system_state.record_job_run(get_db, 'daily_estimate_check', result)
         return jsonify(result), 200
     except Exception as e:
         print(f'Daily estimate check cron error: {e}')
@@ -5007,6 +5012,40 @@ def admin_pricing_defaults():
         system_defaults=SYSTEM_DEFAULTS,
         message=message,
         error=error,
+    )
+
+
+@app.route('/admin/system-state')
+@require_admin
+def admin_system_state():
+    """One page answering what is running, where everyone stands, and whether
+    the scheduled jobs fired.
+
+    Built because on 2026-08-21 none of those were answerable from inside the
+    product — which commit was live took a Render log, who still had not set a
+    password took a group text, and whether Monday's recap would fire took
+    someone remembering the cron service did not exist yet. /health stays thin
+    and public; this is owner-only and specific enough to act on.
+    """
+    people = system_state.people_rows(get_db, USERS)
+    conn = get_db()
+    db_ok = bool(conn)
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return render_template(
+        'admin_system_state.html',
+        service=system_state.service_rows(),
+        people=people,
+        summary=system_state.summarize(people),
+        jobs=system_state.job_rows(get_db),
+        db_ok=db_ok,
+        # weekly_recap is imported at module scope; daily_digest is not (it is
+        # imported inside the functions that use it), so reaching for it here
+        # would NameError at request time rather than at import.
+        now_label=weekly_recap.eastern_now().strftime('%b %-d, %-I:%M %p ET'),
     )
 
 
