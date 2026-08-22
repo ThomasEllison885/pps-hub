@@ -58,6 +58,42 @@ SCORED_SOURCES = [
     ('office_ops', 'Office Ops packs', 'office_ops_packs',       'created_by',   'created_at'),
 ]
 
+# ── Deliverables vs activity ────────────────────────────────────────────────
+#
+# Not everything countable is the same kind of act. Generating a proposal
+# produces a document that goes to a client; updating a pipeline row is a few
+# seconds in a shared sheet. Counting both at 1 made the board rank whoever
+# edited the Pipeline Board most — Andy's 109 for a week was overwhelmingly
+# pipeline touches, and Rachel's 25 was 22 pipeline against 3 proposals. Left
+# alone, it teaches people that ten quick cell edits beat a proposal.
+#
+# The fix is a cap rather than per-kind weights. Weights mean inventing an
+# exchange rate for every pair of activities and defending all of them; a cap
+# answers the one question actually being asked — how much can activity move
+# your rank — with a single number. Thomas set it at 5/week (2026-08-22).
+#
+# ACTIVITY_KINDS still appear in the breakdown line at their true counts. Only
+# their contribution to the ranked score is bounded, so the board reflects
+# output while the Pipeline Board's real daily use stays visible.
+
+ACTIVITY_KINDS = ('pipeline_new', 'pipeline_touch', 'hub_actions')
+
+ACTIVITY_CAP_PER_WEEK = 5
+
+
+def score_total(breakdown, weeks=1):
+    """Ranked score: every deliverable, plus activity capped per week.
+
+    `weeks` scales the cap with the window — the 12-week column allows
+    12 x the weekly cap, or the rolling figure would be crushed against a
+    ceiling meant for seven days and could read lower than the week inside it.
+    """
+    breakdown = breakdown or {}
+    deliverables = sum(n for k, n in breakdown.items() if k not in ACTIVITY_KINDS)
+    activity = sum(n for k, n in breakdown.items() if k in ACTIVITY_KINDS)
+    return deliverables + min(activity, ACTIVITY_CAP_PER_WEEK * max(1, weeks))
+
+
 # Usage events worth a point. 'open' is absent on purpose and must stay absent.
 SCORED_USAGE_ACTIONS = ('import', 'refresh', 'vision', 'override', 'upload', 'generate', 'notes')
 
@@ -296,8 +332,17 @@ def _collect_pipeline(conn, users, start, end, scores):
 
     updated_at moves on every cell edit, so this is "rows you worked on this
     week", which is the honest unit — counting edits would rank whoever retypes
-    a note the most. Rows created in-window are excluded from the touched count
-    so adding a row doesn't score twice.
+    a note the most.
+
+    The touched query excludes a row only when the SAME person created it inside
+    the window, which is the actual double-count worth avoiding (add a row, edit
+    it, score twice). Excluding every in-window creation regardless of who did
+    it was a real bug: a row Rachel created three weeks ago and Andy updated
+    this week counted as a touch for Andy in the weekly window, but in the
+    12-week window the creation fell inside the range, so the row went to Rachel
+    as `pipeline_new` and Andy's touch vanished. That made a rolling total
+    *lower* than the week inside it — impossible on its face, and how it was
+    caught: Andy read 109 for the week against 84 for twelve weeks (2026-08-22).
     """
     try:
         cur = conn.cursor()
@@ -312,7 +357,8 @@ def _collect_pipeline(conn, users, start, end, scores):
         cur.execute(
             'SELECT updated_by, COUNT(*) FROM pipeline_board_entries '
             'WHERE updated_at >= %s AND updated_at < %s '
-            '  AND NOT (created_at >= %s AND created_at < %s) '
+            '  AND NOT (created_at >= %s AND created_at < %s '
+            '           AND created_by = updated_by) '
             'GROUP BY 1',
             (start, end, start, end),
         )
@@ -398,12 +444,14 @@ def build_groups(users, scores, exclude=None, rolling=None):
             if user_key in exclude or user.get('role') not in roles:
                 continue
             breakdown = scores.get(user_key, {})
+            roll_breakdown = rolling.get(user_key) or {}
             rows.append({
                 'user_key': user_key,
                 'display': user.get('display', user_key),
-                'total': sum(breakdown.values()),
-                'rolling': sum((rolling.get(user_key) or {}).values()),
+                'total': score_total(breakdown, weeks=1),
+                'rolling': score_total(roll_breakdown, weeks=ROLLING_WEEKS),
                 'breakdown': breakdown,
+                'raw_total': sum(breakdown.values()),
             })
         rows.sort(key=lambda r: (-r['total'], -r['rolling'], r['display']))
         last_total, last_rank = None, 0
@@ -490,9 +538,9 @@ def build_recap_email(groups, start, recipient_key=None, users=None):
                 f'{sum(r["rolling"] for g in groups for r in g["rows"])} '
                 f'over {ROLLING_WEEKS} weeks')
     text.append('')
-    text.append('Counts completed work only — proposals, PPMs, TPS scopes, estimates,')
-    text.append('site visits, pipeline rows, Office Ops packs, training. Opening a page')
-    text.append('does not count.')
+    text.append('Counts completed work — proposals, PPMs, TPS scopes, estimates, site')
+    text.append('visits, Office Ops packs, training. Pipeline rows and other Hub actions')
+    text.append(f'count too, up to {ACTIVITY_CAP_PER_WEEK} a week. Opening a page does not count.')
     text.append('')
     text.append(hub_url())
 
@@ -555,9 +603,10 @@ def _html_body(groups, label, total, recipient_key):
     )
     out.append(
         f'<div style="color:{muted};font-size:12px;margin-top:14px;">'
-        'Counts completed work only — proposals, PPMs, TPS scopes, estimates, site '
-        'visits, pipeline rows, Office Ops packs, training. Opening a page does not '
-        f'count.</div><div style="margin-top:18px;">'
+        'Counts completed work — proposals, PPMs, TPS scopes, estimates, site visits, '
+        'Office Ops packs, training. Pipeline rows and other Hub actions count too, up '
+        f'to {ACTIVITY_CAP_PER_WEEK} a week. Opening a page does not count.'
+        f'</div><div style="margin-top:18px;">'
         f'<a href="{hub_url()}" style="color:{navy};">Open the Hub</a></div></div>'
     )
     return ''.join(out)

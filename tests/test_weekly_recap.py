@@ -116,7 +116,54 @@ def test_scored_sources_have_no_duplicate_tables():
     assert len(tables) == len(set(tables))
 
 
-# --- Ranking ----------------------------------------------------------------
+# --- Deliverables vs capped activity ----------------------------------------
+
+def test_deliverables_are_never_capped():
+    b = {'proposal': 9, 'ppm': 4, 'tps': 3}
+    assert wr.score_total(b) == 16
+
+
+def test_activity_is_capped_per_week():
+    """Ten quick cell edits must not outrank a proposal."""
+    b = {'pipeline_touch': 40, 'pipeline_new': 10, 'hub_actions': 20}
+    assert wr.score_total(b) == wr.ACTIVITY_CAP_PER_WEEK
+
+
+def test_a_deliverable_week_beats_a_pipeline_only_week():
+    """The behaviour Thomas asked for: pipeline should matter, but less."""
+    pipeline_only = wr.score_total({'pipeline_touch': 60})
+    six_proposals = wr.score_total({'proposal': 6})
+    assert six_proposals > pipeline_only
+
+
+def test_activity_still_adds_on_top_of_deliverables():
+    assert wr.score_total({'proposal': 3, 'pipeline_touch': 30}) == 3 + wr.ACTIVITY_CAP_PER_WEEK
+
+
+def test_the_cap_scales_with_the_window():
+    """A weekly ceiling applied to twelve weeks would crush the rolling column
+    and could put it below the week inside it."""
+    b = {'pipeline_touch': 500}
+    assert wr.score_total(b, weeks=1) == wr.ACTIVITY_CAP_PER_WEEK
+    assert wr.score_total(b, weeks=wr.ROLLING_WEEKS) == wr.ACTIVITY_CAP_PER_WEEK * wr.ROLLING_WEEKS
+
+
+def test_capping_cannot_put_rolling_below_the_week():
+    """Andy's 109-vs-84 symptom must stay impossible under the cap too."""
+    week = {'andy_potts': {'pipeline_touch': 100, 'proposal': 2}}
+    roll = {'andy_potts': {'pipeline_touch': 400, 'proposal': 9}}
+    groups = wr.build_groups(_USERS, week, rolling=roll)
+    row = [r for g in groups for r in g['rows'] if r['user_key'] == 'andy_potts'][0]
+    assert row['rolling'] >= row['total']
+
+
+def test_breakdown_line_still_shows_the_true_counts():
+    """Only the ranked score is bounded. Rachel's real board work stays visible."""
+    line = wr.breakdown_line({'pipeline_touch': 18, 'proposal': 3})
+    assert '18 pipeline rows updated' in line
+
+
+# --- Ranking -------------------------------------------------------------
 
 def test_groups_rank_within_role_not_across_the_company():
     """Stephanie generates two Office Ops packs a week; Andy generates five
@@ -165,6 +212,85 @@ def test_rolling_total_rides_alongside_without_changing_the_ranking():
     assert rows['adam_cupito']['rank'] == 2     # despite a far bigger quarter
     assert rows['adam_cupito']['rolling'] == 90
     assert rows['andy_potts']['rolling'] == 6
+
+
+class _PipelineDB:
+    """Fake pipeline_board_entries. Rows are (created_by, created_at, updated_by, updated_at)."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def cursor(self, *a, **k):
+        db = self
+
+        class C:
+            def execute(s, sql, args=None):
+                q = ' '.join(sql.split())
+                start, end = args[0], args[1]
+                if 'SELECT created_by' in q:
+                    hits = [r for r in db.rows if start <= r[1] < end]
+                    idx = 0
+                else:
+                    # Honour what the QUERY says rather than reimplementing the
+                    # rule here — otherwise this fake bakes in the fix and the
+                    # test can never fail, which is exactly what happened on the
+                    # first attempt at writing it.
+                    same_person_only = 'created_by = updated_by' in q
+                    def excluded(r):
+                        if not (start <= r[1] < end):
+                            return False
+                        return (r[0] == r[2]) if same_person_only else True
+                    hits = [r for r in db.rows
+                            if start <= r[3] < end and not excluded(r)]
+                    idx = 2
+                counts = {}
+                for r in hits:
+                    counts[r[idx]] = counts.get(r[idx], 0) + 1
+                s._rows = list(counts.items())
+
+            def fetchall(s): return s._rows
+            def close(s): pass
+        return C()
+
+    def rollback(self): pass
+
+
+def test_a_row_you_updated_but_did_not_create_still_counts_in_both_windows():
+    """The 2026-08-22 bug: Andy read 109 for the week and 84 for twelve weeks.
+
+    The touched query excluded every row created inside the window, whoever
+    created it. A row Rachel created three weeks ago and Andy updated this week
+    scored as a touch for Andy weekly — but in the 12-week window the creation
+    fell inside the range, so it went to Rachel as pipeline_new and Andy's touch
+    disappeared. Rolling ended up below the week it contains.
+    """
+    from collections import defaultdict
+    week_start, week_end = wr.last_week_bounds(today=date(2026, 8, 24))
+    roll_start, roll_end = wr.rolling_bounds(today=date(2026, 8, 24))
+    three_weeks_ago = week_start - timedelta(days=21)
+    in_week = week_start + timedelta(days=2)
+
+    db = _PipelineDB([
+        # Rachel created it 3 weeks ago; Andy updated it during the week.
+        ('rachel_farler', three_weeks_ago, 'andy_potts', in_week),
+        # Andy both created and updated one during the week — must score once.
+        ('andy_potts', in_week, 'andy_potts', in_week),
+    ])
+    users = dict(_USERS, rachel_farler={'display': 'Rachel', 'role': 'consultant',
+                                        'tier': 'team', 'email': 'r@x'})
+
+    weekly = defaultdict(lambda: defaultdict(int))
+    rolling = defaultdict(lambda: defaultdict(int))
+    wr._collect_pipeline(db, users, week_start, week_end, weekly)
+    wr._collect_pipeline(db, users, roll_start, roll_end, rolling)
+
+    andy_week = sum(weekly['andy_potts'].values())
+    andy_roll = sum(rolling['andy_potts'].values())
+    assert andy_week == 2, 'touch on Rachel\'s row + his own new row'
+    assert andy_roll >= andy_week, f'rolling {andy_roll} must not fall below week {andy_week}'
+    # Rachel's creation only shows up in the wider window.
+    assert sum(rolling['rachel_farler'].values()) == 1
+    assert sum(weekly['rachel_farler'].values()) == 0
 
 
 def test_rolling_can_never_be_lower_than_the_week_it_contains():
