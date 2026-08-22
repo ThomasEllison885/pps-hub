@@ -354,6 +354,58 @@ def test_run_weekly_recap_reports_send_failures_rather_than_raising():
     assert set(result['failed']) == set(_USERS)
 
 
+def test_trigger_run_on_a_normal_day_sends_nothing():
+    """The whole point of the guard.
+
+    Render's "Trigger Run" is how anyone tests a cron. Before this, pressing it
+    on a Tuesday emailed all thirteen people immediately.
+    """
+    sent = []
+    conn = _FakeConn([[] for _ in range(30)])
+    result = wr.run_weekly_recap(
+        lambda: conn, _USERS, lambda *a: sent.append(a) or True,
+        now=datetime(2026, 8, 25, 7, 0, tzinfo=wr.ET),   # a Tuesday
+    )
+    assert result['skipped'] is True
+    assert result['reason'] == 'not_scheduled'
+    assert sent == []
+
+
+def test_force_still_overrides_the_window():
+    """WEEKLY_RECAP_FORCE=true remains a deliberate off-schedule send."""
+    sent = []
+    conn = _FakeConn([[] for _ in range(30)])
+    result = wr.run_weekly_recap(
+        lambda: conn, _USERS, lambda *a: sent.append(a) or True,
+        force=True, now=datetime(2026, 8, 25, 7, 0, tzinfo=wr.ET),
+    )
+    assert result['skipped'] is False
+    assert len(sent) == len(_USERS)
+
+
+def test_the_window_is_monday_morning_eastern():
+    from datetime import datetime as _dt
+    monday_7am = _dt(2026, 8, 24, 7, 0, tzinfo=wr.ET)
+    assert wr.should_run_scheduled(monday_7am) is True
+    # A retry later the same morning still lands.
+    assert wr.should_run_scheduled(_dt(2026, 8, 24, 11, 30, tzinfo=wr.ET)) is True
+    # Monday afternoon, and every other day, do not.
+    assert wr.should_run_scheduled(_dt(2026, 8, 24, 13, 0, tzinfo=wr.ET)) is False
+    assert wr.should_run_scheduled(_dt(2026, 8, 25, 7, 0, tzinfo=wr.ET)) is False
+    assert wr.should_run_scheduled(_dt(2026, 8, 23, 7, 0, tzinfo=wr.ET)) is False
+
+
+def test_disabled_beats_not_scheduled_in_the_reason():
+    """An explicitly switched-off recap should say so, not blame the weekday."""
+    os.environ['WEEKLY_RECAP_ENABLED'] = 'false'
+    try:
+        result = wr.run_weekly_recap(lambda: None, _USERS, lambda *a: True,
+                                     now=datetime(2026, 8, 25, 7, 0, tzinfo=wr.ET))
+        assert result['reason'] == 'disabled'
+    finally:
+        os.environ.pop('WEEKLY_RECAP_ENABLED', None)
+
+
 def test_disabled_recap_sends_nothing():
     os.environ['WEEKLY_RECAP_ENABLED'] = 'false'
     try:

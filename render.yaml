@@ -108,7 +108,11 @@ services:
         sync: false
       - key: HUB_PUBLIC_URL
         value: https://hub.purepropsolutions.com
-      # Set WEEKLY_RECAP_FORCE=true + Trigger Run to send outside the schedule.
+      # Trigger Run is SAFE on any day but Monday morning: run_weekly_recap
+      # checks should_run_scheduled() and reports skipped/not_scheduled without
+      # emailing anyone, so the obvious way to test this cron cannot spam the
+      # team. Set WEEKLY_RECAP_FORCE=true only for a deliberate off-schedule
+      # send to all thirteen people.
 
   - type: cron
     name: pps-hub-weekly-crm-sync

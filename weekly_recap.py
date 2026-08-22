@@ -94,6 +94,25 @@ def eastern_now():
     return datetime.now(ET)
 
 
+def should_run_scheduled(now=None):
+    """True only on a Monday morning, Eastern. Mirrors daily_digest's guard.
+
+    Without this, Render's "Trigger Run" button — the obvious way anyone tests
+    a cron job — emails the entire company on the spot. A test button whose
+    side effect lands in thirteen inboxes is a trap, and the person most likely
+    to spring it is whoever is checking the cron works at all.
+
+    So the endpoint is now safe to press on any day but Monday: it reports
+    `skipped: not_scheduled` and sends nothing. WEEKLY_RECAP_FORCE=true still
+    overrides, for a deliberate off-schedule send.
+
+    The window is the whole Monday morning rather than the cron's exact hour,
+    so a Render retry after a failed 7am attempt still lands.
+    """
+    now = now or eastern_now()
+    return now.weekday() == 0 and now.hour < 12
+
+
 def last_week_bounds(today=None):
     """(start, end) for the Monday–Sunday week that just ended, in UTC-naive.
 
@@ -471,15 +490,27 @@ def _html_body(groups, label, total, recipient_key):
 
 # ── Runner ──────────────────────────────────────────────────────────────────
 
-def run_weekly_recap(get_db, users, send_email_fn, force=False, today=None):
+def run_weekly_recap(get_db, users, send_email_fn, force=False, today=None, now=None):
     """Send each person their copy. Returns a result dict for /health and logs.
 
     One email per person rather than one to everyone: the recipient's own row is
     highlighted and their standing is called out at the top, which is the part
     that makes it land. Nobody is BCC'd a list they have to scan for their name.
     """
+    # One reference time drives both the window check and the reporting week, so
+    # a caller cannot end up asking about one week while being judged against
+    # another clock. `today` still overrides the week alone, for tests that only
+    # care about the date maths.
+    now = now or eastern_now()
+    today = today or now.date()
+
     if not _enabled() and not force:
         return {'skipped': True, 'reason': 'disabled'}
+
+    # Checked after `disabled` so an explicitly switched-off recap reports that
+    # rather than the day of the week — matches run_daily_digest's ordering.
+    if not force and not should_run_scheduled(now):
+        return {'skipped': True, 'reason': 'not_scheduled'}
 
     start, end = last_week_bounds(today)
     roll_start, roll_end = rolling_bounds(today)
