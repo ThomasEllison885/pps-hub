@@ -4,6 +4,9 @@ Week 1 Production Board content uses proper Monday column names from production_
 See docs/PM_TRAINING_ROADMAP.md and docs/PRODUCTION_BOARD_REFERENCE.md.
 """
 
+import copy
+from functools import lru_cache
+
 from production_board_reference import (
     AWARD_TO_MOBILIZATION_CHECKLIST,
     PM_MORNING_CHECKLIST,
@@ -368,15 +371,26 @@ def _assign_ids(week_data):
     return week_data
 
 
-def get_pm_training_curriculum():
-    weeks = [_assign_ids(dict(w)) for w in PM_TRAINING_WEEKS]
+@lru_cache(maxsize=1)
+def _prepared_pm_curriculum():
+    """Same fix as psc_training_data._prepared_curriculum — see the note there.
+
+    `dict(w)` was shallow, so `_assign_ids` replaced shadowing strings with
+    dicts inside the module-level PM_TRAINING_WEEKS while merely reading it.
+    """
+    weeks = [_assign_ids(copy.deepcopy(w)) for w in PM_TRAINING_WEEKS]
     meta = dict(PM_TRAINING_META)
     meta['production_board_reference'] = get_production_board_reference()
     return meta, weeks
 
 
+def get_pm_training_curriculum():
+    """Caller owns the result — deep-copied out of the cache."""
+    return copy.deepcopy(_prepared_pm_curriculum())
+
+
 def get_pm_training_item_ids():
-    _, weeks = get_pm_training_curriculum()
+    _, weeks = _prepared_pm_curriculum()
     ids = []
     for week_data in weeks:
         for v in week_data.get('videos', []):
@@ -398,7 +412,7 @@ def count_pm_trackable_items():
 
 def get_pm_week_item_ids():
     """Map week number -> list of trainee item IDs for that week."""
-    _, weeks = get_pm_training_curriculum()
+    _, weeks = _prepared_pm_curriculum()
     result = {}
     for week_data in weeks:
         w = week_data['week']
@@ -416,5 +430,5 @@ def get_pm_week_item_ids():
 
 
 def get_pm_week_checkin_questions():
-    _, weeks = get_pm_training_curriculum()
+    _, weeks = _prepared_pm_curriculum()
     return {w['week']: (w.get('manager_checkin') or '') for w in weeks}

@@ -20,6 +20,9 @@ from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
     PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
+    read_curriculum as psc_read_curriculum,
+    get_week_checkin_questions as psc_get_week_checkin_questions,
+    get_week_labels as psc_get_week_labels,
     get_all_item_ids, count_trackable_items,
     PSC_ROLEPLAY_SCENARIOS, PSC_ROLEPLAY_GRADER_RULES,
     get_roleplay_scenario, get_roleplay_week_links, get_roleplay_sales_links,
@@ -1572,11 +1575,9 @@ def _send_psc_accountability_email(subject, text_body, html_body=None):
 
 
 def _psc_week_labels():
-    onboarding, weeks, _, _, _ = get_training_curriculum()
-    labels = {0: onboarding.get('title', 'Week 0 · PPS Foundations')}
-    for w in weeks:
-        labels[w['week']] = f"Week {w['week']} · {w['topic']}"
-    return labels
+    """Read-only walk — see psc_training_data.read_curriculum on why this does
+    not go through get_training_curriculum()."""
+    return psc_get_week_labels()
 
 
 def _psc_week_trainee_complete(progress, week_map):
@@ -1618,14 +1619,8 @@ def get_psc_manager_signoffs(user_key):
 
 
 def _psc_week_checkin_questions():
-    onboarding, weeks, _, _, _ = get_training_curriculum()
-    questions = {}
-    if onboarding.get('manager_checkin'):
-        questions[0] = onboarding['manager_checkin']
-    for w in weeks:
-        if w.get('manager_checkin'):
-            questions[w['week']] = w['manager_checkin']
-    return questions
+    """Read-only. Reached on every dashboard load via compute_psc_training_stats."""
+    return psc_get_week_checkin_questions()
 
 
 def manager_signoff_psc_week(trainee_key, week_num, signed_by):
@@ -2064,8 +2059,12 @@ def submit_psc_training_feedback(user_key, display_name, message, week_num=None,
 
 
 def _psc_week_item_ids():
-    """Map week number -> list of trainee item IDs for that week."""
-    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
+    """Map week number -> list of trainee item IDs for that week.
+
+    Reads the cached curriculum: this only collects ID strings, and it runs on
+    every dashboard load. Nothing below writes to the structure.
+    """
+    onboarding, weeks, core_values, sales_training, company_operations = psc_read_curriculum()
     result = {0: []}
 
     def collect(week_data):

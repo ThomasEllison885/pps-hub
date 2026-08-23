@@ -1,5 +1,8 @@
 """PSC Onboarding — Property Solutions Consultant training curriculum."""
 
+import copy
+from functools import lru_cache
+
 from production_board_reference import MONDAY_AT_PPS
 
 PSC_TRAINING_MANAGER = 'tony_cumella'  # VP Sales — accountability owner for enrolled trainees
@@ -2147,7 +2150,15 @@ def _prepare_core_values():
 
 
 def _prepare_sales_training():
-    data = dict(PSC_SALES_TRAINING)
+    """NOTE: these IDs are derived from `item['title']`, so renaming an item
+    renames its ID and orphans every progress row pointing at it. Frozen by
+    tests/test_training_item_ids.py — when the editor lands, each item needs an
+    explicit `id` in the source before its title becomes editable.
+
+    `dict()` here was shallow, so the loop below wrote ids into the module-level
+    PSC_SALES_TRAINING. Deep-copied now.
+    """
+    data = copy.deepcopy(PSC_SALES_TRAINING)
     for module in data['modules']:
         for item in module['items']:
             if 'id' not in item:
@@ -2172,19 +2183,43 @@ def _prepare_company_operations():
     return data
 
 
-def get_training_curriculum():
-    """Return full curriculum with IDs assigned."""
-    onboarding = _assign_ids(dict(PSC_ONBOARDING))
-    weeks = [_assign_ids(dict(w)) for w in PSC_TRAINING_WEEKS]
+@lru_cache(maxsize=1)
+def _prepared_curriculum():
+    """Build the ID-assigned curriculum once per process.
+
+    `_assign_ids` writes into whatever it is handed, and it used to be handed
+    `dict(w)` — a shallow copy whose `videos` and `shadowing` lists were the
+    module-level ones. Reading the curriculum therefore rewrote it. Deep-copying
+    here makes the source read-only, which is the precondition for the training
+    editor's overlay: an overlay that appended into the module globals would
+    grow them on every page load for the life of the worker.
+    """
+    onboarding = _assign_ids(copy.deepcopy(PSC_ONBOARDING))
+    weeks = [_assign_ids(copy.deepcopy(w)) for w in PSC_TRAINING_WEEKS]
     core_values = _prepare_core_values()
     sales_training = _prepare_sales_training()
     company_operations = _prepare_company_operations()
     return onboarding, weeks, core_values, sales_training, company_operations
 
 
+def get_training_curriculum():
+    """Full curriculum with IDs assigned. The caller owns the result.
+
+    Deep-copied out of the cache so a template filter, a future overlay, or a
+    careless caller cannot write back into the shared prepared copy and have it
+    persist for every later request on this worker.
+    """
+    return copy.deepcopy(_prepared_curriculum())
+
+
 def get_all_item_ids():
-    """Flat list of every trackable item ID."""
-    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
+    """Flat list of every trackable item ID.
+
+    Reads the cached structure directly rather than through
+    `get_training_curriculum()` — it only reads strings, and this is called on
+    every dashboard load via `compute_psc_training_stats`, twice.
+    """
+    onboarding, weeks, core_values, sales_training, company_operations = _prepared_curriculum()
     ids = []
 
     def collect(week_data):
@@ -2212,6 +2247,44 @@ def get_all_item_ids():
     for w in weeks:
         collect(w)
     return ids
+
+
+def read_curriculum():
+    """The cached, ID-assigned curriculum **for reading only**.
+
+    `get_training_curriculum()` deep-copies on every call — right for anything
+    that renders or transforms, wrong for the several helpers that just walk the
+    structure pulling out IDs and check-in strings. `compute_psc_training_stats`
+    reaches three of those on every dashboard load, so the copies added up to
+    real milliseconds for no benefit.
+
+    **Do not mutate what this returns.** It is the shared per-process cache, and
+    a write here persists for every later request on this worker — the exact
+    failure the deep-copying was introduced to prevent. If you need to change
+    anything, call `get_training_curriculum()` and change your own copy.
+    """
+    return _prepared_curriculum()
+
+
+def get_week_checkin_questions():
+    """{week_number: manager check-in question}. Read-only path."""
+    onboarding, weeks, _, _, _ = _prepared_curriculum()
+    questions = {}
+    if onboarding.get('manager_checkin'):
+        questions[0] = onboarding['manager_checkin']
+    for w in weeks:
+        if w.get('manager_checkin'):
+            questions[w['week']] = w['manager_checkin']
+    return questions
+
+
+def get_week_labels():
+    """{week_number: 'Week 3 · Flooring'}. Read-only path."""
+    onboarding, weeks, _, _, _ = _prepared_curriculum()
+    labels = {0: onboarding.get('title', 'Week 0 · PPS Foundations')}
+    for w in weeks:
+        labels[w['week']] = f"Week {w['week']} · {w['topic']}"
+    return labels
 
 
 def count_trackable_items():
