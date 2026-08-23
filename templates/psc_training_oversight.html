@@ -70,7 +70,7 @@
   <div class="page-title">PSC Training Accountability</div>
   <p class="page-sub">
     Track enrolled PSC onboarding progress. Accountability owner: <strong>{{ manager_name }}</strong>.
-    {% if is_admin %}You enroll new hires here when they start — existing consultants (e.g. already onboarded) stay unenrolled until you add them.{% endif %}
+    {% if can_enroll %}You enroll new hires here when they start — existing consultants (e.g. already onboarded) stay unenrolled until you add them.{% endif %}
   </p>
 
   <div class="accountability-note">
@@ -80,7 +80,10 @@
     <strong>Graduation:</strong> When a hire finishes onboarding, mark them graduated to remove PSC Training from their dashboard.
   </div>
 
-  {% if is_admin %}
+  {# Enrolment moved from owner-only to leadership 2026-08-23 (Thomas): Tony runs
+     PSC onboarding and could already sign every week off. `is_admin` still
+     drives the back-link only. #}
+  {% if can_enroll %}
   <div class="section-head">Preview Trainee Experience</div>
   <div class="card card-pad" style="margin-bottom:20px;">
     {% if self_enrolled_as_trainee %}
@@ -123,7 +126,7 @@
           <th>Weeks 0–12</th>
           <th>Role-Play</th>
           <th>Activity</th>
-          {% if is_admin %}<th></th>{% endif %}
+          {% if can_enroll %}<th></th>{% endif %}
         </tr>
       </thead>
       <tbody>
@@ -188,7 +191,7 @@
               {% if row.last_activity_at %}Last active {{ row.last_activity_at.strftime('%b %d') }}{% else %}No activity yet{% endif %}
             </span>
           </td>
-          {% if is_admin %}
+          {% if can_enroll %}
           <td style="white-space:nowrap;">
             <button class="btn btn-outline btn-sm" onclick="graduateTrainee('{{ row.user_key }}', '{{ row.display }}')">Graduate</button>
             <button class="btn btn-outline btn-sm" onclick="unenrollTrainee('{{ row.user_key }}', '{{ row.display }}')">Remove</button>
@@ -199,7 +202,7 @@
       </tbody>
     </table>
     {% else %}
-    <div class="empty">No consultants enrolled. {% if is_admin %}Use the form above when your next PSC hire starts.{% endif %}</div>
+    <div class="empty">No consultants enrolled. {% if can_enroll %}Use the form above when your next PSC hire starts.{% endif %}</div>
     {% endif %}
   </div>
 
@@ -240,7 +243,7 @@ async function signoffWeek(el, user_key, week, name) {
 </script>
 {% endif %}
 
-{% if is_admin %}
+{% if can_enroll %}
 <script>
 async function trainingAction(user_key, action) {
   const resp = await fetch('/api/psc-training/enroll', {

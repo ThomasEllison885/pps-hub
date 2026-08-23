@@ -197,9 +197,12 @@
     <div class="toolbar">
       <span style="font-size:12px;color:#aaa;" id="row-count"></span>
       <div style="display:flex;gap:10px;align-items:center;">
-        <input type="file" id="import-file-input" accept=".xlsx,.xlsm" style="display:none;">
+        {# Import is leadership-only since 2026-08-23: it seeds a board when one
+           is created and rewrites it wholesale, so it isn't a daily control.
+           Hidden rather than left to fail, and the route refuses it either way. #}
+        {% if can_import %}<input type="file" id="import-file-input" accept=".xlsx,.xlsm" style="display:none;">{% endif %}
         <button class="btn" id="export-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);" title="Download a JSON safety copy of this board">Export backup</button>
-        <button class="btn" id="import-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Import spreadsheet</button>
+        {% if can_import %}<button class="btn" id="import-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);" title="Seed this board from a spreadsheet. Replaces nothing — rows are added.">Import spreadsheet</button>{% endif %}
         <button class="btn" id="jump-open-btn" style="background:white;color:var(--dark-blue);border:1.5px solid var(--border);">Jump to open work</button>
         <button class="btn" id="add-row-btn">+ Add row</button>
       </div>
@@ -789,10 +792,15 @@ document.getElementById('export-btn').onclick = () => {
   }).catch(() => showError('Export failed — network error.'));
 };
 
-document.getElementById('import-btn').onclick = () => {
+// Both elements only render for leadership, so bind defensively — an
+// unconditional .onclick on a missing node throws and kills every handler
+// registered after it in this block.
+const importBtn = document.getElementById('import-btn');
+if (importBtn) importBtn.onclick = () => {
   document.getElementById('import-file-input').click();
 };
-document.getElementById('import-file-input').onchange = (e) => {
+const importInput = document.getElementById('import-file-input');
+if (importInput) importInput.onchange = (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const formData = new FormData();

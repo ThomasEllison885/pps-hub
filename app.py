@@ -6833,6 +6833,9 @@ def pm_training_oversight():
 @app.route('/admin/pm-training')
 @require_login
 def admin_pm_training():
+    """Old bookmark. See the note on admin_psc_training."""
+    if not can_pm_training_oversight(session['user_key']):
+        return redirect(url_for('dashboard'))
     return redirect(url_for('pm_training_oversight'))
 
 
@@ -7211,6 +7214,11 @@ def psc_training_oversight():
         feedback_items=feedback_items,
         total_items=count_trackable_items(),
         is_admin=(session.get('role') == 'admin'),
+        # Enrolment is leadership as of 2026-08-23; `is_admin` now only drives
+        # the back-link. Anyone past the guard above is leadership, so this is
+        # True here — kept explicit so the template reads honestly and so
+        # narrowing it later is a one-line change.
+        can_enroll=can_psc_training_oversight(user_key),
         can_signoff=True,
         current_user_key=user_key,
         self_enrolled_as_trainee=is_psc_training_enrolled(user_key),
@@ -7219,8 +7227,18 @@ def psc_training_oversight():
 
 
 @app.route('/admin/psc-training')
-@require_admin
+@require_login
 def admin_psc_training():
+    """Old bookmark. Guarded by the page it lands on, and checked here too.
+
+    Was `@require_admin`, which bounced Tony off a URL whose destination he can
+    open directly — the oversight page itself is leadership. Both training
+    redirects now check the same thing their target checks, rather than relying
+    on the target to do it: a redirect that guards differently from its
+    destination is either a locked door to an open room, or the reverse.
+    """
+    if not can_psc_training_oversight(session['user_key']):
+        return redirect(url_for('dashboard'))
     return redirect(url_for('psc_training_oversight'))
 
 
@@ -7251,8 +7269,23 @@ def psc_training_signoff_api():
 
 
 @app.route('/api/psc-training/enroll', methods=['POST'])
-@require_admin
+@require_login
 def psc_training_enroll_api():
+    """Enrol, graduate or remove a PSC trainee. Leadership (2026-08-23).
+
+    Was owner-only, which left Tony — the VP of Sales who actually runs PSC
+    onboarding and who could already sign off every week — unable to add the
+    hire he was about to sign off. The PM module never had that split: Trey has
+    enrolled and removed PM trainees since it shipped. This makes the two
+    modules agree, and Thomas asked for Stephanie on both, which the leadership
+    tier already covers.
+
+    Revoking a sign-off stays owner-only on purpose — see the branch in
+    `psc_training_signoff_api`. Enrolling is a roster decision; erasing a
+    completed record is an audit one.
+    """
+    if not can_psc_training_oversight(session['user_key']):
+        return jsonify({'error': 'Not authorized'}), 403
     data = request.get_json(silent=True) or {}
     target_key = (data.get('user_key') or '').strip()
     action = (data.get('action') or 'enroll').strip()

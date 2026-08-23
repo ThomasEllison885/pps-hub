@@ -37,6 +37,8 @@ from datetime import datetime, date
 import openpyxl
 from psycopg2.extras import RealDictCursor
 
+from tiers import is_leadership
+
 # Consultant keys that have a live board. Order is the default-home
 # tiebreak for people who can open more than one (James, admin pickers).
 BOARD_CONSULTANTS = ('andy_potts', 'adam_cupito', 'tony_cumella', 'rachel_farler')
@@ -273,6 +275,29 @@ def cleanup_legacy_import_notes(cur):
                 'UPDATE pipeline_board_entries SET notes = %s WHERE id = %s',
                 (cleaned, entry_id),
             )
+
+
+def can_import_to_board(users, user_key, pair_key):
+    """Bulk Excel import — leadership and up, not everyone with board access.
+
+    Importing was how each board was seeded from the Google Sheet it replaced
+    (Thomas, 2026-08-23: "a one time feature that was needed to kick off the
+    pipeline board... they shouldn't need to do it again"). Andy's and Rachel's
+    boards are already migrated, so for everyone already using the Hub daily
+    this control has done its job and only carries risk.
+
+    It is narrowed rather than deleted because the same need returns whenever a
+    board is created — a new consultant joins and arrives with a spreadsheet.
+    That is a management action, so it sits with leadership.
+
+    Reading and editing a board stay open to the whole roster: that is the
+    collaboration the board exists for, it moves one row at a time, and every
+    edit snapshots first. A bulk import rewrites a board wholesale, which is a
+    different act with a much larger blast radius.
+    """
+    if not can_access_board(users, user_key, pair_key):
+        return False
+    return is_leadership(users, user_key)
 
 
 def can_access_board(users, user_key, pair_key):
@@ -1056,6 +1081,7 @@ def register_routes(app, get_db_fn, users, require_login):
             accessible_boards=accessible,
             is_admin_preview=(users.get(user_key, {}).get('role') == 'admin'
                               and get_pair_key(users, user_key) != pair_key),
+            can_import=can_import_to_board(users, user_key, pair_key),
         )
 
     @app.route('/api/pipeline-board/entries', methods=['GET', 'POST'])
@@ -1107,6 +1133,12 @@ def register_routes(app, get_db_fn, users, require_login):
         user_key, pair_key = _current_pair()
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return jsonify({'error': 'Not authorized'}), 403
+        if not can_import_to_board(users, user_key, pair_key):
+            return jsonify({
+                'error': 'Importing a spreadsheet is limited to Thomas, Tony, '
+                         'Trey and Stephanie. Boards are seeded once when they '
+                         'are created — add rows directly instead.'
+            }), 403
         file = request.files.get('file')
         if not file or not file.filename:
             return jsonify({'error': 'No file selected'}), 400

@@ -447,3 +447,41 @@ def test_list_entries_db_unavailable_returns_none_not_empty_list():
     assert rows is None
     assert err
     assert 'Database' in err or 'unavailable' in err.lower()
+
+
+# --- Bulk import gating (2026-08-23) ----------------------------------------
+
+def test_importing_is_leadership_but_editing_stays_open_to_everyone():
+    """The board is a shared sheet — that is the point, and it is why editing
+    and archiving stay open to the whole roster. Import is different in kind:
+    it rewrites a board wholesale rather than moving one row, and its remaining
+    purpose is seeding a board when one is created.
+
+    Thomas, 2026-08-23: "a one time feature that was needed to kick off the
+    pipeline board... they shouldn't need to do it again."
+    """
+    for key in ('james_boling', 'andy_potts', 'ben_ramsey', 'rachel_farler'):
+        assert pb.can_access_board(_USERS, key, 'andy_potts') is True, key
+        assert pb.can_import_to_board(_USERS, key, 'andy_potts') is False, key
+
+
+def test_leadership_and_owner_can_still_seed_any_board():
+    """A new consultant arrives with a spreadsheet — that need does not go
+    away, so the control is narrowed rather than deleted."""
+    for key in ('thomas_ellison', 'tony_cumella', 'trey_hollmeyer',
+                'stephanie_whetstone'):
+        assert pb.can_import_to_board(_USERS, key, 'andy_potts') is True, key
+
+
+def test_import_still_fails_closed_on_a_board_that_does_not_exist():
+    """Tier is checked in addition to board access, never instead of it —
+    otherwise leadership would bypass the pair_key validation entirely."""
+    assert pb.can_import_to_board(_USERS, 'thomas_ellison', 'not_a_board') is False
+    assert pb.can_import_to_board(_USERS, 'tony_cumella', '') is False
+
+
+def test_a_stale_key_off_the_roster_cannot_import_even_at_leadership():
+    """Removal from USERS has to revoke everything, including this."""
+    assert pb.can_import_to_board(_USERS, 'admin', 'andy_potts') is False
+    assert pb.can_import_to_board(_USERS, '', 'andy_potts') is False
+    assert pb.can_import_to_board({}, 'tony_cumella', 'andy_potts') is False
