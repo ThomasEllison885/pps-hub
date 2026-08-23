@@ -16,6 +16,7 @@ import estimate_assignments
 import weekly_recap
 import password_campaign
 import system_state
+import training_overlay
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -1161,6 +1162,7 @@ def init_db():
     insurance_compliance.init_tables(cur)
     import hub_usage
     hub_usage.init_tables(cur)
+    training_overlay.init_tables(cur)
 
     # Seed missing accounts with an UNUSABLE password, never a shared one.
     #
@@ -6717,12 +6719,24 @@ def pm_training():
     enrollment = get_pm_enrollment(user_key) or {}
     manager = USERS.get(enrollment.get('manager_key') or PM_TRAINING_MANAGER, {})
     meta, weeks = get_pm_training_curriculum()
+    # Same overlay contract as PSC. The PM curriculum has no standalone
+    # sections, so only the week containers are addressable — `apply` handles
+    # the empty ones by ignoring them rather than inventing keys.
+    (_ob, weeks, _cv, _st, _co), added_since = training_overlay.apply(
+        (dict(), weeks, {}, {}, {}),
+        training_overlay.load_overlay(get_db).get('pm'),
+        enrolled_at=enrollment.get('enrolled_at'),
+    )
     progress = get_pm_training_progress(user_key)
     notes = get_pm_training_notes(user_key)
     stats = compute_pm_training_stats(user_key)
     week_status = {wp['week']: wp for wp in stats['week_pcts']}
     return render_template(
         'pm_training.html',
+        added_since=added_since,
+        added_since_done=sum(
+            1 for i in training_overlay.added_since_item_ids(added_since) if progress.get(i)
+        ),
         meta=meta,
         weeks=weeks,
         total_items=count_pm_trackable_items(),
@@ -6905,13 +6919,27 @@ def psc_training():
     user = USERS.get(user_key, {})
     enrollment = get_psc_enrollment(user_key) or {}
     manager = USERS.get(enrollment.get('manager_key') or PSC_TRAINING_MANAGER, {})
-    onboarding, weeks, core_values, sales_training, company_operations = get_training_curriculum()
+    curriculum = get_training_curriculum()
+    # Overlay: leadership's published edits and additions. `enrolled_at` decides
+    # placement — items published after this person started are handed back in
+    # `added_since` and rendered at the end, so a week they already closed does
+    # not reopen. Empty tables make this a no-op; see tests/test_training_overlay.
+    curriculum, added_since = training_overlay.apply(
+        curriculum,
+        training_overlay.load_overlay(get_db).get('psc'),
+        enrolled_at=enrollment.get('enrolled_at'),
+    )
+    onboarding, weeks, core_values, sales_training, company_operations = curriculum
     progress = get_psc_training_progress(user_key)
     notes = get_psc_training_notes(user_key)
     stats = compute_psc_training_stats(user_key)
     week_status = {wp['week']: wp for wp in stats['week_pcts']}
     return render_template(
         'psc_training.html',
+        added_since=added_since,
+        added_since_done=sum(
+            1 for i in training_overlay.added_since_item_ids(added_since) if progress.get(i)
+        ),
         meta=PSC_TRAINING_META,
         onboarding=onboarding,
         weeks=weeks,
