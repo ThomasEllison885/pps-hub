@@ -620,6 +620,11 @@ const recentProposals = [
     num: {{ (p.proposal_number or '—')|tojson }},
     address: {{ (p.property_address or '—')|tojson }},
     consultant: {{ (p.consultant_name or '')|tojson }},
+    {# Client / contact come straight off proposal_log. The modal hides each
+       row when the value is empty, so pre-vault proposals look unchanged. #}
+    client: {{ (p.client_name or '')|tojson }},
+    contact: {{ ([p.contact_name, p.contact_email]|select|join(' · '))|tojson }},
+    company: {{ (p.company or '')|tojson }},
     type: {{ (p.property_type or '—')|tojson }},
     template: {{ (p.template_type|template_label)|tojson }},
     scopes: {{ (p.scopes_selected or '—')|tojson }},
@@ -642,6 +647,9 @@ const recentProposals = [
     </div>
     <div style="display:flex;flex-direction:column;gap:0;margin-bottom:14px;">
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Proposal #</div><div id="pdNum" style="font-size:14px;color:#444;"></div></div>
+      <div id="pdClientWrap" style="display:none;"><div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Client</div><div id="pdClient" style="font-size:14px;color:#444;"></div></div></div>
+      <div id="pdContactWrap" style="display:none;"><div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Contact</div><div id="pdContact" style="font-size:14px;color:#444;"></div></div></div>
+      <div id="pdCompanyWrap" style="display:none;"><div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Company</div><div id="pdCompany" style="font-size:14px;color:#444;"></div></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Address</div><div id="pdAddress" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Consultant</div><div id="pdConsultant" style="font-size:14px;color:#444;"></div></div>
       <div style="display:flex;padding:8px 0;border-bottom:1px solid #f0f4f8;"><div style="font-size:11px;font-weight:600;color:#004C8C;text-transform:uppercase;letter-spacing:0.06em;width:130px;flex-shrink:0;">Property Type</div><div id="pdType" style="font-size:14px;color:#444;"></div></div>
@@ -676,11 +684,27 @@ const recentProposals = [
 <script>
   document.getElementById('pdModal').style.display = 'none';
   let activeProposalLogId = null;
+  function setOptionalRow(wrapId, valueId, value) {
+    const wrap = document.getElementById(wrapId);
+    if (!wrap) return;
+    const v = (value || '').trim();
+    if (v) { document.getElementById(valueId).textContent = v; wrap.style.display = 'block'; }
+    else { wrap.style.display = 'none'; }
+  }
+
   function openProposalModal(p) {
     if (!p) return;
     activeProposalLogId = p.logId || null;
     document.getElementById('pdTitle').textContent = p.title;
     document.getElementById('pdNum').textContent = p.num;
+    // Client / Contact / Company hide rather than print a dash: the columns
+    // behind them were only ever written by the vault logging path, so older
+    // proposals have nothing to show and gain an empty field otherwise.
+    setOptionalRow('pdClientWrap', 'pdClient', p.client);
+    setOptionalRow('pdContactWrap', 'pdContact', p.contact);
+    setOptionalRow('pdCompanyWrap', 'pdCompany',
+                   (p.company && p.company.toLowerCase() !== (p.client || '').toLowerCase())
+                     ? p.company : '');
     document.getElementById('pdAddress').textContent = p.address;
     document.getElementById('pdConsultant').textContent = p.consultant;
     document.getElementById('pdType').textContent = p.type;
@@ -847,6 +871,9 @@ const recentProposals = [
       logId: data.log_id,
       title: data.title,
       num: row('Proposal #')?.value || '—',
+      client: row('Client')?.value || '',
+      contact: row('Contact')?.value || '',
+      company: row('Company')?.value || '',
       address: row('Address')?.value || '—',
       consultant: row('Consultant')?.value || '',
       type: row('Property Type')?.value || '—',
