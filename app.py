@@ -3780,85 +3780,43 @@ def dashboard():
     real_is_admin = (user.get('role') == 'admin')
     real_role = user.get('role', '')
 
-    # Admin role-preview: dashboard layout only (does not change login/session permissions)
-    view_as = (request.args.get('view_as') or '').strip().lower()
-    if not real_is_admin:
-        view_as = ''
-    if view_as not in ('sales', 'pm', ''):
-        view_as = ''
-
-    if view_as == 'sales':
-        # Archetype: standard PSC (consultant) — both tool lanes open
-        is_admin = False
-        user_role = 'consultant'
-        team_view = True
-        accessible_consultants = dict(CONSULTANTS)
-        psc_training_enrolled = True  # show training card as a normal enrolled PSC would
-        psc_training_stats = compute_psc_training_stats(user_key)  # your progress while previewing
-        psc_training_oversight = False
-        pm_training_oversight = False
-        pricing_summary = None
-        unread_feedback = 0
-        unread_diffs = 0
-        dash_preview = {
-            'mode': 'sales',
-            'label': 'Standard Sales / PSC',
-            'blurb': 'Dashboard as a typical Property Solutions Consultant sees it — Sales and Production both open.',
-        }
-    elif view_as == 'pm':
-        # Archetype: standard PM — both tool lanes open
-        is_admin = False
-        user_role = 'pm'
-        team_view = True
-        accessible_consultants = dict(CONSULTANTS)
-        psc_training_enrolled = False
-        psc_training_stats = None
-        psc_training_oversight = False
-        pm_training_oversight = False  # standard PM is not Trey
-        pricing_summary = None
-        unread_feedback = 0
-        unread_diffs = 0
-        dash_preview = {
-            'mode': 'pm',
-            'label': 'Standard Project Manager',
-            'blurb': 'Dashboard as a typical PM sees it — Production first, Sales available, no admin/oversight cards.',
-        }
-    else:
-        is_admin = real_is_admin
-        user_role = real_role
-        team_view = True
-        psc_training_enrolled = is_psc_training_enrolled(user_key)
-        psc_training_stats = (
-            compute_psc_training_stats(user_key) if psc_training_enrolled else None
-        )
-        psc_training_oversight = can_psc_training_oversight(user_key)
-        pm_training_oversight = can_pm_training_oversight(user_key)
-        unread_feedback = 0
-        unread_diffs = 0
-        pricing_summary = None
-        if is_admin:
-            unread_feedback, unread_diffs = _admin_inbox_counts()
-            pricing_summary = _pricing_summary_for_dashboard()
-        dash_preview = None
+    # Role preview (?view_as=sales|pm) removed 2026-08-22 at Thomas's request.
+    # It let the owner render the dashboard as a "standard PSC" or "standard PM"
+    # to check what those people saw. The tier rework made that question mostly
+    # moot — everyone below owner now sees the same dashboard — and the preview
+    # had become actively misleading: it faked a role while the real session
+    # permissions still applied underneath, so it showed a layout no actual
+    # person would get. `/admin/member/<user_key>` answers "what does this
+    # person have" honestly; do not rebuild a fake-identity preview.
+    is_admin = real_is_admin
+    user_role = real_role
+    team_view = True
+    psc_training_enrolled = is_psc_training_enrolled(user_key)
+    psc_training_stats = (
+        compute_psc_training_stats(user_key) if psc_training_enrolled else None
+    )
+    psc_training_oversight = can_psc_training_oversight(user_key)
+    pm_training_oversight = can_pm_training_oversight(user_key)
+    unread_feedback = 0
+    unread_diffs = 0
+    pricing_summary = None
+    if is_admin:
+        unread_feedback, unread_diffs = _admin_inbox_counts()
+        pricing_summary = _pricing_summary_for_dashboard()
 
     # Sales and Production both open by default for field roles (and admin)
     sales_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
     production_lane_open = user_role in ('consultant', 'pm', 'office_manager', 'admin')
 
-    # Pipeline Board: resolve off the *real* logged-in identity, not the
-    # admin role-preview override above — a preview shouldn't grant a pair's
-    # live data. Admin sees every board in the admin lane; field users see
-    # only the boards on their explicit roster.
-    pipeline_boards = (
-        [] if view_as else pipeline_board.list_accessible_boards(USERS, user_key)
-    )
+    # Pipeline Board: every board is open to everyone since the tier rework;
+    # this list decides which one opens by default and what the lane shows.
+    pipeline_boards = pipeline_board.list_accessible_boards(USERS, user_key)
     pipeline_board_pair_key = pipeline_board.get_pair_key(USERS, user_key)
     pipeline_board_access = bool(pipeline_boards)
-    # Office Ops: Stephanie + Thomas (and any future office_manager/admin).
-    # Use real identity, not role-preview, so admin preview-as-PM does not open it.
+    # Office Ops: leadership tier and up (Thomas, Stephanie, Tony, Trey).
     office_ops_access = office_ops.can_access_office_ops(USERS, user_key)
 
-    date_events = get_date_events(user_key, is_admin=real_is_admin and not view_as)
+    date_events = get_date_events(user_key, is_admin=real_is_admin)
     recent_feed = _build_dashboard_recent_feed(
         recent_proposals,
         recent_ppms,
@@ -3878,9 +3836,7 @@ def dashboard():
             get_db, USERS, user_key, user_role, include_all_for_curator=False,
         )
     )
-    user_notifications = (
-        [] if view_as else ask_pps.get_unread_notifications(get_db, user_key)
-    )
+    user_notifications = ask_pps.get_unread_notifications(get_db, user_key)
     return render_template(
         'dashboard.html',
         user=user,
@@ -3888,13 +3844,12 @@ def dashboard():
         user_role=user_role,
         real_role=real_role,
         real_is_admin=real_is_admin,
-        dash_preview=dash_preview,
         ask_pps_prompt=ask_pps_prompt,
         ask_pps_prompt_queue=ask_pps_prompt_queue,
         user_notifications=user_notifications,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
-        admin_lane_open=is_admin and not view_as,
+        admin_lane_open=is_admin,
         team_view=team_view,
         consultants=accessible_consultants,
         recent_proposals=recent_proposals,
