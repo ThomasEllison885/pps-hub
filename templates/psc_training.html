@@ -580,6 +580,57 @@
   </div>
   {% endfor %}
 
+  {# ─── Added since you started ──────────────────────────────────────────────
+     Items published to the curriculum AFTER this person enrolled. They sit here
+     rather than inside their week on purpose: dropping them into Week 5 would
+     take a week they had already finished back below 100% and could un-ready a
+     manager sign-off. This block carries its own count and is NOT part of the
+     week percentages or the overall figure (Thomas, 2026-08-23).
+     `added_since` comes from training_overlay.apply(); it is empty for a new
+     hire, who gets these same items in their proper week instead. #}
+  {% if added_since %}
+  <div class="ref-card expanded" id="ref-added">
+    <div class="ref-header" onclick="toggleRef('added')">
+      <div class="ref-icon">✨</div>
+      <div class="ref-info">
+        <div class="ref-title">Added since you started</div>
+        <div class="ref-meta">
+          {{ added_since_done }} of {{ added_since|length }} done ·
+          new since you enrolled · not counted in your week percentages
+        </div>
+      </div>
+      <div class="ref-chevron">▼</div>
+    </div>
+    <div class="ref-body">
+      <p class="ref-intro">
+        Your twelve weeks are unchanged — these were added to the programme after
+        you began. Worth doing, and they do not affect a week you have already
+        had signed off.
+      </p>
+      <div class="check-list">
+        {% for it in added_since %}
+        {# data-extra keeps these out of the week and overall percentages. The
+           progress rows are real and still save; they are simply not part of
+           the denominator the programme is measured against. #}
+        <div class="check-item" data-extra="1" data-id="{{ it.id }}" onclick="toggleItem('{{ it.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">
+            {% if it.get('url') %}
+              <a href="{{ it.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ it.get('title') or it.url }}</a>
+            {% else %}
+              <strong>{{ it.get('title') or it.get('text') or 'Untitled' }}</strong>
+            {% endif %}
+            {% if it.get('title') and it.get('text') %}
+            <div style="font-size:13px;color:#888;margin-top:3px;">{{ it.text }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Module Feedback -->
   <div class="feedback-card" id="feedbackSection">
     <h3>Notes & Feedback</h3>
@@ -618,9 +669,11 @@ function applyProgress() {
     const isDone = !!progress[id];
     el.classList.toggle('done', isDone);
     el.querySelector('.check-box').textContent = isDone ? '✓' : '';
-    if (isDone) done++;
+    // `done` is divided by TOTAL_ITEMS, which the server computes WITHOUT the
+    // added-since items — counting them here would push the bar past 100%.
+    if (isDone && !el.dataset.extra) done++;
 
-    const weekCard = el.closest('.week-card');
+    const weekCard = el.dataset.extra ? null : el.closest('.week-card');
     if (weekCard) {
       const w = weekCard.dataset.week;
       if (!weekCounts[w]) weekCounts[w] = { done: 0, total: 0 };

@@ -355,3 +355,180 @@ def test_empty_placeholder_sections_are_ignored_not_populated():
     the PM route passes."""
     merged, _ = ov.apply(_pm_curriculum(), {'edits': {}, 'items': []})
     assert merged[2] == {} and merged[3] == {} and merged[4] == {}
+
+
+# --- Writing, and publishing a wave -----------------------------------------
+
+class _WConn:
+    """Records statements; reports rowcount so publish/discard can be checked."""
+
+    def __init__(self, rowcount=1, raises=False):
+        self.rowcount, self.raises = rowcount, raises
+        self.statements = []
+        self.committed = False
+        self.closed = False
+
+    def cursor(self, *a, **k):
+        conn = self
+
+        class C:
+            rowcount = conn.rowcount
+
+            def execute(s, sql, args=None):
+                if conn.raises:
+                    raise RuntimeError('nope')
+                conn.statements.append((' '.join(sql.split()), args))
+
+            def fetchone(s):
+                return [conn.rowcount]
+
+            def close(s):
+                pass
+
+        return C()
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        self.closed = True
+
+
+def _f(conn):
+    return lambda: conn
+
+
+def test_creating_an_item_mints_an_id_and_saves_a_draft():
+    conn = _WConn()
+    item_id = ov.create_item(_f(conn), 'psc',
+                             {'kind': 'week', 'week': 5, 'container': 'videos'},
+                             {'title': 'New video', 'url': 'https://x/y'},
+                             'tony_cumella', rand=lambda: 'abcd1234')
+    assert item_id == 'psc_x_new_video_abcd1234'
+    sql, args = conn.statements[-1]
+    assert 'INSERT INTO training_overlay_items' in sql
+    assert conn.committed
+    # published_at is not in the INSERT, so it defaults to NULL — a draft.
+    assert 'published_at' not in sql
+
+
+def test_an_item_with_no_usable_content_is_refused():
+    """Otherwise an empty row lands in the curriculum and renders as
+    '(untitled)' for every trainee."""
+    conn = _WConn()
+    assert ov.create_item(_f(conn), 'psc', {}, {}, 'tony_cumella') is None
+    assert ov.create_item(_f(conn), 'psc', {}, {'title': '   '}, 'tony_cumella') is None
+    assert conn.statements == []
+
+
+def test_the_payload_is_whitelisted_not_blacklisted():
+    """`id` in particular must never arrive from a form: setting it would let a
+    caller overwrite an authored item's identity and inherit its progress rows."""
+    cleaned = ov._clean_payload({
+        'title': 'Fine', 'id': 'w1_video_0', 'generated_by': 'x',
+        'onclick': 'alert(1)', 'text': 'Also fine',
+    })
+    assert cleaned == {'title': 'Fine', 'text': 'Also fine'}
+
+
+def test_an_edit_upserts_and_returns_to_draft():
+    """Editing an already-published item must un-publish that edit, or the
+    change would go live the moment it is typed."""
+    conn = _WConn()
+    assert ov.save_edit(_f(conn), 'psc', 'w1_video_0',
+                        fields={'title': 'Corrected'}, user_key='tony_cumella')
+    sql, _args = conn.statements[-1]
+    assert 'ON CONFLICT (module, item_id) DO UPDATE' in sql
+    assert 'published_at = NULL' in sql
+
+
+def test_editing_text_does_not_quietly_unhide_something():
+    """`hidden=None` means 'leave it as it was'."""
+    conn = _WConn()
+    ov.save_edit(_f(conn), 'psc', 'w1_video_0', fields={'title': 'x'}, hidden=None)
+    _sql, args = conn.statements[-1]
+    assert None in args, 'hidden was coerced to a value instead of left alone'
+
+
+def test_discard_only_removes_something_that_never_published():
+    conn = _WConn(rowcount=1)
+    assert ov.discard_draft_item(_f(conn), 'psc', 'psc_x_a') is True
+    sql, _ = conn.statements[-1]
+    assert 'DELETE FROM training_overlay_items' in sql
+    assert 'published_at IS NULL' in sql, (
+        'discard can reach a published item — progress rows would be orphaned')
+
+
+def test_discarding_a_published_item_reports_failure():
+    """rowcount 0 means the WHERE clause refused it. The route turns this into
+    "already published — hide it instead"."""
+    conn = _WConn(rowcount=0)
+    assert ov.discard_draft_item(_f(conn), 'psc', 'psc_x_a') is False
+
+
+def test_publishing_stamps_both_tables_with_one_timestamp():
+    """A wave must be atomic: two items published together have to land on the
+    same side of any trainee's enrolment date, or one wave would split across
+    the in-place and appended paths for the same person."""
+    conn = _WConn(rowcount=3)
+    now = datetime(2026, 8, 23, 12, 0)
+    result = ov.publish(_f(conn), 'psc', 'tony_cumella', now=now)
+    assert result['ok'] and result['items'] == 3 and result['edits'] == 3
+    stamps = [args[0] for _sql, args in conn.statements]
+    assert stamps == [now, now], 'the two tables got different timestamps'
+    assert all('published_at IS NULL' in sql for sql, _ in conn.statements), (
+        'publish re-stamped already-published rows')
+    assert conn.committed
+
+
+def test_publishing_clears_the_cache():
+    """Otherwise the editor publishes and the worker keeps serving the old
+    curriculum for a full TTL — which presents as 'the save button is broken'."""
+    ov.clear_cache()
+    ov.load_overlay(lambda: _Conn(), now=datetime(2026, 8, 23, 12, 0))
+    assert ov._cache['at'] is not None
+    ov.publish(_f(_WConn()), 'psc', 'tony_cumella')
+    assert ov._cache['at'] is None
+
+
+def test_an_unknown_module_is_refused_everywhere():
+    conn = _WConn()
+    assert ov.create_item(_f(conn), 'nope', {}, {'title': 'x'}, 'u') is None
+    assert ov.save_edit(_f(conn), 'nope', 'w1_video_0', {'title': 'x'}) is False
+    assert ov.publish(_f(conn), 'nope', 'u')['ok'] is False
+    assert conn.statements == []
+
+
+def test_every_write_survives_a_dead_database():
+    dead = lambda: None
+    assert ov.create_item(dead, 'psc', {}, {'title': 'x'}, 'u') is None
+    assert ov.save_edit(dead, 'psc', 'w1_video_0', {'title': 'x'}) is False
+    assert ov.discard_draft_item(dead, 'psc', 'psc_x_a') is False
+    assert ov.publish(dead, 'psc', 'u')['ok'] is False
+    assert ov.pending_counts(dead) == {'added': 0, 'edited': 0}
+
+
+def test_pending_counts_are_not_keyed_items_and_edits():
+    """`pending.items` in a Jinja template resolves to the dict's `.items`
+    METHOD, and the failure surfaces as a TypeError deep inside the template.
+    It cost a render cycle to find; the keys stay 'added'/'edited'."""
+    conn = _WConn(rowcount=4)
+    counts = ov.pending_counts(_f(conn), 'psc')
+    assert set(counts) == {'added', 'edited'}
+    assert counts['added'] == 4
+
+
+def test_drafts_are_never_served_from_the_cache():
+    """The editor must see its own last save immediately."""
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return _Conn()
+
+    ov.clear_cache()
+    now = datetime(2026, 8, 23, 12, 0)
+    ov.load_overlay(factory, now=now, include_drafts=True)
+    ov.load_overlay(factory, now=now, include_drafts=True)
+    assert len(calls) == 2, 'a draft read was served from the cache'
+    ov.clear_cache()

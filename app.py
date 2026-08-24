@@ -223,7 +223,8 @@ USERS = {
         'display': 'Phil Miller',
         'role': 'pm',
         'tier': TIER_TEAM,
-        'title': 'Project Manager',
+        # Title only (2026-08-23, Thomas) — see the note on jordan_allen.
+        'title': 'Project Engineer',
         'email': 'phil@purepropsolutions.com',
     },
     'derek_kidney': {
@@ -258,7 +259,10 @@ USERS = {
         'display': 'Jordan Allen',
         'role': 'pm',
         'tier': TIER_TEAM,
-        'title': 'Project Manager',
+        # Title only (2026-08-23, Thomas). `title` is descriptive — it labels
+        # people on Team View, the Admin roster and the recap. `role` and `tier`
+        # are unchanged, so nothing about what he can see or do moves.
+        'title': 'Senior Project Manager',
         'email': 'jordan@purepropsolutions.com',
     },
     'ben_ramsey': {
@@ -4978,6 +4982,154 @@ def admin_breakdown():
             except Exception:
                 pass
     return render_template('admin_breakdown.html', breakdown=breakdown)
+
+
+@app.route('/admin/training')
+@require_login
+def admin_training():
+    """Curriculum editor. Leadership — Tony, Trey, Stephanie and Thomas.
+
+    Shows the curriculum with DRAFTS applied, so whoever is editing sees what
+    they are building rather than what is live. `enrolled_at=None` means "as
+    authored today", which is the right view here: the editor is composing the
+    programme a new hire will get, not previewing any particular trainee's copy.
+    """
+    user_key = session['user_key']
+    module = (request.args.get('module') or 'psc').strip().lower()
+    if module not in training_overlay.MODULES:
+        module = 'psc'
+    if not (can_psc_training_oversight(user_key) if module == 'psc'
+            else can_pm_training_oversight(user_key)):
+        return redirect(url_for('dashboard'))
+
+    drafts = training_overlay.load_overlay(get_db, include_drafts=True).get(module)
+    if module == 'psc':
+        curriculum = get_training_curriculum()
+    else:
+        _meta, pm_weeks = get_pm_training_curriculum()
+        curriculum = (dict(), pm_weeks, {}, {}, {})
+    curriculum, unplaceable = training_overlay.apply(curriculum, drafts, enrolled_at=None)
+    onboarding, weeks, core_values, sales_training, company_operations = curriculum
+
+    published = set()
+    for row in (drafts or {}).get('items', []):
+        if row.get('published_at'):
+            published.add(row['item_id'])
+
+    return render_template(
+        'admin_training.html',
+        module=module,
+        user=USERS.get(user_key, {}),
+        onboarding=onboarding if module == 'psc' else None,
+        weeks=weeks,
+        sections=([
+            {'key': 'core_values', 'label': 'Core Values',
+             'groups': (core_values or {}).get('sections', []), 'container': 'activities'},
+            {'key': 'sales_training', 'label': 'Sales Training',
+             'groups': (sales_training or {}).get('modules', []), 'container': 'items'},
+            {'key': 'company_operations', 'label': 'Company Operations',
+             'groups': (company_operations or {}).get('modules', []), 'container': 'items'},
+        ] if module == 'psc' else []),
+        week_containers=training_overlay.WEEK_CONTAINERS,
+        overlay_ids=published | {r['item_id'] for r in (drafts or {}).get('items', [])},
+        draft_ids={r['item_id'] for r in (drafts or {}).get('items', [])
+                   if not r.get('published_at')},
+        edited_ids=set((drafts or {}).get('edits', {})),
+        unplaceable=unplaceable,
+        pending=training_overlay.pending_counts(get_db, module),
+        cache_seconds=training_overlay.CACHE_TTL_SECONDS,
+    )
+
+
+def _training_editor_guard(module):
+    """Both modules gate on their own oversight check, not a shared one.
+
+    Trey runs PM training and Tony runs PSC; today both are leadership so the
+    two resolve identically, but they are separate questions and writing them
+    as one is how a future narrowing gets missed on one side.
+    """
+    user_key = session.get('user_key')
+    if module not in training_overlay.MODULES:
+        return jsonify({'error': 'Unknown module'}), 400
+    ok = (can_psc_training_oversight(user_key) if module == 'psc'
+          else can_pm_training_oversight(user_key))
+    if not ok:
+        return jsonify({'error': 'Not authorized'}), 403
+    return None
+
+
+@app.route('/api/training/item', methods=['POST'])
+@require_login
+def api_training_add_item():
+    data = request.get_json(silent=True) or {}
+    module = (data.get('module') or '').strip().lower()
+    blocked = _training_editor_guard(module)
+    if blocked:
+        return blocked
+    item_id = training_overlay.create_item(
+        get_db, module, data.get('target') or {}, data.get('payload') or {},
+        session['user_key'], sort_order=int(data.get('sort_order') or 0),
+    )
+    if not item_id:
+        return jsonify({'error': 'Give the item a title before saving.'}), 400
+    return jsonify({'success': True, 'item_id': item_id,
+                    'pending': training_overlay.pending_counts(get_db, module)})
+
+
+@app.route('/api/training/edit', methods=['POST'])
+@require_login
+def api_training_edit_item():
+    data = request.get_json(silent=True) or {}
+    module = (data.get('module') or '').strip().lower()
+    blocked = _training_editor_guard(module)
+    if blocked:
+        return blocked
+    hidden = data.get('hidden')
+    ok = training_overlay.save_edit(
+        get_db, module, (data.get('item_id') or '').strip(),
+        fields=data.get('fields') or {},
+        hidden=None if hidden is None else bool(hidden),
+        user_key=session['user_key'],
+    )
+    if not ok:
+        return jsonify({'error': 'Could not save that change.'}), 500
+    return jsonify({'success': True,
+                    'pending': training_overlay.pending_counts(get_db, module)})
+
+
+@app.route('/api/training/discard', methods=['POST'])
+@require_login
+def api_training_discard_item():
+    """Only ever removes an addition that has never published — see
+    `discard_draft_item`. Anything live is hidden, not deleted."""
+    data = request.get_json(silent=True) or {}
+    module = (data.get('module') or '').strip().lower()
+    blocked = _training_editor_guard(module)
+    if blocked:
+        return blocked
+    ok = training_overlay.discard_draft_item(
+        get_db, module, (data.get('item_id') or '').strip())
+    if not ok:
+        return jsonify({'error': 'That item has already published — hide it instead.'}), 400
+    return jsonify({'success': True,
+                    'pending': training_overlay.pending_counts(get_db, module)})
+
+
+@app.route('/api/training/publish', methods=['POST'])
+@require_login
+def api_training_publish():
+    data = request.get_json(silent=True) or {}
+    module = (data.get('module') or '').strip().lower()
+    blocked = _training_editor_guard(module)
+    if blocked:
+        return blocked
+    result = training_overlay.publish(get_db, module, session['user_key'])
+    if not result.get('ok'):
+        return jsonify({'error': 'Could not publish.'}), 500
+    return jsonify({'success': True,
+                    'items': result.get('items', 0), 'edits': result.get('edits', 0),
+                    'pending': training_overlay.pending_counts(get_db, module),
+                    'cache_seconds': training_overlay.CACHE_TTL_SECONDS})
 
 
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])

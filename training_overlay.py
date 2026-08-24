@@ -130,7 +130,7 @@ def _as_dict(value):
     return {}
 
 
-def load_overlay(get_db, now=None, use_cache=True):
+def load_overlay(get_db, now=None, use_cache=True, include_drafts=False):
     """Published overlay rows for both modules.
 
     Returns ``{'psc': {'edits': {...}, 'items': [...]}, 'pm': {...}}``.
@@ -143,6 +143,10 @@ def load_overlay(get_db, now=None, use_cache=True):
     empty case produces.
     """
     now = now or datetime.utcnow()
+    # Drafts are never cached: the editor must see its own last save immediately,
+    # and a 60s stale read there reads as "the save button is broken".
+    if include_drafts:
+        use_cache = False
     if use_cache and _cache['at'] and (now - _cache['at']).total_seconds() < CACHE_TTL_SECONDS:
         return _cache['data']
 
@@ -153,9 +157,9 @@ def load_overlay(get_db, now=None, use_cache=True):
         if not conn:
             return blank
         cur = conn.cursor()
+        where = '' if include_drafts else ' WHERE published_at IS NOT NULL'
         cur.execute(
-            'SELECT module, item_id, fields, hidden FROM training_overlay_edits '
-            'WHERE published_at IS NOT NULL'
+            'SELECT module, item_id, fields, hidden FROM training_overlay_edits' + where
         )
         for module, item_id, fields, hidden in cur.fetchall():
             if module in blank:
@@ -163,11 +167,11 @@ def load_overlay(get_db, now=None, use_cache=True):
                     'fields': _as_dict(fields),
                     'hidden': bool(hidden),
                 }
+        item_where = (' WHERE active = TRUE' if include_drafts
+                      else ' WHERE published_at IS NOT NULL AND active = TRUE')
         cur.execute(
             'SELECT module, item_id, target, payload, sort_order, published_at '
-            'FROM training_overlay_items '
-            'WHERE published_at IS NOT NULL AND active = TRUE '
-            'ORDER BY sort_order, id'
+            'FROM training_overlay_items' + item_where + ' ORDER BY sort_order, id'
         )
         for module, item_id, target, payload, sort_order, published_at in cur.fetchall():
             if module in blank:
@@ -340,3 +344,228 @@ def added_since_item_ids(added_since):
     figure divide by.
     """
     return [i['id'] for i in (added_since or []) if i.get('id')]
+
+
+# ── Writing ─────────────────────────────────────────────────────────────────
+#
+# Everything below writes DRAFTS. Nothing reaches a trainee until `publish`
+# stamps `published_at`, which is what makes editing in waves work: Tony can
+# take a fortnight over Week 5 without anyone seeing it half-finished.
+
+EDITABLE_FIELDS = ('title', 'url', 'text', 'topic', 'topic_summary', 'manager_checkin')
+
+
+def _clean_payload(payload):
+    """Keep only fields the editor is allowed to set.
+
+    Whitelisted rather than blacklisted so a future field cannot arrive from a
+    form and land in the curriculum unreviewed — and so `id` in particular can
+    never be set from outside, which would let a caller overwrite an authored
+    item's identity and take its progress rows with it.
+    """
+    out = {}
+    for key in EDITABLE_FIELDS:
+        value = (payload or {}).get(key)
+        if value is None:
+            continue
+        value = str(value).strip()
+        if value:
+            out[key] = value[:2000]
+    return out
+
+
+def create_item(get_db, module, target, payload, user_key, sort_order=0, rand=None):
+    """Add a draft item. Returns its minted ID, or None if it could not save."""
+    if module not in MODULES:
+        return None
+    payload = _clean_payload(payload)
+    if not payload:
+        return None
+    item_id = mint_item_id(module, payload.get('title') or 'item', rand=rand)
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return None
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO training_overlay_items '
+            '(module, item_id, target, payload, sort_order, created_by) '
+            'VALUES (%s, %s, %s, %s, %s, %s)',
+            (module, item_id, json.dumps(target or {}), json.dumps(payload),
+             sort_order, user_key),
+        )
+        conn.commit()
+        cur.close()
+        return item_id
+    except Exception as e:
+        print(f'training overlay create error: {e}')
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def save_edit(get_db, module, item_id, fields=None, hidden=None, user_key=None):
+    """Upsert an edit against an item ID — authored or overlay, either works.
+
+    `hidden=None` leaves the existing flag alone, so editing text does not
+    quietly un-hide something. Returns True on success.
+    """
+    if module not in MODULES or not item_id:
+        return False
+    fields = _clean_payload(fields)
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'INSERT INTO training_overlay_edits '
+            '(module, item_id, fields, hidden, updated_by, updated_at, published_at) '
+            'VALUES (%s, %s, %s, COALESCE(%s, FALSE), %s, NOW(), NULL) '
+            'ON CONFLICT (module, item_id) DO UPDATE SET '
+            '  fields = training_overlay_edits.fields || EXCLUDED.fields, '
+            '  hidden = COALESCE(%s, training_overlay_edits.hidden), '
+            '  updated_by = EXCLUDED.updated_by, '
+            '  updated_at = NOW(), '
+            '  published_at = NULL',
+            (module, item_id, json.dumps(fields), hidden, user_key, hidden),
+        )
+        conn.commit()
+        cur.close()
+        return True
+    except Exception as e:
+        print(f'training overlay edit error: {e}')
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def discard_draft_item(get_db, module, item_id):
+    """Delete an addition that has never published.
+
+    Refuses once `published_at` is set: a published item may already have
+    progress rows against it, and deleting the row would leave those pointing at
+    nothing. Hide it instead — that is what `hidden` is for.
+    """
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return False
+        cur = conn.cursor()
+        cur.execute(
+            'DELETE FROM training_overlay_items '
+            'WHERE module = %s AND item_id = %s AND published_at IS NULL',
+            (module, item_id),
+        )
+        deleted = cur.rowcount
+        conn.commit()
+        cur.close()
+        return bool(deleted)
+    except Exception as e:
+        print(f'training overlay discard error: {e}')
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def pending_counts(get_db, module=None):
+    """{'added': n, 'edited': n} still in draft. Drives the Publish button.
+
+    Deliberately NOT keyed 'items'/'edits': in a Jinja template `pending.items`
+    silently resolves to the dict's `.items` METHOD rather than the value, and
+    the failure surfaces as a TypeError deep in a template rather than as
+    anything that points at the cause.
+    """
+    out = {'added': 0, 'edited': 0}
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return out
+        cur = conn.cursor()
+        for key, table in (('added', 'training_overlay_items'),
+                           ('edited', 'training_overlay_edits')):
+            if module:
+                cur.execute(f'SELECT COUNT(*) FROM {table} '
+                            f'WHERE published_at IS NULL AND module = %s', (module,))
+            else:
+                cur.execute(f'SELECT COUNT(*) FROM {table} WHERE published_at IS NULL')
+            row = cur.fetchone()
+            out[key] = int((row or [0])[0] or 0)
+        cur.close()
+    except Exception as e:
+        print(f'training overlay pending error: {e}')
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return out
+
+
+def publish(get_db, module, user_key=None, now=None):
+    """Stamp `published_at` on every draft row for one module. One wave.
+
+    Both tables are stamped in a single transaction with the same timestamp, so
+    a wave is atomic and every item in it shares one `published_at`. That matters
+    for the enrolment comparison: two items published together must land on the
+    same side of any trainee's start date, or a wave would split across the
+    in-place and appended paths for the same person.
+
+    Clears this worker's cache. **The other gunicorn worker keeps serving its
+    cached copy for up to CACHE_TTL_SECONDS** — if someone publishes and
+    immediately refreshes onto the other worker, they will not see it yet.
+    """
+    result = {'ok': False, 'items': 0, 'edits': 0}
+    if module not in MODULES:
+        return result
+    conn = None
+    try:
+        conn = get_db()
+        if not conn:
+            return result
+        cur = conn.cursor()
+        stamp = now or datetime.utcnow()
+        cur.execute(
+            'UPDATE training_overlay_items SET published_at = %s '
+            'WHERE module = %s AND published_at IS NULL',
+            (stamp, module),
+        )
+        result['items'] = cur.rowcount or 0
+        cur.execute(
+            'UPDATE training_overlay_edits SET published_at = %s '
+            'WHERE module = %s AND published_at IS NULL',
+            (stamp, module),
+        )
+        result['edits'] = cur.rowcount or 0
+        conn.commit()
+        cur.close()
+        result['ok'] = True
+        result['published_at'] = stamp
+    except Exception as e:
+        print(f'training overlay publish error: {e}')
+        return result
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    clear_cache()
+    return result

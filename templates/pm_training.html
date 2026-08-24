@@ -174,6 +174,50 @@
   </div>
   {% endfor %}
 
+  {# Added since you started — see the long note in psc_training.html. Uses the
+     week-card idiom because this template has no ref-card styles. #}
+  {% if added_since %}
+  <div class="week-card expanded" id="week-added">
+    <div class="week-header" onclick="toggleWeek('added')">
+      <div class="week-num">✨</div>
+      <div class="week-info">
+        <div class="week-title">Added since you started</div>
+        <div class="week-meta">
+          New since you enrolled — not counted in your week percentages.
+        </div>
+      </div>
+      <div class="week-pct">{{ added_since_done }}/{{ added_since|length }}</div>
+      <div class="week-chevron">▼</div>
+    </div>
+    <div class="week-body">
+      <p class="topic-summary">
+        Your programme is unchanged — these were added after you began. They do
+        not affect a week you have already had signed off.
+      </p>
+      <div class="check-list">
+        {% for it in added_since %}
+        {# data-extra keeps these out of the week and overall percentages. The
+           progress rows are real and still save; they are simply not part of
+           the denominator the programme is measured against. #}
+        <div class="check-item" data-extra="1" data-id="{{ it.id }}" onclick="toggleItem('{{ it.id }}', event)">
+          <div class="check-box"></div>
+          <div class="check-label">
+            {% if it.get('url') %}
+              <a href="{{ it.url }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ it.get('title') or it.url }}</a>
+            {% else %}
+              <strong>{{ it.get('title') or it.get('text') or 'Untitled' }}</strong>
+            {% endif %}
+            {% if it.get('title') and it.get('text') %}
+            <div style="font-size:13px;color:#888;margin-top:3px;">{{ it.text }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <div class="feedback-card">
     <h3>Feedback</h3>
     <p>Something unclear or missing in this under-construction module? Tell Trey / leadership.</p>
@@ -203,14 +247,16 @@ function applyProgress() {
   });
   document.querySelectorAll('.week-card[data-week]').forEach(card => {
     const week = card.dataset.week;
-    const items = card.querySelectorAll('.check-item[data-id]');
+    const items = card.querySelectorAll('.check-item[data-id]:not([data-extra])');
     let done = 0;
     items.forEach(i => { if (progress[i.dataset.id]) done++; });
     const pct = items.length ? Math.round((done / items.length) * 100) : 0;
     const pctEl = document.getElementById('weekPct-' + week);
     if (pctEl) pctEl.textContent = pct + '%';
   });
-  const all = document.querySelectorAll('.check-item[data-id]');
+  // Added-since items are excluded from the overall figure: they were added
+  // after this person enrolled and must not move the programme they started.
+  const all = document.querySelectorAll('.check-item[data-id]:not([data-extra])');
   let totalDone = 0;
   all.forEach(i => { if (progress[i.dataset.id]) totalDone++; });
   const overall = all.length ? Math.round((totalDone / all.length) * 100) : 0;

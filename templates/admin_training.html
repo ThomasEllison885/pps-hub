@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Training Editor</title>
+<style>
+  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;
+        --shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;
+        --draft:#8A5A05;--draft-bg:#FBF1DE;--edit:#4527A0;--edit-bg:#EDE7F6;
+        --live:#1B7A4B;--live-bg:#E6F4EC;--bad:#B71C1C;--bad-bg:#FDECEA;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .main{max-width:1000px;margin:0 auto;padding:28px 24px 80px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);}
+  .page-sub{font-size:14px;color:#888;margin:4px 0 20px;max-width:74ch;line-height:1.55;}
+
+  .modes{display:flex;gap:8px;margin-bottom:18px;}
+  .mode{padding:8px 16px;border-radius:8px;border:1.5px solid var(--border);background:white;
+        color:var(--dark-blue);font-size:13.5px;font-weight:600;text-decoration:none;}
+  .mode.on{background:var(--dark-blue);color:white;border-color:var(--dark-blue);}
+
+  .publish-bar{position:sticky;top:0;z-index:50;background:white;border:1px solid var(--border);
+    border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;margin-bottom:20px;
+    display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .pb-text{flex:1;min-width:230px;font-size:13.5px;color:#666;line-height:1.5;}
+  .pb-text b{color:var(--dark-blue);}
+  .btn{border:1.5px solid var(--border);background:white;color:var(--dark-blue);border-radius:8px;
+       padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .btn:hover{background:var(--light-bg);}
+  .btn.primary{background:var(--dark-blue);color:white;border-color:var(--dark-blue);}
+  .btn.primary:hover{background:var(--blue);}
+  .btn.primary[disabled]{background:#C7D6E2;border-color:#C7D6E2;cursor:default;}
+  .btn.sm{padding:4px 10px;font-size:11.5px;}
+  .btn.danger{color:var(--bad);border-color:#F3C9C6;}
+
+  .wk{background:white;border:1px solid var(--border);border-radius:var(--radius);
+      box-shadow:var(--shadow);margin-bottom:12px;overflow:hidden;}
+  .wk>summary{padding:14px 18px;cursor:pointer;list-style:none;display:flex;align-items:center;
+              gap:12px;font-size:15px;font-weight:600;color:var(--dark-blue);}
+  .wk>summary::-webkit-details-marker{display:none;}
+  .wk>summary:hover{background:var(--light-bg);}
+  .wk>summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px;}
+  .wk-topic{font-weight:400;color:#8a94a0;font-size:13.5px;}
+  .wk-count{margin-left:auto;font-size:12px;color:#aab4be;font-variant-numeric:tabular-nums;}
+  .wk-body{padding:4px 18px 18px;border-top:1px solid #EEF4F9;}
+
+  .cont{margin-top:16px;}
+  .cont-head{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+             color:#8a94a0;margin-bottom:8px;}
+  .item{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border:1px solid var(--border);
+        border-radius:8px;background:var(--light-bg);margin-bottom:7px;}
+  .item-body{flex:1;min-width:0;}
+  .item-title{font-size:13.5px;font-weight:600;color:var(--dark-blue);word-break:break-word;}
+  .item-sub{font-size:12px;color:#7e8894;margin-top:2px;word-break:break-word;}
+  .item-acts{display:flex;gap:6px;flex-shrink:0;}
+  .item.hidden-row{opacity:.5;}
+  .tag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+       border-radius:20px;padding:2px 8px;white-space:nowrap;}
+  .tag.draft{background:var(--draft-bg);color:var(--draft);}
+  .tag.edited{background:var(--edit-bg);color:var(--edit);}
+  .tag.added{background:var(--live-bg);color:var(--live);}
+  .tag.hid{background:var(--bad-bg);color:var(--bad);}
+
+  .addrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+  .addrow input{flex:1;min-width:180px;padding:8px 11px;border:1.5px solid var(--border);
+                border-radius:8px;font-size:13px;font-family:'DM Sans',sans-serif;}
+  .addrow input:focus{outline:none;border-color:var(--blue);}
+
+  .note{font-size:12.5px;color:#98a2ad;line-height:1.6;margin-top:14px;}
+  .sec-head{font-family:'DM Serif Display',serif;font-size:21px;color:var(--dark-blue);
+            margin:30px 0 12px;}
+  .banner{border-radius:var(--radius);padding:13px 16px;margin-bottom:16px;font-size:13.5px;
+          line-height:1.55;background:var(--bad-bg);border:1.5px solid #F3C9C6;color:var(--bad);}
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:var(--dark-blue);
+         color:white;padding:11px 18px;border-radius:8px;font-size:13.5px;box-shadow:var(--shadow);
+         display:none;z-index:200;max-width:90vw;}
+  @media(max-width:640px){.main{padding:20px 14px 60px;}.item{flex-wrap:wrap;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Training Editor</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/{{ 'psc' if module == 'psc' else 'pm' }}-training/oversight" class="pps-btn-header">Accountability</a>
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Training Editor</div>
+  <p class="page-sub">
+    Build out the programme — add items, fix wording, retire what no longer applies.
+    Changes are saved as drafts and stay invisible to trainees until you press
+    <b>Publish</b>. Someone already part-way through keeps the programme they
+    started; anything you add here reaches them in an
+    <em>&ldquo;Added since you started&rdquo;</em> section rather than reopening a week
+    they have finished.
+  </p>
+
+  <div class="modes">
+    <a class="mode {% if module == 'psc' %}on{% endif %}" href="/admin/training?module=psc">PSC Training</a>
+    <a class="mode {% if module == 'pm' %}on{% endif %}" href="/admin/training?module=pm">PM Training</a>
+  </div>
+
+  {% if unplaceable %}
+  <div class="banner">
+    <b>{{ unplaceable|length }} item{{ '' if unplaceable|length == 1 else 's' }} could not be placed.</b>
+    The week or section they were added to no longer exists in the curriculum file.
+    They are listed at the bottom of this page — nothing has been lost.
+  </div>
+  {% endif %}
+
+  <div class="publish-bar">
+    <div class="pb-text" id="pbText">
+      {% set n = pending['added'] + pending['edited'] %}
+      {% if n %}
+        <b>{{ n }} unpublished change{{ '' if n == 1 else 's' }}</b> — {{ pending['added'] }} added,
+        {{ pending['edited'] }} edited. Nobody sees these yet.
+      {% else %}
+        Everything here is published. New changes will appear as drafts.
+      {% endif %}
+    </div>
+    <button class="btn primary" id="publishBtn" onclick="publishWave()"
+            {% if not (pending['added'] + pending['edited']) %}disabled{% endif %}>Publish</button>
+  </div>
+
+  {% macro item_row(it, container, week, section, group_id) %}
+    {# Item shapes differ by container — a video has title+url, a shadowing task
+       only has text — so read with .get() rather than attribute access. #}
+    {% set iid = it.get('id') %}
+    {% set t = it.get('title') %}
+    {% set txt = it.get('text') %}
+    {% set u = it.get('url') %}
+    <div class="item" data-id="{{ iid }}">
+      <div class="item-body">
+        <div class="item-title">{{ t or txt or '(untitled)' }}</div>
+        {% if t and txt %}<div class="item-sub">{{ txt }}</div>{% endif %}
+        {% if u %}<div class="item-sub">{{ u }}</div>{% endif %}
+      </div>
+      <div class="item-acts">
+        {% if iid in draft_ids %}<span class="tag draft">draft</span>
+        {% elif iid in overlay_ids %}<span class="tag added">added</span>
+        {% elif iid in edited_ids %}<span class="tag edited">edited</span>{% endif %}
+        <button class="btn sm" onclick='startEdit(this, {{ iid|tojson }}, {{ (t or "")|tojson }}, {{ (txt or "")|tojson }}, {{ (u or "")|tojson }})'>Edit</button>
+        {% if iid in draft_ids %}
+        <button class="btn sm danger" onclick='discardItem({{ iid|tojson }})'>Discard</button>
+        {% else %}
+        <button class="btn sm danger" onclick='hideItem({{ iid|tojson }})'>Hide</button>
+        {% endif %}
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% macro container_block(week_num, container, items) %}
+    <div class="cont">
+      <div class="cont-head">{{ container|replace('_',' ') }} ({{ items|length }})</div>
+      {% for it in items %}{{ item_row(it, container, week_num, none, none) }}{% endfor %}
+      <div class="addrow">
+        <input type="text" placeholder="Title" data-f="title">
+        {% if container == 'videos' or container == 'additional' %}
+        <input type="text" placeholder="URL" data-f="url">
+        {% else %}
+        <input type="text" placeholder="Detail" data-f="text">
+        {% endif %}
+        <button class="btn" onclick='addItem(this, {"kind":"week","week":{{ week_num }},"container":{{ container|tojson }}})'>Add</button>
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% if onboarding %}
+  <details class="wk">
+    <summary>Week 0 <span class="wk-topic">{{ onboarding.get('title') or 'Foundations' }}</span>
+      <span class="wk-count">{% for c in week_containers %}{{ (onboarding.get(c) or [])|length }}{% if not loop.last %} · {% endif %}{% endfor %}</span></summary>
+    <div class="wk-body">
+      {% for c in week_containers %}{{ container_block(0, c, onboarding.get(c) or []) }}{% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {% for w in weeks %}
+  <details class="wk">
+    <summary>Week {{ w.get('week') }} <span class="wk-topic">{{ w.get('topic') or '' }}</span>
+      <span class="wk-count">{% for c in week_containers %}{{ (w.get(c) or [])|length }}{% if not loop.last %} · {% endif %}{% endfor %}</span></summary>
+    <div class="wk-body">
+      {% for c in week_containers %}{{ container_block(w.get('week'), c, w.get(c) or []) }}{% endfor %}
+    </div>
+  </details>
+  {% endfor %}
+
+  {% for sec in sections %}
+    {% if sec.groups %}
+    <div class="sec-head">{{ sec.label }}</div>
+    {% for g in sec.groups %}
+    <details class="wk">
+      <summary>{{ g.get('title') or g.get('name') or g.get('id') }}
+        <span class="wk-count">{{ (g.get(sec.container) or [])|length }}</span></summary>
+      <div class="wk-body">
+        <div class="cont">
+          {% for it in g.get(sec.container) or [] %}{{ item_row(it, sec.container, none, sec.key, g.id) }}{% endfor %}
+          <div class="addrow">
+            <input type="text" placeholder="Title" data-f="title">
+            <input type="text" placeholder="Detail" data-f="text">
+            <button class="btn" onclick='addItem(this, {"kind":"section","section":{{ sec.key|tojson }},"group_id":{{ g.get("id")|tojson }},"container":{{ sec.container|tojson }}})'>Add</button>
+          </div>
+        </div>
+      </div>
+    </details>
+    {% endfor %}
+    {% endif %}
+  {% endfor %}
+
+  {% if unplaceable %}
+  <div class="sec-head">Could not be placed</div>
+  <div class="wk" style="padding:16px 18px;">
+    {% for it in unplaceable %}
+      <div class="item">
+        <div class="item-body">
+          <div class="item-title">{{ it.get('title') or it.get('text') or '(untitled)' }}</div>
+          <div class="item-sub">Target: {{ it.get('_target') }}</div>
+        </div>
+        <div class="item-acts">
+          <button class="btn sm danger" onclick='discardItem({{ it.get("id")|tojson }})'>Discard</button>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <p class="note">
+    Hiding an item takes it off the page without deleting anything — anyone who
+    already completed it keeps that record, and their week percentage can only go
+    up. Discard only ever removes a draft that has never published.
+    After publishing, allow up to {{ cache_seconds }} seconds for the change to
+    appear everywhere: the Hub caches the curriculum per server process.
+  </p>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const MODULE = {{ module|tojson }};
+
+  function toast(msg, ms) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.style.display = 'block';
+    clearTimeout(t._h);
+    t._h = setTimeout(() => { t.style.display = 'none'; }, ms || 2600);
+  }
+
+  async function post(url, body) {
+    // No confirm()/alert() anywhere in this file: a modal dialog blocks the
+    // page and, in an automated browser session, blocks every later command.
+    try {
+      const r = await fetch(url, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(Object.assign({module: MODULE}, body || {})),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(d.error || 'That did not save.', 4000); return null; }
+      if (d.pending) refreshPending(d.pending);
+      return d;
+    } catch (e) {
+      toast('Request failed — check your connection.', 4000);
+      return null;
+    }
+  }
+
+  function refreshPending(p) {
+    const n = (p.added || 0) + (p.edited || 0);
+    const el = document.getElementById('pbText');
+    el.innerHTML = n
+      ? `<b>${n} unpublished change${n === 1 ? '' : 's'}</b> — ${p.added} added, ${p.edited} edited. Nobody sees these yet.`
+      : 'Everything here is published. New changes will appear as drafts.';
+    document.getElementById('publishBtn').disabled = !n;
+  }
+
+  async function addItem(btn, target) {
+    const row = btn.closest('.addrow');
+    const payload = {};
+    row.querySelectorAll('input[data-f]').forEach(i => {
+      if (i.value.trim()) payload[i.dataset.f] = i.value.trim();
+    });
+    if (!payload.title) { toast('Give it a title first.'); return; }
+    btn.disabled = true;
+    const d = await post('/api/training/item', {target, payload});
+    btn.disabled = false;
+    if (d) { toast('Added as a draft.'); setTimeout(() => location.reload(), 500); }
+  }
+
+  function startEdit(btn, itemId, title, text, url) {
+    const item = btn.closest('.item');
+    if (item.querySelector('.edit-form')) return;
+    const body = item.querySelector('.item-body');
+    body.dataset.original = body.innerHTML;
+    const field = (label, name, value) =>
+      `<input type="text" data-f="${name}" placeholder="${label}" value="${
+        String(value || '').replace(/"/g, '&quot;')}" style="width:100%;padding:7px 10px;
+        border:1.5px solid var(--border);border-radius:7px;font-size:13px;margin-bottom:6px;
+        font-family:'DM Sans',sans-serif;">`;
+    body.innerHTML = `<div class="edit-form">
+      ${field('Title', 'title', title)}
+      ${text || !url ? field('Detail', 'text', text) : ''}
+      ${url ? field('URL', 'url', url) : ''}
+      <button class="btn sm primary" onclick='saveEdit(this, ${JSON.stringify(itemId)})'>Save</button>
+      <button class="btn sm" onclick='cancelEdit(this)'>Cancel</button>
+    </div>`;
+  }
+
+  function cancelEdit(btn) {
+    const body = btn.closest('.item-body');
+    body.innerHTML = body.dataset.original;
+  }
+
+  async function saveEdit(btn, itemId) {
+    const body = btn.closest('.item-body');
+    const fields = {};
+    body.querySelectorAll('input[data-f]').forEach(i => { fields[i.dataset.f] = i.value; });
+    if (!Object.values(fields).some(v => String(v).trim())) {
+      toast('Nothing to save.'); return;
+    }
+    btn.disabled = true;
+    const d = await post('/api/training/edit', {item_id: itemId, fields});
+    btn.disabled = false;
+    if (d) { toast('Saved as a draft.'); setTimeout(() => location.reload(), 500); }
+  }
+
+  async function hideItem(itemId) {
+    const d = await post('/api/training/edit', {item_id: itemId, hidden: true});
+    if (d) { toast('Hidden. Completed records are kept.'); setTimeout(() => location.reload(), 600); }
+  }
+
+  async function discardItem(itemId) {
+    const d = await post('/api/training/discard', {item_id: itemId});
+    if (d) { toast('Draft discarded.'); setTimeout(() => location.reload(), 500); }
+  }
+
+  async function publishWave() {
+    const btn = document.getElementById('publishBtn');
+    btn.disabled = true;
+    const d = await post('/api/training/publish', {});
+    if (d) {
+      toast(`Published ${d.items} added and ${d.edits} edited. Allow up to ${
+        d.cache_seconds}s to appear everywhere.`, 5000);
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      btn.disabled = false;
+    }
+  }
+</script>
+</body>
+</html>
