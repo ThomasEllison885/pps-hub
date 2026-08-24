@@ -3059,6 +3059,71 @@ def _run_system_health_checks():
     return {'ok': ok, 'checks': checks}
 
 
+# ── PWA service worker ──────────────────────────────────────────────────────
+#
+# Served from the root because a service worker cannot control anything above
+# its own path — one at /static/sw.js would only ever cover /static/.
+
+SERVICE_WORKER_DISABLED = os.environ.get('SERVICE_WORKER_DISABLED', '').strip().lower() in ('1', 'true', 'yes')
+
+# Every installed copy re-fetches /sw.js periodically and installs it if the
+# bytes differ. This stub is how a bad worker gets removed from phones we do not
+# have: set SERVICE_WORKER_DISABLED=true and each device unregisters itself on
+# its next check. A normal deploy cannot do that — the old worker keeps running.
+_SW_KILL_STUB = (
+    "self.addEventListener('install', () => self.skipWaiting());\n"
+    "self.addEventListener('activate', (e) => {\n"
+    "  e.waitUntil((async () => {\n"
+    "    const names = await caches.keys();\n"
+    "    await Promise.all(names.map((n) => caches.delete(n)));\n"
+    "    await self.registration.unregister();\n"
+    "    const clients = await self.clients.matchAll({type: 'window'});\n"
+    "    clients.forEach((c) => c.navigate(c.url));\n"
+    "  })());\n"
+    "});\n"
+)
+
+
+def _sw_version():
+    """Changes the file's bytes per deploy so browsers see an update.
+
+    Falls back to a date stamp because RENDER_GIT_COMMIT is not set on the
+    service (see the System State panel). With the commit set this is exact;
+    without it, a deploy on the same day will not bust the static cache — bump
+    the fallback by hand if that ever matters.
+    """
+    return (os.environ.get('RENDER_GIT_COMMIT') or '')[:12] or '2026-08-23a'
+
+
+@app.route('/sw.js')
+def service_worker():
+    if SERVICE_WORKER_DISABLED:
+        body = _SW_KILL_STUB
+    else:
+        try:
+            with open(os.path.join(app.static_folder, 'sw.js'), 'r', encoding='utf-8') as fh:
+                body = fh.read().replace('__SW_VERSION__', _sw_version())
+        except Exception as e:
+            print(f'service worker read error: {e}')
+            body = _SW_KILL_STUB
+    resp = make_response(body)
+    resp.headers['Content-Type'] = 'application/javascript'
+    # Never let a CDN or browser pin the worker itself — that is how a bad one
+    # becomes unremovable.
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Service-Worker-Allowed'] = '/'
+    return resp
+
+
+@app.route('/offline')
+def offline_page():
+    """Shown only when a navigation fails with no network. Precached by the
+    worker, so it must not reference anything it would have to fetch."""
+    resp = make_response(render_template('offline.html'))
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
+
+
 @app.route('/health')
 def health():
     db_ok = False

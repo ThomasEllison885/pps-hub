@@ -1,7 +1,41 @@
 <link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#004C8C">
-<meta name="mobile-web-app-capable" content="yes">
+
+{# iOS ignores the manifest for both of these — without them an installed Hub
+   gets a screenshot-of-the-page icon and opens inside Safari chrome rather than
+   standalone. The icon file has existed since 2026-07-02; nothing referenced it. #}
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PPS Hub">
-<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<meta name="theme-color" content="#004C8C">
+
+<script>
+/* Service worker registration.
+ *
+ * Deliberately defensive: this runs on every page in the Hub, and an uncaught
+ * throw here would take out whatever inline script follows it.
+ *
+ * Registered from /sw.js, never /static/sw.js — a worker's scope cannot rise
+ * above its own path, so a static one would only ever control /static/. The
+ * worker never caches HTML; see the note at the top of static/sw.js for why
+ * that is the rule the whole design hangs on.
+ */
+(function () {
+  if (!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function (reg) {
+      // Re-check for a new worker whenever the tab regains focus. Without this
+      // an installed Hub can sit on an old worker for a long time — which also
+      // means it would be slow to pick up the kill switch.
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') {
+          try { reg.update(); } catch (e) { /* not fatal */ }
+        }
+      });
+    }).catch(function () {
+      // Registration failing is not worth surfacing: the Hub behaves exactly as
+      // it did before, just without cached static assets or an offline page.
+    });
+  });
+})();
+</script>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#004C8C">
+<title>PPS Hub · Offline</title>
+<style>
+  /* Self-contained on purpose: this page is precached and shown when the
+     network is gone, so it cannot depend on pps-global.css or the logo being
+     fetchable. Everything it needs is in this file. */
+  :root{--dark-blue:#004C8C;--blue:#0096D6;--ink:#10243A;--muted:#7C90A3;
+        --ground:#F2F7FB;--surface:#FFFFFF;--line:#D8E8F2;}
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#E4EEF6;--muted:#8FA3B5;--ground:#0B141D;--surface:#121F2B;
+          --line:#253A4B;--dark-blue:#8FCDEC;--blue:#45B6E8;}
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','DM Sans',sans-serif;
+       background:var(--ground);color:var(--ink);min-height:100vh;display:flex;
+       align-items:center;justify-content:center;padding:24px;line-height:1.6;}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+        padding:34px 30px;max-width:420px;width:100%;text-align:center;
+        box-shadow:0 2px 20px rgba(16,36,58,.07);}
+  .mark{width:52px;height:52px;margin:0 auto 18px;border-radius:13px;
+        background:var(--dark-blue);color:#fff;display:flex;align-items:center;
+        justify-content:center;font-size:23px;font-weight:700;}
+  h1{font-size:21px;font-weight:700;margin-bottom:9px;letter-spacing:-.01em;}
+  p{font-size:15px;color:var(--muted);margin-bottom:8px;}
+  p.last{margin-bottom:22px;}
+  button{background:var(--dark-blue);color:#fff;border:none;border-radius:9px;
+         padding:11px 22px;font-size:15px;font-weight:600;cursor:pointer;
+         font-family:inherit;}
+  button:hover{background:var(--blue);}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:16px;}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">PPS</div>
+    <h1>You're offline</h1>
+    <p>The Hub needs a connection — your proposals, boards and scopes all live
+       on the server.</p>
+    <p class="last">Nothing you'd already saved is affected.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+    <div class="hint" id="hint">Waiting for a connection…</div>
+  </div>
+<script>
+  // Reload the moment the connection comes back, so nobody sits on this page
+  // longer than they have to.
+  window.addEventListener('online', () => location.reload());
+  const hint = document.getElementById('hint');
+  function tick() {
+    hint.textContent = navigator.onLine
+      ? 'Back online — reloading…'
+      : 'Waiting for a connection…';
+    if (navigator.onLine) location.reload();
+  }
+  setInterval(tick, 3000);
+  tick();
+</script>
+</body>
+</html>
