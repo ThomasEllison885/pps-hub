@@ -33,6 +33,13 @@
   .mc-stat{text-align:center;}
   .mc-stat .num{font-size:20px;font-weight:700;color:var(--dark-blue);}
   .mc-stat .lbl{font-size:10px;color:#aaa;text-transform:uppercase;letter-spacing:0.06em;}
+  .mc-stats{gap:18px;}
+  .mc-stat .num{font-variant-numeric:tabular-nums;}
+  .mc-breakdown{display:flex;gap:10px;flex-wrap:wrap;margin-top:11px;padding-top:9px;
+                border-top:1px solid #EEF4F9;font-size:11.5px;color:#8a94a0;
+                font-variant-numeric:tabular-nums;}
+  .mc-lifetime{font-size:10.5px;color:#c0c8d0;margin-top:5px;letter-spacing:0.03em;
+               font-variant-numeric:tabular-nums;}
 
 
   /* Detail panel */
@@ -90,64 +97,60 @@
 <div class="main">
   <div class="page-title">Team View</div>
   <p class="page-sub">
-    Who did the work. Everything here is credited to the person who generated
-    it, not to whose name is on the document — a proposal written under another
-    consultant's book counts for whoever wrote it, and shows "for" that
-    consultant as context.</p>
-  <p class="page-sub">
+    Scored exactly as the Monday email scores it — week of {{ week_label }}, with
+    the rolling {{ rolling_weeks }}-week figure beside it. Lists below cover the
+    same {{ rolling_weeks }} weeks; full history lives in
+    <a href="/my-proposals">My Proposals</a> and the Admin search.
   </p>
 
   <div class="filter-bar">
     <span class="filter-label">Filter</span>
     <input type="search" id="tvSearch" placeholder="Search property, client, address…" oninput="applyTeamFilters()">
     <select id="tvDays" onchange="applyTeamFilters()">
-      <option value="all">All time</option>
+      <option value="all">All {{ rolling_weeks }} weeks</option>
+      <option value="7">Last 7 days</option>
       <option value="30">Last 30 days</option>
-      <option value="90">Last 90 days</option>
     </select>
     <select id="tvType" onchange="applyTeamFilters()">
-      {% if scope == 'consultants' %}
-      <option value="all">All templates</option>
-      <option value="short">Standard only</option>
-      <option value="full">Comprehensive only</option>
-      {% else %}
       <option value="all">All activity</option>
+      <option value="proposal">Proposals only</option>
       <option value="ppm">PPMs only</option>
       <option value="tps">TPS only</option>
-      {% endif %}
     </select>
     <span class="filter-hint" id="tvFilterHint"></span>
   </div>
 
   <div class="pps-section-head" id="tvSectionHead">
-    {% if scope == 'consultants' %}Consultants ({{ members|length }})
-    {% else %}Project Managers ({{ members|length }}){% endif %}
+    Team ({{ members|length }})
   </div>
 
   <div class="members-grid" id="membersGrid">
+    {# Scores come from weekly_recap.collect_scores — the same function the
+       Monday email uses, so the two can never disagree. The three counts below
+       are the deliverables in the rolling window; lifetime is a grouped COUNT,
+       not a fetch of every row. #}
     {% for m in members %}
-    {% set mdata = member_data.get(m.key, {}) %}
     <div class="member-card" id="card_{{ m.key }}" onclick="showMember('{{ m.key }}')">
       <div class="mc-name">{{ m.display }}</div>
       <div class="mc-title">{{ m.title }}</div>
       <div class="mc-stats">
-        {% if scope == 'consultants' %}
         <div class="mc-stat">
-          <div class="num">{{ mdata.get('proposals', [])|length }}</div>
-          <div class="lbl">Proposals</div>
-        </div>
-        {% else %}
-        <div class="mc-stat">
-          <div class="num">{{ mdata.get('ppms', [])|length }}</div>
-          <div class="lbl">PPMs</div>
+          <div class="num">{{ m.week_score }}</div>
+          <div class="lbl">This week</div>
         </div>
         <div class="mc-stat">
-          <div class="num">{{ mdata.get('tpscopes', [])|length }}</div>
-          <div class="lbl">TPS</div>
+          <div class="num">{{ m.rolling_score }}</div>
+          <div class="lbl">{{ rolling_weeks }} wk</div>
         </div>
-        {% endif %}
       </div>
-
+      <div class="mc-breakdown">
+        <span title="Proposals in the last {{ rolling_weeks }} weeks">{{ m.counts.proposals }} prop</span>
+        <span title="PPMs in the last {{ rolling_weeks }} weeks">{{ m.counts.ppms }} PPM</span>
+        <span title="Trade Partner Scopes in the last {{ rolling_weeks }} weeks">{{ m.counts.tpscopes }} TPS</span>
+      </div>
+      <div class="mc-lifetime">
+        all time · {{ m.lifetime.proposals + m.lifetime.ppms + m.lifetime.tpscopes }}
+      </div>
     </div>
     {% endfor %}
   </div>
@@ -210,7 +213,8 @@
 <script>
 const memberData = {{ member_data | tojson }};
 const members = {{ members | tojson }};
-const scope = {{ scope | tojson }};
+const ROLLING_WEEKS = {{ rolling_weeks | tojson }};
+const ROW_CAP = {{ row_cap | tojson }};
 const currentUserKey = {{ user_key | tojson }};
 const isAdmin = {{ is_admin | tojson }};
 const proposalToolUrl = {{ proposal_url | tojson }};
@@ -255,10 +259,13 @@ function _tvMatchesSearch(item, fields) {
 
 function _filteredProposals(list) {
   const days = _tvDaysLimit();
-  const tpl = document.getElementById('tvType')?.value || 'all';
+  const typ = document.getElementById('tvType')?.value || 'all';
+  // The type select used to offer proposal TEMPLATES (short/full) because this
+  // page only ever showed one kind per person. It now filters by kind, so a
+  // non-proposal selection empties this list rather than matching a template.
+  if (typ === 'ppm' || typ === 'tps') return [];
   return (list || []).filter(p => {
     if (!_tvWithinDays(p.generated_at, days)) return false;
-    if (tpl !== 'all' && (p.template_type || 'short') !== tpl) return false;
     return _tvMatchesSearch(p, [
       p.property_name, p.client_name, p.property_address, p.consultant_name,
       p.property_type, p.scopes_selected, p.proposal_number, p.generated_by,
@@ -281,7 +288,7 @@ function _filteredPpms(list) {
 function _filteredTps(list) {
   const days = _tvDaysLimit();
   const typ = document.getElementById('tvType')?.value || 'all';
-  if (typ === 'ppm') return [];
+  if (typ === 'ppm' || typ === 'proposal') return [];
   return (list || []).filter(s => {
     if (!_tvWithinDays(s.generated_at, days)) return false;
     return _tvMatchesSearch(s, [
@@ -291,14 +298,22 @@ function _filteredTps(list) {
   });
 }
 
+function _filtersAreIdle() {
+  return !_tvSearchText() && !_tvDaysLimit()
+    && (document.getElementById('tvType')?.value || 'all') === 'all';
+}
+
 function _memberVisible(key) {
+  // Every person now has all three kinds. Previously this branched on `scope`,
+  // which the route hardcoded to 'all' — so the consultants branch was dead and
+  // nobody's proposals were ever counted or listed.
   const data = memberData[key] || {};
-  if (scope === 'consultants') {
-    return _filteredProposals(data.proposals).length > 0 || (!_tvSearchText() && !_tvDaysLimit() && (document.getElementById('tvType')?.value || 'all') === 'all');
-  }
-  const ppms = _filteredPpms(data.ppms);
-  const tps = _filteredTps(data.tpscopes);
-  return ppms.length + tps.length > 0 || (!_tvSearchText() && !_tvDaysLimit() && (document.getElementById('tvType')?.value || 'all') === 'all');
+  const n = _filteredProposals(data.proposals).length
+          + _filteredPpms(data.ppms).length
+          + _filteredTps(data.tpscopes).length;
+  // With no filters applied, show everyone including a visible zero — an
+  // omitted name reads as an oversight, same reasoning as the weekly recap.
+  return n > 0 || _filtersAreIdle();
 }
 
 function applyTeamFilters() {
@@ -311,8 +326,7 @@ function applyTeamFilters() {
     if (show) visible++;
   });
   const head = document.getElementById('tvSectionHead');
-  const label = scope === 'consultants' ? 'Consultants' : 'Project Managers';
-  head.textContent = `${label} (${visible} of ${members.length})`;
+  head.textContent = `Team (${visible} of ${members.length})`;
   const hint = document.getElementById('tvFilterHint');
   if (_tvSearchText() || _tvDaysLimit() || (document.getElementById('tvType')?.value || 'all') !== 'all') {
     hint.textContent = visible ? 'Showing members with matching activity.' : 'No matches — try clearing filters.';
@@ -337,55 +351,62 @@ function showMember(key) {
 
   let html = '';
 
-  if (scope === 'consultants') {
-    const allProposals = data.proposals || [];
-    const proposals = _filteredProposals(allProposals);
-    const indexMap = proposals.map(p => allProposals.indexOf(p));
-    html += `<div class="sub-head">Proposals (${proposals.length}${proposals.length !== allProposals.length ? ' of ' + allProposals.length : ''})</div>`;
-    if (proposals.length) {
-      proposals.forEach((p, i) => {
-        const origIdx = indexMap[i];
-        const tpl = formatTemplateLabel(p.template_type);
-        html += `<div class="act-item" onclick="showProposalMeta(${origIdx}, '${key}')">
-          <div class="act-name">${p.property_name || p.client_name || 'Unnamed'}</div>
-          <div class="act-meta">${tpl} · ${p.property_type||''}${p.consultant_name ? ' · for ' + p.consultant_name : ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
-        </div>`;
-      });
-    } else {
-      html += '<div class="empty">No proposals match these filters</div>';
-    }
-  } else {
-    const allPpms = data.ppms || [];
-    const ppms = _filteredPpms(allPpms);
-    const ppmIndexMap = ppms.map(p => allPpms.indexOf(p));
-    html += `<div class="sub-head">PPMs (${ppms.length}${ppms.length !== allPpms.length ? ' of ' + allPpms.length : ''})</div>`;
-    if (ppms.length) {
-      ppms.forEach((p, i) => {
-        const origIdx = ppmIndexMap[i];
-        html += `<div class="act-item" onclick="showPPMMeta(${origIdx}, '${key}')">
-          <div class="act-name">${p.client_name || p.property_name || 'Unnamed'}${p.proj_type ? ' · ' + p.proj_type : ''}</div>
-          <div class="act-meta">${p.property_name && p.client_name ? p.property_name + ' · ' : ''}${p.pm_name || ''} · ${p.generated_at ? p.generated_at.substring(0,10) : '—'}</div>
-        </div>`;
-      });
-    } else {
-      html += '<div class="empty">No PPMs match these filters</div>';
-    }
+  // All three sections, for everyone. This used to be an if/else on `scope`,
+  // which the route pinned to 'all' — so the proposals branch never ran and a
+  // consultant's proposals were invisible on the page built to show them.
+  // Empty sections are omitted rather than printing three "no matches" lines.
+  const sections = [
+    {
+      key: 'proposals', label: 'Proposals', all: data.proposals || [],
+      filter: _filteredProposals, handler: 'showProposalMeta',
+      name: p => p.property_name || p.client_name || 'Unnamed',
+      meta: p => [formatTemplateLabel(p.template_type), p.property_type || '',
+                  p.generated_at ? p.generated_at.substring(0, 10) : '—']
+                 .filter(Boolean).join(' · '),
+    },
+    {
+      key: 'ppms', label: 'PPMs', all: data.ppms || [],
+      filter: _filteredPpms, handler: 'showPPMMeta',
+      name: p => (p.client_name || p.property_name || 'Unnamed')
+                 + (p.proj_type ? ' · ' + p.proj_type : ''),
+      meta: p => [(p.property_name && p.client_name) ? p.property_name : '',
+                  p.pm_name || '',
+                  p.generated_at ? p.generated_at.substring(0, 10) : '—']
+                 .filter(Boolean).join(' · '),
+    },
+    {
+      key: 'tpscopes', label: 'Trade Partner Scopes', all: data.tpscopes || [],
+      filter: _filteredTps, handler: 'showTPSMeta',
+      name: t => t.property_name || 'Unnamed',
+      meta: t => [t.consultant_name || '', t.language || '',
+                  t.po_number ? 'PO ' + t.po_number : '',
+                  t.generated_at ? t.generated_at.substring(0, 10) : '—']
+                 .filter(Boolean).join(' · '),
+    },
+  ];
 
-    const allTps = data.tpscopes || [];
-    const tps = _filteredTps(allTps);
-    const tpsIndexMap = tps.map(s => allTps.indexOf(s));
-    html += `<div class="sub-head">Trade Partner Scopes (${tps.length}${tps.length !== allTps.length ? ' of ' + allTps.length : ''})</div>`;
-    if (tps.length) {
-      tps.forEach((s, i) => {
-        const origIdx = tpsIndexMap[i];
-        html += `<div class="act-item" onclick="showTPSMeta(${origIdx}, '${key}')">
-          <div class="act-name">${s.property_name || 'Unnamed'}</div>
-          <div class="act-meta">${s.consultant_name||''} · ${s.language||''}${s.po_number ? ' · PO ' + s.po_number : ''} · ${s.generated_at ? s.generated_at.substring(0,10) : '—'}</div>
-        </div>`;
-      });
-    } else {
-      html += '<div class="empty">No Trade Partner Scopes match these filters</div>';
-    }
+  let shown = 0;
+  sections.forEach(sec => {
+    const rows = sec.filter(sec.all);
+    if (!rows.length) return;
+    shown += rows.length;
+    const suffix = rows.length !== sec.all.length ? ` of ${sec.all.length}` : '';
+    html += `<div class="sub-head">${sec.label} (${rows.length}${suffix})</div>`;
+    rows.forEach(r => {
+      // Index into the ORIGINAL array — the modal reads memberData[key][kind][i],
+      // so an index into the filtered copy opens the wrong record.
+      const origIdx = sec.all.indexOf(r);
+      html += `<div class="act-item" onclick="${sec.handler}(${origIdx}, '${key}')">
+        <div class="act-name">${sec.name(r)}</div>
+        <div class="act-meta">${sec.meta(r)}</div>
+      </div>`;
+    });
+  });
+
+  if (!shown) {
+    html += _filtersAreIdle()
+      ? `<div class="empty">No activity in the last ${ROLLING_WEEKS} weeks.</div>`
+      : '<div class="empty">Nothing matches these filters.</div>';
   }
 
   document.getElementById('dpContent').innerHTML = html;

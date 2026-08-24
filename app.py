@@ -5831,6 +5831,13 @@ def admin_feedback_delete_all():
         return redirect(url_for('admin_feedback'))
 
 
+# Per-table ceiling on the rows Team View serialises into the page. Twelve
+# weeks across thirteen people has never come close to this; it exists so a
+# bulk import or a runaway integration cannot put a 40MB page in front of
+# everyone. The template reports when it bites rather than silently truncating.
+TEAM_VIEW_ROW_CAP = 2000
+
+
 def _serialize_log_rows(rows):
     """Convert DB rows to JSON-safe dicts for templates."""
     out = []
@@ -6459,82 +6466,118 @@ def my_diffs():
 
 
 @app.route('/team-view')
+@require_login
 def team_view():
-    if not session.get('user_key'):
-        return redirect(url_for('login'))
+    """Per-person activity, scored the same way the Monday email scores it.
+
+    Two things were wrong here before 2026-08-23:
+
+    **It disagreed with the recap about the same people.** The cards counted
+    every row a person had ever generated, with no window and no activity cap,
+    while the email counts one week plus a rolling twelve with pipeline capped
+    at five. Andy's number in his inbox and Andy's number on this page were
+    different numbers with his name on both. Both now come from
+    `weekly_recap.collect_scores` — one scoring function, not two.
+
+    **It grew without bound.** Three `SELECT *` per person with no date filter
+    and no LIMIT — thirty-nine queries fetching every row ever written, all
+    serialised into the page as JSON. Now three windowed queries for the whole
+    roster, plus grouped counts for the all-time figures, which is what people
+    actually want the lifetime number for: a number, not five hundred rows.
+    """
     user_key = session['user_key']
     user = USERS.get(user_key, {})
-    # Open to everyone (2026-08-21). Team View shows per-person proposal / PPM /
-    # TPS activity — exactly what the weekly team recap now emails to the whole
-    # company. Mailing out the summary while locking the page did not hold up.
-    scope = 'all'
-    members = []
-    member_data = {}
+    member_keys = list(USERS.keys())
+    members = [
+        {'key': k, 'display': u['display'], 'title': u.get('title', ''), 'role': u['role']}
+        for k, u in USERS.items() if u
+    ]
 
-    # Build member list based on scope
-    if scope == 'consultants':
-        member_keys = ['tony_cumella','adam_cupito','rachel_farler','andy_potts','thomas_ellison']
-    elif scope == 'pms':
-        member_keys = ['phil_miller','derek_kidney','nick_triplett','trey_hollmeyer',
-                       'james_boling','jordan_allen','ben_ramsey']
-    else:
-        # 'all' (Trey) and admin default — full roster
-        member_keys = list(USERS.keys())
+    week_start, week_end = weekly_recap.last_week_bounds()
+    roll_start, roll_end = weekly_recap.rolling_bounds()
+    week_scores = weekly_recap.collect_scores(get_db, USERS, week_start, week_end)
+    roll_scores = weekly_recap.collect_scores(get_db, USERS, roll_start, roll_end)
 
-    for key in member_keys:
-        u = USERS.get(key, {})
-        if u:
-            members.append({'key': key, 'display': u['display'], 'title': u.get('title',''), 'role': u['role']})
+    member_data = {k: {'proposals': [], 'ppms': [], 'tpscopes': []} for k in member_keys}
+    lifetime = {k: {'proposals': 0, 'ppms': 0, 'tpscopes': 0} for k in member_keys}
 
+    # Detail rows are windowed to the same twelve weeks the rolling score covers,
+    # so the lists and the number above them describe the same period. Older work
+    # is still reachable in full from /my-proposals, /admin/proposals and the
+    # Admin search — this page is a scoreboard, not an archive.
+    DETAIL = (
+        ('proposals', 'proposal_log'),
+        ('ppms', 'ppm_log'),
+        ('tpscopes', 'subscope_log'),
+    )
+    conn = None
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            load_all_activity = scope in (None, 'all') or session.get('role') == 'admin'
-            for key in member_keys:
-                udata = {}
-                if scope == 'consultants' or load_all_activity:
-                    # Credit the person who GENERATED it, not whose book it was
-                    # (2026-08-21, Thomas). This read consultant_key, so a PM
-                    # writing a proposal under a consultant's name saw the work
-                    # land on the consultant's row and got nothing for it —
-                    # Trey's case exactly. proposal_log stores both columns, so
-                    # this re-attributes every historical row correctly with no
-                    # backfill. The consultant is still shown on the row as
-                    # context: credit moves, the book it belonged to does not.
+            for field, table in DETAIL:
+                try:
                     cur.execute(
-                        'SELECT * FROM proposal_log WHERE generated_by = %s ORDER BY generated_at DESC',
-                        (key,)
+                        f'SELECT * FROM {table} '
+                        f'WHERE generated_by = ANY(%s) AND generated_at >= %s '
+                        f'ORDER BY generated_at DESC LIMIT %s',
+                        (member_keys, roll_start, TEAM_VIEW_ROW_CAP),
                     )
-                    udata['proposals'] = _serialize_log_rows(cur.fetchall())
-                if scope == 'pms' or load_all_activity:
-                    # generated_by only. This was `generated_by = %s OR pm_key = %s`,
-                    # which put one PPM on two people's lists — the maker's and the
-                    # assigned PM's — so team totals counted it twice and an
-                    # assigned PM appeared to have done work they had not.
+                    for row in cur.fetchall():
+                        owner = row.get('generated_by')
+                        if owner in member_data:
+                            member_data[owner][field].append(row)
+                    for key in member_keys:
+                        member_data[key][field] = _serialize_log_rows(member_data[key][field])
                     cur.execute(
-                        'SELECT * FROM ppm_log WHERE generated_by = %s ORDER BY generated_at DESC',
-                        (key,)
+                        f'SELECT generated_by, COUNT(*) AS c FROM {table} GROUP BY 1'
                     )
-                    udata['ppms'] = _serialize_log_rows(cur.fetchall())
-                    cur.execute(
-                        'SELECT * FROM subscope_log WHERE generated_by = %s ORDER BY generated_at DESC',
-                        (key,)
-                    )
-                    udata['tpscopes'] = _serialize_log_rows(cur.fetchall())
-                member_data[key] = udata
+                    for row in cur.fetchall():
+                        if row['generated_by'] in lifetime:
+                            lifetime[row['generated_by']][field] = row['c'] or 0
+                except Exception as e:
+                    # A missing table is survivable — several are created lazily
+                    # on first use. Roll back so the next query can still run.
+                    conn.rollback()
+                    print(f'team view: skipped {table} ({e})')
             cur.close()
-            conn.close()
     except Exception as e:
         print(f"Team view error: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    cards = []
+    for m in members:
+        key = m['key']
+        week_break = week_scores.get(key, {})
+        roll_break = roll_scores.get(key, {})
+        cards.append({
+            **m,
+            'week_score': weekly_recap.score_total(week_break, weeks=1),
+            'rolling_score': weekly_recap.score_total(
+                roll_break, weeks=weekly_recap.ROLLING_WEEKS),
+            'counts': {
+                'proposals': len(member_data[key]['proposals']),
+                'ppms': len(member_data[key]['ppms']),
+                'tpscopes': len(member_data[key]['tpscopes']),
+            },
+            'lifetime': lifetime[key],
+        })
+    cards.sort(key=lambda c: (-c['week_score'], c['display'].lower()))
 
     return render_template(
         'team_view.html',
         user=user,
         user_key=user_key,
-        scope=scope,
-        members=members,
+        members=cards,
         member_data=member_data,
+        week_label=weekly_recap.week_label(week_start),
+        rolling_weeks=weekly_recap.ROLLING_WEEKS,
+        row_cap=TEAM_VIEW_ROW_CAP,
         is_admin=session.get('role') == 'admin',
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
     )
