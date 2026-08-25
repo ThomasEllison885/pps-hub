@@ -324,6 +324,7 @@ def recent_tools(
     proposal_url='',
     allowed=None,
     limit=3,
+    url_overrides=None,
 ):
     """The tools this person actually returns to, most recent first.
 
@@ -346,6 +347,10 @@ def recent_tools(
     open. History is not permission: someone who used Office Ops before a
     tier change must not be handed a card back to it. Omitted means no
     filtering, which is only correct in tests.
+
+    `url_overrides` replaces the catalog URL for a tool key. It exists for
+    the Pipeline Board, whose bare `/pipeline-board` is not a valid
+    destination for everyone — see PIPELINE_NEEDS_A_PAIR below.
     """
     stamps = {}
 
@@ -357,6 +362,8 @@ def recent_tools(
             stamps[key] = max(stamps.get(key, ts), ts)
 
     for row in usage_rows or []:
+        # (feature, last_used) or (feature, last_used, title) — the title is
+        # only read by the caller, for the Pipeline Board's pair.
         try:
             feature, ts = row[0], row[1]
         except (TypeError, IndexError, KeyError):
@@ -371,19 +378,70 @@ def recent_tools(
 
     ordered = sorted(stamps.items(), key=lambda kv: kv[1], reverse=True)[:limit]
 
+    overrides = url_overrides or {}
     out = []
     for key, ts in ordered:
         spec = TOOLS[key]
         external = bool(spec.get('external'))
+        url = overrides.get(key)
+        if not url:
+            url = (proposal_url or '') + spec['path'] if external else spec['path']
         out.append({
             'key': key,
             'icon': spec['icon'],
             'name': spec['name'],
-            'url': (proposal_url or '') + spec['path'] if external else spec['path'],
+            'url': url,
             'external': external,
             'when': _relative_day(ts),
         })
     return out
+
+
+# ── The Pipeline Board is the one tool with no universal URL ────────────────
+#
+# `/pipeline-board` with no `?pair=` asks the route to pick your default
+# board, and `pipeline_board.get_pair_key` returns **None for the owner** on
+# purpose — Thomas can open every board and has no "his". The route then does
+# `if not pair_key: return redirect('dashboard')`, so a bare link bounces him
+# straight back to where he came from and reads as a dead card. That is
+# exactly what shipped on 2026-08-25 and what he reported.
+#
+# So the URL has to carry a pair, and `pipeline_url_for` below decides which.
+PIPELINE_NEEDS_A_PAIR = True
+
+
+def pipeline_url_for(last_opened_title, boards, default_pair_key=None):
+    """Which board a "Jump back in" pipeline card should open.
+
+    In order of preference:
+
+      1. **The board you were last on.** Every pipeline open writes a
+         `hub_usage_events` row whose `title` is the board's *display name*
+         (`_display(users, pair_key)`, e.g. "Andy Potts"), so the one you
+         actually used is recoverable — matched back to a key against the
+         boards you can open. This is the whole point of the block: it is
+         called Jump back in, not Jump somewhere.
+      2. Your default board, for anyone who has one.
+      3. The first board you can open, so the card always goes somewhere.
+
+    Returns None when the person has no boards at all, and the caller then
+    leaves the card out rather than rendering one that redirects.
+
+    Matching on display name rather than key looks fragile, and is the
+    reason for the ordering above: if someone is renamed, the lookup misses
+    and you land on your default instead of your last board. That is a
+    slightly worse card, not a broken one.
+    """
+    boards = list(boards or [])
+    if not boards:
+        return None
+    title = (last_opened_title or '').strip().lower()
+    if title:
+        for b in boards:
+            if (b.get('consultant_display') or '').strip().lower() == title:
+                return f"/pipeline-board?pair={b['key']}"
+    key = default_pair_key or boards[0].get('key')
+    return f'/pipeline-board?pair={key}' if key else None
 
 
 def _relative_day(ts, now=None):
@@ -416,7 +474,7 @@ def _relative_day(ts, now=None):
 
 
 def recent_usage_features(get_db, user_key, days=60):
-    """[(feature, last_used)] for one person. [] on any failure.
+    """[(feature, last_used, title)] for one person. [] on any failure.
 
     One grouped query on the (user_key, created_at DESC) index that
     hub_usage.init_tables already creates. It is not wrapped in
@@ -432,13 +490,18 @@ def recent_usage_features(get_db, user_key, days=60):
         if not conn:
             return []
         cur = conn.cursor()
+        # DISTINCT ON keeps the title of the most recent event per feature
+        # alongside its timestamp — for Pipeline that title is the board's
+        # display name, which is how "jump back in" knows which board you
+        # were on. A plain MAX(created_at) cannot carry it.
         cur.execute(
-            'SELECT feature, MAX(created_at) FROM hub_usage_events '
+            'SELECT DISTINCT ON (feature) feature, created_at, title '
+            'FROM hub_usage_events '
             'WHERE user_key = %s AND created_at >= %s '
-            'GROUP BY feature',
+            'ORDER BY feature, created_at DESC',
             (user_key, _utcnow() - timedelta(days=days)),
         )
-        rows = [(r[0], r[1]) for r in cur.fetchall()]
+        rows = [(r[0], r[1], r[2]) for r in cur.fetchall()]
         cur.close()
         return rows
     except Exception as e:

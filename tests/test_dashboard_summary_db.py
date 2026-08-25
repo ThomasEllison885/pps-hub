@@ -121,15 +121,24 @@ def test_a_missing_table_returns_none_rather_than_raising(db):
 
 
 def test_usage_features_returns_the_latest_per_feature(db):
+    """DISTINCT ON, so the *title* comes from the same row as the timestamp.
+
+    That title is the Pipeline Board's display name, and it is how "Jump back
+    in" knows which board you were last on — a plain MAX(created_at) cannot
+    carry it. Two pipeline opens on different boards, and the newer one has to
+    win title and all.
+    """
     now = _utcnow()
     conn = _connect()
     cur = conn.cursor()
-    for feature, when in (('pipeline', now - timedelta(days=3)),
-                          ('pipeline', now - timedelta(hours=1)),
-                          ('office_ops', now - timedelta(days=2))):
+    for feature, title, when in (
+            ('pipeline', 'Andy Potts', now - timedelta(days=3)),
+            ('pipeline', 'Rachel Farler', now - timedelta(hours=1)),
+            ('office_ops', 'Numbers page', now - timedelta(days=2))):
         cur.execute(
-            'INSERT INTO hub_usage_events (user_key, feature, action, created_at) '
-            'VALUES (%s, %s, %s, %s)', ('andy_potts', feature, 'open', when))
+            'INSERT INTO hub_usage_events (user_key, feature, action, title, created_at) '
+            'VALUES (%s, %s, %s, %s, %s)',
+            ('andy_potts', feature, 'open', title, when))
     cur.execute(
         'INSERT INTO hub_usage_events (user_key, feature, action, created_at) '
         'VALUES (%s, %s, %s, %s)', ('rachel_farler', 'compliance', 'open', now))
@@ -137,9 +146,33 @@ def test_usage_features_returns_the_latest_per_feature(db):
     cur.close()
     conn.close()
 
-    rows = dict(ds.recent_usage_features(db, 'andy_potts'))
+    rows = {r[0]: r for r in ds.recent_usage_features(db, 'andy_potts')}
     assert set(rows) == {'pipeline', 'office_ops'}, 'never another user'
-    assert rows['pipeline'] > rows['office_ops']
+    assert rows['pipeline'][1] > rows['office_ops'][1]
+    assert rows['pipeline'][2] == 'Rachel Farler', 'the most recent open, not the oldest'
+    assert rows['office_ops'][2] == 'Numbers page'
+
+
+def test_a_pipeline_open_resolves_to_a_working_url(db):
+    """End of the chain Thomas reported broken: the usage row's title has to
+    survive back into a URL that carries a ?pair=."""
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute(
+        'INSERT INTO hub_usage_events (user_key, feature, action, title, created_at) '
+        'VALUES (%s, %s, %s, %s, %s)',
+        ('thomas_ellison', 'pipeline', 'open', 'Rachel Farler', _utcnow()))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    rows = ds.recent_usage_features(db, 'thomas_ellison')
+    title = next(r[2] for r in rows if r[0] == 'pipeline')
+    boards = [{'key': 'andy_potts', 'consultant_display': 'Andy Potts'},
+              {'key': 'rachel_farler', 'consultant_display': 'Rachel Farler'}]
+    # default_pair_key None — the owner has no default, which is the bug.
+    assert ds.pipeline_url_for(title, boards, None) == \
+        '/pipeline-board?pair=rachel_farler'
 
 
 def test_usage_features_respects_the_window(db):

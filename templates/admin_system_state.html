@@ -101,7 +101,12 @@
     <h2>Service</h2>
     <div class="kv">
       <div><span>Commit</span>
-        {% if service.commit %}<code>{{ service.commit }}</code>{% else %}<span class="muted">unknown</span>{% endif %}</div>
+        {% if service.commit %}<code>{{ service.commit }}</code>
+        {# Which source answered. When this reads .render-commit rather than
+           RENDER_GIT_COMMIT, the runtime env var is still not arriving and
+           the build-time capture is carrying it. #}
+        <span class="muted">via {{ service.commit_source }}</span>
+        {% else %}<span class="muted">unknown</span>{% endif %}</div>
       {% if service.branch %}<div><span>Branch</span> {{ service.branch }}</div>{% endif %}
       <div><span>Database</span>
         {% if db_ok %}<span class="pill pill-ok">connected</span>
@@ -145,9 +150,15 @@
     {% endif %}
     {% if not service.commit %}
     <p class="note">
-      No commit shown means <code>RENDER_GIT_COMMIT</code> isn't set on the service.
-      Without it there's no way to tell from inside the app which version is live —
-      which is exactly the question that cost time on 2026-08-21.
+      No commit means none of the sources answered: <code>RENDER_GIT_COMMIT</code>
+      (Render sets this automatically at runtime, per their docs),
+      <code>RENDER_GIT_COMMIT_SHA</code>, <code>GIT_COMMIT</code>,
+      <code>SOURCE_VERSION</code>, or the <code>.render-commit</code> file the
+      build command writes. If this is still blank after a fresh deploy, check
+      the service's Environment tab on Render — the build-time capture failing
+      too would mean the variable is absent during the build as well.
+      Without it there's no way to tell from inside the app which version is
+      live, which is exactly the question that cost time on 2026-08-21.
     </p>
     {% endif %}
   </div>

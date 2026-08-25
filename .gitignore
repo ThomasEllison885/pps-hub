@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 .env
 .DS_Store
+
+# Written by render.yaml's build command; never committed.
+.render-commit

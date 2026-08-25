@@ -2,7 +2,11 @@ services:
   - type: web
     name: pps-hub
     env: python
-    buildCommand: pip install -r requirements.txt
+    # The commit is written into the image at build time as well as being
+    # read from the runtime env, because RENDER_GIT_COMMIT has been arriving
+    # empty and a version nobody can see is how "did my push land?" cost real
+    # time on 2026-08-21. `|| true` so a missing var can never fail a build.
+    buildCommand: pip install -r requirements.txt && (printf '%s' "$RENDER_GIT_COMMIT" > .render-commit || true)
     # Reverted 2026-07-29: single gevent worker caused whole-Hub lag (one
     # slow/non-cooperative call — Claude API, docx/xlsx generation — blocks
     # the *only* process, stalling every unrelated request, not just

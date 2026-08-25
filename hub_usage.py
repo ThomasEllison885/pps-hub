@@ -57,6 +57,47 @@ def init_tables(cur):
     )
 
 
+# ── Why the table is not created on every write (F-06, fixed 2026-08-26) ────
+#
+# `record_usage` used to call `init_tables` before every insert: a
+# CREATE TABLE IF NOT EXISTS plus two CREATE INDEX IF NOT EXISTS, so four
+# statements to log one event. They are all no-ops after the first time, but
+# they are not free — each is a round trip, and CREATE INDEX IF NOT EXISTS
+# takes a lock on the table it is about to not create.
+#
+# Now it is checked once per process. The flag is per gunicorn worker and is
+# lost on restart, which is the correct amount of caching: after a deploy the
+# first usage event in each worker pays for one check and every one after it
+# does not. It is set only after the DDL actually succeeded, so a failed run
+# is retried rather than assumed done.
+#
+# The daily digest and the dashboard's "Jump back in" both READ this table
+# and deliberately do not call init_tables — a read must not create a table,
+# and a Hub where nobody has opened the Pipeline Board should show no
+# pipeline card rather than a new empty table.
+_tables_ready = False
+
+
+def ensure_tables(cur, force=False):
+    """Create the usage table once per process. True if it is ready."""
+    global _tables_ready
+    if _tables_ready and not force:
+        return True
+    try:
+        init_tables(cur)
+    except Exception as e:
+        print(f'hub_usage: could not create tables ({e})')
+        return False
+    _tables_ready = True
+    return True
+
+
+def reset_tables_ready():
+    """Tests only — forget that the tables were checked."""
+    global _tables_ready
+    _tables_ready = False
+
+
 def record_usage(get_db_fn, user_key, feature, action, title='', meta=''):
     """Best-effort insert. Never raises — a usage log must not break the feature."""
     if not user_key or not feature or not action:
@@ -66,7 +107,7 @@ def record_usage(get_db_fn, user_key, feature, action, title='', meta=''):
         if not conn:
             return
         cur = conn.cursor()
-        init_tables(cur)
+        ensure_tables(cur)
         cur.execute(
             '''INSERT INTO hub_usage_events
                    (user_key, feature, action, title, meta)

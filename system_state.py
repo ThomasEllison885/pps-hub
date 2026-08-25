@@ -309,17 +309,48 @@ def people_rows(get_db_fn, users):
     return rows
 
 
+# Where the deployed commit can come from, best first. Render's docs say
+# RENDER_GIT_COMMIT is set automatically at runtime and needs no declaration —
+# and yet this panel has been reading "unknown", so it is clearly not
+# something to depend on alone. COMMIT_FILE is written by the build command in
+# render.yaml, which pins the value into the image and cannot be affected by
+# whatever the runtime environment does or does not carry.
+COMMIT_FILE = '.render-commit'
+
+
+def deployed_commit():
+    """The commit this process is running, and where that was learned.
+
+    Returns (commit, source). Empty commit means nothing knew — and the
+    `source` is what makes that debuggable instead of just blank.
+    """
+    for name in ('RENDER_GIT_COMMIT', 'RENDER_GIT_COMMIT_SHA', 'GIT_COMMIT',
+                 'SOURCE_VERSION'):
+        value = (os.environ.get(name) or '').strip()
+        if value:
+            return value, name
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, COMMIT_FILE), encoding='utf-8') as fh:
+            value = fh.read().strip()
+        if value:
+            return value, COMMIT_FILE
+    except Exception:
+        pass
+    return '', ''
+
+
 def service_rows():
     """What is running, and which integrations are wired.
 
-    Render exposes the deployed commit as RENDER_GIT_COMMIT. Without it there is
-    no way from inside the process to answer "did my push actually land", which
-    cost real time on 2026-08-21.
+    Without the deployed commit there is no way from inside the process to
+    answer "did my push actually land", which cost real time on 2026-08-21.
     """
-    commit = (os.environ.get('RENDER_GIT_COMMIT') or '').strip()
+    commit, commit_source = deployed_commit()
     return {
         'commit': commit[:7] if commit else '',
         'commit_full': commit,
+        'commit_source': commit_source,
         'branch': os.environ.get('RENDER_GIT_BRANCH', ''),
         'service': os.environ.get('RENDER_SERVICE_NAME', ''),
         'integrations': [

@@ -317,3 +317,94 @@ def test_current_week_handles_the_dst_weeks():
     assert (end - start) == timedelta(hours=169)
     start, end = weekly_recap.current_week_bounds(today=date(2026, 3, 8))
     assert (end - start) == timedelta(hours=167)
+
+
+# ── The Pipeline Board's URL ────────────────────────────────────────────────
+#
+# Reported by Thomas 2026-08-26: the Pipeline Board card in Jump back in did
+# nothing. `/pipeline-board` with no ?pair= asks the route to pick your
+# default board, and `pipeline_board.get_pair_key` returns None for the owner
+# on purpose — he can open every board and has no "his". The route then
+# redirects to the dashboard, so the card bounced him back to where he
+# already was. Every other tool has a URL that works for everyone; this is
+# the one that does not.
+
+BOARDS = [
+    {'key': 'andy_potts', 'consultant_display': 'Andy Potts', 'pm_display': 'Ben Cole'},
+    {'key': 'adam_cupito', 'consultant_display': 'Adam Cupito', 'pm_display': 'James Reid'},
+    {'key': 'rachel_farler', 'consultant_display': 'Rachel Farler', 'pm_display': 'Ben Cole'},
+]
+
+
+def test_the_bug_no_bare_pipeline_url_anywhere():
+    """The catalog path is still bare, and that is fine — every caller has to
+    override it. This pins that nothing renders the bare path by accident."""
+    assert ds.TOOLS['pipeline']['path'] == '/pipeline-board'
+    url = ds.pipeline_url_for(None, BOARDS, None)
+    assert url and 'pair=' in url, 'a pipeline URL must always carry a board'
+
+
+def test_it_returns_you_to_the_board_you_were_last_on():
+    """The point of the block. Every pipeline open writes a usage row whose
+    title is the board's display name, so the board is recoverable."""
+    assert ds.pipeline_url_for('Rachel Farler', BOARDS, 'andy_potts') == \
+        '/pipeline-board?pair=rachel_farler'
+
+
+def test_matching_the_board_name_is_case_and_space_insensitive():
+    assert ds.pipeline_url_for('  adam cupito ', BOARDS, None) == \
+        '/pipeline-board?pair=adam_cupito'
+
+
+def test_no_history_falls_back_to_your_default_board():
+    assert ds.pipeline_url_for(None, BOARDS, 'andy_potts') == \
+        '/pipeline-board?pair=andy_potts'
+
+
+def test_the_owner_has_no_default_and_still_gets_a_working_link():
+    """get_pair_key returns None for the owner. Before this fix that produced
+    `/pipeline-board`, which redirects him straight back to the dashboard."""
+    url = ds.pipeline_url_for(None, BOARDS, None)
+    assert url == '/pipeline-board?pair=andy_potts'
+
+
+def test_an_unrecognised_board_name_degrades_to_the_default():
+    """Matching on display name means a rename misses. That should cost you
+    the *right* board, not a working link."""
+    assert ds.pipeline_url_for('Someone Renamed', BOARDS, 'adam_cupito') == \
+        '/pipeline-board?pair=adam_cupito'
+
+
+def test_no_boards_at_all_means_no_link():
+    """The caller then leaves the card out entirely — a card that redirects
+    is worse than no card."""
+    assert ds.pipeline_url_for('Andy Potts', [], 'andy_potts') is None
+    assert ds.pipeline_url_for(None, None, None) is None
+
+
+def test_url_overrides_replace_the_catalog_url():
+    tools = ds.recent_tools(
+        {}, usage_rows=[('pipeline', NOW, 'Andy Potts')],
+        allowed={'pipeline'},
+        url_overrides={'pipeline': '/pipeline-board?pair=andy_potts'},
+    )
+    assert [t['url'] for t in tools] == ['/pipeline-board?pair=andy_potts']
+
+
+def test_a_three_column_usage_row_still_ranks_correctly():
+    """recent_usage_features grew a title column; recent_tools reads the
+    first two and must not trip over the third."""
+    tools = ds.recent_tools(
+        {'proposal': [{'generated_at': NOW - timedelta(days=2)}]},
+        usage_rows=[('pipeline', NOW, 'Andy Potts'),
+                    ('office_ops', NOW - timedelta(days=9), 'Numbers page')],
+        allowed={'pipeline', 'proposal', 'office_ops'},
+    )
+    assert [t['key'] for t in tools] == ['pipeline', 'proposal', 'office_ops']
+
+
+def test_two_column_usage_rows_still_work():
+    """The older shape, so nothing that still passes pairs breaks."""
+    tools = ds.recent_tools({}, usage_rows=[('pipeline', NOW)],
+                            allowed={'pipeline'})
+    assert [t['key'] for t in tools] == ['pipeline']

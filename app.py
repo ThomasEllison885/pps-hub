@@ -3221,12 +3221,15 @@ _SW_KILL_STUB = (
 def _sw_version():
     """Changes the file's bytes per deploy so browsers see an update.
 
-    Falls back to a date stamp because RENDER_GIT_COMMIT is not set on the
-    service (see the System State panel). With the commit set this is exact;
-    without it, a deploy on the same day will not bust the static cache — bump
-    the fallback by hand if that ever matters.
+    Uses whatever `system_state.deployed_commit` can find — the Render env
+    var, or the commit the build command wrote into `.render-commit`. The
+    hand-bumped date is the last resort and a poor one: two deploys on the
+    same day produce identical bytes, so the second does not bust the static
+    cache. If you are editing that string you are already in the failure
+    case — fix the commit source instead.
     """
-    return (os.environ.get('RENDER_GIT_COMMIT') or '')[:12] or '2026-08-23a'
+    commit, _source = system_state.deployed_commit()
+    return commit[:12] or '2026-08-23a'
 
 
 @app.route('/sw.js')
@@ -4056,16 +4059,24 @@ def dashboard():
     summary_pills = []
     dashboard_recent_tools = []
     try:
+        usage_rows = dashboard_summary.recent_usage_features(get_db, user_key)
+        # `/pipeline-board` with no ?pair= is not a valid link for everyone:
+        # get_pair_key returns None for the owner (he has no "his" board), and
+        # the route then redirects to the dashboard — which is exactly the
+        # dead card Thomas reported on 2026-08-26. Resolve a real board here.
+        pipeline_last_title = next(
+            (r[2] for r in usage_rows
+             if r[0] == 'pipeline' and len(r) > 2), None)
+        pipeline_url = dashboard_summary.pipeline_url_for(
+            pipeline_last_title, pipeline_boards, pipeline_board_pair_key)
+
         week_score = dashboard_summary.week_scores(get_db, USERS).get(user_key)
         summary_pills = dashboard_summary.build_pills(
             week_score=week_score,
             pipeline_open=dashboard_summary.pipeline_in_progress(
                 get_db, pipeline_board_pair_key, pipeline_board.COMPLETED_STATUSES,
             ),
-            pipeline_url=(
-                f'/pipeline-board?pair={pipeline_board_pair_key}'
-                if pipeline_board_pair_key else None
-            ),
+            pipeline_url=pipeline_url,
             psc_pct=(psc_training_stats or {}).get('pct'),
             pm_pct=(pm_training_stats or {}).get('pct'),
             unread_feedback=unread_feedback,
@@ -4081,7 +4092,9 @@ def dashboard():
         allowed_tools = {'ppm', 'estimate', 'site_visit'}
         if accessible_consultants:
             allowed_tools |= {'proposal', 'tps'}
-        if pipeline_boards:
+        # No resolvable board means no card: one that redirects straight back
+        # to the dashboard is worse than none at all.
+        if pipeline_boards and pipeline_url:
             allowed_tools.add('pipeline')
         if office_ops_access:
             allowed_tools |= {'office_ops', 'compliance'}
@@ -4101,10 +4114,11 @@ def dashboard():
                     + list(recent_painting_estimates)
                 ),
             },
-            usage_rows=dashboard_summary.recent_usage_features(get_db, user_key),
+            usage_rows=usage_rows,
             proposal_url=os.environ.get(
                 'PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
             allowed=allowed_tools,
+            url_overrides={'pipeline': pipeline_url} if pipeline_url else None,
         )
     except Exception as e:
         # The strip is a convenience on top of a page that worked without it

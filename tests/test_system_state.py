@@ -198,3 +198,66 @@ def test_bool_sent_and_digest_email_failed_read_as_words_not_True():
     assert ss.format_job_detail({
         'checked': 4, 'assignment_emails_sent': 2, 'reminder_emails_sent': 1,
     }) == '2 assignments mailed · 1 reminders mailed · checked 4'
+
+
+# ── The deployed commit (2026-08-26) ────────────────────────────────────────
+#
+# The panel had been reading "unknown" even though Render's docs say
+# RENDER_GIT_COMMIT is set automatically at runtime and needs no declaration.
+# Rather than depend on one variable that demonstrably has not been arriving,
+# resolve through several sources — including a file the build command writes,
+# which pins the value into the image and cannot be affected by the runtime
+# environment at all.
+
+def test_env_var_is_preferred(monkeypatch):
+    monkeypatch.setenv('RENDER_GIT_COMMIT', 'abc1234def5678')
+    commit, source = ss.deployed_commit()
+    assert commit == 'abc1234def5678'
+    assert source == 'RENDER_GIT_COMMIT'
+
+
+def test_alternative_env_names(monkeypatch):
+    monkeypatch.delenv('RENDER_GIT_COMMIT', raising=False)
+    monkeypatch.setenv('SOURCE_VERSION', 'deadbeef')
+    commit, source = ss.deployed_commit()
+    assert (commit, source) == ('deadbeef', 'SOURCE_VERSION')
+
+
+def test_the_build_time_file_is_the_fallback(monkeypatch, tmp_path):
+    """This is the path that does not care what the runtime env carries."""
+    for name in ('RENDER_GIT_COMMIT', 'RENDER_GIT_COMMIT_SHA', 'GIT_COMMIT',
+                 'SOURCE_VERSION'):
+        monkeypatch.delenv(name, raising=False)
+    written = tmp_path / ss.COMMIT_FILE
+    written.write_text('  f31c35c9  \n')
+    monkeypatch.setattr(ss.os.path, 'abspath',
+                        lambda _p: str(tmp_path / 'ss.py'))
+    commit, source = ss.deployed_commit()
+    assert commit == 'f31c35c9', 'whitespace stripped'
+    assert source == ss.COMMIT_FILE
+
+
+def test_nothing_at_all_reports_no_source(monkeypatch):
+    """Empty commit AND empty source — the source is what makes a blank row
+    debuggable instead of just blank."""
+    for name in ('RENDER_GIT_COMMIT', 'RENDER_GIT_COMMIT_SHA', 'GIT_COMMIT',
+                 'SOURCE_VERSION'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(ss, 'COMMIT_FILE', 'definitely-not-here')
+    assert ss.deployed_commit() == ('', '')
+
+
+def test_an_empty_env_var_does_not_win(monkeypatch):
+    """Render setting the variable to '' is the failure mode being fixed; it
+    must fall through rather than count as an answer."""
+    monkeypatch.setenv('RENDER_GIT_COMMIT', '   ')
+    monkeypatch.setenv('GIT_COMMIT', 'realsha1')
+    assert ss.deployed_commit()[0] == 'realsha1'
+
+
+def test_service_rows_exposes_the_source(monkeypatch):
+    monkeypatch.setenv('RENDER_GIT_COMMIT', 'abcdef1234567')
+    rows = ss.service_rows()
+    assert rows['commit'] == 'abcdef1'
+    assert rows['commit_full'] == 'abcdef1234567'
+    assert rows['commit_source'] == 'RENDER_GIT_COMMIT'
