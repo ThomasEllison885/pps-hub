@@ -173,6 +173,37 @@ def last_week_bounds(today=None):
     )
 
 
+def current_week_bounds(today=None):
+    """(start, end) for the week IN PROGRESS — this Monday 00:00 ET to next.
+
+    The recap emails `last_week_bounds`; the dashboard's activity pill uses
+    this one. That difference is deliberate and worth keeping straight: an
+    email sent on Monday morning reports a finished week, while a dashboard
+    opened on Thursday has to be about the week the person is actually in.
+    Showing them the completed-week figure would be a number that does not
+    move for seven days and does not include anything they did today.
+
+    The end is next Monday's Eastern midnight rather than "now", so the
+    window is a whole week and the caller never has to reason about whether
+    a row written a second ago falls inside it. Nothing is logged in the
+    future, so the wide end is harmless — and keeping the shape identical to
+    the other two helpers is what makes the dashboard's number the same
+    arithmetic as the email's.
+
+    Built from real Eastern midnights for the same DST reason as
+    `last_week_bounds` — see that docstring.
+    """
+    today = today or eastern_now().date()
+    this_monday = today - timedelta(days=today.weekday())
+    next_monday = this_monday + timedelta(days=7)
+    start_et = datetime.combine(this_monday, time.min, tzinfo=ET)
+    end_et = datetime.combine(next_monday, time.min, tzinfo=ET)
+    return (
+        start_et.astimezone(timezone.utc).replace(tzinfo=None),
+        end_et.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
 ROLLING_WEEKS = 12
 
 

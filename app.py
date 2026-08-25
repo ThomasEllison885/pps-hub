@@ -17,6 +17,7 @@ import weekly_recap
 import password_campaign
 import system_state
 import training_overlay
+import dashboard_summary
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -3907,8 +3908,80 @@ def dashboard():
         )
     )
     user_notifications = ask_pps.get_unread_notifications(get_db, user_key)
+
+    # ── Above the lanes (2026-08-25) ────────────────────────────────────────
+    #
+    # The dashboard was 4.1 phone screens with the first tool link 258px down
+    # and nothing above it but a greeting. These two blocks put something
+    # worth reading in that space. Both are assembled by dashboard_summary
+    # from data this route already holds — see that module for why the week
+    # number is the recap's number and why nothing renders at zero.
+    #
+    # Cost is two extra queries per load (the pipeline count and the usage
+    # read); the recap score is cached across the whole company for five
+    # minutes, so it is amortised to roughly nothing.
+    summary_pills = []
+    dashboard_recent_tools = []
+    try:
+        week_score = dashboard_summary.week_scores(get_db, USERS).get(user_key)
+        summary_pills = dashboard_summary.build_pills(
+            week_score=week_score,
+            pipeline_open=dashboard_summary.pipeline_in_progress(
+                get_db, pipeline_board_pair_key, pipeline_board.COMPLETED_STATUSES,
+            ),
+            pipeline_url=(
+                f'/pipeline-board?pair={pipeline_board_pair_key}'
+                if pipeline_board_pair_key else None
+            ),
+            psc_pct=(psc_training_stats or {}).get('pct'),
+            pm_pct=(pm_training_stats or {}).get('pct'),
+            unread_feedback=unread_feedback,
+            unread_diffs=unread_diffs,
+            is_owner=is_admin,
+            show_week=(
+                dashboard_summary.SHOW_WEEK_SCORE_TO_EVERYONE or is_admin
+            ),
+        )
+        # History is not permission: this set is what the person may open
+        # today, not what they once used. A tier change must not leave a card
+        # pointing into a tool they have lost.
+        allowed_tools = {'ppm', 'estimate', 'site_visit'}
+        if accessible_consultants:
+            allowed_tools |= {'proposal', 'tps'}
+        if pipeline_boards:
+            allowed_tools.add('pipeline')
+        if office_ops_access:
+            allowed_tools |= {'office_ops', 'compliance'}
+        if psc_training_enrolled:
+            allowed_tools.add('psc_training')
+        if pm_training_open:
+            allowed_tools.add('pm_training')
+        dashboard_recent_tools = dashboard_summary.recent_tools(
+            {
+                'proposal': recent_proposals,
+                'ppm': recent_ppms,
+                'tps': recent_tpscopes,
+                'estimate': (
+                    list(recent_siding_estimates)
+                    + list(recent_roofing_estimates)
+                    + list(recent_gutter_estimates)
+                    + list(recent_painting_estimates)
+                ),
+            },
+            usage_rows=dashboard_summary.recent_usage_features(get_db, user_key),
+            proposal_url=os.environ.get(
+                'PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
+            allowed=allowed_tools,
+        )
+    except Exception as e:
+        # The strip is a convenience on top of a page that worked without it
+        # for a year. It must never be the reason a dashboard 500s.
+        print(f'Dashboard summary error: {e}')
+
     return render_template(
         'dashboard.html',
+        summary_pills=summary_pills,
+        dashboard_recent_tools=dashboard_recent_tools,
         user=user,
         user_key=user_key,
         user_role=user_role,

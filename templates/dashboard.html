@@ -29,7 +29,7 @@
   .admin-badge { background: #B8922A; color: #fff; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
 
   .main { max-width: 1000px; margin: 0 auto; padding: 36px 24px 60px; }
-  .greeting { margin-bottom: 36px; }
+  .greeting { margin-bottom: 20px; }
   .greeting-time { font-size: 12px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
   .greeting h1 { font-family: 'DM Serif Display', serif; font-size: 30px; color: var(--dark-blue); margin-bottom: 4px; }
   .greeting p { font-size: 14px; color: #888; }
@@ -175,6 +175,41 @@
   .history-table tr:hover td { background: #fafcff; }
   .prop-name { font-weight: 600; color: var(--dark-blue); }
 
+  /* ── Above the lanes (2026-08-25) ─────────────────────────────────────
+     The summary strip and Jump back in. Both are built to disappear
+     cleanly: an empty strip renders no element at all rather than an empty
+     bar, so a new hire's dashboard simply starts where it always did. */
+  .dash-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 22px; }
+  .dash-pill { display: inline-flex; align-items: baseline; gap: 6px; padding: 7px 14px; border-radius: 22px; background: #fff; border: 1px solid var(--border); box-shadow: var(--shadow); text-decoration: none; font-size: 12px; color: #777; white-space: nowrap; transition: border-color 0.15s; }
+  .dash-pill:hover { border-color: rgba(0,150,214,0.45); }
+  .dash-pill b { font-size: 15px; font-weight: 700; color: var(--dark-blue); }
+  .dash-pill.green b { color: #2E7D32; }
+  .dash-pill.amber b { color: #E65100; }
+  .dash-pill.slate b { color: #455A64; }
+
+  .jump-back { margin-bottom: 24px; }
+  .jump-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .jump-card { display: flex; align-items: center; gap: 11px; padding: 12px 14px; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); text-decoration: none; color: inherit; transition: border-color 0.15s; }
+  .jump-card:hover { border-color: rgba(0,150,214,0.45); }
+  .jump-icon { font-size: 20px; line-height: 1; flex-shrink: 0; }
+  .jump-name { font-size: 13px; font-weight: 600; color: var(--dark-blue); }
+  .jump-when { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+  /* Ask PPS and the feedback box reuse the lane chrome so they fold the same
+     way, from the same script, with the same remembered state. */
+  .dash-fold > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; user-select: none; }
+  .dash-fold > summary::-webkit-details-marker { display: none; }
+  .dash-fold > summary::after { content: '▾'; color: var(--blue); font-size: 14px; transition: transform 0.2s; }
+  .dash-fold:not([open]) > summary::after { transform: rotate(-90deg); }
+  .dash-fold > summary > h2 { margin-bottom: 0 !important; }
+  .dash-fold > summary > .pps-section-head { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+  /* The feedback fold has no card of its own (its children are the cards),
+     so it borrows the Ask PPS widget's chrome to sit level with it rather
+     than reading as a stray heading. */
+  .dash-fold.feedback-fold { margin: 0 0 28px; background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); padding: 16px 18px; }
+  .dash-fold.feedback-fold[open] > summary { padding-bottom: 12px; border-bottom: 1.5px solid var(--border); margin-bottom: 16px; }
+  .dash-fold .ask-pps-fold-body { padding-top: 12px; }
+
   @media (max-width: 700px) {
     .tools-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .activity-grid { grid-template-columns: 1fr; }
@@ -183,6 +218,15 @@
   @media (max-width: 480px) {
     .tools-grid { grid-template-columns: 1fr; }
     .lane-links { flex-direction: column; align-items: flex-end; }
+    /* Three cards across a 390px screen leaves ~120px each, not enough for
+       "Proposal Generator". One column, three short rows. */
+    .jump-grid { grid-template-columns: 1fr; }
+    /* The strip says what the subtitle used to. On a phone the greeting's
+       job is to confirm you are signed in as the right person, nothing
+       more. */
+    .greeting { margin-bottom: 16px; }
+    .greeting h1 { font-size: 24px; }
+    .greeting p { display: none; }
   }
 </style>
 </head>
@@ -217,7 +261,10 @@
   <div class="greeting">
     <div class="greeting-time" id="greetingTime"></div>
     <h1>Welcome back, {{ user.display.split()[0] }}</h1>
-    <p>Sales and production tools — both sections open so you can reach either lane.</p>
+    {# The old line here promised "both sections open so you can reach either
+       lane", which stopped being true on 2026-08-25 when the lanes started
+       collapsed on phones. #}
+    <p>Your week at a glance, then every tool — sales and production.</p>
   </div>
 
   {% if user_notifications %}
@@ -242,8 +289,46 @@
   {% endfor %}
   {% endif %}
 
+  {# ── Summary strip (2026-08-25) ─────────────────────────────────────────
+     Built by dashboard_summary.build_pills. Nothing renders at zero, so an
+     empty list means the whole element is absent — never an empty bar with
+     nothing in it. Each pill is a link to the page the number came from. #}
+  {% if summary_pills %}
+  <div class="dash-strip">
+    {% for pill in summary_pills %}
+    <a href="{{ pill.url }}" class="dash-pill {{ pill.tone }}"><b>{{ pill.value }}</b> {{ pill.label }}</a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {# ── Jump back in (2026-08-25) ──────────────────────────────────────────
+     The three tools this person most recently used, ranked by recency. The
+     external ones live in pps-proposal-tool and go through the same
+     openTool() shim the lane cards below use — a plain href would drop the
+     SSO hand-off. #}
+  {% if dashboard_recent_tools %}
+  <div class="jump-back">
+    <div class="section-head">Jump back in</div>
+    <div class="jump-grid">
+      {% for tool in dashboard_recent_tools %}
+      {% if tool.external %}
+      <a href="#" onclick="openTool('{{ tool.url }}'); return false;" class="jump-card">
+      {% else %}
+      <a href="{{ tool.url }}" class="jump-card">
+      {% endif %}
+        <span class="jump-icon">{{ tool.icon }}</span>
+        <span>
+          <span class="jump-name">{{ tool.name }}</span>
+          {% if tool.when %}<div class="jump-when">{{ tool.when }}</div>{% endif %}
+        </span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <div class="dashboard-lanes">
-    <details class="dashboard-lane lane-sales" {% if sales_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-sales" data-lane="sales" {% if sales_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Sales &amp; Consulting</div>
@@ -333,7 +418,7 @@
       </div>
     </details>
 
-    <details class="dashboard-lane lane-production" {% if production_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-production" data-lane="production" {% if production_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Production &amp; Field</div>
@@ -435,7 +520,7 @@
     </details>
 
     {% if user_role == 'admin' and pricing_summary %}
-    <details class="dashboard-lane lane-admin" {% if admin_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-admin" data-lane="admin" {% if admin_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Admin &amp; Company Settings</div>
@@ -521,6 +606,67 @@
     {% endif %}
   </div>
 
+  {# ── Fold state (2026-08-25) ────────────────────────────────────────────
+     Every tool card used to be painted on every load: 3,446px on a 390px
+     phone, 4.1 screens. The lanes were already <details>, so this only
+     decides what `open` starts as, and remembers what the person chose.
+
+     It runs HERE, inline, the moment the lanes have been parsed — not on
+     DOMContentLoaded, which would show the page fully expanded and then
+     visibly snap shut. The same function is called again further down, once
+     Ask PPS and the feedback box exist; folding those from here would be a
+     no-op, because at this point in the document they have not been parsed.
+     That is the whole reason there are two calls, and why removing the
+     second one silently leaves two blocks permanently open on phones.
+
+     Nothing about permissions lives in this script. A closed fold is closed,
+     not hidden: the cards are still in the DOM and the server decided which
+     ones exist. Do not start using it to hide things.
+  #}
+  <script>
+  window.__ppsApplyFolds = function () {
+    try {
+      // 700px matches the .tools-grid breakpoint above, so the fold changes
+      // at the same width the grid does.
+      var narrow = window.matchMedia('(max-width: 700px)').matches;
+      // Someone with no history has no Jump back in row, so collapsing the
+      // lanes would leave them a page of grey bars and nothing to press. A
+      // brand-new hire keeps the tool lanes open and only loses the two
+      // blocks at the bottom. Anyone with even one recent tool — which is
+      // everybody after their first day — gets the compact page.
+      //
+      // Deliberately not "leave the first lane open": CSS `order` puts
+      // Production first for a PM and Sales first for a consultant, so DOM
+      // position 0 is not the lane they see at the top.
+      var noHistory = document.querySelectorAll('.jump-card').length === 0;
+      var folds = document.querySelectorAll('details[data-lane]');
+      for (var i = 0; i < folds.length; i++) {
+        (function (fold) {
+          if (fold.getAttribute('data-fold-init')) { return; }
+          fold.setAttribute('data-fold-init', '1');
+          var key = 'ppsFold:' + fold.getAttribute('data-lane');
+          var saved = null;
+          try { saved = window.localStorage.getItem(key); } catch (e) { /* private mode */ }
+          if (saved === 'open') { fold.open = true; }
+          else if (saved === 'closed') { fold.open = false; }
+          else if (narrow && !(noHistory && fold.classList.contains('dashboard-lane'))) {
+            fold.open = false;
+          }
+          fold.addEventListener('toggle', function () {
+            try {
+              window.localStorage.setItem(key, fold.open ? 'open' : 'closed');
+            } catch (e) { /* nothing to do; the default just applies again */ }
+          });
+        })(folds[i]);
+      }
+    } catch (e) {
+      // Any failure leaves the server-rendered `open` attributes exactly as
+      // they were, which is the old behaviour. Never worth breaking a page.
+    }
+  };
+  window.__ppsApplyFolds();
+  </script>
+
   <div class="recent-feed">
     <div class="recent-feed-head">
       <h3>Recent Activity</h3>
@@ -557,8 +703,18 @@
     {% endif %}
   </div>
 
-  <div class="ask-pps-widget" id="askPpsWidget">
-    <h2>Help document PPS</h2>
+  {# Folded 2026-08-25. This block always painted an explanatory paragraph, a
+     textarea and three buttons whether or not anyone intended to answer, and
+     it sat between Recent Activity and the feedback box near the bottom of a
+     four-screen page. It keeps its own card and every id the Ask PPS script
+     looks up — only the wrapper changed from <div> to <details>, so the
+     question is one tap away instead of always open. The count in the
+     summary is the point: a queue of 0 no longer looks like a task. #}
+  <details class="ask-pps-widget dash-fold" data-lane="askpps" id="askPpsWidget" open>
+    <summary>
+      <h2>Help document PPS{% if ask_pps_prompt_queue > 0 %} · {{ ask_pps_prompt_queue }} waiting{% endif %}</h2>
+    </summary>
+    <div class="ask-pps-fold-body">
     <div id="dashPromptBlock" {% if not ask_pps_prompt %}style="display:none"{% endif %}>
       <p id="dashPromptIntro">Ask PPS is learning how we operate. Your answer is saved <strong>under your name</strong> for Thomas to review. Spend a few minutes — each person gets a different mix of questions.{% if ask_pps_prompt_queue > 1 %} <strong id="dashPromptQueue">{{ ask_pps_prompt_queue }} in your queue</strong>{% else %}<strong id="dashPromptQueue" style="display:none"></strong>{% endif %}</p>
       <span class="ask-pps-prompt-tag" id="dashPromptTag">{% if ask_pps_prompt %}{{ 'Field team' if ask_pps_prompt.perspective == 'field' else 'Leadership intent' }}{% endif %}</span>
@@ -582,9 +738,11 @@
         <button type="submit" class="ask-pps-btn">Ask</button>
       </form>
     </details>
-  </div>
+    </div>
+  </details>
 
-  <div class="pps-section-head">Feedback &amp; Voice</div>
+  <details class="dash-fold feedback-fold" data-lane="feedback" open>
+    <summary><div class="pps-section-head">Feedback &amp; Voice</div></summary>
   <div class="feedback-section">
     {% if consultants %}
     <a href="/my-diffs" class="pps-tool-card">
@@ -601,6 +759,11 @@
       <div class="feedback-success" id="feedbackSuccess">✓ Feedback sent — thanks!</div>
     </div>
   </div>
+  </details>
+
+  {# The second half of the fold script above — Ask PPS and the feedback box
+     only exist in the DOM from here down. #}
+  <script>try { window.__ppsApplyFolds(); } catch (e) {}</script>
 
   <div class="pps-footer">
     <img src="/static/logo.png" alt="Pure Property Solutions" class="pps-footer-logo">
