@@ -21,6 +21,7 @@ import dashboard_summary
 import db_pool
 import db_ddl
 import hub_time
+import hub_usage
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -1471,6 +1472,51 @@ def _session_password_stale(user_key):
     except Exception as e:
         print(f'password epoch check error for {user_key}: {e}')
         return False
+
+
+def logs_open(feature):
+    """Record that someone opened this page — F-03, 2026-08-26.
+
+    A decorator rather than a line inside seventeen view bodies, because the
+    line would have to go *after* each route's own access checks and before
+    its render, and getting that wrong in one of them means either a missing
+    event or an event for a page the person was bounced off. Here the rule is
+    uniform and stated once: **only a response that actually rendered counts.**
+    A view that redirects — not enrolled, not leadership, no board — records
+    nothing, because they did not see the page.
+
+    Goes UNDER @require_login, so an unauthenticated hit is turned away
+    before this ever runs.
+
+    The action is always 'open'. See `hub_usage.record_open` for the two
+    rules that depend on that: the weekly recap must never score it, and the
+    nightly digest rolls opens into one line per person rather than one per
+    page. Anything that produces something calls `record_usage` with its own
+    action instead.
+    """
+    from functools import wraps
+
+    def decorate(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            result = f(*args, **kwargs)
+            try:
+                rendered = True
+                if isinstance(result, tuple) and result:
+                    result_head = result[0]
+                else:
+                    result_head = result
+                status = getattr(result_head, 'status_code', None)
+                if status is not None:
+                    rendered = 200 <= int(status) < 300
+                if rendered and session.get('user_key'):
+                    hub_usage.record_open(get_db, session['user_key'], feature)
+            except Exception as e:
+                # A usage log must never be why a page fails to load.
+                print(f'usage open log failed ({feature}): {e}')
+            return result
+        return decorated
+    return decorate
 
 
 def require_login(f):
@@ -4089,9 +4135,12 @@ def dashboard():
         # History is not permission: this set is what the person may open
         # today, not what they once used. A tier change must not leave a card
         # pointing into a tool they have lost.
-        allowed_tools = {'ppm', 'estimate', 'site_visit'}
+        # History is not permission. Each of these mirrors the gate on the
+        # route itself, so a card can never point somewhere that would bounce
+        # you — the Pipeline Board taught us what that looks like.
+        allowed_tools = {'ppm', 'estimate', 'site_visit', 'ask_pps', 'team_view'}
         if accessible_consultants:
-            allowed_tools |= {'proposal', 'tps'}
+            allowed_tools |= {'proposal', 'tps', 'comparison'}
         # No resolvable board means no card: one that redirects straight back
         # to the dashboard is worse than none at all.
         if pipeline_boards and pipeline_url:
@@ -4102,6 +4151,20 @@ def dashboard():
             allowed_tools.add('psc_training')
         if pm_training_open:
             allowed_tools.add('pm_training')
+        if can_manage_contacts(user_key):            # /clients
+            allowed_tools.add('clients')
+        if user_role in ('consultant', 'pm', 'office_manager', 'admin'):
+            allowed_tools.add('proposal_history')    # /my-proposals
+        if user_role in ('pm', 'admin'):
+            allowed_tools.add('ppm_history')         # /my-ppms
+        if user_role in ('pm', 'consultant', 'admin'):
+            allowed_tools.add('tps_history')         # /my-tpscopes
+        if psc_training_oversight:
+            allowed_tools.add('psc_oversight')
+        if pm_training_oversight:
+            allowed_tools.add('pm_oversight')
+        if can_access_psc_roleplay(user_key):
+            allowed_tools.add('roleplay')
         dashboard_recent_tools = dashboard_summary.recent_tools(
             {
                 'proposal': recent_proposals,
@@ -4233,6 +4296,7 @@ def estimating_confidence():
 
 @app.route('/estimating')
 @require_login
+@logs_open('estimating')
 def estimating_hub():
     user_key = session['user_key']
     recent_siding = []
@@ -6299,6 +6363,7 @@ def _serialize_log_rows(rows):
 
 @app.route('/my-proposals')
 @require_login
+@logs_open('proposal_history')
 def my_proposals():
     """Proposal history: consultants see their book; PMs see own + paired consultants'."""
     user_key = session['user_key']
@@ -6400,6 +6465,7 @@ def my_proposals():
 
 @app.route('/my-ppms')
 @require_login
+@logs_open('ppm_history')
 def my_ppms():
     user_key = session['user_key']
     user = USERS.get(user_key, {})
@@ -6445,6 +6511,7 @@ def my_ppms():
 
 @app.route('/my-tpscopes')
 @require_login
+@logs_open('tps_history')
 def my_tpscopes():
     """Trade Partner Scope history: anything you generated or are listed as PM on."""
     user_key = session['user_key']
@@ -6887,6 +6954,7 @@ def admin_diffs():
 
 
 @app.route('/my-diffs')
+@logs_open('comparison')
 def my_diffs():
     if not session.get('user_key'):
         return redirect(url_for('login'))
@@ -6914,6 +6982,7 @@ def my_diffs():
 
 @app.route('/team-view')
 @require_login
+@logs_open('team_view')
 def team_view():
     """Per-person activity, scored the same way the Monday email scores it.
 
@@ -7056,6 +7125,7 @@ def admin_tpscopes():
 
 
 @app.route('/site-visit')
+@logs_open('site_visit')
 def site_visit():
     if not session.get('user_key'):
         return redirect(url_for('login'))
@@ -7202,6 +7272,7 @@ def admin_site_visits():
 
 @app.route('/pm-training')
 @require_login
+@logs_open('pm_training')
 def pm_training():
     """PM onboarding module — open to all logged-in users while under construction."""
     user_key = session['user_key']
@@ -7306,6 +7377,7 @@ def pm_training_feedback_api():
 
 @app.route('/pm-training/oversight')
 @require_login
+@logs_open('pm_oversight')
 def pm_training_oversight():
     user_key = session['user_key']
     if not can_pm_training_oversight(user_key):
@@ -7402,6 +7474,7 @@ def pm_training_enroll_api():
 
 @app.route('/psc-training')
 @require_login
+@logs_open('psc_training')
 def psc_training():
     user_key = session['user_key']
     if not is_psc_training_enrolled(user_key):
@@ -7520,6 +7593,7 @@ def psc_training_feedback_api():
 
 @app.route('/psc-training/roleplay')
 @require_login
+@logs_open('roleplay')
 def psc_roleplay_page():
     user_key = session['user_key']
     if not can_access_psc_roleplay(user_key):
@@ -7719,6 +7793,7 @@ def _psc_training_oversight_data(mark_read=True):
 
 @app.route('/psc-training/oversight')
 @require_login
+@logs_open('psc_oversight')
 def psc_training_oversight():
     user_key = session['user_key']
     if not can_psc_training_oversight(user_key):
@@ -8112,6 +8187,7 @@ def clients_seed():
 
 @app.route('/clients')
 @require_login
+@logs_open('clients')
 def clients_page():
     """Client / contacts database — admin, consultants, office, and all PMs."""
     user_key = session.get('user_key')
@@ -8402,6 +8478,7 @@ def _siding_preview_context(row):
 
 @app.route('/siding-estimator')
 @require_login
+@logs_open('siding')
 def siding_estimator():
     return render_template(
         'siding_estimator.html',
@@ -8712,6 +8789,7 @@ def _roofing_filename(job):
 
 @app.route('/roofing-estimator')
 @require_login
+@logs_open('roofing')
 def roofing_estimator():
     return render_template(
         'roofing_estimator.html',
@@ -8941,6 +9019,7 @@ def _gutter_filename(job):
 
 @app.route('/gutter-estimator')
 @require_login
+@logs_open('gutter')
 def gutter_estimator():
     return render_template(
         'gutter_estimator.html',
@@ -9173,6 +9252,7 @@ def _painting_filename(job):
 
 @app.route('/painting-estimator')
 @require_login
+@logs_open('painting')
 def painting_estimator():
     from estimators.painting import sections_for_ui
     return render_template(

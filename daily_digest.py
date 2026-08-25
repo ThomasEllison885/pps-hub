@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, time, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
-from hub_usage import event_label
+from hub_usage import FEATURE_LABELS, event_label
 from psc_training_data import PSC_TRAINING_META, get_training_curriculum
 
 ET = ZoneInfo('America/New_York')
@@ -324,8 +324,33 @@ def _collect_compliance_overrides(cur, users, exclude_list, start, end, add):
         print(f'Daily digest compliance override collect error: {e}')
 
 
+# Opens are rolled up rather than listed. See _collect_usage_events.
+SEEN_KIND = 'seen'
+
+
 def _collect_usage_events(cur, users, exclude_list, start, end, add):
-    """Any feature that called record_usage() — no per-feature digest code."""
+    """Any feature that called record_usage() — no per-feature digest code.
+
+    Two shapes come out of one table, deliberately:
+
+      * **Actions** (import, generate, upload, refresh, …) are real work and
+        get a line each, as they always have.
+      * **Opens** are rolled into ONE line per person: "Looked at: Clients,
+        Proposal History, Team View". F-03 (2026-08-26) instrumented fifteen
+        more pages, and a line per page would have turned a readable email
+        into a scroll — the digest has exactly one recipient and making it
+        tiring is how it stops being read.
+
+    The rolled-up line is kind `seen`, and `build_digest_email` keeps that
+    out of the activity total, out of AT A GLANCE, and out of the reckoning
+    for QUIET TODAY. **Seeing is not doing**: "12 activities" should still
+    mean twelve things produced, and someone who only looked at the Hub
+    should still show as quiet — with this line saying they at least looked.
+
+    That is a change to how pipeline / office_ops / compliance opens have
+    counted since 2026-08, and it is intentional: with fifteen features
+    logging opens, one 'open' has to mean one thing.
+    """
     try:
         ex_sql, ex_args = _ex_clause('user_key', exclude_list)
         cur.execute(
@@ -337,12 +362,33 @@ def _collect_usage_events(cur, users, exclude_list, start, end, add):
                  ORDER BY last_at''',
             (start, end, *ex_args),
         )
+        opens = {}
         for user_key, feature, action, title, n, last_at, meta in cur.fetchall():
+            if (action or '') == 'open':
+                bucket = opens.setdefault(user_key, {'names': [], 'seen': set(),
+                                                     'last_at': last_at})
+                label = FEATURE_LABELS.get(
+                    feature, (feature or '').replace('_', ' ').title() or 'Hub')
+                if label not in bucket['seen']:
+                    bucket['seen'].add(label)
+                    bucket['names'].append(label)
+                if last_at and (not bucket['last_at'] or last_at > bucket['last_at']):
+                    bucket['last_at'] = last_at
+                continue
             kind_label, head, extra = event_label(feature, action, title or '', n)
             add(_item(
                 user_key, _display_name(users, user_key),
                 feature or 'hub', kind_label,
                 head, meta or '', last_at, extra,
+            ))
+
+        for user_key, bucket in opens.items():
+            names = sorted(bucket['names'])
+            add(_item(
+                user_key, _display_name(users, user_key),
+                SEEN_KIND, 'Looked at',
+                ', '.join(names), '', bucket['last_at'],
+                f'{len(names)} page{"s" if len(names) != 1 else ""}',
             ))
     except Exception as e:
         print(f'Daily digest usage-events collect error: {e}')
@@ -635,22 +681,34 @@ def _kind_totals(counts):
         if n:
             lines.append((label, n))
     # New modules that only write hub_usage_events still appear here
-    # without a digest-code change.
+    # without a digest-code change. `seen` (the rolled-up "Looked at" line)
+    # is the one exception — AT A GLANCE counts work produced, and page
+    # opens are not that.
     for key, n in sorted(counts.items()):
+        if key == SEEN_KIND:
+            continue
         if key not in seen and n:
             lines.append((key.replace('_', ' ').title(), n))
     return lines
 
 
 def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=None):
-    """Return (subject, text_body, html_body)."""
+    """Return (subject, text_body, html_body).
+
+    `seen` items — the rolled-up "Looked at" line per person — are rendered
+    but never counted. See _collect_usage_events: the headline number has
+    always meant work produced, and fifteen newly instrumented pages must not
+    quietly inflate it.
+    """
     people = defaultdict(list)
     for it in items:
         people[it['display_name']].append(it)
 
+    did = [it for it in items if it['kind'] != SEEN_KIND]
+
     day_label = report_date.strftime('%A, %b %d, %Y')
-    total = len(items)
-    person_count = len(people)
+    total = len(did)
+    person_count = len({it['display_name'] for it in did})
     if total == 0:
         subject = f'PPS Hub Daily Digest — {day_label} (no team activity)'
     else:
@@ -676,19 +734,27 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
         lines.append('  (no activity)')
 
     for name in sorted(people.keys()):
-        person_items = people[name]
-        lines.append(f'{name} ({len(person_items)})')
+        # "Looked at" sorts last for a person and is not in their count.
+        person_items = sorted(people[name], key=lambda i: i['kind'] == SEEN_KIND)
+        person_did = [i for i in person_items if i['kind'] != SEEN_KIND]
+        lines.append(f'{name} ({len(person_did)})')
         for it in person_items:
             meta = f' · {it["meta"]}' if it['meta'] else ''
             extra = f' · {it["extra"]}' if it['extra'] else ''
             ts = f' · {it["time_str"]}' if it['time_str'] else ''
-            if it['kind'] in ('feedback', 'psc_feedback'):
+            if it['kind'] == SEEN_KIND:
+                # "Looked at: Clients, Team View" — a colon, because this is a
+                # list of pages rather than one named thing.
+                lines.append(f'  {it["kind_label"]}: {it["title"]}')
+            elif it['kind'] in ('feedback', 'psc_feedback'):
                 lines.append(f'  {it["kind_label"]}: {it["title"]}{meta}{ts}')
             else:
                 lines.append(f'  {it["kind_label"]} · {it["title"]}{meta}{extra}{ts}')
         lines.append('')
 
-    active_keys = {it['user_key'] for it in items}
+    # Deliberately `did`, not `items`: someone who only opened pages is still
+    # quiet. Their "Looked at" line above says they were here.
+    active_keys = {it['user_key'] for it in did}
     quiet = []
     for key, user in sorted(users.items(), key=lambda x: x[1].get('display', x[0])):
         if key in exclude or key in active_keys:
@@ -716,13 +782,20 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
     )
     person_blocks = []
     for name in sorted(people.keys()):
-        person_items = people[name]
+        # Same as the text body: "Looked at" sorts last and is not counted.
+        person_items = sorted(people[name], key=lambda i: i['kind'] == SEEN_KIND)
+        person_did = [i for i in person_items if i['kind'] != SEEN_KIND]
         item_lis = []
         for it in person_items:
             meta = f' <span style="color:#64748b;">· {escape(it["meta"])}</span>' if it['meta'] else ''
             extra = f' <span style="color:#64748b;">· {escape(it["extra"])}</span>' if it['extra'] else ''
             ts = f' <span style="color:#94a3b8;">· {escape(it["time_str"])}</span>' if it['time_str'] else ''
-            if it['kind'] in ('feedback', 'psc_feedback'):
+            if it['kind'] == SEEN_KIND:
+                item_lis.append(
+                    f'<li style="margin-bottom:6px;color:#64748b;">'
+                    f'{escape(it["kind_label"])}: {escape(it["title"])}{extra}</li>'
+                )
+            elif it['kind'] in ('feedback', 'psc_feedback'):
                 item_lis.append(
                     f'<li style="margin-bottom:6px;"><strong>{escape(it["kind_label"])}:</strong> '
                     f'{escape(it["title"])}{meta}{ts}</li>'
@@ -735,7 +808,7 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
         person_blocks.append(
             f'<div style="margin-bottom:18px;">'
             f'<p style="margin:0 0 8px;font-weight:700;color:#004C8C;">{escape(name)} '
-            f'<span style="font-weight:400;color:#64748b;">({len(person_items)})</span></p>'
+            f'<span style="font-weight:400;color:#64748b;">({len(person_did)})</span></p>'
             f'<ul style="margin:0;padding-left:20px;color:#334155;font-size:14px;line-height:1.5;">'
             f'{"".join(item_lis)}</ul></div>'
         )

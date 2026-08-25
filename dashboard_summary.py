@@ -293,6 +293,19 @@ TOOLS = {
     'compliance':   {'icon': '🛡️', 'name': 'Compliance',         'path': '/office-ops/compliance'},
     'psc_training': {'icon': '🎓',  'name': 'PSC Training',       'path': '/psc-training'},
     'pm_training':  {'icon': '🔧',  'name': 'PM Training',        'path': '/pm-training'},
+    # Reachable from F-03 (2026-08-26), which instrumented the pages that
+    # keep no log of their own. Before that these could never appear here no
+    # matter how often someone used them — the block had nothing to read.
+    'clients':          {'icon': '👥',  'name': 'Clients',             'path': '/clients'},
+    'proposal_history': {'icon': '📁',  'name': 'Proposal History',    'path': '/my-proposals'},
+    'ppm_history':      {'icon': '🗒️', 'name': 'My PPMs',             'path': '/my-ppms'},
+    'tps_history':      {'icon': '📄',  'name': 'My TPS Scopes',       'path': '/my-tpscopes'},
+    'comparison':       {'icon': '🔍',  'name': 'Proposal Comparison', 'path': '/my-diffs'},
+    'ask_pps':          {'icon': '💬',  'name': 'Ask PPS',             'path': '/ask-pps'},
+    'team_view':        {'icon': '📈',  'name': 'Team View',           'path': '/team-view'},
+    'psc_oversight':    {'icon': '📈',  'name': 'PSC Accountability',  'path': '/psc-training/oversight'},
+    'pm_oversight':     {'icon': '📋',  'name': 'PM Accountability',   'path': '/pm-training/oversight'},
+    'roleplay':         {'icon': '🎭',  'name': 'PSC Roleplay',        'path': '/psc-training/roleplay'},
 }
 
 # hub_usage_events.feature -> tool key. Only the features that map to a place
@@ -301,6 +314,30 @@ USAGE_FEATURE_TO_TOOL = {
     'pipeline': 'pipeline',
     'office_ops': 'office_ops',
     'compliance': 'compliance',
+    'clients': 'clients',
+    'proposal_history': 'proposal_history',
+    'ppm_history': 'ppm_history',
+    'tps_history': 'tps_history',
+    'comparison': 'comparison',
+    'ask_pps': 'ask_pps',
+    'team_view': 'team_view',
+    'psc_oversight': 'psc_oversight',
+    'pm_oversight': 'pm_oversight',
+    'roleplay': 'roleplay',
+    # The four estimators and Site Visit all record opens too, and all land on
+    # the tools they belong to rather than getting a card each — five near
+    # identical estimator cards would crowd out everything else in a row of
+    # three. Their *output* already reaches this block through the log tables.
+    'estimating': 'estimate',
+    'siding': 'estimate',
+    'roofing': 'estimate',
+    'gutter': 'estimate',
+    'painting': 'estimate',
+    'site_visit': 'site_visit',
+    # PSC/PM training opens map to the trainee pages; progress already shows
+    # in the pills, so the card is about getting back to where you were.
+    'psc_training': 'psc_training',
+    'pm_training': 'pm_training',
 }
 
 

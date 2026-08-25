@@ -16,11 +16,39 @@ Ops Numbers, and whatever ships next.
 
 from __future__ import annotations
 
+# Every feature that may appear in hub_usage_events, and how it reads in the
+# nightly digest. A feature missing from here still records and still works —
+# `event_label` falls back to a title-cased slug — but it reads worse, so
+# `tests/test_hub_usage.py::test_every_recorded_feature_has_a_label` fails if
+# a call site uses a name that is not listed. That catches the typo that would
+# otherwise create a silent second feature ('proposal_hist') nobody notices.
 FEATURE_LABELS = {
+    # Instrumented 2026-08 (the first three)
     'pipeline': 'Pipeline',
     'compliance': 'Compliance',
     'office_ops': 'Office Ops',
+    # F-03, 2026-08-26 — the rest of the Hub
+    'clients': 'Clients',
+    'proposal_history': 'Proposal History',
+    'ppm_history': 'PPM History',
+    'tps_history': 'TPS History',
+    'comparison': 'Proposal Comparison',
+    'ask_pps': 'Ask PPS',
+    'team_view': 'Team View',
+    'estimating': 'Estimating',
+    'siding': 'Siding Estimator',
+    'roofing': 'Roofing Estimator',
+    'gutter': 'Gutter Estimator',
+    'painting': 'Painting Estimator',
+    'site_visit': 'Site Visit Report',
+    'psc_training': 'PSC Training',
+    'pm_training': 'PM Training',
+    'psc_oversight': 'PSC Accountability',
+    'pm_oversight': 'PM Accountability',
+    'roleplay': 'PSC Roleplay',
 }
+
+KNOWN_FEATURES = frozenset(FEATURE_LABELS)
 
 ACTION_LABELS = {
     'open': 'Opened',
@@ -125,6 +153,27 @@ def record_usage(get_db_fn, user_key, feature, action, title='', meta=''):
         conn.close()
     except Exception as e:
         print(f'hub_usage record error ({feature}/{action}): {e}')
+
+
+def record_open(get_db_fn, user_key, feature, title=''):
+    """Log that someone opened a page. One line per route, and the name says
+    what it is — an open, not a deliverable.
+
+    Two rules ride on the action being exactly 'open':
+
+      * **The weekly recap must never score it.** `SCORED_USAGE_ACTIONS` in
+        weekly_recap.py excludes 'open' on purpose: a leaderboard that counts
+        opens is a machine for teaching people to open things. F-03 added
+        opens to fifteen more places, which makes that exclusion far more
+        load-bearing than it was when three features used it.
+      * **The nightly digest rolls them into one line per person** rather
+        than one per page, and they do not count toward its activity total or
+        rescue anyone from QUIET TODAY. Seeing is not doing.
+
+    Anything that produces something — a generate, an import, an upload —
+    uses `record_usage` with its own action instead.
+    """
+    record_usage(get_db_fn, user_key, feature, 'open', title)
 
 
 def event_label(feature, action, title='', count=1):

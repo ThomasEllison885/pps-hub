@@ -137,3 +137,71 @@ def test_record_usage_does_not_repeat_the_ddl():
     assert seen.count('CREATE') == 0, 'no DDL after the first event'
     assert seen.count('INSERT') == 4
     hub_usage.reset_tables_ready()
+
+
+# ── F-03: instrumenting the rest of the Hub (2026-08-26) ────────────────────
+
+def test_every_recorded_feature_has_a_label():
+    """A typo'd feature name creates a silent second feature that nobody
+    labels and nobody notices. Scans the real call sites."""
+    import os
+    import re
+
+    import hub_usage
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    used = set()
+    for name in sorted(os.listdir(root)):
+        if not name.endswith('.py'):
+            continue
+        body = open(os.path.join(root, name), encoding='utf-8').read()
+        for m in re.finditer(r"record_usage\(\s*[^,]+,\s*[^,]+,\s*'([a-z_]+)'", body):
+            used.add(m.group(1))
+        for m in re.finditer(r"record_open\(\s*[^,]+,\s*[^,]+,\s*'([a-z_]+)'", body):
+            used.add(m.group(1))
+        for m in re.finditer(r"@logs_open\('([a-z_]+)'\)", body):
+            used.add(m.group(1))
+    assert used, 'the scan found nothing — has the call shape changed?'
+    unlabelled = sorted(used - hub_usage.KNOWN_FEATURES)
+    assert not unlabelled, f'features with no FEATURE_LABELS entry: {unlabelled}'
+
+
+def test_record_open_always_uses_the_open_action():
+    """Two rules hang on this exact string: the recap never scores 'open',
+    and the digest rolls opens into one line per person."""
+    import hub_usage
+
+    hub_usage.reset_tables_ready()
+    captured = []
+
+    class Cur:
+        def execute(self, sql, params=None):
+            if 'INSERT' in str(sql):
+                captured.append(params)
+
+        def close(self):
+            pass
+
+    class Conn:
+        def cursor(self):
+            return Cur()
+
+        def commit(self):
+            pass
+
+        def close(self):
+            pass
+
+    hub_usage.record_open(lambda: Conn(), 'andy_potts', 'clients')
+    assert captured and captured[0][1] == 'clients'
+    assert captured[0][2] == 'open'
+    hub_usage.reset_tables_ready()
+
+
+def test_open_is_not_a_scored_usage_action():
+    """The single most important invariant in this change. F-03 added opens
+    to fifteen more pages; if 'open' ever became scorable, the weekly
+    leaderboard would instantly start rewarding whoever clicked most."""
+    import weekly_recap
+
+    assert 'open' not in weekly_recap.SCORED_USAGE_ACTIONS
