@@ -135,7 +135,7 @@
         <tr>
           <td>
             <strong>{{ row.display }}</strong>
-            <span class="meta-sm">Enrolled {{ row.enrolled_at.strftime('%b %d, %Y') if row.enrolled_at else '—' }}</span>
+            <span class="meta-sm">Enrolled {{ row.enrolled_at | et if row.enrolled_at else '—' }}</span>
           </td>
           <td>
             <div class="bar-track"><div class="bar-fill" style="width:{{ row.pct }}%"></div></div>
@@ -189,7 +189,7 @@
           </td>
           <td>
             <span class="meta-sm" style="margin:0;">
-              {% if row.last_activity_at %}Last active {{ row.last_activity_at.strftime('%b %d') }}{% else %}No activity yet{% endif %}
+              {% if row.last_activity_at %}Last active {{ row.last_activity_at | et_fmt('%b %d') }}{% else %}No activity yet{% endif %}
             </span>
           </td>
           {% if can_enroll %}
@@ -214,7 +214,7 @@
     <div class="feedback-item">
       <div class="feedback-meta">
         <strong>{{ fb.display_name }}</strong>
-        <span>{{ fb.submitted_at.strftime('%b %d, %Y') if fb.submitted_at else '' }}</span>
+        <span>{{ fb.submitted_at | et }}</span>
         {% if fb.week_num is not none %}<span class="feedback-week">Week {{ fb.week_num }}</span>{% else %}<span class="feedback-week">General</span>{% endif %}
       </div>
       <div class="feedback-msg">{{ fb.message }}</div>

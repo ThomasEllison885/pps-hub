@@ -280,7 +280,7 @@
           <td>
             <span class="tier-badge tier-{{ u.tier }}">{{ u.tier }}</span>
           </td>
-          <td class="last-login">{{ u.last_login.strftime('%b %d, %Y') if u.last_login else 'Never' }}</td>
+          <td class="last-login">{{ u.last_login | et if u.last_login else 'Never' }}</td>
           <td style="white-space:nowrap;">
             <button class="reset-btn" onclick="openReset('{{ u.user_key }}', '{{ u.display_name }}')">Reset →</button>
             <button class="reset-btn" style="margin-left:6px;background:{% if u.login_locked %}#fee;color:#c00;border-color:#f5c2c2;{% else %}#f0f6fb;color:var(--dark-blue);{% endif %}" onclick="unlockLogin('{{ u.user_key }}', '{{ u.display_name }}')" title="Clear failed sign-in lockout">Unlock</button>
@@ -324,7 +324,7 @@
             {{ a.who }}{% if a.context and a.context != a.who %} → {{ a.context }}{% endif %}{% if a.extra %} · {{ a.extra }}{% endif %}
           </div>
         </div>
-        <div class="feed-when">{{ a.when.strftime('%b %d') if a.when else '—' }}</div>
+        <div class="feed-when">{{ a.when | et_fmt('%b %d') if a.when else '—' }}</div>
         <div class="feed-actions">
           {% if a.document_id %}
           <a href="/api/documents/{{ a.document_id }}/download" class="download-btn"
@@ -383,7 +383,7 @@
           <td style="font-size:13px;color:#888;">{{ f.consultant_name or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ f.user_key.replace('_',' ').title() if f.user_key else '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ ((f.size_bytes or 0) / 1024)|round(1) }} KB</td>
-          <td style="font-size:12px;color:#aaa;">{{ f.created_at.strftime('%b %d, %Y') if f.created_at else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ f.created_at | et if f.created_at else '—' }}</td>
           <td style="white-space:nowrap;">
             <a href="/api/documents/{{ f.id }}/download" class="download-btn" style="margin-right:6px;" onclick="event.stopPropagation();">⬇</a>
             <button class="vault-del" data-id="{{ f.id }}" data-name="{{ (f.property_name or f.filename)|e }}" onclick="event.stopPropagation();deleteVaultFile(Number(this.dataset.id), this.dataset.name)">Delete</button>

@@ -35,6 +35,7 @@ page that 500s when something is wrong is worse than no status page.
 from __future__ import annotations
 
 import json
+import hub_time
 import os
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -165,16 +166,17 @@ def _json_object(value):
 
 
 def _eastern_label(dt):
-    """Naive Hub timestamps are UTC. Show them in Eastern, labeled."""
-    if not dt or not hasattr(dt, 'strftime'):
+    """Naive Hub timestamps are UTC. Show them in Eastern, labeled.
+
+    This was the only place in the Hub that got this right, and on
+    2026-08-25 it became `hub_time.fmt` so every template could use it too.
+    Kept as a function because the jobs table calls it and because it adds
+    the explicit "ET" suffix, which the generic filters do not.
+    """
+    if dt is None:
         return None
-    try:
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        local = dt.astimezone(ET)
-    except Exception:
-        local = dt
-    return local.strftime('%b %d, %-I:%M%p ET')
+    label = hub_time.fmt(dt, '%b %d, %-I:%M%p')
+    return f'{label} ET' if label else None
 
 
 def format_job_detail(run):

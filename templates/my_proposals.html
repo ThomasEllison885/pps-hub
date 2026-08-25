@@ -87,7 +87,7 @@
           <td>{{ p.consultant_name }}</td>
           <td style="font-size:12px;color:#888;">{{ p.property_type or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ p.template_type|template_label }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at | et if p.generated_at else '—' }}</td>
           <td style="font-size:12px;" onclick="event.stopPropagation();">
             {% if p.document_id %}
             <a href="/api/documents/{{ p.document_id }}/download" class="pps-btn pps-btn-sm" style="text-decoration:none;">⬇ Download</a>
@@ -162,7 +162,7 @@ const proposals = [
     type: {{ (p.property_type or '—')|tojson }},
     template: {{ (p.template_type|template_label)|tojson }},
     scopes: {{ (p.scopes_selected or '—')|tojson }},
-    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    date: {{ (p.generated_at | et_long if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
     notes: {{ (p.scope_notes or '')|tojson }},

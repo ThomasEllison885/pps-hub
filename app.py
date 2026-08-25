@@ -20,6 +20,7 @@ import training_overlay
 import dashboard_summary
 import db_pool
 import db_ddl
+import hub_time
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -4760,6 +4761,12 @@ def _format_template_label(val):
     if v in ('full', 'long', 'comprehensive'):
         return 'Comprehensive'
     return str(val)
+
+
+# Naive-UTC columns, Eastern on screen. Registers `et`, `et_at`, `et_long`
+# and `et_fmt`. Every template that used to call `.strftime` on a database
+# timestamp was rendering UTC to people in Ohio — see hub_time.py.
+hub_time.register(app)
 
 
 @app.template_filter('template_label')

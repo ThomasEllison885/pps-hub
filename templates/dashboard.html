@@ -791,7 +791,7 @@ const recentProposals = [
     type: {{ (p.property_type or '—')|tojson }},
     template: {{ (p.template_type|template_label)|tojson }},
     scopes: {{ (p.scopes_selected or '—')|tojson }},
-    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    date: {{ (p.generated_at | et_long if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
     notes: {{ (p.scope_notes or '')|tojson }},
@@ -956,7 +956,7 @@ const recentProposals = [
       scale: {{ (p.scale or '—')|tojson }},
       clientType: {{ (p.client_type or '—')|tojson }},
       occupied: {{ (p.occupied or '—')|tojson }},
-      date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+      date: {{ (p.generated_at | et_long if p.generated_at else '—')|tojson }},
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];
@@ -974,7 +974,7 @@ const recentProposals = [
       consultant: {{ (s.consultant_name or '—')|tojson }},
       material: {{ (s.material_provider or '—')|tojson }},
       sourceFile: {{ (s.proposal_filename or '—')|tojson }},
-      date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
+      date: {{ (s.generated_at | et_long if s.generated_at else '—')|tojson }},
     }{% if not loop.last %},{% endif %}
     {% endfor %}
   ];

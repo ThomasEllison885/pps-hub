@@ -27,6 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import dashboard_summary as ds
+import hub_time
 
 NOW = datetime(2026, 8, 21, 14, 0)
 
@@ -43,6 +44,9 @@ def _env():
                       undefined=StrictUndefined)
     # Registered on the app, which this harness does not build.
     env.filters['template_label'] = lambda v: (v or 'Standard').title()
+    # The Eastern-time filters, from the same dict app.py installs — so a new
+    # one reaches this harness without anyone remembering to add it here.
+    env.filters.update(hub_time.FILTERS)
     return env
 
 

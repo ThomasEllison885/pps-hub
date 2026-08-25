@@ -113,6 +113,33 @@
   .presence-row { display:flex; gap:6px; align-items:center; font-size:12px; color:#888; }
   .presence-chip { display:inline-flex; align-items:center; gap:4px; background:#E3F2FD; color:#1565C0; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:600; }
   .empty-state { padding:40px 20px; text-align:center; color:#aaa; font-size:14px; }
+  .empty-state button { background:none; border:none; color:var(--blue); font-weight:600; cursor:pointer; font-size:14px; padding:0; text-decoration:underline; }
+
+  /* Search. Rows are HIDDEN, never removed — see the note above applyFilter. */
+  tr.row-filtered { display:none; }
+  .board-search { position:relative; display:flex; align-items:center; }
+  .board-search input {
+    width:230px; padding:7px 28px 7px 30px; font-family:inherit; font-size:13px;
+    border:1.5px solid var(--border); border-radius:8px; outline:none; color:var(--gray);
+    background:white;
+  }
+  .board-search input:focus { border-color:var(--blue); }
+  /* type="search" for the mobile keyboard's Search key and Escape-to-clear,
+     but Chrome/Safari draw their own ✕ on top of ours. One clear button. */
+  .board-search input::-webkit-search-cancel-button,
+  .board-search input::-webkit-search-decoration { -webkit-appearance:none; appearance:none; }
+  .board-search .search-icon { position:absolute; left:9px; font-size:12px; color:#bbb; pointer-events:none; }
+  .board-search .search-clear {
+    position:absolute; right:6px; background:none; border:none; cursor:pointer;
+    color:#bbb; font-size:14px; line-height:1; padding:3px 4px; display:none;
+  }
+  .board-search .search-clear:hover { color:var(--dark-blue); }
+  .board-search.has-query .search-clear { display:block; }
+  #row-count.filtering { color:var(--dark-blue); font-weight:600; }
+  @media (max-width: 700px) {
+    .toolbar { flex-direction:column; align-items:stretch; gap:10px; }
+    .board-search input { width:100%; }
+  }
   .install-hint {
     display:flex; align-items:center; justify-content:space-between; gap:12px;
     background:#E3F2FD; border:1px solid #BBDEFB; color:#1565C0; border-radius:8px;
@@ -195,7 +222,16 @@
       </table>
     </div>
     <div class="toolbar">
-      <span style="font-size:12px;color:#aaa;" id="row-count"></span>
+      <div style="display:flex;gap:12px;align-items:center;">
+        <div class="board-search" id="board-search">
+          <span class="search-icon">🔍</span>
+          <input type="search" id="board-search-input" placeholder="Search this board…"
+                 autocomplete="off" spellcheck="false" aria-label="Search this board">
+          <button type="button" class="search-clear" id="board-search-clear"
+                  title="Clear search (Esc)" aria-label="Clear search">✕</button>
+        </div>
+        <span style="font-size:12px;color:#aaa;" id="row-count"></span>
+      </div>
       <div style="display:flex;gap:10px;align-items:center;">
         {# Import is leadership-only since 2026-08-23: it seeds a board when one
            is created and rewrites it wholesale, so it isn't a daily control.
@@ -497,6 +533,92 @@ function renderRow(entry) {
 function escAttr(v) { return (v ?? '').toString().replace(/"/g, '&quot;'); }
 function escHtml(v) { return (v ?? '').toString().replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+// ── Search (2026-08-25) ──────────────────────────────────────────────────
+//
+// Every row stays in the DOM and non-matching ones get `.row-filtered`,
+// which is `display:none`. That is not a stylistic choice — removing rows
+// would break two things that are easy to miss:
+//
+//   * the 3s poll calls patchEntryInPlace, which looks up `row-<id>` and
+//     APPENDS when it cannot find one. A filtered-out row would come back
+//     at the bottom of the table on the next poll, out of order.
+//   * mergeEntries refuses to stomp a row containing document.activeElement,
+//     which is what stops a poll wiping what you are typing. A row that is
+//     not in the DOM cannot contain the focus, so that guard would silently
+//     stop protecting anything.
+//
+// Hiding keeps `entries`, the DOM and the poll in agreement, and means an
+// edit to a visible row behaves exactly as it does with no search running.
+let boardQuery = '';
+
+function entryHaystack(e) {
+  const status = (STATUSES.find(s => s.value === e.status) || {}).label || e.status || '';
+  return [
+    ...TEXT_FIELDS.map(f => e[f]),
+    ...NUMERIC_FIELDS.map(f => e[f]),
+    status,
+  ].filter(v => v !== null && v !== undefined && v !== '').join(' ').toLowerCase();
+}
+
+function entryMatches(e, terms) {
+  if (!terms.length) return true;
+  const hay = entryHaystack(e);
+  // Every term must appear somewhere in the row, not necessarily together —
+  // "cedar roof" finds the Cedar Ridge roofing job whichever column each
+  // word is in.
+  return terms.every(t => hay.includes(t));
+}
+
+function filterTerms() {
+  return boardQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function applyFilter() {
+  const terms = filterTerms();
+  const search = document.getElementById('board-search');
+  if (search) search.classList.toggle('has-query', boardQuery.trim() !== '');
+
+  let shown = 0;
+  entries.forEach(e => {
+    const row = document.getElementById(`row-${e.id}`);
+    if (!row) return;
+    const hit = entryMatches(e, terms);
+    row.classList.toggle('row-filtered', !hit);
+    if (hit) shown++;
+  });
+
+  const noMatches = document.getElementById('no-matches');
+  if (noMatches) noMatches.remove();
+  if (terms.length && shown === 0 && entries.length) {
+    const body = document.getElementById('board-body');
+    const tr = document.createElement('tr');
+    tr.id = 'no-matches';
+    tr.innerHTML = `<td colspan="11"><div class="empty-state">No rows match “${escHtml(boardQuery)}”. `
+      + `<button type="button" id="clear-from-empty">Clear search</button></div></td>`;
+    body.appendChild(tr);
+    const btn = tr.querySelector('#clear-from-empty');
+    if (btn) btn.onclick = () => setBoardQuery('');
+  }
+  updateRowCount(shown, terms.length > 0);
+}
+
+function updateRowCount(shown, filtering) {
+  const el = document.getElementById('row-count');
+  if (!el) return;
+  const total = entries.length;
+  el.classList.toggle('filtering', !!filtering);
+  el.textContent = filtering
+    ? `${shown} of ${total} row${total === 1 ? '' : 's'}`
+    : `${total} row${total === 1 ? '' : 's'}`;
+}
+
+function setBoardQuery(value) {
+  boardQuery = value || '';
+  const input = document.getElementById('board-search-input');
+  if (input && input.value !== boardQuery) input.value = boardQuery;
+  applyFilter();
+}
+
 function renderAll() {
   const body = document.getElementById('board-body');
   body.innerHTML = '';
@@ -505,8 +627,8 @@ function renderAll() {
   } else {
     entries.forEach(e => body.appendChild(renderRow(e)));
   }
-  document.getElementById('row-count').textContent = `${entries.length} row${entries.length === 1 ? '' : 's'}`;
   wireCellEvents();
+  applyFilter();
 }
 
 function patchEntryInPlace(entry) {
@@ -517,6 +639,10 @@ function patchEntryInPlace(entry) {
   const fresh = renderRow(entry);
   if (old) { old.replaceWith(fresh); } else { document.getElementById('board-body').appendChild(fresh); }
   wireCellEvents();
+  // renderRow builds a clean <tr>, so the filter class is gone. Without this
+  // an edited or polled row reappears mid-search — and an edit that makes a
+  // row stop matching should hide it, which is also what people expect.
+  applyFilter();
 }
 
 function autoGrow(el) {
@@ -647,6 +773,12 @@ document.getElementById('add-row-btn').onclick = () => {
     fetch(apiUrl('/api/pipeline-board/entries'), {method: 'POST'}),
     (data) => {
       entries.push(data.entry);
+      // A new row is blank, so it matches nothing and would be created
+      // invisible. Clearing is the only sane outcome — you asked for a row,
+      // you should be looking at it.
+      boardQuery = '';
+      const searchInput = document.getElementById('board-search-input');
+      if (searchInput) searchInput.value = '';
       renderAll();
       scrollToBottom();
       const row = document.getElementById(`row-${data.entry.id}`);
@@ -676,7 +808,9 @@ function mergeEntries(freshEntries) {
     const local = entries.find(e => String(e.id) === String(fresh.id));
     if (!local || JSON.stringify(local) !== JSON.stringify(fresh)) { patchEntryInPlace(fresh); }
   });
-  document.getElementById('row-count').textContent = `${entries.length} row${entries.length === 1 ? '' : 's'}`;
+  // Not a direct write to #row-count any more: with a search running the
+  // count is "N of M", and a poll must not quietly replace it with M.
+  applyFilter();
 }
 
 function scrollToBottom() {
@@ -695,9 +829,14 @@ function scrollToBottom() {
 }
 
 function jumpToOpenWork() {
-  const target = entries.find(e => isInProgress(e.status));
+  // With a search running, "open work" means the first open row you can
+  // actually see — jumping to a hidden one would scroll to nothing.
+  const terms = filterTerms();
+  const target = entries.find(e => isInProgress(e.status) && entryMatches(e, terms));
   if (!target) {
-    showError('Nothing in progress right now — everything is Sent/Awarded/Cancelled.');
+    showError(terms.length
+      ? 'Nothing in progress among the rows matching this search.'
+      : 'Nothing in progress right now — everything is Sent/Awarded/Cancelled.');
     return;
   }
   const row = document.getElementById(`row-${target.id}`);
@@ -707,6 +846,31 @@ function jumpToOpenWork() {
   setTimeout(() => row.classList.remove('jump-flash'), 1200);
 }
 document.getElementById('jump-open-btn').onclick = jumpToOpenWork;
+
+(function wireSearch() {
+  const input = document.getElementById('board-search-input');
+  const clear = document.getElementById('board-search-clear');
+  if (!input) return;
+  // `input`, not `keyup` — this has to catch paste, the browser's own clear
+  // button on <input type="search">, and speech input, none of which are
+  // keystrokes.
+  input.addEventListener('input', () => setBoardQuery(input.value));
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') { ev.preventDefault(); setBoardQuery(''); }
+  });
+  if (clear) clear.onclick = () => { setBoardQuery(''); input.focus(); };
+  // Ctrl/Cmd-F is the browser's find — deliberately not hijacked. "/" is the
+  // convention for an in-page search box and costs nothing.
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const el = document.activeElement;
+    const tag = el && el.tagName ? el.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    ev.preventDefault();
+    input.focus();
+    input.select();
+  });
+})();
 document.querySelector('.table-scroll').addEventListener('scroll', hideSuggest);
 window.addEventListener('resize', hideSuggest);
 

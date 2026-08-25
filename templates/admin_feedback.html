@@ -105,9 +105,9 @@
     <div class="fb-header">
       <div class="fb-name">{{ item.display_name }}</div>
       <div class="fb-date">
-        {{ item.submitted_at.strftime('%B %d, %Y at %I:%M %p') if item.submitted_at else '' }}
+        {{ item.submitted_at | et_fmt('%B %d, %Y at %-I:%M %p') }}
         {% if item.archived_at %}
-        · archived {{ item.archived_at.strftime('%b %d, %Y') if item.archived_at else '' }}
+        · archived {{ item.archived_at | et }}
         {% endif %}
       </div>
     </div>

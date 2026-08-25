@@ -156,7 +156,7 @@
       <div class="checkin-box">
         <strong>Manager Check-in</strong>{{ w.manager_checkin }}
         {% if ws.manager_signed %}
-        <div class="checkin-signed">✓ Signed off by {{ ws.signed_by_display }}{% if ws.signed_at %} · {{ ws.signed_at.strftime('%b %d, %Y') }}{% endif %}</div>
+        <div class="checkin-signed">✓ Signed off by {{ ws.signed_by_display }}{% if ws.signed_at %} · {{ ws.signed_at | et }}{% endif %}</div>
         {% elif ws.trainee_pct == 100 %}
         <div class="checkin-pending ready">All items complete — awaiting manager sign-off</div>
         {% else %}

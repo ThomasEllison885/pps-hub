@@ -184,11 +184,11 @@
             </td>
             <td>
               {% if p.open_reset %}
-                <span class="muted">expires {{ p.open_reset.expires_at.strftime('%b %d, %-I:%M%p') if p.open_reset.expires_at else '—' }}</span>
+                <span class="muted">expires {{ p.open_reset.expires_at | et_fmt('%b %d, %-I:%M%p') if p.open_reset.expires_at else '—' }}</span>
               {% else %}<span class="muted">—</span>{% endif %}
             </td>
             <td>
-              {% if p.last_login %}{{ p.last_login.strftime('%b %d, %Y') }}
+              {% if p.last_login %}{{ p.last_login | et }}
               {% else %}<span class="pill pill-warn">never</span>{% endif %}
             </td>
           </tr>
