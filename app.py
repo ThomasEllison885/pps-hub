@@ -7,7 +7,7 @@ import threading
 import base64
 from io import BytesIO
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response, g, has_request_context
 import pipeline_board
 import office_ops
 import insurance_compliance
@@ -18,6 +18,8 @@ import password_campaign
 import system_state
 import training_overlay
 import dashboard_summary
+import db_pool
+import db_ddl
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -590,36 +592,139 @@ def _database_url():
 _DB_LAST_ERROR = ''
 
 
+def _track_checkout(conn):
+    """Remember a connection so teardown can return it if nobody else does.
+
+    Seven of the twenty-one connections a dashboard load used to take were
+    never closed by their caller — they were released whenever Python got
+    round to collecting them, which was harmless when each one was
+    disposable and is not harmless now that they come from a fixed pool.
+    Rather than audit 107 call sites, the request that took them gives them
+    back at the end.
+
+    Only inside a request. A background thread (the proposal-diff emailer)
+    has no request context and must close its own; tracking it here would
+    hand its connection to whichever request happened to finish first.
+    """
+    try:
+        if not has_request_context():
+            return
+        bucket = getattr(g, '_db_checkouts', None)
+        if bucket is None:
+            bucket = []
+            g._db_checkouts = bucket
+        bucket.append(conn)
+    except Exception:
+        pass
+
+
+def _untrack_checkout(conn):
+    try:
+        if not has_request_context():
+            return
+        bucket = getattr(g, '_db_checkouts', None)
+        if bucket:
+            try:
+                bucket.remove(conn)
+            except ValueError:
+                pass
+    except Exception:
+        pass
+
+
 def get_db():
-    """Open a short-lived Postgres connection. Returns None if unavailable."""
+    """A Postgres connection. Returns None if unavailable.
+
+    Pooled since 2026-08-25 — see `db_pool.py` for why, and for the four
+    invariants that make it invisible to callers. The contract here has not
+    changed: you get something you can `.cursor()` on, and you call
+    `.close()` when you are done. `.close()` now means "give it back".
+
+    Three ways this can hand back an unpooled connection, all of them
+    deliberate and all of them exactly the old behaviour:
+      * `DB_POOL_DISABLED=true` — the kill switch;
+      * the pool is at its cap (`acquire()` returns None) — a busy moment
+        must not become a queue behind gunicorn's 120s timeout;
+      * building the pool failed at all.
+    """
     global _DB_LAST_ERROR
     url = _database_url()
     if not url:
         _DB_LAST_ERROR = 'DATABASE_URL not set'
         return None
-    # Try common SSL modes used by Render / managed Postgres.
-    last_err = None
-    for sslmode in ('require', 'prefer', 'allow'):
+
+    if db_pool.pooling_enabled():
         try:
-            conn = psycopg2.connect(url, sslmode=sslmode, connect_timeout=10)
-            _DB_LAST_ERROR = ''
-            return conn
+            pool = db_pool.get_pool(url, lambda: db_pool.connect_direct(url))
+            raw = pool.acquire()
+            if raw is not None:
+                _DB_LAST_ERROR = ''
+                conn = db_pool.PooledConnection(
+                    raw, pool, on_release=_untrack_checkout)
+                _track_checkout(conn)
+                return conn
+            # Pool at its cap. Fall through to a direct connection.
         except Exception as e:
-            last_err = e
-            continue
-    msg = str(last_err) if last_err else 'unknown connect failure'
-    # Never log credentials; psycopg2 errors usually omit the password.
-    _DB_LAST_ERROR = msg[:240]
-    print(f'get_db connect error: {_DB_LAST_ERROR}')
-    return None
+            # Never let a pool problem be the reason a page has no database.
+            _DB_LAST_ERROR = str(e)[:240]
+            print(f'get_db pool error: {_DB_LAST_ERROR}')
+
+    try:
+        raw = db_pool.connect_direct(url)
+    except Exception as e:
+        # Never log credentials; psycopg2 errors usually omit the password.
+        _DB_LAST_ERROR = str(e)[:240]
+        print(f'get_db connect error: {_DB_LAST_ERROR}')
+        return None
+    _DB_LAST_ERROR = ''
+    conn = db_pool.PooledConnection(raw, None, on_release=_untrack_checkout)
+    _track_checkout(conn)
+    return conn
+
+
+@app.teardown_request
+def _return_db_connections(exc=None):
+    """Give back anything this request took and did not return."""
+    bucket = getattr(g, '_db_checkouts', None)
+    if not bucket:
+        return
+    # close() removes from the bucket via _untrack_checkout, so iterate a copy.
+    for conn in list(bucket):
+        try:
+            # An exploded request may have left a transaction open. release()
+            # rolls it back, but discarding is the honest call when we have no
+            # idea what state the caller left it in.
+            if exc is not None:
+                conn.discard()
+            else:
+                conn.close()
+        except Exception:
+            pass
+    g._db_checkouts = []
 
 
 def init_db():
     conn = get_db()
     if not conn:
         return
-    cur = conn.cursor()
+    # Every ALTER / CREATE / DROP below runs in its own savepoint, so one that
+    # cannot apply is skipped and logged instead of aborting the transaction
+    # and silently killing every statement after it. That was a real bug: four
+    # ALTERs against the estimate log tables run before those tables are
+    # created further down this function, so on a database that has never run
+    # the estimators, init_db used to half-complete and report one opaque
+    # "DB init error". See db_ddl.py. Non-schema statements — the seeding
+    # INSERTs, the last_login backfill — are untouched and still raise.
+    cur = db_ddl.checkpointed(conn.cursor())
+    try:
+        _init_db_body(conn, cur)
+    finally:
+        # Whatever happened above, commit what worked and give the connection
+        # back. See _finish_init_db.
+        _finish_init_db(conn, cur)
 
+
+def _init_db_body(conn, cur):
     # Users table
     cur.execute('''
         CREATE TABLE IF NOT EXISTS hub_users (
@@ -688,9 +793,7 @@ def init_db():
         "ALTER TABLE gutter_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
         "ALTER TABLE painting_estimate_log ADD COLUMN IF NOT EXISTS summary_meta VARCHAR(255)",
     ]:
-        try:
-            cur.execute(col)
-        except: pass
+        cur.execute(col)
 
     # Document vault — persistent file storage
     cur.execute('''
@@ -706,10 +809,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         )
     ''')
-    try:
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_log ON documents(doc_type, log_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_key)")
-    except: pass
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_log ON documents(doc_type, log_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_documents_user ON documents(user_key)")
 
     # PPM activity log
     cur.execute('''
@@ -809,9 +910,7 @@ def init_db():
         "ALTER TABLE subscope_log ADD COLUMN IF NOT EXISTS proposal_filename VARCHAR(255)",
         "ALTER TABLE feedback ADD COLUMN IF NOT EXISTS feedback_type VARCHAR(50) DEFAULT 'general'",
     ]:
-        try:
-            cur.execute(col)
-        except: pass
+        cur.execute(col)
 
     # Client / contact database
     cur.execute('''
@@ -828,10 +927,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW()
         )
     ''')
-    try:
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(LOWER(name))")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_company ON clients(LOWER(company))")
-    except: pass
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(LOWER(name))")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_company ON clients(LOWER(company))")
 
     # Site visit log
     cur.execute('''
@@ -1199,14 +1296,16 @@ def init_db():
     # Dropping it from USERS already blocks sign-in — the login route rejects any
     # user_key not in USERS — but the hub_users row would otherwise keep a working
     # password hash for a known credential. Idempotent; a no-op once the row is gone.
-    try:
-        cur.execute("DELETE FROM hub_users WHERE user_key = 'admin'")
-    except Exception as e:
-        print(f'retired admin login cleanup: {e}')
+    db_ddl.optional_step(
+        cur, "DELETE FROM hub_users WHERE user_key = 'admin'",
+        label='retired admin login cleanup')
 
-    # Backfill last_login from tool activity where logs are more recent
-    try:
-        cur.execute('''
+    # Backfill last_login from tool activity where logs are more recent.
+    # optional_step, not try/except: this reads four log tables, and on a
+    # database where any of them does not exist yet the failure would abort
+    # the transaction and make the commit below silently roll back every
+    # table init_db had just created.
+    db_ddl.optional_step(cur, '''
             UPDATE hub_users u
             SET last_login = activity.last_seen
             FROM (
@@ -1225,13 +1324,36 @@ def init_db():
             ) activity
             WHERE u.user_key = activity.user_key
               AND (u.last_login IS NULL OR u.last_login < activity.last_seen)
-        ''')
-    except Exception as e:
-        print(f"last_login backfill skipped: {e}")
+        ''', label='last_login backfill')
 
-    conn.commit()
-    cur.close()
-    conn.close()
+
+def _finish_init_db(conn, cur):
+    """Commit and hand the connection back, whatever happened above.
+
+    This used to be three bare lines at the end of init_db, which meant that
+    if anything in the several hundred statements before them raised, the
+    connection was never closed. That was survivable when every connection
+    was disposable; with a pool it permanently costs one of ten slots per
+    worker, and `init_db` runs outside a request so the teardown hook cannot
+    clean up after it. Measured: `in_use` sat at 1 forever from process
+    start.
+    """
+    try:
+        conn.commit()
+    except Exception as e:
+        print(f'init_db commit failed: {e}')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    try:
+        cur.close()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 _db_startup_lock = threading.Lock()
@@ -1248,6 +1370,11 @@ def _run_db_startup():
             init_db()
         except Exception as e:
             print(f"DB init error: {e}")
+        # try/finally, not try/except: startup runs outside a request, so the
+        # teardown hook cannot give this connection back if something here
+        # raises before the close. One permanently checked-out connection per
+        # worker is one of ten pool slots gone for the life of the process.
+        _conn = None
         try:
             _conn = get_db()
             if _conn:
@@ -1265,10 +1392,15 @@ def _run_db_startup():
                 ''')
                 _conn.commit()
                 _cur.close()
-                _conn.close()
                 print("auth_tokens table ready")
         except Exception as _e:
             print(f"auth_tokens migration error: {_e}")
+        finally:
+            if _conn is not None:
+                try:
+                    _conn.close()
+                except Exception:
+                    pass
         _db_startup_done = True
 
 
@@ -5355,6 +5487,10 @@ def admin_system_state():
             pass
     return render_template(
         'admin_system_state.html',
+        # Per-worker, so with 2 gunicorn workers a refresh can show either
+        # one's numbers. That is a property of the pool, not a bug in the
+        # panel — a pool shared between processes would need Redis.
+        db_pool_stats=db_pool.stats(),
         service=system_state.service_rows(),
         people=people,
         summary=system_state.summarize(people),

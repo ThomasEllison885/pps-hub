@@ -10,6 +10,7 @@ from functools import wraps
 
 from flask import jsonify, redirect, render_template, request, session, url_for
 from psycopg2.extras import RealDictCursor
+import db_ddl
 
 from estimators.pricing_defaults import SYSTEM_DEFAULTS, get_pricing_defaults
 from production_board_reference import production_board_ask_pps_entries
@@ -114,6 +115,12 @@ def require_ask_pps_curator(f):
 
 
 def init_tables(cur):
+    # Each schema statement in its own savepoint. The big `try: ... except
+    # Exception: pass` further down wraps nineteen of them, and in Postgres
+    # a single failure aborts the transaction — so one bad ALTER used to
+    # skip every CREATE after it AND poison whatever ran next, silently.
+    # See db_ddl.py. The outer try/except is now belt-and-braces.
+    cur = db_ddl.checkpointed(cur)
     cur.execute('''
         CREATE TABLE IF NOT EXISTS knowledge_entries (
             id SERIAL PRIMARY KEY,
@@ -175,13 +182,22 @@ def init_tables(cur):
         cur.execute(
             "ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS original_content TEXT"
         )
-        cur.execute(
+        # optional_step, not cur.execute: these two are one-off backfills of
+        # old rows. On a database where knowledge_prompt_answers does not
+        # exist yet the second one fails, and inside the `except Exception:
+        # pass` below that left the transaction aborted — which made the
+        # caller's commit a rollback and threw away every table init_db had
+        # created. See db_ddl.py.
+        db_ddl.optional_step(
+            cur,
             '''UPDATE knowledge_entries
                SET original_content = content
-               WHERE original_content IS NULL AND content IS NOT NULL'''
+               WHERE original_content IS NULL AND content IS NOT NULL''',
+            label='original_content backfill',
         )
         # Prefer raw prompt answer text when we still have the link
-        cur.execute(
+        db_ddl.optional_step(
+            cur,
             '''UPDATE knowledge_entries k
                SET original_content = a.answer
                FROM knowledge_prompt_answers a
@@ -193,7 +209,8 @@ def init_tables(cur):
                    OR k.original_content = k.content
                  )
                  AND k.source_type = 'prompt_response'
-                 AND length(a.answer) < length(coalesce(k.content, ''))'''
+                 AND length(a.answer) < length(coalesce(k.content, ''))''',
+            label='prompt-answer backfill',
         )
         cur.execute('''
             CREATE TABLE IF NOT EXISTS knowledge_prompts (

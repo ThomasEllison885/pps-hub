@@ -107,6 +107,20 @@
         {% if db_ok %}<span class="pill pill-ok">connected</span>
         {% else %}<span class="pill pill-bad">unreachable</span>{% endif %}</div>
       <div><span>Server time</span> {{ now_label }}</div>
+      {# Added 2026-08-25 with connection pooling. This row is how you check
+         from outside that the pool is doing its job on Render, where the
+         handshakes it saves are far more expensive than they are locally.
+         "reused" climbing while "created" stays flat is the healthy shape.
+         Sustained "overflow" means DB_POOL_MAX is too low for a page that
+         holds several connections at once; "discarded" climbing means
+         Postgres keeps dropping idle connections. #}
+      <div><span>DB pool</span>
+        {% if not db_pool_stats.enabled %}<span class="pill pill-idle">disabled</span>
+        {% elif not db_pool_stats.built %}<span class="pill pill-idle">not yet used</span>
+        {% else %}<span class="pill pill-ok">{{ db_pool_stats.idle }} idle / {{ db_pool_stats.in_use }} in use of {{ db_pool_stats.max }}</span>
+        <span class="muted">{{ db_pool_stats.reused }} reused, {{ db_pool_stats.created }} opened{% if db_pool_stats.discarded %}, {{ db_pool_stats.discarded }} discarded{% endif %}{% if db_pool_stats.overflow %}, {{ db_pool_stats.overflow }} overflow{% endif %}</span>
+        {% endif %}
+        <span class="muted">(this worker)</span></div>
     </div>
     <div style="margin-top:14px;" class="kv">
       {% for name, on in service.integrations %}

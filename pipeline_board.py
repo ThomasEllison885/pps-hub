@@ -38,6 +38,7 @@ import openpyxl
 from psycopg2.extras import RealDictCursor
 
 from tiers import is_leadership
+import db_ddl
 
 # Consultant keys that have a live board. Order is the default-home
 # tiebreak for people who can open more than one (James, admin pickers).
@@ -202,12 +203,8 @@ def init_tables(cur):
     # inspects the schema directly. Idempotent, like the CREATE statements
     # above: repeating ALTER COLUMN SET DEFAULT is a no-op each time and
     # touches zero existing rows (metadata only, no table rewrite).
-    try:
-        cur.execute(
-            "ALTER TABLE pipeline_board_entries ALTER COLUMN status SET DEFAULT 'new'"
-        )
-    except Exception:
-        pass
+    db_ddl.safe_ddl(
+        cur, "ALTER TABLE pipeline_board_entries ALTER COLUMN status SET DEFAULT 'new'")
     cur.execute('''
         CREATE TABLE IF NOT EXISTS pipeline_board_presence (
             pair_key VARCHAR(100) NOT NULL,
