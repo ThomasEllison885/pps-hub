@@ -348,6 +348,11 @@ SECTIONS = [
                   'mismatches. View COI opens the file. Date overrides beat a '
                   'stale Monday board date and lose to a COI we can actually '
                   'read. Compliance is under construction.'),
+            ('p', 'Each upload box shows what is currently in it — filename, '
+                  'when, who. A box holding a file from <strong>before this '
+                  'week</strong> is flagged amber and says so, because on a '
+                  'weekly pack an old file in the box is worse than an empty '
+                  'one: an empty box does not claim to be done.'),
             ('note', '“Run now” sends a real email. Do not click it '
                      'to see what it looks like.'),
         ],

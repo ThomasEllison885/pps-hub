@@ -71,6 +71,16 @@ def to_eastern(value):
     """
     if value is None:
         return None
+    if isinstance(value, str):
+        # Some modules hand templates `created_at.isoformat()` rather than the
+        # datetime — office_ops does it for everything it stores. Those were
+        # being sliced by hand (`[:16].replace('T',' ')`), which renders raw
+        # UTC. Parse it here so `| et_at` works on either shape; anything that
+        # is not a timestamp comes back untouched and formats as ''.
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
     if isinstance(value, datetime):
         try:
             if value.tzinfo is None:

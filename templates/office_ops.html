@@ -40,6 +40,25 @@
       background: #FBF8F1; margin-bottom: 10px;
     }
     .drop.drag { border-color: var(--gold); background: #FFF8E7; }
+    /* What is in the box. A drop box that looks identical before and after
+       an upload is the bug this fixes — Thomas, 2026-08-27. */
+    .drop.has-file { border-style: solid; border-color: #9BD3A8; background: #F3FAF4; }
+    .drop.has-file.is-stale { border-color: #E8C77A; background: #FFFBF0; }
+    .box-file {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      flex-wrap: wrap; margin: 8px 0 2px; font-size: 0.86rem;
+    }
+    .box-file .bf-check { font-size: 0.95rem; line-height: 1; }
+    .box-file .bf-name {
+      font-weight: 700; color: var(--navy); max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+    .box-file .bf-when { color: var(--muted); }
+    .box-file .bf-flag {
+      background: #FDF0D5; color: #8A6100; border: 1px solid #E8C77A;
+      border-radius: 999px; padding: 1px 9px; font-size: 0.74rem; font-weight: 700;
+    }
+    .box-empty { margin: 8px 0 2px; font-size: 0.86rem; color: #9AA5B1; font-style: italic; }
     .drop strong { display: block; margin-bottom: 4px; color: var(--navy); }
     .btn {
       display: inline-block; border: none; border-radius: 8px; padding: 10px 16px;
@@ -98,6 +117,19 @@
     .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; justify-content: flex-end; }
   </style>
 </head>
+{% macro box_state(kind) %}
+  {%- set up = box_uploads.get(kind) if box_uploads else None -%}
+  {%- if up -%}
+  <div class="box-file">
+    <span class="bf-check">{% if up.stale %}⚠️{% else %}✅{% endif %}</span>
+    <span class="bf-name">{{ up.filename }}</span>
+    <span class="bf-when">{{ up.when }}{% if up.by %} · {{ up.by }}{% endif %}</span>
+    {%- if up.stale %}<span class="bf-flag">before this week</span>{% endif -%}
+  </div>
+  {%- else -%}
+  <div class="box-empty">Nothing uploaded yet</div>
+  {%- endif -%}
+{% endmacro %}
 <body>
   <header class="pps-header">
     <a href="/dashboard" class="pps-header-left">
@@ -148,7 +180,7 @@
         <div class="toast" id="toast-gen"></div>
         {% if monday and monday.summary and monday.summary.monday_file_id %}
         <p class="muted" style="margin:14px 0 6px">
-          Last pack{% if monday.created_at %}: {{ monday.created_at[:16].replace('T',' ') }}{% endif %}
+          Last pack{% if monday.created_at %}: {{ monday.created_at | et_at }}{% endif %}
           {% if monday.summary.source_invoice_list %} · from {{ monday.summary.source_invoice_list }}{% endif %}
         </p>
         <a class="btn btn-ghost" href="/api/office-ops/files/{{ monday.summary.monday_file_id }}/download">Download last Monday Excel</a>
@@ -161,11 +193,12 @@
           QB → Reports → Sales → <strong>Invoice List by Date</strong> (Stephanie’s saved report is often named <strong>Rep Sales YTD</strong>) → Export Excel.
           Groups like “Adam / Andy” are fine — we read those. Do <strong>not</strong> upload Sales by Customer Type Detail.
         </p>
-        <div class="drop" data-kind="invoice_list">
+        <div class="drop{% if box_uploads.get('invoice_list') %} has-file{% if box_uploads['invoice_list'].stale %} is-stale{% endif %}{% endif %}" data-kind="invoice_list">
           <strong>Invoice List .xlsx</strong>
+          {{ box_state('invoice_list') }}
           <div style="margin-top:10px">
             <input type="file" class="file-input" data-kind="invoice_list" accept=".xlsx,.xls,.csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="invoice_list">Upload Invoice List</button>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="invoice_list">{% if box_uploads.get('invoice_list') %}Replace{% else %}Upload{% endif %} Invoice List</button>
           </div>
         </div>
         <div class="toast toast-slot" data-kind="invoice_list"></div>
@@ -174,11 +207,12 @@
       <div class="card">
         <h2>2 · A/R Aging Summary (company total)</h2>
         <p class="muted" style="margin-top:0">QB → Who owes you → A/R Aging Summary. Not by rep — Bridges called out separately when possible.</p>
-        <div class="drop" data-kind="ar_aging_summary">
+        <div class="drop{% if box_uploads.get('ar_aging_summary') %} has-file{% if box_uploads['ar_aging_summary'].stale %} is-stale{% endif %}{% endif %}" data-kind="ar_aging_summary">
           <strong>Aging Summary .xlsx</strong>
+          {{ box_state('ar_aging_summary') }}
           <div style="margin-top:10px">
             <input type="file" class="file-input" data-kind="ar_aging_summary" accept=".xlsx,.xls,.csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_summary">Upload AR Summary</button>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="ar_aging_summary">{% if box_uploads.get('ar_aging_summary') %}Replace{% else %}Upload{% endif %} AR Summary</button>
           </div>
         </div>
         <div class="toast toast-slot" data-kind="ar_aging_summary"></div>
@@ -192,9 +226,10 @@
         {% endif %}
         <details style="margin-top:10px">
           <summary class="muted" style="cursor:pointer">Optional: Aging Detail</summary>
-          <div class="drop" data-kind="ar_aging_detail" style="margin-top:8px">
+          <div class="drop{% if box_uploads.get('ar_aging_detail') %} has-file{% if box_uploads['ar_aging_detail'].stale %} is-stale{% endif %}{% endif %}" data-kind="ar_aging_detail" style="margin-top:8px">
+            {{ box_state('ar_aging_detail') }}
             <input type="file" class="file-input" data-kind="ar_aging_detail" accept=".xlsx,.xls,.csv" hidden>
-            <button type="button" class="btn btn-ghost pick-btn" data-kind="ar_aging_detail">Upload Detail</button>
+            <button type="button" class="btn btn-ghost pick-btn" data-kind="ar_aging_detail">{% if box_uploads.get('ar_aging_detail') %}Replace{% else %}Upload{% endif %} Detail</button>
           </div>
           <div class="toast toast-slot" data-kind="ar_aging_detail"></div>
         </details>
@@ -207,11 +242,12 @@
           Compare to prior year (columns: this year, prior year, % change). Accrual is fine.
           We pull <strong>income, gross profit, net income, margins</strong> only — not line-item expenses.
         </p>
-        <div class="drop" data-kind="profit_loss" style="max-width:480px">
+        <div class="drop{% if box_uploads.get('profit_loss') %} has-file{% if box_uploads['profit_loss'].stale %} is-stale{% endif %}{% endif %}" data-kind="profit_loss" style="max-width:480px">
           <strong>Profit &amp; Loss .xlsx</strong>
+          {{ box_state('profit_loss') }}
           <div style="margin-top:10px">
             <input type="file" class="file-input" data-kind="profit_loss" accept=".xlsx,.xls,.csv" hidden>
-            <button type="button" class="btn btn-primary pick-btn" data-kind="profit_loss">Upload P&amp;L YoY</button>
+            <button type="button" class="btn btn-primary pick-btn" data-kind="profit_loss">{% if box_uploads.get('profit_loss') %}Replace{% else %}Upload{% endif %} P&amp;L YoY</button>
           </div>
         </div>
         <div class="toast toast-slot" data-kind="profit_loss"></div>
@@ -242,7 +278,7 @@
             </span>
             <span class="muted">
               {% if f.kind == 'monday_report' %}<a href="/api/office-ops/files/{{ f.id }}/download">Download</a> ·{% endif %}
-              {{ f.uploaded_at[:16].replace('T',' ') if f.uploaded_at else '' }}
+              {{ f.uploaded_label or '' }}
             </span>
           </li>
           {% endfor %}

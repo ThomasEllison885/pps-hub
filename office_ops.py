@@ -17,7 +17,7 @@ import csv
 import io
 import json
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from psycopg2.extras import RealDictCursor
@@ -2317,6 +2317,136 @@ def get_file_bytes(get_db_fn, file_id):
         return None
 
 
+# ── What is in the box ──────────────────────────────────────────────────────
+#
+# Thomas, 2026-08-27: "When a file is uploaded there needs to be a place
+# holder or something that shows the file was uploaded in that box. It just
+# disappears and if I don't remember I put a file in there there is no way of
+# knowing."
+#
+# The upload succeeded, the page reloaded, and the drop box came back looking
+# exactly as it did before — same "Upload Invoice List" button, no trace. The
+# only evidence was one mixed list of twelve files at the bottom of the page.
+#
+# So each box now says what is in it. Filename, when, who. And because this is
+# a *weekly* workflow, "there is a file here" is not the answer to the
+# question being asked — "is there a file here for THIS week" is. A March
+# invoice list sitting in the box is worse than an empty box, because an empty
+# box does not tell you it is done.
+
+UPLOAD_STALE_AFTER_WEEK_START = True
+
+
+def et_label(value, pattern='%b %-d at %-I:%M %p'):
+    """Eastern label for a stored timestamp, accepting a datetime or the
+    isoformat string these functions hand to templates.
+
+    Office Ops rendered `created_at[:16].replace('T',' ')` — the raw UTC
+    string with the T knocked out — so every "last pack" and every upload
+    time on this page was four or five hours ahead of the person reading it.
+    Same bug hub_time.py exists to end; `hub_time.to_eastern` now parses the
+    string shape, so this is a one-line wrapper that names the default format.
+    """
+    import hub_time
+
+    return hub_time.fmt(value, pattern)
+
+
+def latest_upload_by_kind(get_db_fn, kinds=None):
+    """The newest file of each kind → {kind: row}.
+
+    DISTINCT ON carries the filename and uploader alongside the max
+    timestamp. A plain GROUP BY max(uploaded_at) cannot, and joining that
+    back to the table is a second query to learn one row per kind.
+    """
+    conn = get_db_fn()
+    if not conn:
+        return {}
+    wanted = tuple(kinds) if kinds else tuple(ALLOWED_KINDS)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''
+            SELECT DISTINCT ON (kind)
+                   id, kind, filename, size_bytes, uploaded_by, uploaded_at
+            FROM office_ops_files
+            WHERE kind IN %s
+            ORDER BY kind, uploaded_at DESC
+            ''',
+            (wanted,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {r['kind']: dict(r) for r in rows}
+    except Exception as e:
+        print(f'Office Ops latest upload error: {e}')
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return {}
+
+
+def week_start_eastern(now=None):
+    """Midnight Eastern on the Monday of the current week, as naive UTC.
+
+    Same boundary the weekly recap uses, computed the same way: convert to
+    Eastern first, then take midnight there, then go back to UTC. Subtracting
+    days from a UTC timestamp lands on the wrong hour twice a year.
+    """
+    import hub_time
+
+    local = now or hub_time.now()
+    if local.tzinfo is None:
+        local = local.replace(tzinfo=timezone.utc).astimezone(hub_time.ET)
+    else:
+        local = local.astimezone(hub_time.ET)
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    monday = midnight - timedelta(days=midnight.weekday())
+    return monday.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def describe_upload(row, now=None, display_names=None):
+    """Row → what the drop box should say about it. None stays None.
+
+    `display_names` maps user_key → display name.
+
+    `stale` is the load-bearing field: True means this file was uploaded
+    before the current week started, so it is almost certainly last week's
+    and the box is NOT done. Everything else here is decoration.
+    """
+    if not row:
+        return None
+    import hub_time
+
+    uploaded = row.get('uploaded_at')
+    who = row.get('uploaded_by') or ''
+    # display_names is user_key -> display string; an unknown key falls back
+    # to the key itself, which is still more use than a blank.
+    who = (display_names or {}).get(who, who)
+    return {
+        'id': row.get('id'),
+        'filename': row.get('filename') or 'upload',
+        'when': hub_time.fmt(uploaded, '%b %-d at %-I:%M %p'),
+        'by': who,
+        'size_kb': int((row.get('size_bytes') or 0) / 1024),
+        'stale': bool(uploaded) and uploaded < week_start_eastern(now),
+    }
+
+
+def uploads_for_boxes(get_db_fn, kinds, now=None, display_names=None):
+    """{kind: description} for the drop boxes on the Numbers page."""
+    latest = latest_upload_by_kind(get_db_fn, kinds)
+    out = {}
+    for kind in kinds:
+        described = describe_upload(latest.get(kind), now=now,
+                                    display_names=display_names)
+        if described:
+            out[kind] = described
+    return out
+
+
 def list_recent_files(get_db_fn, kind=None, limit=12):
     conn = get_db_fn()
     if not conn:
@@ -2357,6 +2487,7 @@ def list_recent_files(get_db_fn, kind=None, limit=12):
                 'size_bytes': r['size_bytes'],
                 'uploaded_by': r['uploaded_by'],
                 'uploaded_at': r['uploaded_at'].isoformat() if r['uploaded_at'] else None,
+                'uploaded_label': et_label(r['uploaded_at']),
             })
         return out
     except Exception as e:
@@ -2405,6 +2536,13 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
         pack = get_latest_pack(get_db_fn)
         monday = get_latest_monday_pack(get_db_fn)
         files = list_recent_files(get_db_fn)
+        # What is sitting in each drop box right now. Four boxes, one query.
+        names = {k: (v or {}).get('display', k) for k, v in users.items()}
+        box_uploads = uploads_for_boxes(
+            get_db_fn,
+            ('invoice_list', 'ar_aging_summary', 'ar_aging_detail', 'profit_loss'),
+            display_names=names,
+        )
         notes = get_ar_notes(get_db_fn)
         # ONE modal, customer-level rows only (never per invoice). Bridges/BOPC
         # rolled into a single line so Stephanie isn't prompted 5+ times.
@@ -2420,6 +2558,7 @@ def register_routes(app, get_db_fn, users, require_login, send_email_fn=None,
             pack=pack,
             monday=monday,
             recent_files=files,
+            box_uploads=box_uploads,
             past_due=past_due,
             ar_notes=notes,
         )
