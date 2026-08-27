@@ -77,7 +77,7 @@
       {% if recent_siding %}
       {% for e in recent_siding %}
       <a href="/siding-estimator/result/{{ e.id }}" class="act-item">
-        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at | et_fmt('%b %d') }}</span></div>
         <div class="act-meta">{{ e.building_count or 1 }} building{{ 's' if (e.building_count or 1) != 1 else '' }}</div>
       </a>
       {% endfor %}
@@ -88,7 +88,7 @@
       {% if recent_roofing %}
       {% for e in recent_roofing %}
       <a href="/roofing-estimator/result/{{ e.id }}" class="act-item">
-        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at | et_fmt('%b %d') }}</span></div>
         <div class="act-meta">{{ e.report_type or 'roof' }} report</div>
       </a>
       {% endfor %}
@@ -99,7 +99,7 @@
       {% if recent_gutters %}
       {% for e in recent_gutters %}
       <a href="/gutter-estimator/result/{{ e.id }}" class="act-item">
-        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at | et_fmt('%b %d') }}</span></div>
         <div class="act-meta">{{ '%.0f'|format(e.gutter_lf or 0) }} LF gutter run</div>
       </a>
       {% endfor %}
@@ -110,7 +110,7 @@
       {% if recent_painting %}
       {% for e in recent_painting %}
       <a href="/painting-estimator/result/{{ e.id }}" class="act-item">
-        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at.strftime('%b %d') if e.generated_at else '' }}</span></div>
+        <div class="act-top"><span class="act-name">{{ e.property_name or 'Unnamed' }}</span><span class="act-date">{{ e.generated_at | et_fmt('%b %d') }}</span></div>
         <div class="act-meta">{{ e.line_count or 0 }} lines · 2-coat ${{ '%.0f'|format(e.two_coat_bid or 0) }}</div>
       </a>
       {% endfor %}

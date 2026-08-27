@@ -47,6 +47,8 @@ FEATURE_LABELS = {
     'pm_oversight': 'PM Accountability',
     'roleplay': 'PSC Roleplay',
     'guide': 'Field Guide',
+    # 2026-08-27 — opened to leadership, so who opens it is worth knowing
+    'pricing_defaults': 'Estimating Defaults',
 }
 
 KNOWN_FEATURES = frozenset(FEATURE_LABELS)

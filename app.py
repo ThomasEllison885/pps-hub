@@ -1434,6 +1434,17 @@ def is_leadership(user_key):
     return _tiers.is_leadership(USERS, user_key)
 
 
+def can_edit_pricing_defaults(user_key):
+    """Company-wide estimator rates. Leadership and up since 2026-08-27.
+
+    Widened from owner-only so Tony, Trey and Stephanie can keep siding /
+    roofing / gutter / painting defaults current without waiting on Thomas.
+    Team still cannot: overriding a number on one job is a different act
+    from changing what every future estimate starts with.
+    """
+    return _tiers.can_edit_pricing_defaults(USERS, user_key)
+
+
 # How often a live session re-checks that its password is still current.
 # Not per-request on purpose: there is no connection pool yet (see
 # docs/HUB_REVIEW_2026-08-21.md F-05), so a SELECT on every request would mean
@@ -3664,14 +3675,20 @@ def _admin_inbox_counts():
 
 
 def _pricing_summary_for_dashboard():
-    """Compact pricing meta for the admin dashboard lane."""
+    """Compact pricing meta for the dashboard card.
+
+    Shown to anyone who can edit the rates (leadership and up since
+    2026-08-27), which is also why it carries the editor's name: with four
+    people able to change a company default, "who moved it" is a question
+    someone will ask.
+    """
     d = _pricing_defaults()
     sd, rd = d.get('siding', {}), d.get('roofing', {})
     updated = d.get('updated_at')
-    updated_label = ''
-    if updated and hasattr(updated, 'strftime'):
-        updated_label = updated.strftime('%b %d, %Y')
-    elif updated:
+    # Eastern, like every other timestamp on the screen. This one rendered
+    # raw UTC, so an edit made after 8pm showed tomorrow's date.
+    updated_label = hub_time.fmt(updated, '%b %d, %Y')
+    if not updated_label and updated:
         updated_label = str(updated)[:10]
     return {
         'updated_label': updated_label,
@@ -4054,8 +4071,13 @@ def dashboard():
     unread_feedback = 0
     unread_diffs = 0
     pricing_summary = None
+    # Pricing defaults are leadership-wide since 2026-08-27; the feedback
+    # and diff counts stay owner-only, so these two are no longer the same
+    # question.
+    edit_pricing = can_edit_pricing_defaults(user_key)
     if is_admin:
         unread_feedback, unread_diffs = _admin_inbox_counts()
+    if edit_pricing:
         pricing_summary = _pricing_summary_for_dashboard()
 
     # Sales and Production both open by default for field roles (and admin)
@@ -4223,6 +4245,7 @@ def dashboard():
         office_ops_access=office_ops_access,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,
+        can_edit_pricing=edit_pricing,
         pricing_summary=pricing_summary,
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
     )
@@ -4346,6 +4369,7 @@ def estimating_hub():
         recent_roofing=recent_roofing,
         recent_gutters=recent_gutters,
         recent_painting=recent_painting,
+        can_edit_pricing=can_edit_pricing_defaults(user_key),
     )
 
 
@@ -5489,9 +5513,22 @@ def api_training_publish():
 
 
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])
-@require_admin
+@require_login
+@logs_open('pricing_defaults')
 def admin_pricing_defaults():
+    """Company-wide estimator rates. Leadership and up (2026-08-27).
+
+    The check is in the body rather than a decorator because this one route
+    serves both the form and the save, and an in-body guard placed first
+    covers both without anyone having to remember that POST is the dangerous
+    half. It is still under /admin/ only because moving the URL would break
+    every link people already have.
+    """
     from estimators.pricing_defaults import save_pricing_defaults, SYSTEM_DEFAULTS
+
+    user_key = session['user_key']
+    if not can_edit_pricing_defaults(user_key):
+        return redirect(url_for('dashboard'))
 
     defaults = _pricing_defaults()
     message = None
@@ -5548,6 +5585,7 @@ def admin_pricing_defaults():
         system_defaults=SYSTEM_DEFAULTS,
         message=message,
         error=error,
+        is_admin=is_owner(user_key),
     )
 
 

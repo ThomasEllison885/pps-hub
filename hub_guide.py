@@ -373,8 +373,8 @@ SECTIONS = [
         body=[
             ('p', 'You can edit the company rates that pre-fill siding, '
                   'roofing, gutter, and painting. Dashboard → Production '
-                  '→ Estimating Defaults, or Estimating → Company '
-                  'Pricing Defaults. Save writes for the whole team. A field '
+                  '&amp; Field → Estimating Pricing Defaults, or Estimating '
+                  '→ Company Pricing Defaults. Save writes for the whole team. A field '
                   'person can still change a number on one job. They cannot '
                   'change what the next job starts with.'),
             ('ul', [

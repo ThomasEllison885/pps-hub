@@ -480,6 +480,26 @@
             <div class="tool-meta">Open →</div>
           </a>
 
+          {# Pricing defaults sit next to Estimating for leadership. The owner
+             already has this card in the Admin lane below, so it is not drawn
+             twice; everyone else who can edit rates finds it with the
+             estimators it feeds. #}
+          {% if can_edit_pricing and user_role != 'admin' %}
+          <a href="/admin/pricing-defaults" class="pps-tool-card">
+            <div class="pps-tool-icon">💰</div>
+            <div class="pps-tool-name">Estimating Pricing Defaults</div>
+            <div class="pps-tool-desc">Company-wide rates for siding, roofing, gutter, and painting estimators. Overriding one job is still yours to do in the estimator.</div>
+            {% if pricing_summary %}
+            <span class="tool-badge">{% if pricing_summary.is_custom %}Updated {{ pricing_summary.updated_label or 'recently' }}{% if pricing_summary.updated_by_name is defined and pricing_summary.updated_by_name %} by {{ pricing_summary.updated_by_name }}{% endif %}{% else %}Built-in defaults{% endif %}</span>
+            <div class="pricing-snippet">
+              Siding ${{ pricing_summary.siding_labor }}/sq · Roofing ${{ pricing_summary.roofing_labor }}/sq ·
+              Gutters ${{ pricing_summary.gutter_lf }}/LF · Paint ${{ pricing_summary.painting_hour }}/hr
+            </div>
+            {% endif %}
+            <div class="tool-meta">Edit defaults →</div>
+          </a>
+          {% endif %}
+
           <a href="/site-visit" class="pps-tool-card">
             <div class="pps-tool-icon">🏗️</div>
             <div class="pps-tool-name">Site Visit Report</div>
@@ -539,7 +559,7 @@
             <div class="pps-tool-icon">💰</div>
             <div class="pps-tool-name">Estimating Pricing Defaults</div>
             <div class="pps-tool-desc">Company-wide rates for siding, roofing, gutter, and painting estimators.</div>
-            <span class="tool-badge">{% if pricing_summary.is_custom %}Updated {{ pricing_summary.updated_label or 'recently' }}{% else %}Built-in defaults{% endif %}</span>
+            <span class="tool-badge">{% if pricing_summary.is_custom %}Updated {{ pricing_summary.updated_label or 'recently' }}{% if pricing_summary.updated_by_name is defined and pricing_summary.updated_by_name %} by {{ pricing_summary.updated_by_name }}{% endif %}{% else %}Built-in defaults{% endif %}</span>
             <div class="pricing-snippet">
               Siding ${{ pricing_summary.siding_labor }}/sq · Roofing ${{ pricing_summary.roofing_labor }}/sq ·
               Gutters ${{ pricing_summary.gutter_lf }}/LF · Paint ${{ pricing_summary.painting_hour }}/hr
