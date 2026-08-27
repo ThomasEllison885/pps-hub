@@ -393,6 +393,63 @@ def _row_bucket(cells, colmap):
     }
 
 
+# ── P&L line items and the compensation boundary ────────────────────────────
+#
+# The P&L used to be read for five numbers: income, COGS, gross profit, net
+# income, margins. Thomas, 2026-08-27: "Make the P&L snapshot more inclusive
+# of the details too. Give insight into unusual increases or decreases." That
+# needs the line items, which the parser was deliberately throwing away.
+#
+# One thing does NOT come across. On an LLC this size the payroll and officer
+# compensation lines are, in practice, individual pay — and CLAUDE.md's
+# sensitive-data boundary says comp lives in Operating Memory, never in
+# Hub-facing content. The Monday pack is stored in Postgres, rendered into an
+# Excel and emailed. So those lines are dropped at parse time (never stored),
+# and the count of what was dropped is reported, because a reader who is not
+# told something was withheld will read the list as complete.
+#
+# Thomas chose this on 2026-08-27 over "all lines, nothing excluded".
+PL_COMP_HINTS = (
+    'officer compensation', 'officers compensation', "officer's compensation",
+    'owner draw', "owner's draw", 'owners draw', 'member draw', "member's draw",
+    'guaranteed payment', 'shareholder distribution', 'distribution to',
+    'payroll', 'salaries', 'salary', 'wages', 'bonus',
+)
+
+# Rows that are roll-ups of other rows. Listing a category *and* its children
+# double-counts the same dollars in a "biggest movers" table, which makes the
+# table wrong rather than merely noisy.
+PL_ROLLUP_PREFIXES = (
+    'total for', 'total ', 'gross profit', 'net income', 'net operating income',
+    'net other income', 'income', 'expenses', 'cost of goods sold',
+    'other income', 'other expenses',
+)
+
+
+# QB writes a bare section label with no figures above each block.
+PL_SECTIONS = {
+    'income': 'income',
+    'revenue': 'income',
+    'cost of goods sold': 'cogs',
+    'cost of sales': 'cogs',
+    'expenses': 'expenses',
+    'operating expenses': 'expenses',
+    'other income': 'other',
+    'other expenses': 'other',
+}
+
+
+def _is_comp_line(label):
+    """True if this P&L row is compensation and must not leave the parser."""
+    low = (label or '').strip().lower()
+    return any(hint in low for hint in PL_COMP_HINTS)
+
+
+def _is_rollup_line(label):
+    low = (label or '').strip().lower().rstrip(':')
+    return any(low == p.strip() or low.startswith(p) for p in PL_ROLLUP_PREFIXES)
+
+
 def parse_pl_bytes(filename, raw_bytes):
     """Parse QB Profit & Loss export with this year / prior year / % change columns.
 
@@ -452,10 +509,16 @@ def parse_pl_bytes(filename, raw_bytes):
     else:
         inc_py = (services or {}).get('py')
 
+    lines_out, withheld = _collect_pl_lines(rows)
+
     return {
         'report': 'Profit and Loss',
         'report_kind': 'profit_loss',
         'period_label': period,
+        # Leaf expense/income rows with a prior-year figure, for the movers
+        # table. Compensation never gets this far — see PL_COMP_HINTS.
+        'lines': lines_out,
+        'withheld_comp_lines': withheld,
         'income_ty': inc_ty,
         'income_py': inc_py if income else (services or {}).get('py'),
         'services_ty': (services or {}).get('ty'),
@@ -468,6 +531,54 @@ def parse_pl_bytes(filename, raw_bytes):
         'net_income_py': (ni or {}).get('py'),
         'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
     }
+
+
+def _collect_pl_lines(rows):
+    """Leaf P&L rows → ([{label, ty, py}], withheld_comp_count).
+
+    QB exports one row per account with this-year, prior-year and % change
+    columns. We keep the rows that are actually accounts: not the section
+    roll-ups (which would double-count in a movers table), not compensation
+    (which does not belong in Hub-stored content), and not rows with no
+    numbers at all.
+    """
+    out = []
+    withheld = 0
+    seen = set()
+    section = 'other'
+    for row in rows:
+        if not row or row[0] in (None, ''):
+            continue
+        label = str(row[0]).strip()
+        if not label or label.lower() in seen:
+            continue
+
+        def num(i):
+            if i >= len(row) or row[i] in (None, ''):
+                return None
+            try:
+                return float(row[i])
+            except (TypeError, ValueError):
+                return None
+
+        ty, py = num(1), num(2)
+        if ty is None and py is None:
+            # A bare label with no figures is a section header. Tracking it
+            # matters: "Services is up 21%" belongs with the income story,
+            # not in a list of costs that got away from us.
+            found = PL_SECTIONS.get(label.strip().lower().rstrip(':'))
+            if found:
+                section = found
+            continue
+        if _is_comp_line(label):
+            withheld += 1
+            continue
+        if _is_rollup_line(label):
+            continue
+        seen.add(label.lower())
+        out.append({'label': label, 'ty': ty or 0.0, 'py': py or 0.0,
+                    'section': section})
+    return out, withheld
 
 
 def parse_ar_aging_bytes(filename, raw_bytes, expect=None):

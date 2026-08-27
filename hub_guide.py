@@ -348,6 +348,14 @@ SECTIONS = [
                   'mismatches. View COI opens the file. Date overrides beat a '
                   'stale Monday board date and lose to a COI we can actually '
                   'read. Compliance is under construction.'),
+            ('p', 'The generated pack reads the P&amp;L line by line and calls '
+                  'out anything that moved at least $2,500 <em>and</em> 15% '
+                  'against the same period last year, grouped into income, '
+                  'job costs and overhead. Payroll and owner compensation '
+                  'lines are left out of the pack on purpose, and it says how '
+                  'many were left out. The A/R block carries past-due dollars, '
+                  'operating AR excluding Bridges, concentration, and the '
+                  'chase list by name.'),
             ('p', 'Each upload box shows what is currently in it — filename, '
                   'when, who. A box holding a file from <strong>before this '
                   'week</strong> is flagged amber and says so, because on a '

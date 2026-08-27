@@ -295,6 +295,110 @@ def _format_money_compact(n):
         return None
 
 
+# ── "Unusual increases or decreases" ────────────────────────────────────────
+#
+# Thomas, 2026-08-27. Two thresholds, because either one alone gives a bad
+# list. Dollars alone lets a $400k line drifting 2% outrank a $12k line that
+# doubled. Percent alone fills the section with $40 accounts tripling. A line
+# has to clear both to be worth his Monday morning.
+#
+# Both are tunable and both are stated in the output, because a filtered list
+# that does not say what it filtered reads as "nothing else moved".
+PL_MOVE_MIN_DOLLARS = 2500.0
+PL_MOVE_MIN_PCT = 0.15
+PL_MOVERS_LIMIT = 6  # per section, not overall
+# A line that went from nothing to something (or the reverse) has no
+# percentage — it is a new or discontinued account, which is worth saying out
+# loud rather than dividing by zero over.
+PL_APPEARED_MIN_DOLLARS = 2500.0
+
+# Named, because the Insights sheet styles a heading by exact match against
+# this list. When the builder had its own string literals, adding a section
+# meant remembering to add it here too — and forgetting rendered it as body
+# text, indistinguishable from the bullets above it.
+SEC_SALES = 'SALES'
+SEC_SALES_BY_REP = 'SALES BY REP (YTD; multi-rep invoices split 50/50)'
+SEC_MARGIN = 'MARGIN & PROFIT'
+SEC_MOVERS = 'UNUSUAL MOVES (P&L, year over year)'
+SEC_AR = 'A/R (company total)'
+SEC_PAST_DUE = 'PAST-DUE UPDATES'
+
+INSIGHT_SECTIONS = (
+    SEC_SALES, SEC_SALES_BY_REP, SEC_MARGIN, SEC_MOVERS, SEC_AR, SEC_PAST_DUE,
+)
+
+
+SECTION_HEADINGS = (
+    ('income', 'Income lines'),
+    ('cogs', 'Job costs'),
+    ('expenses', 'Overhead'),
+)
+
+
+def _dollars(n):
+    """$1,200 / -$1,200. A contra line like "Discounts given" is stored
+    negative in QB, and "$-21,000" reads as a typo."""
+    v = float(n or 0)
+    return f'-${_money(abs(v))}' if v < 0 else f'${_money(v)}'
+
+
+def _mover_sentence(m):
+    """One line of plain English for one mover."""
+    if m['kind'] == 'new':
+        return f'{m["label"]}: new this year — {_dollars(m["ty"])} (nothing last year)'
+    if m['kind'] == 'stopped':
+        return (f'{m["label"]}: nothing this year — was {_dollars(m["py"])} '
+                f'last year')
+    arrow = 'up' if m['delta'] > 0 else 'down'
+    return (f'{m["label"]}: {_dollars(m["py"])} → {_dollars(m["ty"])} — {arrow} '
+            f'${_money(abs(m["delta"]))} ({_pct_delta(m["pct"])})')
+
+
+def pl_movers(pl_summary, min_dollars=PL_MOVE_MIN_DOLLARS,
+              min_pct=PL_MOVE_MIN_PCT, limit=PL_MOVERS_LIMIT):
+    """P&L line items whose year-over-year move is both material and large.
+
+    Returns dicts with `kind`: 'up', 'down', 'new' (no prior-year figure) or
+    'stopped' (nothing this year). Sorted by dollars moved, biggest first —
+    that is the order the question "what changed" is actually asked in.
+    """
+    movers = []
+    for line in (pl_summary or {}).get('lines') or []:
+        ty = float(line.get('ty') or 0.0)
+        py = float(line.get('py') or 0.0)
+        delta = ty - py
+        if py == 0 and ty != 0:
+            if abs(ty) >= PL_APPEARED_MIN_DOLLARS:
+                movers.append({**line, 'ty': ty, 'py': py, 'delta': delta,
+                               'pct': None, 'kind': 'new'})
+            continue
+        if ty == 0 and py != 0:
+            if abs(py) >= PL_APPEARED_MIN_DOLLARS:
+                movers.append({**line, 'ty': ty, 'py': py, 'delta': delta,
+                               'pct': None, 'kind': 'stopped'})
+            continue
+        if py == 0:
+            continue
+        pct = delta / abs(py)
+        if abs(delta) < min_dollars or abs(pct) < min_pct:
+            continue
+        movers.append({**line, 'ty': ty, 'py': py, 'delta': delta, 'pct': pct,
+                       'kind': 'up' if delta > 0 else 'down'})
+    movers.sort(key=lambda m: -abs(m['delta']))
+    # The cap is PER SECTION, not overall. Income lines are an order of
+    # magnitude bigger than overhead lines, so one global top-8 would be eight
+    # revenue rows and the overhead question — the one Thomas asked — would
+    # never appear.
+    kept = []
+    per_section = {}
+    for m in movers:
+        sec = m.get('section') or 'other'
+        per_section[sec] = per_section.get(sec, 0) + 1
+        if per_section[sec] <= limit:
+            kept.append(m)
+    return kept
+
+
 def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=None):
     """Deeper sales / margin / profit / AR narrative for leadership."""
     lines = []
@@ -314,7 +418,7 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
     latest = months[-1] if months else None
     prior = months[-2] if len(months) >= 2 else None
 
-    lines.append('SALES')
+    lines.append(SEC_SALES)
     if team:
         lines.append(f'• Company YTD invoiced: ${_money(ytd)}')
         if latest:
@@ -407,7 +511,7 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
 
     by_rep = sales_agg.get('by_rep_month') or {}
     if by_rep:
-        lines.append('SALES BY REP (YTD; multi-rep invoices split 50/50)')
+        lines.append(SEC_SALES_BY_REP)
         ranked = sorted(
             ((r, sum(m.values())) for r, m in by_rep.items()),
             key=lambda x: -x[1],
@@ -428,7 +532,7 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
             )
         lines.append('')
 
-    lines.append('MARGIN & PROFIT')
+    lines.append(SEC_MARGIN)
     if pl_summary:
         inc = pl_summary.get('income_ty')
         inc_py = pl_summary.get('income_py')
@@ -472,14 +576,76 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
                     )
         if pl_summary.get('cogs_ty') is not None and inc:
             cogs_ratio = pl_summary['cogs_ty'] / inc if inc else 0
-            lines.append(f'• COGS as % of income: {cogs_ratio:.1%}')
+            line = f'• COGS as % of income: {cogs_ratio:.1%}'
+            if pl_summary.get('cogs_py') is not None and inc_py:
+                cogs_py_ratio = pl_summary['cogs_py'] / inc_py
+                line += (f' · PY {cogs_py_ratio:.1%} '
+                         f'({(cogs_ratio - cogs_py_ratio) * 100:+.1f} pts)')
+            lines.append(line)
+        if inc is not None and inc_py:
+            # Operating expense = what is left between gross profit and net.
+            opex = (gp - ni) if (gp is not None and ni is not None) else None
+            opex_py = (gp_py - ni_py) if (
+                gp_py is not None and ni_py is not None) else None
+            if opex is not None:
+                line = f'• Operating expense (gross profit − net income): ${_money(opex)}'
+                if opex_py is not None:
+                    line += f' · PY ${_money(opex_py)} ({_pct_change(opex, opex_py)})'
+                    if inc:
+                        line += (f' · {opex / inc:.1%} of income vs '
+                                 f'{opex_py / inc_py:.1%}')
+                lines.append(line)
+        pl_lines = pl_summary.get('lines') or []
+        if pl_lines:
+            lines.append(
+                f'• Read {len(pl_lines)} line item(s) from the P&L for the '
+                f'year-over-year comparison below.'
+            )
+        withheld = pl_summary.get('withheld_comp_lines') or 0
+        if withheld:
+            lines.append(
+                f'• {withheld} compensation line(s) are deliberately not in '
+                f'this pack — payroll and owner comp stay out of Hub reports.'
+            )
     else:
         lines.append(
             '• Upload P&L (compare this year vs last year) on Office Ops for margin & profit depth.'
         )
     lines.append('')
 
-    lines.append('A/R (company total)')
+    movers = pl_movers(pl_summary) if pl_summary else []
+    if pl_summary and (pl_summary.get('lines') or []):
+        lines.append(SEC_MOVERS)
+        if movers:
+            # Grouped, because "Services is up 21%" is the sales story already
+            # told above, while "Vehicle Repairs is up 171%" is a question for
+            # Monday. Reading them in one flat list buries the second under
+            # the first, which is always bigger in dollars.
+            for section, heading in SECTION_HEADINGS:
+                group = [m for m in movers if m.get('section') == section]
+                if not group:
+                    continue
+                lines.append(f'• {heading}')
+                for m in group:
+                    lines.append('    – ' + _mover_sentence(m))
+            ungrouped = [m for m in movers
+                         if m.get('section') not in dict(SECTION_HEADINGS)]
+            for m in ungrouped:
+                lines.append('• ' + _mover_sentence(m))
+            lines.append(
+                f'• Shown when a line moved at least ${_money(PL_MOVE_MIN_DOLLARS)} '
+                f'AND {PL_MOVE_MIN_PCT:.0%} year over year. Everything else held '
+                f'steady enough not to ask about.'
+            )
+        else:
+            lines.append(
+                f'• Nothing moved more than ${_money(PL_MOVE_MIN_DOLLARS)} and '
+                f'{PL_MOVE_MIN_PCT:.0%} year over year. That is the finding, not '
+                f'a gap in the data.'
+            )
+        lines.append('')
+
+    lines.append(SEC_AR)
     if ar_summary and ar_summary.get('grand_total'):
         g = ar_summary['grand_total']
         tot = float(g.get('total') or 0)
@@ -491,8 +657,54 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
             f'31–60 ${_money(g.get("31_60"))} · 61–90 ${_money(g.get("61_90"))} · '
             f'91+ ${_money(d91)}'
         )
+        overdue = tot - cur
         if tot:
             lines.append(f'• Mix: Current {cur / tot:.0%} · 91+ {d91 / tot:.0%} of total AR')
+            lines.append(
+                f'• Past due (anything out of Current): ${_money(overdue)} '
+                f'({overdue / tot:.0%} of AR)'
+            )
+        # Operating AR is the number Stephanie and Thomas actually steer on —
+        # it was in the AR draft and nowhere in this pack.
+        op = ar_summary.get('operating_ex_bopc') or {}
+        if op.get('total') is not None and op.get('total') != tot:
+            op_tot = float(op.get('total') or 0)
+            op_overdue = op_tot - float(op.get('current') or 0)
+            lines.append(
+                f'• Operating AR (excluding Bridges/BOPC): ${_money(op_tot)} '
+                f'· past due ${_money(op_overdue)} '
+                f'· 91+ ${_money(op.get("91_and_over"))}'
+            )
+        customers = (ar_summary.get('all_customers')
+                     or ar_summary.get('top_customers_by_balance') or [])
+        if customers:
+            with_91 = [c for c in customers
+                       if float(c.get('91_and_over') or 0) > 0]
+            lines.append(
+                f'• {len(customers)} customer(s) carrying a balance · '
+                f'{len(with_91)} of them have money in 91+'
+            )
+            ranked = sorted(customers,
+                            key=lambda c: -float(c.get('total') or 0))
+            if tot and ranked:
+                top5 = sum(float(c.get('total') or 0) for c in ranked[:5])
+                biggest = ranked[0]
+                lines.append(
+                    f'• Concentration: top 5 customers are {top5 / tot:.0%} of AR '
+                    f'· largest is {biggest.get("customer")} at '
+                    f'${_money(biggest.get("total"))}'
+                )
+        chase = ar_summary.get('chase_list') or []
+        if chase:
+            lines.append('• Most overdue by weight (91+ counts heaviest):')
+            for c in chase[:5]:
+                tag = ' — legacy/BOPC, handle with care' if c.get(
+                    'is_legacy_or_bopc') else ''
+                lines.append(
+                    f'    – {c.get("customer")}: ${_money(c.get("overdue"))} past due '
+                    f'of ${_money(c.get("total"))} (91+ ${_money(c.get("91_and_over"))})'
+                    f'{tag}'
+                )
         bridges = ar_summary.get('bridges_lines') or []
         if bridges:
             lines.append('• Bridges breakdown:')
@@ -512,7 +724,7 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
     lines.append('')
 
     if notes_by_customer:
-        lines.append('PAST-DUE UPDATES')
+        lines.append(SEC_PAST_DUE)
         # Sort largest past-due $ first so importance is obvious
         sorted_notes = sorted(
             notes_by_customer.items(),
@@ -629,30 +841,11 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
         cell = ws_i.cell(i, 1, line)
         # Merge each insight line across A–H so viewers show full width
         ws_i.merge_cells(start_row=i, start_column=1, end_row=i, end_column=8)
-        is_head = (
-            line in (
-                'SALES',
-                'SALES BY REP (YTD; multi-rep invoices split 50/50)',
-                'MARGIN & PROFIT',
-                'A/R (company total)',
-                'PAST-DUE UPDATES',
-            )
-            or (
-                line
-                and not line.startswith('•')
-                and not line.startswith('—')
-                and not line.startswith('Sales =')
-                and not line.startswith('Generated')
-                and not line.startswith('Thursday')
-                and line != 'Monday Numbers · Insights'
-                and (
-                    line.startswith('SALES')
-                    or line.startswith('MARGIN')
-                    or line.startswith('A/R')
-                    or line.startswith('PAST-DUE')
-                )
-            )
-        )
+        # One list, shared with the builder. The renderer used to carry its own
+        # copy of the section titles plus a prefix fallback, so adding a
+        # section meant styling it in a second place or watching it render as
+        # body text.
+        is_head = line in INSIGHT_SECTIONS
         if is_head:
             cell.font = Font(name='Calibri', size=16, bold=True, color='FF1A5276')
             ws_i.row_dimensions[i].height = 24
@@ -744,7 +937,7 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
         if 'P&L Snapshot' in wb.sheetnames:
             del wb['P&L Snapshot']
         ws_pl = wb.create_sheet('P&L Snapshot', 2)
-        ws_pl['A1'] = 'P&L snapshot (sales, margin, profit — YoY)'
+        ws_pl['A1'] = 'P&L snapshot — sales, margin, profit and what moved (YoY)'
         ws_pl['A1'].font = Font(name='Calibri', size=16, bold=True, color='FFFFFFFF')
         ws_pl['A1'].fill = FILL_HEADER
         ws_pl.merge_cells('A1:D1')
@@ -795,6 +988,66 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
             if pl_summary.get('net_income_py') is not None:
                 c = ws_pl.cell(11, 3, pl_summary['net_income_py'] / pl_summary['income_py'])
                 c.number_format = '0.0%'
+
+        # ── the detail, and what moved in it ────────────────────────────
+        row = 13
+        movers = pl_movers(pl_summary)
+        if movers:
+            ws_pl.cell(row, 1, 'Unusual moves year over year').font = Font(
+                name='Calibri', size=13, bold=True, color='FF1A5276')
+            row += 1
+            for i, h in enumerate(
+                    ['Line', 'This year', 'Prior year', 'Change', 'YoY'], 1):
+                c = ws_pl.cell(row, i, h)
+                c.fill = FILL_YELLOW
+                c.font = FONT_BOLD
+            row += 1
+            for m in movers:
+                ws_pl.cell(row, 1, m['label'])
+                ws_pl.cell(row, 2, m['ty']).number_format = '"$"#,##0'
+                ws_pl.cell(row, 3, m['py']).number_format = '"$"#,##0'
+                c = ws_pl.cell(row, 4, m['delta'])
+                c.number_format = '"$"#,##0;[Red]-"$"#,##0'
+                c.fill = FILL_POS if m['delta'] > 0 else FILL_NEG
+                if m['pct'] is None:
+                    ws_pl.cell(row, 5, 'new' if m['kind'] == 'new' else 'stopped')
+                else:
+                    ws_pl.cell(row, 5, m['pct']).number_format = '0.0%'
+                row += 1
+            ws_pl.cell(
+                row, 1,
+                f'Listed when a line moved at least ${PL_MOVE_MIN_DOLLARS:,.0f} '
+                f'and {PL_MOVE_MIN_PCT:.0%} year over year.'
+            ).font = Font(name='Calibri', size=10, italic=True, color='FF666666')
+            row += 2
+
+        detail = pl_summary.get('lines') or []
+        if detail:
+            ws_pl.cell(row, 1, 'All line items').font = Font(
+                name='Calibri', size=13, bold=True, color='FF1A5276')
+            row += 1
+            for i, h in enumerate(['Line', 'This year', 'Prior year', 'Change'], 1):
+                c = ws_pl.cell(row, i, h)
+                c.fill = FILL_YELLOW
+                c.font = FONT_BOLD
+            row += 1
+            for line in sorted(detail, key=lambda d: -abs(float(d.get('ty') or 0))):
+                ty = float(line.get('ty') or 0)
+                py = float(line.get('py') or 0)
+                ws_pl.cell(row, 1, line.get('label'))
+                ws_pl.cell(row, 2, ty).number_format = '"$"#,##0'
+                ws_pl.cell(row, 3, py).number_format = '"$"#,##0'
+                ws_pl.cell(row, 4, ty - py).number_format = '"$"#,##0;[Red]-"$"#,##0'
+                row += 1
+        withheld = pl_summary.get('withheld_comp_lines') or 0
+        if withheld:
+            # Say it on the sheet, not only in the insights. A list that is
+            # silently incomplete is worse than a shorter list.
+            ws_pl.cell(
+                row, 1,
+                f'{withheld} compensation line(s) withheld — payroll and owner '
+                f'comp are kept out of Hub reports.'
+            ).font = Font(name='Calibri', size=10, italic=True, color='FF666666')
 
     # Widen columns so currency doesn't show as ####
     _autosize_workbook(wb)

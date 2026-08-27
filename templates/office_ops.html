@@ -240,7 +240,8 @@
         <p class="muted" style="margin-top:0">
           QB → Reports → Business overview → <strong>Profit and Loss</strong>.
           Compare to prior year (columns: this year, prior year, % change). Accrual is fine.
-          We pull <strong>income, gross profit, net income, margins</strong> only — not line-item expenses.
+          We read the <strong>line items</strong> as well as the totals, and call out anything that moved
+          materially year over year. <strong>Payroll and owner compensation lines are left out</strong> of the pack.
         </p>
         <div class="drop{% if box_uploads.get('profit_loss') %} has-file{% if box_uploads['profit_loss'].stale %} is-stale{% endif %}{% endif %}" data-kind="profit_loss" style="max-width:480px">
           <strong>Profit &amp; Loss .xlsx</strong>
