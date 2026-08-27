@@ -81,54 +81,31 @@ def facts(session_days, statuses, completed_statuses, rolling_weeks,
 # references are gone because a web page has anchors instead.
 
 SECTIONS = [
+    # "How to get in" was dropped 2026-08-27: you are reading this signed
+    # in, so a section on signing in is telling you something you have just
+    # done. The one part of it that was not about getting in — putting the
+    # Hub on your phone's home screen — moved here. Same reason "What it is
+    # for" merged into this section rather than repeating the tour twice.
     dict(
         id='start', title='Start here', access=EVERYONE,
-        body=[
-            ('p', 'The Hub is where we actually do the work. Proposals, '
-                  'estimates, pipeline, training, clients. Bookmark it on '
-                  'your phone. Sign in with your own name — there is no '
-                  'shared password. This page is the map.'),
-            ('p', 'You do not need every module. Use the ones that match '
-                  'your job. If something is missing or feels wrong, use the '
-                  'feedback box on the dashboard or tell me. Do not invent a '
-                  'workaround in a spreadsheet we already replaced.'),
-        ],
-    ),
-    dict(
-        id='getting-in', title='How to get in', access=EVERYONE,
-        body=[
-            ('ul', [
-                'Open hub.purepropsolutions.com. Pick your name. Use the '
-                'password you set. Forgot Password emails a one-hour reset '
-                'link.',
-                'Sessions last {session_days} days of idle time. You should '
-                'not have to log in every morning. If you get bounced to '
-                'login, use Forgot Password — do not text someone else for '
-                'theirs.',
-                'On your phone: open it in Safari or Chrome, then Add to Home '
-                'Screen. That icon is the Hub, not a browser bookmark. It '
-                'works offline enough to tell you the Hub is unreachable.',
-                'Nobody shares an account. If someone leaves, we take their '
-                'name off the roster and their session dies. That only works '
-                'if you never loaned them your login.',
-            ]),
-        ],
-    ),
-    dict(
-        id='what-for', title='What it is for', access=EVERYONE,
         body=[
             ('p', 'PPS used to live in inboxes, side chats, and whoever had '
                   'the latest Excel. The Hub is the source of truth for the '
                   'work we produce: which proposal went out, which estimate '
                   'we ran, which row is sitting on a board, who finished '
-                  'training. Monday morning you get a recap of last week so '
-                  'the whole company can see who is producing. Page opens do '
-                  'not count. Completing work does.'),
+                  'training.'),
+            ('p', 'You do not need every module. Use the ones that match '
+                  'your job. Do not invent a workaround in a spreadsheet we '
+                  'already replaced.'),
             ('p', 'The dashboard is a launcher, not a second job. Jump back '
                   'in takes you to the last three tools you actually used. '
                   'The pills at the top are this week’s score, open '
                   'pipeline, and unfinished training. A zero does not show. '
                   'Quiet week, short dashboard.'),
+            ('note', 'On your phone: open the Hub in Safari or Chrome, then '
+                     'Add to Home Screen. That icon is the Hub, not a browser '
+                     'bookmark, and sessions last {session_days} days of idle '
+                     'time — you should not be logging in every morning.'),
         ],
     ),
     dict(
@@ -337,15 +314,15 @@ SECTIONS = [
     dict(
         id='team-view', title='Team View', access=EVERYONE,
         body=[
-            ('p', 'Open to everyone. Same scoring as the Monday recap: this '
-                  'week plus a rolling {rolling_weeks}. Ranked inside '
-                  'Consultants / PMs / Office, not one flat list. Credit '
-                  'follows whoever generated the work, not whose name is on '
-                  'the proposal. Pipeline and Hub actions are capped at '
-                  '{activity_cap} a week so a week of real deliverables still '
-                  'leads. If your number disagrees with Monday’s email, '
-                  'that is a bug — tell me. Do not keep a second spreadsheet '
-                  'of “my real number.”'),
+            ('p', 'Open to everyone, and the same scoring as the Monday '
+                  'recap — this week plus a rolling {rolling_weeks}, ranked '
+                  'inside Consultants / PMs / Office rather than one flat '
+                  'list. Credit follows whoever generated the work, not whose '
+                  'name is on the proposal. Pipeline and Hub actions are '
+                  'capped at {activity_cap} a week so a week of real '
+                  'deliverables still leads. If your number disagrees with '
+                  'Monday’s email, that is a bug — tell me. Do not keep a '
+                  'second spreadsheet of “my real number.”'),
         ],
     ),
     dict(
@@ -353,9 +330,10 @@ SECTIONS = [
         body=[
             ('p', 'Every {recap_when} you get an email with last week’s '
                   'board. Your row is highlighted. A visible 0 is better than '
-                  'a missing name. Opens do not score. I am on the board with '
-                  'you. If the email does not arrive, it is not because you '
-                  'were left off — tell me so we can see if the job ran.'),
+                  'a missing name. Completing work scores; opening pages does '
+                  'not. I am on the board with you. If the email does not '
+                  'arrive, it is not because you were left off — tell me so we '
+                  'can see if the job ran.'),
         ],
     ),
     dict(
@@ -412,7 +390,9 @@ SECTIONS = [
         id='what-not', title='What not to do', access=EVERYONE,
         body=[
             ('ul', [
-                'Do not share a login. Ever.',
+                'Do not share a login. Ever. When someone leaves we take '
+                'their name off the roster and their session dies — that only '
+                'works if you never loaned them yours.',
                 'Do not score yourself by opening pages. The recap ignores '
                 'that on purpose.',
                 'Do not put salaries, appraisals, or “who we might let '

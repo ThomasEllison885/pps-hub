@@ -163,8 +163,7 @@ def test_everyone_gets_the_things_everyone_needs():
     to do."""
     for ctx in (FIELD_CONSULTANT, LEADER, NEW_HIRE):
         ids = _ids(_sections(ctx))
-        for essential in ('start', 'getting-in', 'dashboard', 'what-not',
-                          'broken', 'recap'):
+        for essential in ('start', 'dashboard', 'what-not', 'broken', 'recap'):
             assert essential in ids
 
 
@@ -246,3 +245,43 @@ def test_search_hides_sections_rather_than_removing_them(env):
     assert "el.style.display = hit ? '' : 'none'" in html
     assert 'el.remove(' not in html
     assert 'removeChild' not in html
+
+
+# ── redundancy (2026-08-27) ─────────────────────────────────────────────────
+#
+# Thomas: "Probably doesn't need a 'how to get in' section since they have to
+# be in to view it. Get rid of other redundancies like that."
+
+def test_there_is_no_how_to_get_in_section():
+    """You are reading this signed in. A section on signing in is telling you
+    something you have just done."""
+    assert 'getting-in' not in [s['id'] for s in hub_guide.SECTIONS]
+    text = _text(_sections(FIELD_CONSULTANT))
+    assert 'Forgot Password' not in text
+    assert 'Pick your name' not in text
+
+
+def test_the_phone_tip_survived_the_cut():
+    """Add to Home Screen was the one part of that section that was not about
+    getting in — it is about getting back in fast, which is still worth
+    saying."""
+    text = _text(_sections(FIELD_CONSULTANT))
+    assert 'Add to Home Screen' in text
+    assert 'days of idle time' in text, 'and why you are not logged out daily'
+
+
+def test_each_rule_is_stated_once():
+    """"Opens do not score" was in three sections and the feedback box in
+    three more. A guide that repeats itself is a guide people skim."""
+    text = _text(_sections(LEADER)).lower()
+    assert text.count('opening pages does not') + text.count('opens do not') <= 1, \
+        'the scoring rule is restated'
+    assert text.count('feedback box') <= 1, 'the feedback box is explained twice'
+
+
+def test_the_tour_is_not_given_twice():
+    """"Start here" and "What it is for" both explained what the Hub is."""
+    ids = [s['id'] for s in hub_guide.SECTIONS]
+    assert 'what-for' not in ids
+    starts = [s for s in hub_guide.SECTIONS if s['id'] == 'start']
+    assert len(starts) == 1
