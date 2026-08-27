@@ -306,6 +306,7 @@ TOOLS = {
     'psc_oversight':    {'icon': '📈',  'name': 'PSC Accountability',  'path': '/psc-training/oversight'},
     'pm_oversight':     {'icon': '📋',  'name': 'PM Accountability',   'path': '/pm-training/oversight'},
     'roleplay':         {'icon': '🎭',  'name': 'PSC Roleplay',        'path': '/psc-training/roleplay'},
+    'guide':            {'icon': '📖',  'name': 'Field Guide',         'path': '/guide'},
 }
 
 # hub_usage_events.feature -> tool key. Only the features that map to a place
@@ -324,6 +325,7 @@ USAGE_FEATURE_TO_TOOL = {
     'psc_oversight': 'psc_oversight',
     'pm_oversight': 'pm_oversight',
     'roleplay': 'roleplay',
+    'guide': 'guide',
     # The four estimators and Site Visit all record opens too, and all land on
     # the tools they belong to rather than getting a card each — five near
     # identical estimator cards would crowd out everything else in a row of

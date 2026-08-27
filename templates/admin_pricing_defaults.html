@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% include '_pwa_head.html' %}
-<title>Estimating Defaults — PPS Admin</title>
+<title>Estimating Defaults — PPS Hub</title>
 <style>
   .main{max-width:900px;margin:0 auto;padding:36px 24px 60px;}
   .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
@@ -25,26 +25,27 @@
 </head>
 <body>
 <header class="pps-header">
-  <a href="/admin" class="pps-header-left">
+  <a href="/dashboard" class="pps-header-left">
     <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
     <div class="pps-header-divider"></div>
     <span class="pps-header-title">Estimating Defaults</span>
   </a>
   <div class="pps-header-right">
-    <a href="/admin" class="pps-btn-header">← Admin</a>
+    {% if is_admin %}<a href="/admin" class="pps-btn-header">← Admin</a>{% endif %}
+    <a href="/estimating" class="pps-btn-header">← Estimating</a>
   </div>
 </header>
 
 <div class="main">
   <div class="page-title">Estimating Pricing Defaults</div>
-  <p class="page-sub">These values pre-fill siding, roofing, gutter, and painting estimators for the whole team. Estimators can still override per job. Excel yellow cells remain editable after download.</p>
+  <p class="page-sub">These values pre-fill siding, roofing, gutter, and painting estimators for the whole team. Anyone running an estimate can still override a number on that job. Excel yellow cells stay editable after download. Leadership (Tony, Trey, Stephanie) and Thomas can save changes here.</p>
 
   {% if message %}<div class="msg-ok">✓ {{ message }}</div>{% endif %}
   {% if error %}<div class="msg-err">✗ {{ error }}</div>{% endif %}
 
   <div class="meta">
     {% if defaults.updated_at %}
-    Last updated {{ defaults.updated_at.strftime('%b %d, %Y %I:%M %p') if defaults.updated_at.strftime else defaults.updated_at }}
+    Last updated {{ defaults.updated_at | et_at }}
     {% if defaults.updated_by_name or defaults.updated_by %} by {{ defaults.updated_by_name or defaults.updated_by }}{% endif %}
     {% else %}
     Using built-in defaults — save below to store company rates in the database.

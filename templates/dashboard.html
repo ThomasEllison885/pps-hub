@@ -240,6 +240,7 @@
   </a>
   <div class="pps-header-right">
     <span class="pps-header-user">{{ user.display }}</span>
+    <a href="/guide" class="pps-btn-header">Guide</a>
     {% if team_view %}<a href="/team-view" class="pps-btn-header">Team View</a>{% endif %}
     <a href="/ask-pps" class="pps-btn-header">Ask PPS{% if ask_pps_prompt_queue > 0 %}<span class="pps-header-badge">{{ ask_pps_prompt_queue }}</span>{% endif %}</a>
     {% if real_is_admin or session.get('role') == 'admin' %}
@@ -264,7 +265,8 @@
     {# The old line here promised "both sections open so you can reach either
        lane", which stopped being true on 2026-08-25 when the lanes started
        collapsed on phones. #}
-    <p>Your week at a glance, then every tool — sales and production.</p>
+    <p>Your week at a glance, then every tool — sales and production.
+       New here, or not sure what something does? <a href="/guide" style="color:var(--blue);font-weight:600;text-decoration:none;">Read the field guide</a>.</p>
   </div>
 
   {% if user_notifications %}

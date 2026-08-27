@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Field Guide</title>
+<style>
+  :root {
+    --blue: #0096D6; --dark-blue: #004C8C; --light-bg: #EBF6FC;
+    --gray: #444444; --border: #D8E8F2; --shadow: 0 2px 16px rgba(0,76,140,0.08);
+    --radius: 10px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: var(--gray); min-height: 100vh; }
+  .main { max-width: 820px; margin: 0 auto; padding: 32px 24px 72px; }
+
+  .guide-head { margin-bottom: 22px; }
+  .guide-head h1 { font-family: 'DM Serif Display', serif; font-size: 30px; color: var(--dark-blue); margin-bottom: 6px; }
+  .guide-head p { font-size: 14px; color: #888; line-height: 1.6; }
+
+  /* Search. Same shape as the Pipeline Board's, deliberately — one search
+     box in the Hub should look and behave like the others. */
+  .guide-search { position: relative; display: flex; align-items: center; margin-bottom: 18px; }
+  .guide-search input {
+    width: 100%; padding: 10px 30px 10px 34px; font-family: inherit; font-size: 14px;
+    border: 1.5px solid var(--border); border-radius: 10px; outline: none;
+    color: var(--gray); background: white;
+  }
+  .guide-search input:focus { border-color: var(--blue); }
+  .guide-search input::-webkit-search-cancel-button,
+  .guide-search input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+  .guide-search .s-icon { position: absolute; left: 11px; font-size: 13px; color: #bbb; pointer-events: none; }
+  .guide-search .s-clear {
+    position: absolute; right: 8px; background: none; border: none; cursor: pointer;
+    color: #bbb; font-size: 15px; line-height: 1; padding: 4px; display: none;
+  }
+  .guide-search.has-query .s-clear { display: block; }
+
+  .contents { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 20px; margin-bottom: 26px; }
+  .contents h2 { font-size: 11px; font-weight: 700; color: var(--dark-blue); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 10px; }
+  .contents ol { list-style: none; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 18px; }
+  .contents a { font-size: 13px; color: var(--blue); text-decoration: none; display: block; padding: 3px 0; }
+  .contents a:hover { text-decoration: underline; }
+  .contents .lane-tag { color: #bbb; font-size: 11px; }
+
+  .g-section { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; margin-bottom: 14px; scroll-margin-top: 16px; }
+  .g-section h2 { font-size: 17px; color: var(--dark-blue); margin-bottom: 4px; font-weight: 700; }
+  .g-lane { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+  .g-section h3 { font-size: 13px; color: var(--dark-blue); margin: 16px 0 6px; font-weight: 700; }
+  .g-section p { font-size: 14px; line-height: 1.65; margin-bottom: 10px; }
+  .g-section ul { margin: 0 0 10px 18px; }
+  .g-section li { font-size: 14px; line-height: 1.6; margin-bottom: 7px; }
+  .g-section dt { font-size: 13px; font-weight: 700; color: var(--dark-blue); margin-top: 10px; }
+  .g-section dd { font-size: 14px; line-height: 1.6; margin: 3px 0 0; }
+  .g-note { background: #FFF8E7; border: 1px solid #FFE0A3; border-left: 3px solid #F9A825; border-radius: 8px; padding: 10px 14px; font-size: 13.5px; line-height: 1.6; margin: 12px 0 4px; }
+  .g-section.not-mine { opacity: 0.72; }
+  .g-section.not-mine h2::after { content: 'not yours'; font-size: 10px; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; margin-left: 9px; vertical-align: middle; }
+
+  .g-foot { margin-top: 26px; font-size: 13px; color: #888; line-height: 1.7; }
+  .g-foot a { color: var(--blue); font-weight: 600; text-decoration: none; }
+  .no-match { background: white; border: 1px solid var(--border); border-radius: var(--radius); padding: 30px 20px; text-align: center; color: #aaa; font-size: 14px; }
+  .no-match button { background: none; border: none; color: var(--blue); font-weight: 600; cursor: pointer; font-size: 14px; text-decoration: underline; padding: 0; }
+
+  @media (max-width: 700px) {
+    .main { padding: 22px 14px 50px; }
+    .contents ol { grid-template-columns: 1fr; }
+    .guide-head h1 { font-size: 24px; }
+    .g-section { padding: 16px 16px; }
+  }
+  /* Thomas already has the PDF; this is so a printed page is not a mess. */
+  @media print {
+    .pps-header, .guide-search, .contents, .g-foot { display: none !important; }
+    body { background: white; }
+    .g-section { box-shadow: none; border: none; page-break-inside: avoid; padding: 0 0 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Field Guide</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/ask-pps" class="pps-btn-header">Ask PPS</a>
+    <a href="/dashboard" class="pps-btn-header primary">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="guide-head">
+    <h1>The PPS Hub</h1>
+    <p>A field guide for the team. {% if show_all %}Showing every section.{% else %}Showing the {{ sections|length }} section{{ '' if sections|length == 1 else 's' }} that apply to you.{% endif %}</p>
+  </div>
+
+  <div class="guide-search" id="guideSearch">
+    <span class="s-icon">🔍</span>
+    <input type="search" id="guideSearchInput" placeholder="Search the guide — try “photos”, “password”, “pipeline”…"
+           autocomplete="off" spellcheck="false" aria-label="Search the guide">
+    <button type="button" class="s-clear" id="guideSearchClear" title="Clear (Esc)" aria-label="Clear search">✕</button>
+  </div>
+
+  <nav class="contents" id="guideContents">
+    <h2>Contents</h2>
+    <ol>
+      {% for s in sections %}
+      <li><a href="#{{ s.id }}">{{ s.title }}{% if s.lane %} <span class="lane-tag">· {{ s.lane|safe }}</span>{% endif %}</a></li>
+      {% endfor %}
+    </ol>
+  </nav>
+
+  <div id="guideBody">
+    {% for s in sections %}
+    <section class="g-section{% if not s.mine %} not-mine{% endif %}" id="{{ s.id }}">
+      <h2>{{ s.title }}</h2>
+      {% if s.lane %}<div class="g-lane">{{ s.lane|safe }}</div>{% endif %}
+      {% for kind, content in s.body %}
+        {% if kind == 'p' %}<p>{{ content|safe }}</p>
+        {% elif kind == 'h' %}<h3>{{ content|safe }}</h3>
+        {% elif kind == 'note' %}<div class="g-note">{{ content|safe }}</div>
+        {% elif kind == 'ul' %}<ul>{% for item in content %}<li>{{ item|safe }}</li>{% endfor %}</ul>
+        {% elif kind == 'dl' %}<dl>{% for term, desc in content %}<dt>{{ term|safe }}</dt><dd>{{ desc|safe }}</dd>{% endfor %}</dl>
+        {% endif %}
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="g-foot">
+    {% if not show_all and hidden %}
+    <p>{{ hidden }} section{{ '' if hidden == 1 else 's' }} of this guide cover tools you don’t have —
+      <a href="/guide?all=1">show them anyway</a>.</p>
+    {% elif show_all %}
+    <p><a href="/guide">Show only my sections</a>.</p>
+    {% endif %}
+    <p style="margin-top:10px;">Something wrong or missing? Use the feedback box on the
+      <a href="/dashboard">dashboard</a>, or text Thomas. — <strong>Thomas</strong></p>
+  </div>
+</div>
+
+<script>
+/* Search. Sections are HIDDEN, not removed, for the same reason as the
+   Pipeline Board: anchors from the contents list have to keep working, and a
+   removed section breaks the #id link that got you here. */
+(function () {
+  var input = document.getElementById('guideSearchInput');
+  var clear = document.getElementById('guideSearchClear');
+  var wrap = document.getElementById('guideSearch');
+  var contents = document.getElementById('guideContents');
+  var body = document.getElementById('guideBody');
+  if (!input || !body) return;
+
+  var sections = Array.prototype.slice.call(body.querySelectorAll('.g-section'));
+  var haystacks = sections.map(function (el) { return el.textContent.toLowerCase(); });
+
+  function apply() {
+    var q = (input.value || '').trim().toLowerCase();
+    var terms = q ? q.split(/\s+/).filter(Boolean) : [];
+    wrap.classList.toggle('has-query', q !== '');
+    var shown = 0;
+    sections.forEach(function (el, i) {
+      var hit = terms.every(function (t) { return haystacks[i].indexOf(t) !== -1; });
+      el.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    // The contents list is a list of what you can currently see.
+    if (contents) contents.style.display = terms.length ? 'none' : '';
+    var empty = document.getElementById('guideNoMatch');
+    if (empty) empty.remove();
+    if (terms.length && shown === 0) {
+      var d = document.createElement('div');
+      d.id = 'guideNoMatch';
+      d.className = 'no-match';
+      d.textContent = 'Nothing in the guide matches “' + input.value + '”. ';
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = 'Clear search';
+      b.onclick = function () { input.value = ''; apply(); input.focus(); };
+      d.appendChild(b);
+      body.appendChild(d);
+    }
+  }
+
+  input.addEventListener('input', apply);
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { e.preventDefault(); input.value = ''; apply(); }
+  });
+  if (clear) clear.onclick = function () { input.value = ''; apply(); input.focus(); };
+
+  // Deep link from elsewhere in the Hub: /guide#pipeline should land there
+  // even though the browser resolved the anchor before this script ran.
+  if (window.location.hash) {
+    var target = document.getElementById(window.location.hash.slice(1));
+    if (target) target.scrollIntoView();
+  }
+})();
+</script>
+
+<script src="/static/pps-pwa.js"></script>
+</body>
+</html>

@@ -60,6 +60,14 @@
       <div class="pps-tool-desc">Field takeoff by category — labor, paint, and one/two-coat bids from production rates.</div>
       <div class="tool-meta">Open →</div>
     </a>
+    {% if can_edit_pricing %}
+    <a href="/admin/pricing-defaults" class="pps-tool-card">
+      <div class="pps-tool-icon">💰</div>
+      <div class="pps-tool-name">Company Pricing Defaults</div>
+      <div class="pps-tool-desc">Labor, material, tax, and margin rates that pre-fill every new estimate. Leadership can edit; estimators can still override a job.</div>
+      <div class="tool-meta">Edit defaults →</div>
+    </a>
+    {% endif %}
   </div>
 
   <div class="pps-section-head">Recent Estimates</div>

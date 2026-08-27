@@ -46,6 +46,7 @@ FEATURE_LABELS = {
     'psc_oversight': 'PSC Accountability',
     'pm_oversight': 'PM Accountability',
     'roleplay': 'PSC Roleplay',
+    'guide': 'Field Guide',
 }
 
 KNOWN_FEATURES = frozenset(FEATURE_LABELS)

@@ -10,10 +10,11 @@ than read it).
 
 Three tiers:
 
-    owner       Thomas. /admin, pricing defaults, password resets, feedback
-                inbox, vault delete, proposal diffs.
+    owner       Thomas. /admin, password resets, feedback inbox, vault
+                delete, proposal diffs.
     leadership  Stephanie, Tony, Trey. Office Ops (Numbers + Compliance),
-                PSC + PM training oversight, Ask PPS curation.
+                PSC + PM training oversight, Ask PPS curation, estimator
+                pricing defaults.
     team        Everyone else. Every tool, every pipeline board, all history,
                 Team View.
 
@@ -65,6 +66,17 @@ def is_owner(users, user_key):
 def is_leadership(users, user_key):
     """Leadership *or* owner — tiers are cumulative, not exclusive."""
     return has_tier(users, user_key, TIER_LEADERSHIP)
+
+
+def can_edit_pricing_defaults(users, user_key):
+    """Company-wide estimator rates. Leadership and up (2026-08-27).
+
+    Used to be owner-only. Thomas opened it so Tony, Trey and Stephanie can
+    keep siding / roofing / gutter / painting defaults current without
+    waiting on him. Team still cannot; a field override on one job is
+    different from changing what every new estimate pre-fills.
+    """
+    return is_leadership(users, user_key)
 
 
 def tier_label(tier):

@@ -61,6 +61,19 @@ def test_the_field_team_is_not_swept_in():
 
 # --- PSC enrolment moved off owner-only --------------------------------------
 
+def test_estimator_pricing_defaults_are_no_longer_owner_only():
+    """Was `@require_admin`. 2026-08-27 Thomas opened it to leadership so
+    Tony / Trey / Stephanie can keep company rates current."""
+    decos = _decorators('admin_pricing_defaults')
+    assert not any('require_admin' in (d or '') for d in decos), (
+        'estimator pricing defaults are back to owner-only')
+    body = _fn('admin_pricing_defaults')
+    assert 'can_edit_pricing_defaults' in body, (
+        'pricing defaults lost its tier check — that is worse, not better')
+    assert 'require_login' in ''.join(decos or []), (
+        'pricing defaults must still sit behind a session')
+
+
 def test_psc_enrolment_is_no_longer_owner_only():
     """Was `@require_admin`, which left Tony unable to enrol the hire he was
     already allowed to sign off every week for. 2026-08-23, Thomas."""

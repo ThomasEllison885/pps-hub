@@ -73,6 +73,18 @@ def test_empty_roster_grants_nothing():
     assert t.is_leadership(None, 'thomas_ellison') is False
 
 
+def test_pricing_defaults_are_leadership_not_owner_only():
+    """2026-08-27: Tony, Trey and Stephanie edit estimator company rates.
+    The field team still cannot — a per-job override is not a company default."""
+    assert t.can_edit_pricing_defaults(_USERS, 'thomas_ellison') is True
+    for key in ('tony_cumella', 'trey_hollmeyer', 'stephanie_whetstone'):
+        assert t.can_edit_pricing_defaults(_USERS, key) is True, key
+    for key in ('andy_potts', 'phil_miller'):
+        assert t.can_edit_pricing_defaults(_USERS, key) is False, key
+    assert t.can_edit_pricing_defaults(_USERS, 'former_employee') is False
+    assert t.can_edit_pricing_defaults({}, 'thomas_ellison') is False
+
+
 def test_tier_label_is_human_readable():
     assert t.tier_label(t.TIER_OWNER) == 'Owner'
     assert t.tier_label(t.TIER_LEADERSHIP) == 'Leadership'

@@ -93,6 +93,7 @@ def _ctx(**over):
         office_ops_access=False,
         unread_feedback=0,
         unread_diffs=0,
+        can_edit_pricing=False,
         pricing_summary=None,
         proposal_url='https://tool.example.com',
         session={'role': 'consultant', 'user_key': 'andy_potts'},
@@ -117,6 +118,32 @@ def bare():
 
 def test_it_renders_at_all(full):
     assert '<title>PPS Hub · Dashboard</title>' in full
+
+
+def test_pricing_defaults_card_is_for_leadership_not_the_admin_lane():
+    """Tony / Trey / Stephanie get the card next to Estimating. The Admin
+    lane stays owner-only so a pricing_summary does not drag feedback/diffs
+    onto a leadership dashboard."""
+    env = _env()
+    tpl = env.get_template('dashboard.html')
+    summary = {
+        'is_custom': True, 'updated_label': 'Aug 26, 2026',
+        'siding_labor': 45, 'roofing_labor': 80,
+        'gutter_lf': 12, 'painting_hour': 55,
+    }
+    leadership = tpl.render(**_ctx(
+        can_edit_pricing=True, pricing_summary=summary,
+        admin_lane_open=False, user_role='consultant'))
+    assert 'href="/admin/pricing-defaults"' in leadership
+    assert 'Estimating Pricing Defaults' in leadership
+    assert 'class="dashboard-lane lane-admin"' not in leadership
+    team = tpl.render(**_ctx(can_edit_pricing=False, pricing_summary=None,
+                             admin_lane_open=False))
+    assert 'href="/admin/pricing-defaults"' not in team
+    owner = tpl.render(**_ctx(
+        can_edit_pricing=True, pricing_summary=summary,
+        admin_lane_open=True, user_role='admin', real_is_admin=True))
+    assert 'class="dashboard-lane lane-admin"' in owner
 
 
 def test_pills_render_with_value_and_label(full):

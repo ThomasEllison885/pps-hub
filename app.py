@@ -18,6 +18,7 @@ import password_campaign
 import system_state
 import training_overlay
 import dashboard_summary
+import hub_guide
 import db_pool
 import db_ddl
 import hub_time
@@ -4138,7 +4139,7 @@ def dashboard():
         # History is not permission. Each of these mirrors the gate on the
         # route itself, so a card can never point somewhere that would bounce
         # you — the Pipeline Board taught us what that looks like.
-        allowed_tools = {'ppm', 'estimate', 'site_visit', 'ask_pps', 'team_view'}
+        allowed_tools = {'ppm', 'estimate', 'site_visit', 'ask_pps', 'team_view', 'guide'}
         if accessible_consultants:
             allowed_tools |= {'proposal', 'tps', 'comparison'}
         # No resolvable board means no card: one that redirects straight back
@@ -6978,6 +6979,54 @@ def my_diffs():
         print(f"My diffs error: {e}")
     return render_template('proposal_diff.html', rows=rows,
                            is_admin=session.get('role') == 'admin')
+
+
+@app.route('/guide')
+@require_login
+@logs_open('guide')
+def guide_page():
+    """The field guide, living next to the code it describes.
+
+    Thomas wrote this as a PDF on 2026-08-27 and sent it round. A PDF starts
+    drifting the day it is sent — one line in it was already wrong when it
+    landed — and it lives in an email rather than one tap from the thing it
+    explains.
+
+    Two things happen here that a PDF cannot. Sections are filtered to what
+    this person can actually open, so a consultant does not read two pages
+    about Office Ops (`?all=1` shows everything for anyone curious — none of
+    it is secret, it is just noise when it is not yours). And the numbers
+    that move are read from the code that implements them rather than
+    retyped, so the guide cannot claim a 30-day session after someone
+    changes it to 14. See hub_guide.py.
+    """
+    user_key = session['user_key']
+    ctx = {
+        'consultants': get_user_proposal_access(user_key),
+        'is_leadership': is_leadership(user_key),
+        'is_owner': is_owner(user_key),
+        'psc_training_enrolled': is_psc_training_enrolled(user_key),
+        'psc_training_oversight': can_psc_training_oversight(user_key),
+        'pipeline_boards': pipeline_board.list_accessible_boards(USERS, user_key),
+    }
+    # Derived, not restated. Each of these comes from the module that owns
+    # the behaviour, so the guide moves when the Hub does.
+    values = hub_guide.facts(
+        session_days=app.config['PERMANENT_SESSION_LIFETIME'].days,
+        statuses=pipeline_board.STATUSES,
+        completed_statuses=pipeline_board.COMPLETED_STATUSES,
+        rolling_weeks=weekly_recap.ROLLING_WEEKS,
+        activity_cap=weekly_recap.ACTIVITY_CAP_PER_WEEK,
+        recap_day='Monday',
+        recap_hour='7am Eastern',
+    )
+    show_all = (request.args.get('all') or '').strip() in ('1', 'true', 'yes')
+    return render_template(
+        'guide.html',
+        sections=hub_guide.sections_for(ctx, values, show_all=show_all),
+        hidden=hub_guide.hidden_count(ctx),
+        show_all=show_all,
+    )
 
 
 @app.route('/team-view')
