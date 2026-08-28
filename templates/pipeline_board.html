@@ -165,7 +165,7 @@
     <div>
       <div class="page-title">Pipeline Board</div>
       <div class="page-sub">
-        {{ consultant_display }} &amp; {{ pm_display }} — live shared proposal tracker.
+        {% if pm_display %}{{ consultant_display }} &amp; {{ pm_display }}{% else %}{{ board_label }}{% endif %} — live shared proposal tracker.
         {% if is_admin_preview %}<strong>Admin preview.</strong>{% endif %}
       </div>
     </div>
@@ -182,7 +182,7 @@
   {% if accessible_boards and accessible_boards|length > 1 %}
   <nav class="board-switcher" aria-label="Switch pipeline board">
     {% for b in accessible_boards %}
-    <a href="/pipeline-board?pair={{ b.key }}" class="{% if b.key == pair_key %}active{% endif %}">{{ b.consultant_display }} / {{ b.pm_display }}</a>
+    <a href="/pipeline-board?pair={{ b.key }}" class="{% if b.key == pair_key %}active{% endif %}">{% if b.pm_display %}{{ b.consultant_display }} / {{ b.pm_display }}{% else %}{{ b.board_label }}{% endif %}</a>
     {% endfor %}
   </nav>
   {% endif %}

@@ -55,6 +55,31 @@ def html():
     )
 
 
+def test_unpaired_board_renders_just_first_name():
+    """Rachel's board after Derek left: header and switcher say Just Rachel."""
+    env = Environment(loader=FileSystemLoader(os.path.join(ROOT, 'templates')),
+                      undefined=StrictUndefined)
+    html = env.get_template('pipeline_board.html').render(
+        pair_key='rachel_farler',
+        user_key='rachel_farler',
+        user_display='Rachel Farler',
+        consultant_display='Rachel Farler',
+        pm_display='',
+        board_label='Just Rachel',
+        is_admin_preview=False,
+        accessible_boards=[{'key': 'rachel_farler',
+                            'consultant_display': 'Rachel Farler',
+                            'pm_display': '',
+                            'board_label': 'Just Rachel'}],
+        statuses=pipeline_board.STATUSES,
+        completed_statuses=sorted(pipeline_board.COMPLETED_STATUSES),
+        can_import=True,
+    )
+    assert 'Just Rachel' in html
+    assert 'Derek' not in html
+    assert 'Rachel Farler /' not in html
+
+
 def test_the_search_box_is_there(html):
     assert 'id="board-search-input"' in html
     assert 'id="board-search-clear"' in html

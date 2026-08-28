@@ -390,8 +390,8 @@
           {% for b in pipeline_boards %}
           <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
-            <div class="pps-tool-desc">{{ b.consultant_display }} &amp; {{ b.pm_display }} — live shared proposal tracker.</div>
+            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.board_label if not b.pm_display else b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
+            <div class="pps-tool-desc">{% if b.pm_display %}{{ b.consultant_display }} &amp; {{ b.pm_display }}{% else %}{{ b.board_label }}{% endif %} — live shared proposal tracker.</div>
             <div class="tool-meta">Open →</div>
           </a>
           {% endfor %}
@@ -511,8 +511,8 @@
           {% for b in pipeline_boards %}
           <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
-            <div class="pps-tool-desc">{{ b.consultant_display }} &amp; {{ b.pm_display }} — live shared proposal tracker.</div>
+            <div class="pps-tool-name">{% if pipeline_boards|length > 1 %}Pipeline — {{ b.board_label if not b.pm_display else b.consultant_display }}{% else %}Pipeline Board{% endif %}</div>
+            <div class="pps-tool-desc">{% if b.pm_display %}{{ b.consultant_display }} &amp; {{ b.pm_display }}{% else %}{{ b.board_label }}{% endif %} — live shared proposal tracker.</div>
             <div class="tool-meta">Open →</div>
           </a>
           {% endfor %}
@@ -599,7 +599,7 @@
           {% for b in pipeline_boards %}
           <a href="/pipeline-board?pair={{ b.key }}" class="pps-tool-card">
             <div class="pps-tool-icon">🗂️</div>
-            <div class="pps-tool-name">Pipeline Board — {{ b.consultant_display }} / {{ b.pm_display }}</div>
+            <div class="pps-tool-name">Pipeline Board — {% if b.pm_display %}{{ b.consultant_display }} / {{ b.pm_display }}{% else %}{{ b.board_label }}{% endif %}</div>
             <div class="pps-tool-desc">Live shared proposal tracker (admin doesn't have a pair of their own).</div>
             <div class="tool-meta">Open →</div>
           </a>

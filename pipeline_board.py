@@ -56,7 +56,10 @@ PRIMARY_PM_FOR_CONSULTANT = {
     'andy_potts': 'ben_ramsey',
     'adam_cupito': 'jordan_allen',
     'tony_cumella': 'nick_triplett',
-    'rachel_farler': 'derek_kidney',
+    # rachel_farler has no PM as of 2026-08-28 (Derek Kidney offboarded).
+    # The board stays; board_label() renders it "Just Rachel". Do not point
+    # this at a departed user_key — _display would print the raw key in the
+    # header. Leave the consultant out of this dict until a new pair is named.
 }
 
 # BOARD_ACCESS and BOARD_ACCESS_ALL were deleted 2026-08-21: every board is now
@@ -341,13 +344,29 @@ def list_accessible_boards(users, user_key):
             boards.append({
                 'key': ck,
                 'consultant_display': _display(users, ck),
-                'pm_display': _display(users, pm_key) if pm_key else 'PM',
+                'pm_display': _display(users, pm_key) if pm_key else '',
+                'board_label': board_label(users, ck),
             })
     return boards
 
 
 def _display(users, user_key):
     return users.get(user_key, {}).get('display', user_key)
+
+
+def board_label(users, consultant_key):
+    """Public name of a board.
+
+    Paired boards keep 'Consultant / PM'. A consultant with no working PM
+    (Rachel, 2026-08-28) is 'Just {first name}' — Thomas's wording, not a
+    generic 'Consultant / PM' leftover that would print a blank or a raw key.
+    """
+    c_display = _display(users, consultant_key)
+    pm_key = PRIMARY_PM_FOR_CONSULTANT.get(consultant_key)
+    if not pm_key:
+        first = (c_display or '').split()[0]
+        return f'Just {first}' if first else (c_display or consultant_key)
+    return f'{c_display} / {_display(users, pm_key)}'
 
 
 def _norm_property_name(name):
@@ -1070,7 +1089,8 @@ def register_routes(app, get_db_fn, users, require_login):
             'pipeline_board.html',
             pair_key=pair_key,
             consultant_display=_display(users, pair_key),
-            pm_display=_display(users, pm_key) if pm_key else 'PM',
+            pm_display=_display(users, pm_key) if pm_key else '',
+            board_label=board_label(users, pair_key),
             statuses=STATUSES,
             completed_statuses=sorted(COMPLETED_STATUSES),
             user_key=user_key,

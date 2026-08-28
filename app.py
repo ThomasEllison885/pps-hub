@@ -233,13 +233,6 @@ USERS = {
         'title': 'Project Engineer',
         'email': 'phil@purepropsolutions.com',
     },
-    'derek_kidney': {
-        'display': 'Derek Kidney',
-        'role': 'pm',
-        'tier': TIER_TEAM,
-        'title': 'Project Manager',
-        'email': 'Derek@purepropsolutions.com',
-    },
     'nick_triplett': {
         'display': 'Nick Triplett',
         'role': 'pm',
@@ -300,6 +293,16 @@ USERS = {
 # (BOARD_ACCESS_ALL, OFFICE_OPS_USER_KEYS, CURATORS, CONTACTS_USER_KEYS) they need.
 # Historical rows created by 'admin' still render — display names fall back to the
 # key, so old proposals/board entries read "Admin" rather than going blank.
+
+# REMOVED 2026-08-28 — Derek Kidney (user_key 'derek_kidney', PM). Employment
+# ended 2026-08-28. Dropping the key from USERS is what revokes him: login
+# rejects any user_key not in this dict, and require_login clears a leftover
+# 30-day session on the next request. init_db also deletes the hub_users row
+# so the password hash does not sit around. Do not re-add this key. Historical
+# rows he generated stay; they will render as "derek_kidney" the same way
+# retired 'admin' rows render as "Admin". His Pipeline Board pairing with
+# Rachel was removed the same day — that board is now labelled "Just Rachel"
+# (see pipeline_board.PRIMARY_PM_FOR_CONSULTANT / board_label).
 
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
 PROPOSAL_NUMBER_SEQ_DIGITS = 3
@@ -473,7 +476,6 @@ TEAM_DATES = {
     'phil_miller':    {'birthday': (3, 2),   'hire': (2, 24, 2020)},
     'trey_hollmeyer': {'birthday': (10, 3),  'hire': (5, 14, 2018)},
     'stephanie_whetstone': {'birthday': (5, 5), 'hire': (5, 7, 2017)},
-    'derek_kidney':   {'birthday': (4, 15),  'hire': (4, 26, 2021)},
     'jordan_allen':   {'birthday': (6, 26),  'hire': (9, 13, 2021)},
     'adam_cupito':    {'birthday': (6, 18),  'hire': (2, 28, 2022)},
     'ben_ramsey':     {'birthday': (8, 6),   'hire': (7, 10, 2023)},
@@ -1295,13 +1297,14 @@ def _init_db_body(conn, cur):
             )
             print(f'seeded {key} with no usable password — send them a reset link')
 
-    # Revoke the retired shared "Admin" login (removed 2026-08-21, see USERS above).
-    # Dropping it from USERS already blocks sign-in — the login route rejects any
-    # user_key not in USERS — but the hub_users row would otherwise keep a working
-    # password hash for a known credential. Idempotent; a no-op once the row is gone.
+    # Revoke retired logins (shared Admin 2026-08-21; Derek Kidney 2026-08-28).
+    # Dropping a key from USERS already blocks sign-in — the login route rejects
+    # any user_key not in USERS — but the hub_users row would otherwise keep a
+    # working password hash. Idempotent; a no-op once the row is gone.
     db_ddl.optional_step(
-        cur, "DELETE FROM hub_users WHERE user_key = 'admin'",
-        label='retired admin login cleanup')
+        cur,
+        "DELETE FROM hub_users WHERE user_key IN ('admin', 'derek_kidney')",
+        label='retired login cleanup')
 
     # Backfill last_login from tool activity where logs are more recent.
     # optional_step, not try/except: this reads four log tables, and on a

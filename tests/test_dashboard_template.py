@@ -120,6 +120,43 @@ def test_it_renders_at_all(full):
     assert '<title>PPS Hub · Dashboard</title>' in full
 
 
+def test_unpaired_pipeline_card_says_just_rachel():
+    """Rachel's board after Derek left. A leftover '/ PM' or raw key would
+    show on every dashboard that lists boards."""
+    env = _env()
+    html = env.get_template('dashboard.html').render(**_ctx(
+        user_role='consultant',
+        pipeline_boards=[{
+            'key': 'rachel_farler',
+            'consultant_display': 'Rachel Farler',
+            'pm_display': '',
+            'board_label': 'Just Rachel',
+        }],
+    ))
+    assert 'Just Rachel' in html
+    assert 'Derek' not in html
+    assert 'Rachel Farler /' not in html
+    # Owner dashboard lists every board in the Admin lane, which is itself
+    # gated on pricing_summary. Same label has to survive that path too.
+    owner = env.get_template('dashboard.html').render(**_ctx(
+        user_role='admin', real_is_admin=True, admin_lane_open=True,
+        can_edit_pricing=True,
+        pricing_summary={
+            'is_custom': True, 'updated_label': 'Aug 28, 2026',
+            'siding_labor': 45, 'roofing_labor': 80,
+            'gutter_lf': 12, 'painting_hour': 55,
+        },
+        pipeline_boards=[{
+            'key': 'rachel_farler',
+            'consultant_display': 'Rachel Farler',
+            'pm_display': '',
+            'board_label': 'Just Rachel',
+        }],
+    ))
+    assert 'Pipeline Board — Just Rachel' in owner
+    assert 'Rachel Farler /' not in owner
+
+
 def test_pricing_defaults_card_is_for_leadership_not_the_admin_lane():
     """Tony / Trey / Stephanie get the card next to Estimating. The Admin
     lane stays owner-only so a pricing_summary does not drag feedback/diffs

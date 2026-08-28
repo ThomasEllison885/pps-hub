@@ -356,6 +356,17 @@ def test_matching_the_board_name_is_case_and_space_insensitive():
         '/pipeline-board?pair=adam_cupito'
 
 
+def test_just_rachel_matches_the_unpaired_board_label():
+    boards = [
+        {'key': 'andy_potts', 'consultant_display': 'Andy Potts',
+         'pm_display': 'Ben Ramsey', 'board_label': 'Andy Potts / Ben Ramsey'},
+        {'key': 'rachel_farler', 'consultant_display': 'Rachel Farler',
+         'pm_display': '', 'board_label': 'Just Rachel'},
+    ]
+    assert ds.pipeline_url_for('Just Rachel', boards, 'andy_potts') == \
+        '/pipeline-board?pair=rachel_farler'
+
+
 def test_no_history_falls_back_to_your_default_board():
     assert ds.pipeline_url_for(None, BOARDS, 'andy_potts') == \
         '/pipeline-board?pair=andy_potts'

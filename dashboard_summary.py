@@ -477,7 +477,11 @@ def pipeline_url_for(last_opened_title, boards, default_pair_key=None):
     title = (last_opened_title or '').strip().lower()
     if title:
         for b in boards:
-            if (b.get('consultant_display') or '').strip().lower() == title:
+            names = (
+                (b.get('consultant_display') or '').strip().lower(),
+                (b.get('board_label') or '').strip().lower(),
+            )
+            if title in names:
                 return f"/pipeline-board?pair={b['key']}"
     key = default_pair_key or boards[0].get('key')
     return f'/pipeline-board?pair={key}' if key else None

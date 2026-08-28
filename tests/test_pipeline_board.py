@@ -238,7 +238,6 @@ _USERS = {
     'andy_potts': {'display': 'Andy Potts', 'role': 'consultant', 'tier': 'team'},
     'ben_ramsey': {'display': 'Ben Ramsey', 'role': 'pm', 'tier': 'team'},
     'rachel_farler': {'display': 'Rachel Farler', 'role': 'consultant', 'tier': 'team'},
-    'derek_kidney': {'display': 'Derek Kidney', 'role': 'pm', 'tier': 'team'},
     'adam_cupito': {'display': 'Adam Cupito', 'role': 'consultant', 'tier': 'team'},
     'james_boling': {'display': 'James Boling', 'role': 'pm', 'tier': 'team'},
     'jordan_allen': {'display': 'Jordan Allen', 'role': 'pm', 'tier': 'team'},
@@ -261,7 +260,6 @@ def test_get_pair_key_consultant_uses_own_key():
 
 def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'ben_ramsey') == 'andy_potts'
-    assert pb.get_pair_key(_USERS, 'derek_kidney') == 'rachel_farler'
     assert pb.get_pair_key(_USERS, 'jordan_allen') == 'adam_cupito'
     assert pb.get_pair_key(_USERS, 'nick_triplett') == 'tony_cumella'
 
@@ -305,15 +303,14 @@ def test_can_access_board_owner_and_named_roster():
     assert pb.can_access_board(_USERS, 'andy_potts', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'ben_ramsey', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'nick_triplett', 'tony_cumella') is True
-    assert pb.can_access_board(_USERS, 'derek_kidney', 'rachel_farler') is True
+    assert pb.can_access_board(_USERS, 'rachel_farler', 'rachel_farler') is True
 
 
 def test_can_access_board_still_fails_closed_on_bad_input():
     """Open to everyone means everyone who works here — not anyone at all."""
     # Not a real board.
-    assert pb.can_access_board(_USERS, 'derek_kidney', 'phil_miller') is False
-    assert pb.can_access_board(_USERS, 'derek_kidney', 'nobody_at_all') is False
-    assert pb.can_access_board(_USERS, 'derek_kidney', '') is False
+    assert pb.can_access_board(_USERS, 'phil_miller', 'nobody_at_all') is False
+    assert pb.can_access_board(_USERS, 'phil_miller', '') is False
     # Not on the roster — this is what makes removing someone from USERS
     # actually revoke their boards.
     assert pb.can_access_board(_USERS, 'former_employee', 'andy_potts') is False
@@ -354,8 +351,47 @@ def test_list_accessible_boards_labels_the_working_pair():
     """Assignment survives as a label even though it gates nothing."""
     boards = {b['key']: b for b in pb.list_accessible_boards(_USERS, 'phil_miller')}
     assert boards['andy_potts']['pm_display'] == 'Ben Ramsey'
-    assert boards['rachel_farler']['pm_display'] == 'Derek Kidney'
     assert boards['andy_potts']['consultant_display'] == 'Andy Potts'
+    assert boards['andy_potts']['board_label'] == 'Andy Potts / Ben Ramsey'
+    assert boards['rachel_farler']['pm_display'] == ''
+    assert boards['rachel_farler']['board_label'] == 'Just Rachel'
+
+
+def test_derek_kidney_is_gone_from_the_live_roster_source():
+    """The pipeline _USERS mirror can drift from app.py. This reads the
+    source: a USERS / TEAM_DATES entry is `'derek_kidney': {`. Comments and
+    the init_db DELETE name the key without that shape, so they still pass.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    body = open(os.path.join(root, 'app.py')).read()
+    assert "'derek_kidney': {" not in body
+    assert "derek_kidney" in body, 'the cleanup DELETE should still name him'
+    assert "DELETE FROM hub_users WHERE user_key IN ('admin', 'derek_kidney')" in body
+
+
+def test_retired_derek_kidney_has_no_boards():
+    """Derek Kidney was removed from USERS 2026-08-28.
+
+    Same shape as the retired shared-admin test: absence from the roster is
+    what revokes him. Re-adding 'derek_kidney' to _USERS (or to app.USERS)
+    makes this fail, and that failure is the point.
+    """
+    assert 'derek_kidney' not in _USERS
+    assert pb.get_pair_key(_USERS, 'derek_kidney') is None
+    assert pb.list_accessible_boards(_USERS, 'derek_kidney') == []
+    for ck in pb.BOARD_CONSULTANTS:
+        assert pb.can_access_board(_USERS, 'derek_kidney', ck) is False, ck
+
+
+def test_unpaired_board_is_just_first_name():
+    """Rachel has no PM after Derek left. The board is hers, labelled Just Rachel.
+
+    Do not fall back to 'PM' or to a leftover user_key — both would show in
+    the header and the dashboard cards.
+    """
+    assert 'rachel_farler' not in pb.PRIMARY_PM_FOR_CONSULTANT
+    assert pb.board_label(_USERS, 'rachel_farler') == 'Just Rachel'
+    assert pb.board_label(_USERS, 'andy_potts') == 'Andy Potts / Ben Ramsey'
 
 
 # --- Client contact last-used (Rachel 2026-08: client's manager, not PPS PM)
@@ -389,7 +425,7 @@ def test_last_used_client_contact_skips_empty_and_the_row_being_edited():
 
 def test_last_used_client_contact_is_the_client_not_a_pps_pm():
     # Guard: this helper only reads client_contact. A PPS PM name on the
-    # board title must not leak in just because the pair is Rachel/Derek.
+    # board title must not leak in just because the board used to be Rachel/Derek.
     entries = [
         {'id': 1, 'property_name': 'Sugar Glenn', 'client_contact': 'Lisa',
          'updated_at': '2026-08-01T00:00:00'},
