@@ -130,10 +130,11 @@ def test_unpaired_pipeline_card_says_just_rachel():
             'key': 'rachel_farler',
             'consultant_display': 'Rachel Farler',
             'pm_display': '',
-            'board_label': 'Just Rachel',
+            'board_label': 'Rachel',
         }],
     ))
-    assert 'Just Rachel' in html
+    assert 'Rachel — live shared' in html
+    assert 'Just Rachel' not in html
     assert 'Derek' not in html
     assert 'Rachel Farler /' not in html
     # Owner dashboard lists every board in the Admin lane, which is itself
@@ -150,10 +151,11 @@ def test_unpaired_pipeline_card_says_just_rachel():
             'key': 'rachel_farler',
             'consultant_display': 'Rachel Farler',
             'pm_display': '',
-            'board_label': 'Just Rachel',
+            'board_label': 'Rachel',
         }],
     ))
-    assert 'Pipeline Board — Just Rachel' in owner
+    assert 'Pipeline Board — Rachel' in owner
+    assert 'Just Rachel' not in owner
     assert 'Rachel Farler /' not in owner
 
 

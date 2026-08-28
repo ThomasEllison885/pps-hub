@@ -301,7 +301,7 @@ USERS = {
 # so the password hash does not sit around. Do not re-add this key. Historical
 # rows he generated stay; they will render as "derek_kidney" the same way
 # retired 'admin' rows render as "Admin". His Pipeline Board pairing with
-# Rachel was removed the same day — that board is now labelled "Just Rachel"
+# Rachel was removed the same day — that board is now labelled "Rachel"
 # (see pipeline_board.PRIMARY_PM_FOR_CONSULTANT / board_label).
 
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)

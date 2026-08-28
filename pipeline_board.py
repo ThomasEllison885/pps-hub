@@ -57,7 +57,7 @@ PRIMARY_PM_FOR_CONSULTANT = {
     'adam_cupito': 'jordan_allen',
     'tony_cumella': 'nick_triplett',
     # rachel_farler has no PM as of 2026-08-28 (Derek Kidney offboarded).
-    # The board stays; board_label() renders it "Just Rachel". Do not point
+    # The board stays; board_label() renders it "Rachel". Do not point
     # this at a departed user_key — _display would print the raw key in the
     # header. Leave the consultant out of this dict until a new pair is named.
 }
@@ -358,14 +358,14 @@ def board_label(users, consultant_key):
     """Public name of a board.
 
     Paired boards keep 'Consultant / PM'. A consultant with no working PM
-    (Rachel, 2026-08-28) is 'Just {first name}' — Thomas's wording, not a
-    generic 'Consultant / PM' leftover that would print a blank or a raw key.
+    (Rachel, 2026-08-28) is the first name only — Thomas: label it "Rachel",
+    not "Just Rachel" and not a leftover '/ PM' or raw user_key.
     """
     c_display = _display(users, consultant_key)
     pm_key = PRIMARY_PM_FOR_CONSULTANT.get(consultant_key)
     if not pm_key:
         first = (c_display or '').split()[0]
-        return f'Just {first}' if first else (c_display or consultant_key)
+        return first or c_display or consultant_key
     return f'{c_display} / {_display(users, pm_key)}'
 
 

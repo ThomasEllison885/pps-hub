@@ -354,7 +354,7 @@ def test_list_accessible_boards_labels_the_working_pair():
     assert boards['andy_potts']['consultant_display'] == 'Andy Potts'
     assert boards['andy_potts']['board_label'] == 'Andy Potts / Ben Ramsey'
     assert boards['rachel_farler']['pm_display'] == ''
-    assert boards['rachel_farler']['board_label'] == 'Just Rachel'
+    assert boards['rachel_farler']['board_label'] == 'Rachel'
 
 
 def test_derek_kidney_is_gone_from_the_live_roster_source():
@@ -384,13 +384,13 @@ def test_retired_derek_kidney_has_no_boards():
 
 
 def test_unpaired_board_is_just_first_name():
-    """Rachel has no PM after Derek left. The board is hers, labelled Just Rachel.
+    """Rachel has no PM after Derek left. The board is hers, labelled Rachel.
 
-    Do not fall back to 'PM' or to a leftover user_key — both would show in
-    the header and the dashboard cards.
+    Do not fall back to 'Just Rachel', 'PM', or a leftover user_key — those
+    would show in the header and the dashboard cards.
     """
     assert 'rachel_farler' not in pb.PRIMARY_PM_FOR_CONSULTANT
-    assert pb.board_label(_USERS, 'rachel_farler') == 'Just Rachel'
+    assert pb.board_label(_USERS, 'rachel_farler') == 'Rachel'
     assert pb.board_label(_USERS, 'andy_potts') == 'Andy Potts / Ben Ramsey'
 
 
