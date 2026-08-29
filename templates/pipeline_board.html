@@ -31,8 +31,16 @@
      headings with it 40 rows down (Rachel, 2026-08). */
   .table-scroll {
     overflow: auto;
+    /* Fallback only. The real height is measured in JS (sizeScroller) — the
+       hardcoded 220px was too small once the board switcher and the install
+       hint were both on the page, which left the PAGE scrolling as well as
+       the table. Two nested scrollers is most of what "glitchy" meant: the
+       wheel moves the table, then hands over to the page mid-gesture and the
+       whole layout shifts under you. */
     max-height: calc(100dvh - 220px);
     -webkit-overflow-scrolling: touch;
+    /* Don't hand a wheel gesture on to the page when the table runs out. */
+    overscroll-behavior: contain;
   }
   table { width:100%; border-collapse:collapse; min-width:1100px; table-layout:fixed; }
   th {
@@ -621,6 +629,11 @@ function setBoardQuery(value) {
 
 function renderAll() {
   const body = document.getElementById('board-body');
+  // Rebuilding the whole tbody can drop you back to the top of the board.
+  // That happens when someone else archives a row while you are reading row
+  // 40, which is not a thing you did and not a place you asked to be.
+  const scroller = document.querySelector('.table-scroll');
+  const keepScroll = scroller ? scroller.scrollTop : 0;
   body.innerHTML = '';
   if (!entries.length) {
     body.innerHTML = `<tr><td colspan="11"><div class="empty-state">No rows yet — click "+ Add row" to start tracking a proposal.</div></td></tr>`;
@@ -629,6 +642,12 @@ function renderAll() {
   }
   wireCellEvents();
   applyFilter();
+  if (scroller && keepScroll) {
+    scroller.scrollTop = Math.min(keepScroll, scroller.scrollHeight);
+  }
+  // Re-measure once the real rows are in. The first sizing runs before any
+  // row exists, and web fonts land after that again.
+  if (typeof sizeScrollerSoon === 'function') sizeScrollerSoon();
 }
 
 function patchEntryInPlace(entry) {
@@ -638,22 +657,41 @@ function patchEntryInPlace(entry) {
   const old = document.getElementById(`row-${entry.id}`);
   const fresh = renderRow(entry);
   if (old) { old.replaceWith(fresh); } else { document.getElementById('board-body').appendChild(fresh); }
-  wireCellEvents();
+  wireCellEvents(fresh);
   // renderRow builds a clean <tr>, so the filter class is gone. Without this
   // an edited or polled row reappears mid-search — and an edit that makes a
   // row stop matching should hide it, which is also what people expect.
   applyFilter();
 }
 
-function autoGrow(el) {
+function autoGrowAll(els) {
   // Height 0 first — `auto` still honors min-height, so extra blank lines
   // never shrank (Rachel: "can't delete a blank line").
-  el.style.height = '0px';
-  el.style.height = el.scrollHeight + 'px';
+  //
+  // The order matters for speed. Writing a height and then reading
+  // scrollHeight forces the browser to lay the page out again, so doing that
+  // in a loop over 120 textareas cost 128ms of blocked main thread — measured
+  // on a 60-row board, and it ran on every poll. Writing every height first,
+  // then reading them all, then writing the results costs one layout instead
+  // of one per textarea.
+  const list = Array.from(els);
+  if (!list.length) return;
+  list.forEach(el => { el.style.height = '0px'; });
+  const heights = list.map(el => el.scrollHeight);
+  list.forEach((el, i) => { el.style.height = heights[i] + 'px'; });
 }
 
-function wireCellEvents() {
-  document.querySelectorAll('#board-body input, #board-body select, #board-body textarea').forEach(el => {
+function autoGrow(el) { autoGrowAll([el]); }
+
+function wireCellEvents(root) {
+  // `root` is the one row that changed. Without it this re-wired every cell
+  // on the board and re-measured every textarea — 137ms of blocked main
+  // thread per patched row on a 60-row board, fired by the 3s poll whenever
+  // anyone edited anything. That stall, landing mid-scroll, is what read as
+  // the board being glitchy. Re-rendering one row now costs about 2ms.
+  const scope = root || document.getElementById('board-body');
+  if (!scope) return;
+  scope.querySelectorAll('input, select, textarea').forEach(el => {
     el.oninput = null; el.onchange = null; el.onfocus = null; el.onblur = null;
     el.onkeydown = null;
     if (el.tagName === 'SELECT') {
@@ -677,16 +715,18 @@ function wireCellEvents() {
       };
     }
     if (el.tagName === 'TEXTAREA') {
-      autoGrow(el);  // fit existing content immediately, not just after typing
       el.oninput = () => autoGrow(el);
     } else if (el.getAttribute('data-field') === 'client_contact') {
       el.oninput = () => showClientSuggest(el);
       el.onkeydown = (ev) => handleSuggestKey(ev, el);
     }
   });
-  document.querySelectorAll('[data-archive]').forEach(btn => {
+  scope.querySelectorAll('[data-archive]').forEach(btn => {
     btn.onclick = () => archiveRow(btn.getAttribute('data-archive'));
   });
+  // Sizing every textarea in one pass, after the handlers are on, so the
+  // existing content fits without waiting for someone to type in it.
+  autoGrowAll(scope.querySelectorAll('textarea'));
 }
 
 function saveField(el, extraFields, after) {
@@ -1044,7 +1084,72 @@ initColumnResize();
   document.getElementById('install-hint-dismiss').onclick = () => {
     localStorage.setItem(DISMISS_KEY, '1');
     hint.style.display = 'none';
+    // The table can have that height back — otherwise dismissing the hint
+    // leaves a 40px strip of page scrolling under the board.
+    if (typeof sizeScroller === 'function') sizeScroller();
   };
+})();
+
+// --- Scrolling ------------------------------------------------------------
+//
+// Thomas, 2026-08-29: "The scroll on the Pipeline is weird. Glitchy. Also when
+// I click on the sub pay or amount and I try to scroll up or down it causes
+// the numbers to go up or down."
+//
+// Two separate things, both fixed here; the third (a 137ms stall on every
+// poll) is in wireCellEvents above.
+
+function sizeScroller() {
+  // Measure rather than guess. The CSS subtracted a fixed 220px for
+  // everything above and below the table, which was wrong whenever the board
+  // switcher wrapped or the install hint was showing — the page then scrolled
+  // 93px of its own on top of the table's scrolling. Nested scrollers are why
+  // the wheel felt like it was fighting you.
+  const s = document.querySelector('.table-scroll');
+  if (!s) return;
+  const toolbar = document.querySelector('.toolbar');
+  const top = s.getBoundingClientRect().top + window.scrollY;
+  const below = (toolbar ? toolbar.offsetHeight : 0) + 40;  // toolbar + page padding
+  const h = Math.max(240, Math.round(window.innerHeight - top - below));
+  s.style.maxHeight = h + 'px';
+  // Then check the answer instead of trusting the arithmetic. Borders, the
+  // card's shadow and sub-pixel rounding left ~11px of page still scrolling,
+  // which is enough to feel like the board slips when you reach the end.
+  const over = document.documentElement.scrollHeight
+             - document.documentElement.clientHeight;
+  if (over > 0) {
+    s.style.maxHeight = Math.max(240, h - over) + 'px';
+  }
+}
+
+let sizeTimer = null;
+function sizeScrollerSoon() {
+  // Debounced: on a phone, hiding the URL bar fires resize continuously, and
+  // resizing the scroller on every one of those events is its own jitter.
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(sizeScroller, 120);
+}
+window.addEventListener('resize', sizeScrollerSoon);
+window.addEventListener('load', sizeScrollerSoon);   // after web fonts settle
+sizeScroller();
+
+// A focused <input type="number"> in Chrome and Safari treats the wheel as
+// increment/decrement, so scrolling with the cursor over Amount or Sub Pay
+// silently edits the money instead of moving the board. Preventing the
+// default stops that; forwarding the delta to the scroller keeps the gesture
+// doing what the user meant, rather than leaving a dead patch over every
+// number cell.
+(function stopWheelEditingNumbers() {
+  const scroller = document.querySelector('.table-scroll');
+  if (!scroller) return;
+  scroller.addEventListener('wheel', (ev) => {
+    const el = ev.target;
+    if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+    ev.preventDefault();
+    // deltaMode 1 is lines, 2 is pages; normalise to something like pixels.
+    const step = ev.deltaMode === 1 ? 16 : (ev.deltaMode === 2 ? scroller.clientHeight : 1);
+    scroller.scrollTop += ev.deltaY * step;
+  }, { passive: false });
 })();
 
 // --- Polling: no Socket.IO, no special worker class, needs nothing from
