@@ -1,0 +1,44 @@
+#!/bin/sh
+# Refuse a source commit that does not update the working notes.
+#
+# Thomas, 2026-08-30: "Can you make it to where you and grok update it
+# everytime?" A line in the file asking nicely is what we had, and three
+# commits went unrecorded for two days. This is the same rule with teeth.
+#
+# Passes when: nothing source-like is staged (docs, config, a tests-only
+# tweak), or CLAUDE.md is staged alongside the code.
+#
+# The escape hatch is `git commit --no-verify`, for a typo or a revert where
+# there is genuinely nothing to say. Deliberate, not habitual.
+
+notes='CLAUDE.md'
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# Source the other agent would need briefing on. Tests are excluded: a commit
+# that only adjusts a test is usually not news, and blocking it trains people
+# to reach for --no-verify, which is how a hook stops working.
+source_changed=$(printf '%s\n' "$staged" \
+  | grep -E '\.(py|html|js|css)$' \
+  | grep -v '^tests/' \
+  | grep -v '^hooks/' || true)
+
+[ -z "$source_changed" ] && exit 0
+
+printf '%s\n' "$staged" | grep -qx "$notes" && exit 0
+
+cat >&2 <<MSG
+
+  ✗ $notes is not staged, and this commit changes source.
+
+    $(printf '%s\n' "$source_changed" | head -5 | sed 's/^/    /')
+$(test "$(printf '%s\n' "$source_changed" | wc -l)" -gt 5 && echo "    …and more")
+
+  Add an entry to Active threads — what you changed, and why the next reader
+  would not guess it — then:
+
+      git add $notes
+
+  Nothing worth saying (a typo, a revert)?  git commit --no-verify
+
+MSG
+exit 1
