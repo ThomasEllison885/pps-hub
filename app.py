@@ -1303,25 +1303,61 @@ def _init_db_body(conn, cur):
         "DELETE FROM hub_users WHERE user_key IN ('admin', 'derek_kidney')",
         label='retired login cleanup')
 
+    # Rewrite historical short consultant keys to roster keys, once.
+    #
+    # `/log-proposal` has written resolved keys since 093244f (2026-08-29), so
+    # this is about everything logged BEFORE that: months of proposals filed
+    # under 'rachel' rather than 'rachel_farler' because the tool was opened
+    # from a bookmark and had no SSO session to name the author.
+    #
+    # Every reader now resolves aliases, so this migration is not what makes
+    # the Hub correct — it is what stops five separate read sites having to
+    # stay correct forever. A sixth reader written next month gets the right
+    # answer from the raw column, and the two that resolve inside SQL (the
+    # backfill below, and any future join) stop needing to.
+    #
+    # Safe to run on every boot: after the first pass the WHERE matches nothing.
+    # Exact matches only — `sql_resolve` translates the five known short forms
+    # and leaves everything else, including 'unknown' and departed staff, alone.
+    # Tables are taken from weekly_recap.SCORED_SOURCES so a new deliverable
+    # log cannot be added to the Hub and quietly skipped here; each is its own
+    # optional_step because several are created lazily and genuinely may not
+    # exist yet.
+    for _kind, _label, _table, _user_col, _ts_col in weekly_recap.SCORED_SOURCES:
+        db_ddl.optional_step(
+            cur,
+            f'UPDATE {_table} SET {_user_col} = '
+            f'{user_aliases.sql_resolve(_user_col)} '
+            f'WHERE {_user_col} IN {user_aliases.sql_alias_in_list()}',
+            label=f'normalise {_table}.{_user_col}')
+
     # Backfill last_login from tool activity where logs are more recent.
     # optional_step, not try/except: this reads four log tables, and on a
     # database where any of them does not exist yet the failure would abort
     # the transaction and make the commit below silently roll back every
     # table init_db had just created.
-    db_ddl.optional_step(cur, '''
+    #
+    # The inner SELECTs resolve aliases rather than reading `generated_by` raw.
+    # The migration above has usually already done this in place, but the two
+    # are deliberately independent: `optional_step` swallows a failure by
+    # design, so a migration that could not run on one table must not silently
+    # take the backfill down with it. Both derive their translation from
+    # `user_aliases`, so neither can drift from the Python.
+    _by = user_aliases.sql_resolve('generated_by')
+    db_ddl.optional_step(cur, f'''
             UPDATE hub_users u
             SET last_login = activity.last_seen
             FROM (
                 SELECT user_key, MAX(last_seen) AS last_seen
                 FROM (
-                    SELECT generated_by AS user_key, MAX(generated_at) AS last_seen
-                    FROM proposal_log GROUP BY generated_by
+                    SELECT {_by} AS user_key, MAX(generated_at) AS last_seen
+                    FROM proposal_log GROUP BY 1
                     UNION ALL
-                    SELECT generated_by, MAX(generated_at) FROM ppm_log GROUP BY generated_by
+                    SELECT {_by}, MAX(generated_at) FROM ppm_log GROUP BY 1
                     UNION ALL
-                    SELECT generated_by, MAX(generated_at) FROM subscope_log GROUP BY generated_by
+                    SELECT {_by}, MAX(generated_at) FROM subscope_log GROUP BY 1
                     UNION ALL
-                    SELECT generated_by, MAX(generated_at) FROM site_visit_log GROUP BY generated_by
+                    SELECT {_by}, MAX(generated_at) FROM site_visit_log GROUP BY 1
                 ) combined
                 GROUP BY user_key
             ) activity
@@ -3872,7 +3908,23 @@ def login():
         )
 
 def _touch_last_active(user_key, force=False):
-    """Record user activity. force=True on explicit login; otherwise throttle to 30 min."""
+    """Record user activity. force=True on explicit login; otherwise throttle to 30 min.
+
+    **Resolves the key here rather than at the call sites, on purpose.** Four
+    of the seven callers pass `data.get('generated_by')` straight off a
+    `/log-proposal` payload, which is the short consultant key (`'rachel'`)
+    whenever the tool was reached by bookmark instead of through the Hub. The
+    UPDATE below matches `user_key` exactly, so those calls quietly updated
+    nothing: the person's work landed in the log, and the roster went on
+    saying they had not been seen. That is the half of F-03 the 2026-08-29
+    attribution fix missed.
+
+    Resolving at each call site would have fixed the four that exist today and
+    left the fifth to be written wrong. `resolve` leaves anything it does not
+    recognise untouched, so the callers that already pass a real session key —
+    login, the two admin paths — are unaffected.
+    """
+    user_key = user_aliases.resolve(user_key)
     if not user_key:
         return
     try:

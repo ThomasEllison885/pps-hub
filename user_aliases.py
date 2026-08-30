@@ -80,3 +80,56 @@ def resolve_for(key, users):
     """
     resolved = resolve(key)
     return resolved if resolved in (users or {}) else None
+
+
+# ── the same map, for SQL that cannot call resolve() ─────────────────────────
+#
+# Two places need to translate keys inside the database rather than in Python:
+# the `init_db` last_login backfill (it joins log tables against `hub_users`
+# in one statement) and the one-time normalising migration. Writing the pairs
+# out by hand in either of them would put a third and fourth copy of this map
+# in the tree, which is the exact failure this module was created to end —
+# `_CONSULTANT_KEY_ALIASES` and `CONSULTANT_KEY_MAP` disagreeing is how
+# Rachel's proposals went missing in the first place.
+#
+# The values below are code-controlled literals, never user input, but a future
+# edit adding a key with a quote in it would build broken SQL silently, so the
+# guard is here rather than in the reviewer's head.
+
+_SQL_SAFE = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
+
+
+def _sql_literal(value):
+    if not value or set(value) - _SQL_SAFE:
+        raise ValueError(
+            f'consultant alias {value!r} is not a plain identifier and cannot '
+            f'be inlined into SQL — see user_aliases._sql_literal')
+    return f"'{value}'"
+
+
+def sql_resolve(column):
+    """A CASE expression that does what `resolve` does, inside Postgres.
+
+    Unrecognised values fall through the ELSE untouched, exactly as `resolve`
+    leaves them alone. `tests/test_user_aliases_sql.py` asserts the expression
+    covers every entry in CONSULTANT_ALIASES, so adding a consultant to the map
+    cannot leave the SQL behind.
+    """
+    whens = ' '.join(
+        f'WHEN {_sql_literal(short)} THEN {_sql_literal(full)}'
+        for short, full in sorted(CONSULTANT_ALIASES.items()))
+    return f'CASE {column} {whens} ELSE {column} END'
+
+
+def sql_alias_keys():
+    """The short forms, as a tuple, for `WHERE col IN %s` parameters."""
+    return tuple(sorted(CONSULTANT_ALIASES))
+
+
+def sql_alias_in_list():
+    """`('adam', 'andy', …)` — the short forms as a literal SQL IN list.
+
+    For statements that cannot take parameters because they are built as text
+    and handed to `db_ddl.optional_step`. Same guard as `sql_resolve`.
+    """
+    return '(' + ', '.join(_sql_literal(k) for k in sorted(CONSULTANT_ALIASES)) + ')'
