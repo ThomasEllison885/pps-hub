@@ -150,13 +150,20 @@ def last_produced(get_db, users):
             try:
                 cur = conn.cursor()
                 cur.execute(
-                    f'SELECT {user_col}, MAX({ts_col}) FROM {table} '
+                    f'SELECT {user_col}, MAX({ts_col}), COUNT(*) FROM {table} '
                     f'WHERE {user_col} IS NOT NULL GROUP BY 1'
                 )
-                for user_key, ts in cur.fetchall():
+                for user_key, ts, n in cur.fetchall():
                     owner = user_aliases.resolve_for(user_key, users)
                     if not owner:
-                        unmatched[(user_key or '(blank)')] += 1
+                        # COUNT(*), not 1. Grouping by author means each key
+                        # comes back as a single row per table, so incrementing
+                        # by one counted *authors*: fifty of Derek's proposals
+                        # and one stray PPM both rendered as "1 row". The card
+                        # exists to say how much work is sitting outside the
+                        # roster, and a column that always reads 1 answers that
+                        # wrongly rather than not answering it.
+                        unmatched[(user_key or '(blank)')] += (n or 0)
                         continue
                     if ts and (owner not in out or ts > out[owner]):
                         out[owner] = ts

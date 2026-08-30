@@ -49,6 +49,7 @@ def db():
     cur = conn.cursor()
     cur.execute('DROP TABLE IF EXISTS hub_usage_events CASCADE')
     cur.execute('DROP TABLE IF EXISTS proposal_log CASCADE')
+    cur.execute('DROP TABLE IF EXISTS ppm_log CASCADE')
     conn.commit()
     cur.close()
     conn.close()
@@ -157,21 +158,55 @@ def test_people_outside_the_roster_are_reported_not_silently_dropped(db):
     and disappeared. The page now shows anything it could not attribute, so
     the next time a live person falls off the roster match it says so instead
     of reporting that they did nothing.
+
+    **The counts are rows, not distinct keys.** The first version of this test
+    inserted exactly one row per key, so it agreed with a bug it could not
+    see: `last_produced` groups by author, and counting the groups made
+    fifty of Derek's proposals and one stray PPM both render as `1`. A
+    column headed "Rows" that always shows 1 is worse than no column —
+    it tells you an unattributed key exists and then lies about how much
+    work is sitting behind it. Hence the uneven numbers below: the only
+    way this test can pass is if something counted rows.
     """
     conn = db()
     cur = conn.cursor()
     cur.execute('''CREATE TABLE proposal_log (
         id SERIAL PRIMARY KEY, generated_by VARCHAR(100),
         generated_at TIMESTAMP)''')
-    cur.execute('INSERT INTO proposal_log (generated_by, generated_at) '
-                'VALUES (%s, %s), (%s, %s)',
-                ('derek_kidney', _utcnow(), 'rachel', _utcnow()))
+    rows = [('derek_kidney', _utcnow()) for _ in range(5)]
+    rows += [('rachel', _utcnow()) for _ in range(2)]
+    cur.executemany('INSERT INTO proposal_log (generated_by, generated_at) '
+                    'VALUES (%s, %s)', rows)
     conn.commit()
     cur.close()
     conn.close()
     produced, unmatched = ha.last_produced(db, USERS)
     assert produced == {}, 'neither is on this two-person roster'
-    assert unmatched == {'derek_kidney': 1, 'rachel': 1}
+    assert unmatched == {'derek_kidney': 5, 'rachel': 2}, (
+        'the count is grouped authors, not rows of work')
+
+
+def test_unattributed_rows_are_summed_across_tables(db):
+    """One person's stray key usually shows up in more than one tool, and the
+    card is a single line per key — so the number has to accumulate rather
+    than be overwritten by whichever table happens to be read last."""
+    conn = db()
+    cur = conn.cursor()
+    for table in ('proposal_log', 'ppm_log'):
+        cur.execute(f'''CREATE TABLE {table} (
+            id SERIAL PRIMARY KEY, generated_by VARCHAR(100),
+            generated_at TIMESTAMP)''')
+    cur.executemany('INSERT INTO proposal_log (generated_by, generated_at) '
+                    'VALUES (%s, %s)',
+                    [('derek_kidney', _utcnow()) for _ in range(3)])
+    cur.executemany('INSERT INTO ppm_log (generated_by, generated_at) '
+                    'VALUES (%s, %s)',
+                    [('derek_kidney', _utcnow()) for _ in range(4)])
+    conn.commit()
+    cur.close()
+    conn.close()
+    _produced, unmatched = ha.last_produced(db, USERS)
+    assert unmatched == {'derek_kidney': 7}, 'the second table replaced the first'
 
 
 def test_a_short_consultant_key_finds_its_person(db):
