@@ -170,6 +170,7 @@ NOT_A_TIMESTAMP = {
     'office_ops.py': 'parsed_at UTC ISO stamps and date normalisation',
     'insurance_compliance.py': 'COI expiry dates and date.today() headers',
     'estimate_assignments.py': 'Monday board due dates (date objects)',
+    'hub_adoption.py': 'INSTRUMENTED_SINCE is a date constant, not a timestamp',
 }
 ALLOWED_STRFTIME = {**EASTERN_SOURCES, **NOT_A_TIMESTAMP}
 

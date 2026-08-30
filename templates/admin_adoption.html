@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Adoption</title>
+<style>
+  body { font-family:'DM Sans',sans-serif; background:#F0F6FB; color:#444; min-height:100vh; }
+  .main { max-width:1080px; margin:0 auto; padding:24px 20px 60px; }
+  .page-title { font-family:'DM Serif Display',serif; font-size:28px; color:var(--dark-blue); margin-bottom:4px; }
+  .page-sub { font-size:13px; color:#888; line-height:1.6; margin-bottom:6px; }
+
+  /* The caveat is not a footnote. Every number on this page is a number
+     about the days since instrumentation landed, and a reader who works
+     that out for themselves stops trusting the rest. */
+  .since-note {
+    background:#FFF8E7; border:1px solid #FFE0A3; border-left:3px solid #F9A825;
+    border-radius:8px; padding:10px 14px; font-size:13px; line-height:1.6;
+    color:#6b5418; margin:14px 0 22px;
+  }
+
+  .strip { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:24px; }
+  .stat {
+    background:white; border:1px solid var(--border); border-radius:10px;
+    box-shadow:var(--shadow); padding:12px 16px; min-width:132px;
+  }
+  .stat .n { font-size:22px; font-weight:700; color:var(--dark-blue); line-height:1.2; }
+  .stat .l { font-size:11px; color:#888; text-transform:uppercase; letter-spacing:0.06em; margin-top:2px; }
+
+  .card { background:white; border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); padding:18px 20px; margin-bottom:18px; }
+  .card h2 { font-size:12px; font-weight:700; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.07em; margin-bottom:4px; }
+  .card .why { font-size:13px; color:#888; line-height:1.6; margin-bottom:14px; }
+
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;
+       color:#8b9aa8; padding:0 10px 7px 0; border-bottom:1px solid var(--border); white-space:nowrap; }
+  td { padding:8px 10px 8px 0; border-bottom:1px solid #f2f6fa; font-size:13.5px; vertical-align:middle; }
+  tr:last-child td { border-bottom:none; }
+  td.num, th.num { text-align:right; padding-right:14px; font-variant-numeric:tabular-nums; }
+  td.name { font-weight:600; color:var(--dark-blue); }
+  td.dim { color:#9aa7b4; }
+
+  .chip { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px;
+          text-transform:uppercase; letter-spacing:0.05em; }
+  .chip.active  { background:#E8F5E9; color:#2E7D32; }
+  .chip.quiet   { background:#FFF3E0; color:#E65100; }
+  .chip.dormant { background:#FDECEA; color:#C62828; }
+  .chip.never   { background:#ECEFF1; color:#607D8B; }
+  .chip.tier    { background:#E3F2FD; color:#1565C0; }
+
+  .untouched-list { display:flex; flex-wrap:wrap; gap:7px; margin-top:4px; }
+  .untouched-list span {
+    background:#FDECEA; color:#C62828; border:1px solid #F5C6C0;
+    border-radius:999px; padding:3px 11px; font-size:12.5px; font-weight:600;
+  }
+  .none-note { font-size:13px; color:#2E7D32; font-weight:600; }
+  .empty { color:#aaa; font-size:13.5px; padding:10px 0; }
+
+  @media (max-width: 700px) {
+    .main { padding:18px 12px 50px; }
+    .page-title { font-size:23px; }
+    .card { padding:14px 14px; }
+    /* Let a wide table scroll inside its card rather than the page. */
+    .scroller { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .scroller table { min-width:520px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Adoption</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/team-view" class="pps-btn-header">Team View</a>
+    {% if is_admin %}<a href="/admin" class="pps-btn-header">Admin</a>{% endif %}
+    <a href="/dashboard" class="pps-btn-header primary">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Who is actually using the Hub</div>
+  <p class="page-sub">
+    Opens, actions and finished work — kept apart on purpose. Opening a page is not doing the work,
+    which is why the Monday recap ignores opens entirely.
+  </p>
+
+  <div class="since-note">
+    Every figure below covers <strong>{{ days_of_data }} day{{ '' if days_of_data == 1 else 's' }}</strong>,
+    starting {{ since_label }} — the day the Hub began recording all {{ features|length }} tools.
+    Before that only three of them recorded anything, so “nobody has opened this” means
+    <em>nobody since {{ since_label }}</em>, not ever.
+  </div>
+
+  <div class="strip">
+    <div class="stat"><div class="n">{{ events }}</div><div class="l">Events</div></div>
+    <div class="stat"><div class="n">{{ people|rejectattr('state', 'equalto', 'never')|list|length }}<span style="font-size:14px;color:#aaa;">/{{ people|length }}</span></div><div class="l">People seen</div></div>
+    <div class="stat"><div class="n">{{ features|length - untouched|length }}<span style="font-size:14px;color:#aaa;">/{{ features|length }}</span></div><div class="l">Tools opened</div></div>
+    <div class="stat"><div class="n">{{ guide.read_count }}<span style="font-size:14px;color:#aaa;">/{{ guide.roster }}</span></div><div class="l">Read the guide</div></div>
+  </div>
+
+  <!-- 1 ─ direction ------------------------------------------------------ -->
+  <div class="card">
+    <h2>Week by week</h2>
+    <p class="why">Whether it is going up. Weeks start Monday morning Eastern, the same window the recap email uses.</p>
+    <table>
+      <thead><tr>
+        <th>Week of</th><th class="num">People</th><th class="num">Opens</th><th class="num">Actions</th>
+      </tr></thead>
+      <tbody>
+        {% for w in weeks %}
+        <tr>
+          <td class="name">{{ w.label }}{% if w.partial %} <span class="chip never">so far</span>{% endif %}</td>
+          <td class="num">{{ w.people }}</td>
+          <td class="num">{{ w.opens }}</td>
+          <td class="num">{{ w.actions }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 2 ─ the tools nobody opens ------------------------------------------ -->
+  <div class="card">
+    <h2>Tools nobody has opened</h2>
+    <p class="why">
+      A tool nobody opens is either undiscoverable or unwanted, and those need opposite fixes.
+      Worth asking one person about each before assuming which.
+    </p>
+    {% if untouched %}
+    <div class="untouched-list">
+      {% for f in untouched %}<span>{{ f.label }}</span>{% endfor %}
+    </div>
+    {% else %}
+    <p class="none-note">Every tool has been opened at least once.</p>
+    {% endif %}
+  </div>
+
+  <!-- 3 ─ every tool ------------------------------------------------------ -->
+  <div class="card">
+    <h2>Every tool</h2>
+    <p class="why">Ranked by how many different people opened it — a tool one person opens forty times is not adopted.</p>
+    <div class="scroller">
+    <table>
+      <thead><tr>
+        <th>Tool</th><th class="num">People</th><th class="num">Opens</th><th class="num">Actions</th><th>Last used</th>
+      </tr></thead>
+      <tbody>
+        {% for f in features %}
+        <tr>
+          <td class="name">{{ f.label }}</td>
+          <td class="num{% if not f.people %} dim{% endif %}">{{ f.people }}</td>
+          <td class="num{% if not f.opens %} dim{% endif %}">{{ f.opens }}</td>
+          <td class="num{% if not f.actions %} dim{% endif %}">{{ f.actions }}</td>
+          <td class="{% if not f.last_used %}dim{% endif %}">{{ f.last_used | et_at if f.last_used else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- 4 ─ people ---------------------------------------------------------- -->
+  <div class="card">
+    <h2>Everyone, quietest first</h2>
+    <p class="why">
+      Two different columns on purpose. Someone who produces steadily through the proposal tool but rarely
+      browses the Hub is not the same as someone who has stopped — one number for both would read them the same.
+      Quiet is {{ quiet_days }}+ days with neither; dormant is {{ dormant_days }}+.
+    </p>
+    <div class="scroller">
+    <table>
+      <thead><tr>
+        <th>Person</th><th></th><th class="num">Opens</th><th class="num">Actions</th>
+        <th class="num">Tools</th><th>Last opened</th><th>Last produced</th>
+      </tr></thead>
+      <tbody>
+        {% for p in people %}
+        <tr>
+          <td class="name">{{ p.display }}<div style="font-size:11px;color:#9aa7b4;font-weight:400;">{{ p.role|replace('_',' ')|title }}</div></td>
+          <td><span class="chip {{ p.state }}">{{ p.ago }}{% if p.state in ('quiet', 'dormant') %} · {{ p.state }}{% endif %}</span></td>
+          <td class="num{% if not p.opens %} dim{% endif %}">{{ p.opens }}</td>
+          <td class="num{% if not p.actions %} dim{% endif %}">{{ p.actions }}</td>
+          <td class="num{% if not p.features %} dim{% endif %}">{{ p.features }}</td>
+          <td class="{% if not p.last_open %}dim{% endif %}">{{ p.last_open | et_at if p.last_open else '—' }}</td>
+          <td class="{% if not p.last_produced %}dim{% endif %}">{{ p.last_produced | et_at if p.last_produced else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <!-- 5 ─ the guide -------------------------------------------------------- -->
+  <div class="card">
+    <h2>The field guide</h2>
+    <p class="why">
+      {{ guide.read_count }} of {{ guide.roster }} have opened it since it shipped.
+      No before-and-after here on purpose: it went out alongside four other changes to a team of
+      {{ guide.roster }}, so any “readers did more” figure would be a coincidence wearing a finding’s clothes.
+      Who has not opened it is useful on its own — those are the people to hand it to directly.
+    </p>
+    {% if guide.missing %}
+    <div class="untouched-list">
+      {% for m in guide.missing %}<span>{{ m.display }}</span>{% endfor %}
+    </div>
+    {% else %}
+    <p class="none-note">Everyone has opened it.</p>
+    {% endif %}
+  </div>
+
+  <p class="page-sub" style="margin-top:18px;">
+    Recorded by <code>hub_usage.record_usage</code>. A page that is not instrumented cannot appear here —
+    if a tool is missing from the list above, it is missing a <code>@logs_open</code>, not unused.
+  </p>
+</div>
+
+<script src="/static/pps-pwa.js"></script>
+</body>
+</html>

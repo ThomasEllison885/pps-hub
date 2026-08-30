@@ -21,6 +21,7 @@ import dashboard_summary
 import hub_guide
 import db_pool
 import db_ddl
+import hub_adoption
 import hub_time
 import hub_usage
 from admin_feed import merge_activity
@@ -5517,6 +5518,36 @@ def api_training_publish():
                     'cache_seconds': training_overlay.CACHE_TTL_SECONDS})
 
 
+@app.route('/admin/adoption')
+@require_login
+@logs_open('adoption')
+def admin_adoption():
+    """Who is actually using the Hub. Leadership and up (2026-08-29).
+
+    The payoff for F-03: usage events have been recording since 2026-08-26 and
+    nothing read them company-wide, so "did the field guide land" and "which
+    of these twenty tools has nobody opened" were unanswerable.
+
+    Leadership rather than owner-only because Tony, Trey and Stephanie manage
+    the people this shows, and it is the same tier as Office Ops and the
+    training oversight pages. Not company-wide: the weekly recap already gives
+    everyone a ranked board, and "who has not opened anything in three weeks"
+    is a conversation to have with someone, not to publish at them.
+
+    Under /admin/ for the same reason as pricing defaults — that is where the
+    other leadership tools already live.
+    """
+    user_key = session['user_key']
+    if not is_leadership(user_key):
+        return redirect(url_for('dashboard'))
+    return render_template(
+        'admin_adoption.html',
+        user_display=(USERS.get(user_key) or {}).get('display', user_key),
+        is_admin=is_owner(user_key),
+        **hub_adoption.build(get_db, USERS),
+    )
+
+
 @app.route('/admin/pricing-defaults', methods=['GET', 'POST'])
 @require_login
 @logs_open('pricing_defaults')
@@ -7187,6 +7218,9 @@ def team_view():
         rolling_weeks=weekly_recap.ROLLING_WEEKS,
         row_cap=TEAM_VIEW_ROW_CAP,
         is_admin=session.get('role') == 'admin',
+        # Team View is the page about who did what, so it is where leadership
+        # will look for the adoption view rather than hunting the Admin menu.
+        can_see_adoption=is_leadership(user_key),
         proposal_url=os.environ.get('PROPOSAL_URL', 'https://pps-proposal-tool.onrender.com'),
     )
 

@@ -366,6 +366,20 @@ SECTIONS = [
         ],
     ),
     dict(
+        id='adoption', title='Adoption', access=LEADERSHIP,
+        lane='Leadership only',
+        body=[
+            ('p', 'Team View → Adoption, or the Admin menu. Who has opened '
+                  'what, which tools nobody has opened at all, and who has '
+                  'gone quiet. Opens, actions and finished work are three '
+                  'separate columns on purpose — opening a page is not doing '
+                  'the work, which is why the Monday recap ignores opens.'),
+            ('note', 'It only knows what has happened since the Hub started '
+                     'recording every tool. The page says the date at the top; '
+                     'read “nobody has opened this” as “nobody since then”.'),
+        ],
+    ),
+    dict(
         id='training-editor', title='Training oversight and editor',
         access=LEADERSHIP, lane='Leadership only',
         body=[

@@ -90,6 +90,7 @@
     <span class="pps-header-title">Team View</span>
   </a>
   <div class="pps-header-right">
+    {% if can_see_adoption %}<a href="/admin/adoption" class="pps-btn-header">Adoption</a>{% endif %}
     <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
   </div>
 </header>

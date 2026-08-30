@@ -49,6 +49,8 @@ FEATURE_LABELS = {
     'guide': 'Field Guide',
     # 2026-08-27 — opened to leadership, so who opens it is worth knowing
     'pricing_defaults': 'Estimating Defaults',
+    # 2026-08-29 — the adoption view reads this table and appears in it
+    'adoption': 'Adoption',
 }
 
 KNOWN_FEATURES = frozenset(FEATURE_LABELS)
