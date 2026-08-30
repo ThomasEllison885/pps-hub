@@ -37,6 +37,7 @@ sys.path.insert(0, ROOT)
 import hub_adoption as ha
 import hub_time
 import hub_usage
+import user_aliases
 import weekly_recap
 
 NOW = datetime(2026, 8, 29, 21, 0)          # 5pm ET Saturday
@@ -225,7 +226,106 @@ def test_an_unreachable_database_gives_an_empty_page_not_a_500():
     """A diagnostic page that dies when something is wrong is the page you
     needed."""
     assert ha.fetch_usage(lambda: None) == []
-    assert ha.last_produced(lambda: None, USERS) == {}
+    assert ha.last_produced(lambda: None, USERS) == ({}, {})
+
+
+def test_the_failure_path_returns_the_same_shape_as_the_success_path():
+    """It returned a bare {} when it could not connect, so the caller's
+    two-value unpack worked only while the database was up."""
+    produced, unmatched = ha.last_produced(lambda: None, USERS)
+    assert produced == {} and unmatched == {}
+
+
+# ── attribution (2026-08-29) ────────────────────────────────────────────────
+#
+# Thomas: "I know Rachel has generated proposals but she shows no activity."
+#
+# The proposal tool logs `generated_by` as `user_key or consultant_key`. With
+# no SSO session — reaching the tool by bookmark rather than clicking through
+# from the Hub — that second half is the form's short key, 'rachel' rather
+# than 'rachel_farler'. Every consumer filtered `if user_key in users`, so the
+# row was not mis-attributed, it was dropped: from this page AND from the
+# Monday recap.
+
+def test_a_short_consultant_key_resolves_to_the_person():
+    assert user_aliases.resolve('rachel') == 'rachel_farler'
+    assert user_aliases.resolve_for('rachel', {'rachel_farler': {}}) == 'rachel_farler'
+
+
+def test_an_unknown_key_is_not_guessed_at():
+    """'unknown' is what the PPM and TPS loggers write with no session.
+    Inventing an owner for it would be worse than admitting nobody knows."""
+    assert user_aliases.resolve('unknown') == 'unknown'
+    assert user_aliases.resolve_for('unknown', USERS) is None
+    assert user_aliases.resolve_for('someone_who_left', USERS) is None
+
+
+def test_usage_events_under_a_short_key_reach_the_person():
+    rows = [{'user_key': 'rachel', 'feature': 'pipeline', 'action': 'open',
+             'created_at': datetime(2026, 8, 28, 14, 0)}]
+    users = dict(USERS, rachel_farler={'display': 'Rachel Farler',
+                                       'role': 'consultant', 'tier': 'team'})
+    people = {p['user_key']: p for p in ha.by_person(rows, users, now=NOW)}
+    assert people['rachel_farler']['opens'] == 1
+
+
+def test_work_that_matches_nobody_is_reported_not_dropped():
+    """The durable half of the fix. A page that silently discards what it
+    cannot explain is the page that said Rachel had done nothing."""
+    rows = [{'user_key': 'someone_who_left', 'feature': 'pipeline',
+             'action': 'open', 'created_at': datetime(2026, 8, 28, 14, 0)}]
+    assert ha.unmatched_usage(rows, USERS) == {'someone_who_left': 1}
+
+
+def test_roster_members_are_not_reported_as_unmatched():
+    rows = [{'user_key': 'andy_potts', 'feature': 'pipeline', 'action': 'open',
+             'created_at': datetime(2026, 8, 28, 14, 0)}]
+    assert ha.unmatched_usage(rows, USERS) == {}
+
+
+def test_the_recap_resolves_aliases_too():
+    """The more serious half: the Monday email is the company-wide
+    leaderboard, and it had been under-crediting the same people."""
+    src = open(os.path.join(ROOT, 'weekly_recap.py'), encoding='utf-8').read()
+    assert 'user_aliases.resolve_for' in src
+    assert 'if user_key in users' not in src, (
+        'a scoring guard that does not understand aliases drops the row')
+
+
+def test_the_alias_map_is_not_copied_a_third_time():
+    """It already existed twice — in app.py and in the proposal tool — and
+    this bug is what two copies applied to different fields looks like."""
+    entry = "'rachel': 'rachel_farler'"      # one line of the map itself
+    for name in ('weekly_recap.py', 'hub_adoption.py', 'app.py'):
+        src = open(os.path.join(ROOT, name), encoding='utf-8').read()
+        assert entry not in src, f'{name} has its own copy of the map'
+    shared = open(os.path.join(ROOT, 'user_aliases.py'), encoding='utf-8').read()
+    assert entry in shared, 'the one copy should live here'
+
+
+def test_team_view_resolves_aliases_in_both_of_its_queries():
+    """Team View has its own SQL rather than going through collect_scores, so
+    fixing the recap did not fix it. Two places: the detail rows filtered on
+    `generated_by = ANY(member_keys)`, and the lifetime counts."""
+    body = APP.split('def team_view', 1)[1].split('\n@app.route', 1)[0]
+    assert 'user_aliases.CONSULTANT_ALIASES' in body, (
+        'the SQL still matches roster keys only, so aliased rows never load')
+    assert body.count('user_aliases.resolve(') >= 2, (
+        'both queries have to resolve what comes back')
+
+
+def test_lifetime_counts_add_rather_than_overwrite():
+    """With aliases one person can arrive from two stored keys — 'rachel'
+    and 'rachel_farler'. Assigning would keep whichever came last."""
+    body = APP.split('def team_view', 1)[1].split('\n@app.route', 1)[0]
+    assert 'lifetime[owner].get(field, 0) + (row[' in body
+
+
+def test_the_hub_normalises_on_write_as_well():
+    """Belt and braces: the tool now sends a resolved key, but the Hub must
+    not depend on a client in another repository getting it right."""
+    body = APP.split('def log_proposal', 1)[1].split('\n@app.route', 1)[0]
+    assert 'user_aliases.resolve(' in body
 
 
 def test_reading_does_not_create_the_table():

@@ -30,6 +30,7 @@ See docs/HUB_REVIEW_2026-08-21.md F-04 for the reasoning behind the whole thing.
 from __future__ import annotations
 
 import os
+import user_aliases
 from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -334,8 +335,13 @@ def collect_scores(get_db, users, start, end):
                     (start, end),
                 )
                 for user_key, n in cur.fetchall():
-                    if user_key in users:
-                        scores[user_key][kind] += int(n or 0)
+                    # `generated_by` can hold a short consultant key when the
+                    # proposal tool had no SSO session — 'rachel' rather than
+                    # 'rachel_farler'. Those rows used to fall through this
+                    # guard and vanish from the leaderboard entirely.
+                    owner = user_aliases.resolve_for(user_key, users)
+                    if owner:
+                        scores[owner][kind] += int(n or 0)
                 cur.close()
             except Exception as e:
                 # Roll back the aborted statement so the next query can run —
@@ -383,8 +389,9 @@ def _collect_pipeline(conn, users, start, end, scores):
             (start, end),
         )
         for user_key, n in cur.fetchall():
-            if user_key in users:
-                scores[user_key]['pipeline_new'] += int(n or 0)
+            owner = user_aliases.resolve_for(user_key, users)
+            if owner:
+                scores[owner]['pipeline_new'] += int(n or 0)
         cur.execute(
             'SELECT updated_by, COUNT(*) FROM pipeline_board_entries '
             'WHERE updated_at >= %s AND updated_at < %s '
@@ -394,8 +401,9 @@ def _collect_pipeline(conn, users, start, end, scores):
             (start, end, start, end),
         )
         for user_key, n in cur.fetchall():
-            if user_key in users:
-                scores[user_key]['pipeline_touch'] += int(n or 0)
+            owner = user_aliases.resolve_for(user_key, users)
+            if owner:
+                scores[owner]['pipeline_touch'] += int(n or 0)
         cur.close()
     except Exception as e:
         conn.rollback()
@@ -418,8 +426,9 @@ def _collect_usage(conn, users, start, end, scores):
             (start, end, tuple(SCORED_USAGE_ACTIONS)),
         )
         for user_key, n in cur.fetchall():
-            if user_key in users:
-                scores[user_key]['hub_actions'] += int(n or 0)
+            owner = user_aliases.resolve_for(user_key, users)
+            if owner:
+                scores[owner]['hub_actions'] += int(n or 0)
         cur.close()
     except Exception as e:
         conn.rollback()
@@ -443,8 +452,9 @@ def _collect_training(conn, users, start, end, scores):
                 (start, end),
             )
             for user_key, n in cur.fetchall():
-                if user_key in users:
-                    scores[user_key][kind] += int(n or 0)
+                owner = user_aliases.resolve_for(user_key, users)
+                if owner:
+                    scores[owner][kind] += int(n or 0)
             cur.close()
         except Exception as e:
             conn.rollback()

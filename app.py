@@ -186,6 +186,7 @@ from tiers import (
     tier_label,
 )
 import tiers as _tiers
+import user_aliases
 
 
 # ── USER DEFINITIONS ────────────────────────────────────────────────────────────
@@ -315,18 +316,13 @@ PROPOSAL_NUMBER_INITIALS = {
     'andy_potts': 'AP',
 }
 
-_CONSULTANT_KEY_ALIASES = {
-    'thomas': 'thomas_ellison',
-    'tony': 'tony_cumella',
-    'adam': 'adam_cupito',
-    'rachel': 'rachel_farler',
-    'andy': 'andy_potts',
-}
-
-
 def _normalize_consultant_key(consultant_key):
-    key = (consultant_key or '').strip()
-    return _CONSULTANT_KEY_ALIASES.get(key, key)
+    """Short form → roster key. The map moved to `user_aliases` on
+    2026-08-29: a second copy of it lived in the proposal tool, the two were
+    applied to different fields, and proposals logged without an SSO session
+    came in under 'rachel' rather than 'rachel_farler' — dropped by every
+    consumer that filtered on the roster, including the Monday recap."""
+    return user_aliases.resolve(consultant_key)
 
 
 def _proposal_initials(consultant_key):
@@ -4397,7 +4393,13 @@ def log_proposal():
                  proposal_number, existing_issue, intended_outcome, scopes_selected, scope_notes)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
-                data.get('generated_by'),
+                # Resolve here as well as at the source. The proposal tool
+                # sends `user_key or consultant_key`, and with no SSO session
+                # that second half is the form's short key ('rachel'), which
+                # matches nobody on the roster — the row then vanished from
+                # the recap and the adoption view rather than being
+                # mis-attributed. Fixed in the tool too; this is the net.
+                user_aliases.resolve(data.get('generated_by')),
                 data.get('consultant_key'),
                 data.get('consultant_name'),
                 data.get('client_name'),
@@ -7156,14 +7158,24 @@ def team_view():
             cur = conn.cursor(cursor_factory=RealDictCursor)
             for field, table in DETAIL:
                 try:
+                    # Match the short consultant keys too. A proposal logged
+                    # without an SSO session carries 'rachel' rather than
+                    # 'rachel_farler', so an exact roster match silently
+                    # dropped it — the same bug that hid her from the recap
+                    # and the adoption view (2026-08-29).
+                    lookup_keys = member_keys + [
+                        alias for alias, full in
+                        user_aliases.CONSULTANT_ALIASES.items()
+                        if full in member_data
+                    ]
                     cur.execute(
                         f'SELECT * FROM {table} '
                         f'WHERE generated_by = ANY(%s) AND generated_at >= %s '
                         f'ORDER BY generated_at DESC LIMIT %s',
-                        (member_keys, roll_start, TEAM_VIEW_ROW_CAP),
+                        (lookup_keys, roll_start, TEAM_VIEW_ROW_CAP),
                     )
                     for row in cur.fetchall():
-                        owner = row.get('generated_by')
+                        owner = user_aliases.resolve(row.get('generated_by'))
                         if owner in member_data:
                             member_data[owner][field].append(row)
                     for key in member_keys:
@@ -7172,8 +7184,12 @@ def team_view():
                         f'SELECT generated_by, COUNT(*) AS c FROM {table} GROUP BY 1'
                     )
                     for row in cur.fetchall():
-                        if row['generated_by'] in lifetime:
-                            lifetime[row['generated_by']][field] = row['c'] or 0
+                        owner = user_aliases.resolve(row['generated_by'])
+                        if owner in lifetime:
+                            # += rather than =: with aliases, one person can
+                            # now arrive from two different stored keys.
+                            lifetime[owner][field] = (
+                                lifetime[owner].get(field, 0) + (row['c'] or 0))
                 except Exception as e:
                     # A missing table is survivable — several are created lazily
                     # on first use. Roll back so the next query can still run.

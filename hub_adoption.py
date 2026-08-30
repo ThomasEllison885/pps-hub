@@ -44,6 +44,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import hub_time
 import hub_usage
+import user_aliases
 import weekly_recap
 
 # F-03 landed 2026-08-26 (commit f503244). Before it, `record_usage` covered
@@ -119,19 +120,32 @@ def fetch_usage(get_db, since=None):
 
 
 def last_produced(get_db, users):
-    """{user_key: newest deliverable timestamp} across the scored tables.
+    """({user_key: newest deliverable}, {unmatched_key: count}).
 
     Reuses `weekly_recap.SCORED_SOURCES` rather than listing the tables again.
     Two definitions of "did work" that have to agree is how they stop agreeing,
     and this page sitting beside the Monday email makes that especially easy
     to notice.
+
+    **The second return value is the point.** This function used to filter
+    `if user_key in users` and throw away everything else, which is how Rachel
+    came to have produced nothing: the proposal tool writes `generated_by` as
+    the short consultant key when it has no SSO session, so her rows said
+    `'rachel'` and no roster key matched. Aliases now resolve
+    (`user_aliases`), and anything still unmatched is *counted and reported*
+    rather than dropped. A page that silently discards what it cannot explain
+    is the page that told Thomas she had done nothing.
     """
     out = {}
+    unmatched = defaultdict(int)
     conn = None
     try:
         conn = get_db()
         if not conn:
-            return {}
+            # Same shape as the success path. Returning a bare {} here made the
+            # failure case unpackable-into-two only when it worked, which is
+            # the sort of thing that only shows up when the database is down.
+            return {}, {}
         for _kind, _label, table, user_col, ts_col in weekly_recap.SCORED_SOURCES:
             try:
                 cur = conn.cursor()
@@ -140,9 +154,12 @@ def last_produced(get_db, users):
                     f'WHERE {user_col} IS NOT NULL GROUP BY 1'
                 )
                 for user_key, ts in cur.fetchall():
-                    if user_key in users and ts and (
-                            user_key not in out or ts > out[user_key]):
-                        out[user_key] = ts
+                    owner = user_aliases.resolve_for(user_key, users)
+                    if not owner:
+                        unmatched[(user_key or '(blank)')] += 1
+                        continue
+                    if ts and (owner not in out or ts > out[owner]):
+                        out[owner] = ts
                 cur.close()
             except Exception as e:
                 # Postgres fails the whole connection after an error, so the
@@ -157,7 +174,7 @@ def last_produced(get_db, users):
                 conn.close()
             except Exception:
                 pass
-    return out
+    return out, dict(unmatched)
 
 
 # ── rollups (pure) ──────────────────────────────────────────────────────────
@@ -209,6 +226,21 @@ def untouched_features(feature_rows):
     return [f for f in feature_rows if f['untouched']]
 
 
+def unmatched_usage(rows, users):
+    """{key: count} for usage events belonging to nobody on the roster.
+
+    Usually a departed employee's history, which is fine and expected. Worth
+    showing anyway: the alternative is a page that quietly knows about work it
+    is not telling you about.
+    """
+    out = defaultdict(int)
+    for row in rows:
+        key = row.get('user_key')
+        if key and not user_aliases.resolve_for(key, users):
+            out[key or '(blank)'] += 1
+    return dict(out)
+
+
 def by_person(rows, users, produced=None, now=None):
     """One row per person on the roster, quietest first.
 
@@ -222,7 +254,7 @@ def by_person(rows, users, produced=None, now=None):
     features = defaultdict(set)
     last_open = {}
     for row in rows:
-        key = row.get('user_key')
+        key = user_aliases.resolve_for(row.get('user_key'), users)
         if not key:
             continue
         if row.get('action') == 'open':
@@ -378,6 +410,10 @@ def build(get_db, users, now=None):
     now = now or _utcnow()
     rows = fetch_usage(get_db)
     features = by_feature(rows)
+    produced, orphan_work = last_produced(get_db, users)
+    # Everything the page knows about but cannot pin on anybody. Kept together
+    # so it is one visible line rather than several silent filters.
+    unattributed = {'work': orphan_work, 'usage': unmatched_usage(rows, users)}
     return {
         'since': INSTRUMENTED_SINCE,
         # Formatted straight off the date. Running it through the timezone
@@ -389,8 +425,8 @@ def build(get_db, users, now=None):
         'events': len(rows),
         'features': features,
         'untouched': untouched_features(features),
-        'people': by_person(rows, users, produced=last_produced(get_db, users),
-                            now=now),
+        'people': by_person(rows, users, produced=produced, now=now),
+        'unattributed': unattributed,
         'weeks': by_week(rows, now=now),
         'guide': guide_readers(rows, users),
         'quiet_days': QUIET_DAYS,

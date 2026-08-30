@@ -196,6 +196,33 @@
     </div>
   </div>
 
+  <!-- 4b ─ what could not be pinned on anybody ---------------------------- -->
+  {% if unattributed.work or unattributed.usage %}
+  <div class="card">
+    <h2>Work nobody on the roster owns</h2>
+    <p class="why">
+      Rows whose author does not match anyone currently on the team. Usually someone who has left,
+      which is fine — but this is also how a live person goes missing from the page, so it is shown
+      rather than filtered away. Thomas spotted exactly that on 2026-08-29: Rachel's proposals were
+      logged under <code>rachel</code> instead of <code>rachel_farler</code> and disappeared from
+      both this page and the Monday recap.
+    </p>
+    <div class="scroller">
+    <table>
+      <thead><tr><th>Recorded as</th><th class="num">Rows</th><th>Where</th></tr></thead>
+      <tbody>
+        {% for key, n in unattributed.work.items() %}
+        <tr><td class="name">{{ key }}</td><td class="num">{{ n }}</td><td class="dim">finished work</td></tr>
+        {% endfor %}
+        {% for key, n in unattributed.usage.items() %}
+        <tr><td class="name">{{ key }}</td><td class="num">{{ n }}</td><td class="dim">page opens</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- 5 ─ the guide -------------------------------------------------------- -->
   <div class="card">
     <h2>The field guide</h2>

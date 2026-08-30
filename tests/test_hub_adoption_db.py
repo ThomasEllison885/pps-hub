@@ -140,27 +140,57 @@ def test_missing_deliverable_tables_do_not_zero_out_the_rest(db):
     cur.close()
     conn.close()
 
-    produced = ha.last_produced(db, USERS)
+    produced, unmatched = ha.last_produced(db, USERS)
     assert 'andy_potts' in produced, (
         'a missing table earlier in SCORED_SOURCES swallowed the one that exists')
     assert produced['andy_potts'] == newest, 'should be the newest, not the first'
     assert 'phil_miller' not in produced
+    assert unmatched == {}
 
 
-def test_people_outside_the_roster_are_ignored(db):
-    """A departed employee's rows stay in the tables; they should not appear
-    as a person on a page about the current team."""
+def test_people_outside_the_roster_are_reported_not_silently_dropped(db):
+    """A departed employee's rows stay in the tables and should not appear as
+    a person on a page about the current team — but they must be *counted*.
+
+    Filtering them away silently is what hid Rachel: her proposals were
+    written under 'rachel' rather than 'rachel_farler', matched no roster key,
+    and disappeared. The page now shows anything it could not attribute, so
+    the next time a live person falls off the roster match it says so instead
+    of reporting that they did nothing.
+    """
     conn = db()
     cur = conn.cursor()
     cur.execute('''CREATE TABLE proposal_log (
         id SERIAL PRIMARY KEY, generated_by VARCHAR(100),
         generated_at TIMESTAMP)''')
     cur.execute('INSERT INTO proposal_log (generated_by, generated_at) '
-                'VALUES (%s, %s)', ('derek_kidney', _utcnow()))
+                'VALUES (%s, %s), (%s, %s)',
+                ('derek_kidney', _utcnow(), 'rachel', _utcnow()))
     conn.commit()
     cur.close()
     conn.close()
-    assert ha.last_produced(db, USERS) == {}
+    produced, unmatched = ha.last_produced(db, USERS)
+    assert produced == {}, 'neither is on this two-person roster'
+    assert unmatched == {'derek_kidney': 1, 'rachel': 1}
+
+
+def test_a_short_consultant_key_finds_its_person(db):
+    """The bug itself, end to end against a real table."""
+    conn = db()
+    cur = conn.cursor()
+    cur.execute('''CREATE TABLE proposal_log (
+        id SERIAL PRIMARY KEY, generated_by VARCHAR(100),
+        generated_at TIMESTAMP)''')
+    cur.execute('INSERT INTO proposal_log (generated_by, generated_at) '
+                'VALUES (%s, %s)', ('rachel', _utcnow()))
+    conn.commit()
+    cur.close()
+    conn.close()
+    roster = dict(USERS, rachel_farler={'display': 'Rachel Farler',
+                                        'role': 'consultant', 'tier': 'team'})
+    produced, unmatched = ha.last_produced(db, roster)
+    assert 'rachel_farler' in produced, 'the alias never reached the person'
+    assert unmatched == {}
 
 
 # ── the whole payload ───────────────────────────────────────────────────────
