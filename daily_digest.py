@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, time, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
+import user_aliases
 from hub_usage import FEATURE_LABELS, event_label
 from psc_training_data import PSC_TRAINING_META, get_training_curriculum
 
@@ -28,8 +29,22 @@ def _digest_enabled():
 
 
 def _digest_exclude_keys():
+    """Who to leave out of the digest — plus the short forms of their keys.
+
+    The env var holds roster keys (`thomas_ellison`), and the exclusion is done
+    in SQL against the raw column, so a row logged under `'thomas'` sailed
+    straight past it: Thomas has been reading his own bookmark-logged proposals
+    in his own digest, under a second heading, this whole time.
+
+    Expanding here rather than at the four `_ex_clause` call sites keeps the
+    setting a list of *people*: whoever sets `DAILY_DIGEST_EXCLUDE` names the
+    person once and does not need to know the proposal form's dropdown values.
+    """
     raw = os.environ.get('DAILY_DIGEST_EXCLUDE', 'thomas_ellison').strip()
-    return {k.strip() for k in raw.split(',') if k.strip()}
+    keys = {k.strip() for k in raw.split(',') if k.strip()}
+    aliases = {short for short, full in user_aliases.CONSULTANT_ALIASES.items()
+               if full in keys or short in keys}
+    return keys | aliases | {user_aliases.resolve(k) for k in keys}
 
 
 def digest_recipients():
@@ -67,6 +82,16 @@ def eastern_day_bounds_utc_naive(day_date):
 
 
 def _display_name(users, user_key, fallback=''):
+    """A person's name, or the best guess available.
+
+    The `.title()` fallback is deliberate and stays: a departed employee's
+    rows keep appearing in the log tables and "Derek Kidney" reads better than
+    a bare key. But it is also what made the alias bug invisible here —
+    `'rachel'` came out as "Rachel", which looks like a name rather than like
+    a miss. Resolving first means the fallback only fires for keys that really
+    have nobody behind them.
+    """
+    user_key = user_aliases.resolve(user_key)
     user = users.get(user_key, {})
     return user.get('display') or fallback or user_key.replace('_', ' ').title()
 
@@ -203,8 +228,35 @@ def _mark_sent(get_db, report_date):
 
 
 def _item(user_key, display_name, kind, kind_label, title, meta, at, extra=''):
+    """One line of the digest.
+
+    **Resolves the key here rather than at the twelve call sites.** Every
+    caller passes a column straight off a `SELECT` — `generated_by`, `actor`,
+    `override_by`, `user_key` — and `generated_by` is the short consultant key
+    (`'rachel'`) on anything logged before 093244f, or by a proposal tool
+    reached from a bookmark rather than through the Hub.
+
+    This is the same alias bug as the weekly recap, but it looked different
+    enough here to survive the fix for it. The recap *dropped* unmatched rows,
+    so repairing it meant finding work that had gone missing. The digest never
+    dropped anything — it grouped, and `_display_name` falls back to
+    `key.replace('_', ' ').title()` — so `'rachel'` rendered as a perfectly
+    plausible **"Rachel"** sitting a few lines above "Rachel Farler". Nothing
+    looked broken. Three symptoms, one cause:
+
+      * a second person, named after the dropdown value,
+      * that person listed under QUIET TODAY at the same time, because
+        `active_keys` was built from the raw key and never matched her roster
+        entry, and
+      * `DAILY_DIGEST_EXCLUDE=thomas_ellison` not excluding Thomas's own
+        bookmark-logged proposals, which arrive as `'thomas'`.
+
+    The third is handled in `_digest_exclude_keys`; the first two are this
+    line. `resolve` leaves anything it does not recognise alone, so the
+    Hub-side columns that were always roster keys are unaffected.
+    """
     return {
-        'user_key': user_key,
+        'user_key': user_aliases.resolve(user_key),
         'display_name': display_name,
         'kind': kind,
         'kind_label': kind_label,
