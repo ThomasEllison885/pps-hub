@@ -226,7 +226,7 @@
       {% if gaps %}
       {% for g in gaps %}
       <div class="gap">
-        <div class="meta">{{ g.display_name }} · {{ g.created_at.strftime('%b %d %Y') if g.created_at else '' }}{% if g.gap_topic %} · {{ g.gap_topic }}{% endif %}</div>
+        <div class="meta">{{ g.display_name }} · {{ g.created_at | et_fmt('%b %d %Y') if g.created_at else '' }}{% if g.gap_topic %} · {{ g.gap_topic }}{% endif %}</div>
         <div class="q">{{ g.question }}</div>
         {% if g.gap_summary %}<div style="font-size:13px;color:#666;margin-bottom:8px;">{{ g.gap_summary }}</div>{% endif %}
         <form method="post" action="{{ url_for('admin_ask_pps_resolve_gap', gap_id=g.id) }}">
@@ -266,7 +266,7 @@
         </div>
         {% for r in recently_activated %}
         <div class="pending" style="background:white;margin-bottom:8px;">
-          <div class="meta">{{ r.author_display or r.author_key or '—' }} · {{ r.category }} · {{ r.status }}{% if r.updated_at %} · {{ r.updated_at.strftime('%b %d %H:%M') if r.updated_at else '' }}{% endif %}</div>
+          <div class="meta">{{ r.author_display or r.author_key or '—' }} · {{ r.category }} · {{ r.status }}{% if r.updated_at %} · {{ r.updated_at | et_fmt('%b %d %H:%M') if r.updated_at else '' }}{% endif %}</div>
           <div class="q">{{ r.title }}</div>
           <form method="post" action="{{ url_for('admin_ask_pps_return_pending', entry_id=r.id) }}">
             <button type="submit" class="btn btn-primary">Return to pending</button>

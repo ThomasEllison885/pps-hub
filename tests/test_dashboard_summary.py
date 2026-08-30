@@ -190,12 +190,35 @@ def test_every_tool_key_has_a_catalog_entry():
 
 
 def test_relative_day_labels():
+    """Every value here is naive UTC, and the label is about Eastern days.
+
+    `now` is 9:00 UTC on the 21st, which is 5am Friday in Ohio.
+    """
     now = datetime(2026, 8, 21, 9, 0)
-    assert ds._relative_day(datetime(2026, 8, 21, 1, 0), now) == 'Today'
+    # 13:00 UTC == 9am ET the same morning.
+    assert ds._relative_day(datetime(2026, 8, 21, 13, 0), now) == 'Today'
+    # 23:00 UTC on the 20th == 7pm ET on the 20th — yesterday evening.
     assert ds._relative_day(datetime(2026, 8, 20, 23, 0), now) == 'Yesterday'
     assert ds._relative_day(datetime(2026, 8, 18, 8, 0), now) == '3 days ago'
     assert ds._relative_day(datetime(2026, 8, 1, 8, 0), now) == 'Aug 01'
     assert ds._relative_day(None, now) == ''
+
+
+def test_late_evening_work_is_yesterday_the_next_morning():
+    """The bug this replaced (2026-08-29). 01:00 UTC on the 21st is 9pm ET on
+    the *20th*, but it shares a UTC date with a 5am Friday, so comparing UTC
+    days called it "Today" — for anything between midnight and 8pm UTC, which
+    is most of the working day in Ohio."""
+    now = datetime(2026, 8, 21, 9, 0)          # 5am ET Friday
+    last_night = datetime(2026, 8, 21, 1, 0)   # 9pm ET Thursday
+    assert ds._relative_day(last_night, now) == 'Yesterday'
+
+
+def test_the_label_flips_on_the_eastern_midnight_not_the_utc_one():
+    now = datetime(2026, 8, 21, 16, 0)         # noon ET Friday
+    # 03:59 UTC == 11:59pm ET Thursday; 04:00 UTC == midnight ET Friday.
+    assert ds._relative_day(datetime(2026, 8, 21, 3, 59), now) == 'Yesterday'
+    assert ds._relative_day(datetime(2026, 8, 21, 4, 0), now) == 'Today'
 
 
 def test_relative_day_survives_a_bad_value():

@@ -112,7 +112,7 @@
   <div class="hist-item">
     <div class="hist-q">{{ r.question }}</div>
     <div class="hist-a">{{ r.answer or '—' }}</div>
-    <div class="hist-meta">{{ r.created_at.strftime('%b %d, %Y %I:%M %p') if r.created_at else '' }}{% if r.sources %} · Sources: {{ r.sources|join(', ') }}{% endif %}</div>
+    <div class="hist-meta">{{ r.created_at | et_fmt('%b %d, %Y %I:%M %p') if r.created_at else '' }}{% if r.sources %} · Sources: {{ r.sources|join(', ') }}{% endif %}</div>
   </div>
   {% endfor %}
   {% endif %}

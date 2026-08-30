@@ -64,7 +64,7 @@
           <td><span class="badge">{{ s.language|title if s.language else '—' }}</span></td>
           <td style="font-size:12px;color:#888;">{{ s.po_number or '—' }}</td>
           <td style="font-size:13px;color:#888;">{{ s.generated_by.replace('_',' ').title() if s.generated_by else '—' }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ s.generated_at | et_fmt('%b %d, %Y') if s.generated_at else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -109,7 +109,7 @@ const rows = [
     material: {{ (s.material_provider or '—')|tojson }},
     sourceFile: {{ (s.proposal_filename or '—')|tojson }},
     by: {{ (s.generated_by or '')|tojson }},
-    date: {{ (s.generated_at.strftime('%B %d, %Y') if s.generated_at else '—')|tojson }},
+    date: {{ (s.generated_at | et_fmt('%B %d, %Y') if s.generated_at else '—')|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];

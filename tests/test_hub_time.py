@@ -132,3 +132,113 @@ def test_no_template_formats_a_timestamp_by_hand():
     assert not offenders, (
         'templates formatting a timestamp by hand (use | et / | et_at / '
         '| et_fmt): ' + ', '.join(offenders))
+
+
+# ── the same guard, one layer down (2026-08-29) ─────────────────────────────
+#
+# The template guard above only looks at templates, and four Python sites were
+# formatting naive-UTC timestamps by hand where no template could see them:
+# the admin activity feed's date, `_serialize_dt`, `_format_activity_date`, and
+# `dashboard_summary._relative_day` — which was deciding "Today" / "Yesterday"
+# on UTC days, so work done at 9pm Eastern was still "Today" at 5am the next
+# morning. The Monday pack was stamped "Generated <UTC>" too.
+#
+# `.strftime` in Python is not wrong the way it is in a template: plenty of
+# these calls are correct. So this is an allowlist rather than a ban, and each
+# entry says why it is allowed. Adding one is meant to take a sentence of
+# thought.
+
+# Two kinds of allowance, because they need different checking.
+#
+# EASTERN_SOURCES: the value really is Eastern by the time it is formatted.
+# That claim is checked per line — the call has to be visibly reading from an
+# Eastern source — because a file-level pass would let a new `datetime.now()`
+# in beside a correct one. It did: the Monday pack's "Generated" stamp sat in
+# office_ops_generate.py, four hours ahead, while the module was on the list.
+EASTERN_SOURCES = {
+    'hub_time.py': 'this is the conversion',
+    'weekly_recap.py': 'window bounds are converted to Eastern first',
+    'daily_digest.py': 'formats `local` / an Eastern report_date',
+    'office_ops_generate.py': 'hub_time.now(), labelled ET',
+    'office_ops_monday.py': 'hub_time.now(), labelled ET',
+    'app.py': 'weekly_recap.eastern_now(), labelled ET',
+}
+# NOT_A_TIMESTAMP: dates with no time (nothing to convert) and machine-readable
+# UTC stamps that are never shown to anyone. File-level, because these are
+# heterogeneous and none of them are display.
+NOT_A_TIMESTAMP = {
+    'office_ops.py': 'parsed_at UTC ISO stamps and date normalisation',
+    'insurance_compliance.py': 'COI expiry dates and date.today() headers',
+    'estimate_assignments.py': 'Monday board due dates (date objects)',
+}
+ALLOWED_STRFTIME = {**EASTERN_SOURCES, **NOT_A_TIMESTAMP}
+
+
+def _strftime_lines(path):
+    with open(path, encoding='utf-8') as fh:
+        lines = fh.read().splitlines()
+    return [(i + 1, line) for i, line in enumerate(lines) if '.strftime(' in line]
+
+
+def test_python_side_timestamp_formatting_stays_on_the_list():
+    """A new `.strftime` in a module not on the list is almost certainly a
+    naive-UTC value about to be shown to somebody in Ohio."""
+    offenders = []
+    for name in sorted(os.listdir(ROOT)):
+        if not name.endswith('.py') or name in ALLOWED_STRFTIME:
+            continue
+        offenders += [f'{name}:{n}' for n, _ in _strftime_lines(os.path.join(ROOT, name))]
+    assert not offenders, (
+        'formatting a timestamp by hand — use hub_time, or add the module to '
+        'the allowlist with a reason: ' + ', '.join(offenders))
+
+
+def test_no_allowed_module_formats_the_server_clock():
+    """The file-level pass is not enough on its own, and this is the exact
+    shape it let through: `datetime.now().strftime(...)`.
+
+    `datetime.now()` with no timezone is the *server* clock, which on Render is
+    UTC. It sat in office_ops_generate.py stamping "Generated <UTC>" on the
+    Monday pack — four hours ahead of whoever pressed the button — while the
+    module was on the Eastern list for its other, correct calls.
+
+    Deliberately narrow. Judging every call by reading the variable name is
+    guesswork; this one pattern is unambiguous and it is the one that bites.
+    """
+    offenders = []
+    for name in sorted(os.listdir(ROOT)):
+        if not name.endswith('.py'):
+            continue
+        with open(os.path.join(ROOT, name), encoding='utf-8') as fh:
+            body = fh.read()
+        for m in re.finditer(r'datetime\.now\(\)\.strftime\(', body):
+            offenders.append(f'{name}:{body[:m.start()].count(chr(10)) + 1}')
+    assert not offenders, (
+        'formatting the server clock (UTC on Render) — use hub_time.now(): '
+        + ', '.join(offenders))
+
+
+def test_the_allowlist_has_not_gone_stale():
+    """An entry for a module that no longer formats anything is a claim
+    nobody is checking."""
+    stale = []
+    for name in ALLOWED_STRFTIME:
+        path = os.path.join(ROOT, name)
+        if not os.path.exists(path):
+            stale.append(f'{name} (gone)')
+            continue
+        with open(path, encoding='utf-8') as fh:
+            if '.strftime(' not in fh.read():
+                stale.append(f'{name} (no longer formats anything)')
+    assert not stale, 'drop these from ALLOWED_STRFTIME: ' + ', '.join(stale)
+
+
+def test_relative_day_style_comparisons_convert_first():
+    """`_relative_day` compares calendar days, which is the case where a
+    format-only fix is not enough — the comparison itself has to be Eastern."""
+    import dashboard_summary
+
+    src = open(os.path.join(ROOT, 'dashboard_summary.py'), encoding='utf-8').read()
+    body = src.split('def _relative_day', 1)[1].split('\ndef ', 1)[0]
+    assert 'hub_time.to_eastern' in body, (
+        'comparing UTC dates calls last night "Today" all the next morning')

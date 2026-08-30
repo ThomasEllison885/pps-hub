@@ -3992,7 +3992,9 @@ def _build_dashboard_recent_feed(
             'kind_label': it['kind_label'],
             'title': it['title'],
             'meta': it['meta'],
-            'date': dt.strftime('%b %d') if hasattr(dt, 'strftime') and dt != datetime.min else '',
+            # Eastern, like everything else on the screen — these are naive
+            # UTC columns, so a late-evening row was showing tomorrow's date.
+            'date': hub_time.fmt(dt, '%b %d') if dt != datetime.min else '',
             'url': it.get('url'),
             'modal': it.get('modal'),
         })
@@ -4841,15 +4843,15 @@ def _fetch_vault_summary(cur):
 def _serialize_dt(val):
     if not val:
         return ''
-    return val.strftime('%Y-%m-%d') if hasattr(val, 'strftime') else str(val)
+    # Naive UTC in the database; this feeds date filters and CSV columns that
+    # people read as their own day.
+    return hub_time.fmt(val, '%Y-%m-%d') or str(val)
 
 
 def _format_activity_date(val):
     if not val:
         return '—'
-    if hasattr(val, 'strftime'):
-        return val.strftime('%B %d, %Y')
-    return str(val)
+    return hub_time.fmt(val, '%B %d, %Y') or str(val)
 
 
 def _format_activity_by(user_key):

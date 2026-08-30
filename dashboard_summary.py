@@ -61,6 +61,7 @@ from __future__ import annotations
 import time as _time
 from datetime import datetime, timedelta, timezone
 
+import hub_time
 import weekly_recap
 
 CACHE_TTL_SECONDS = 300
@@ -494,14 +495,22 @@ def _relative_day(ts, now=None):
     compares like with like and does not convert to Eastern. The result is a
     soft recency hint on a card, not a figure anyone reconciles against
     anything, and a page that throws because one row had an odd type would be
-    a much worse outcome than "Aug 12" being "Aug 11" for a few late-evening
-    hours.
+    a much worse outcome than a label being a day out.
+
+    It compares Eastern days (2026-08-29). It used to compare UTC ones, and
+    that is not only a formatting difference: between midnight and 8pm UTC —
+    which is most of the working day in Ohio — something done at 9pm the
+    previous evening shares today's UTC date and was labelled "Today". The
+    conversion is total and the try/except is still here, so nothing about the
+    "never throw" property changed.
     """
     if ts is None:
         return ''
     try:
         now = now or _utcnow()
-        delta = now.date() - ts.date()
+        local_ts = hub_time.to_eastern(ts)
+        local_now = hub_time.to_eastern(now)
+        delta = local_now.date() - local_ts.date()
     except Exception:
         return ''
     if delta <= timedelta(0):
@@ -510,10 +519,7 @@ def _relative_day(ts, now=None):
         return 'Yesterday'
     if delta < timedelta(days=7):
         return f'{delta.days} days ago'
-    try:
-        return ts.strftime('%b %d')
-    except Exception:
-        return ''
+    return hub_time.fmt(ts, '%b %d')
 
 
 def recent_usage_features(get_db, user_key, days=60):

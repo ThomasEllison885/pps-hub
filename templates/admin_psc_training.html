@@ -90,7 +90,7 @@
     <div class="feedback-item">
       <div class="feedback-meta">
         <strong>{{ fb.display_name }}</strong>
-        <span>{{ fb.submitted_at.strftime('%b %d, %Y') if fb.submitted_at else '' }}</span>
+        <span>{{ fb.submitted_at | et_fmt('%b %d, %Y') if fb.submitted_at else '' }}</span>
         {% if fb.week_num is not none %}<span class="feedback-week">Week {{ fb.week_num }}</span>{% else %}<span class="feedback-week">General</span>{% endif %}
       </div>
       <div class="feedback-msg">{{ fb.message }}</div>

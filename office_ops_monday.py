@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import re
 from copy import copy
+import hub_time
 from datetime import datetime, timezone
 
 from openpyxl import load_workbook
@@ -117,7 +118,8 @@ def _paint_difference_rows(ws, data_ws, label_col=1, start_col=2, end_col=13):
 def _build_insights(data_wb, ar_summary=None):
     """Text insights from evaluated Monthly Outlook (+ optional AR totals)."""
     lines = []
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    # Eastern — see the note in office_ops_generate._build_insights.
+    now = hub_time.now().strftime('%Y-%m-%d %H:%M') + ' ET'
     lines.append(f'Office Ops · Monday Numbers insights · generated {now}')
     lines.append('')
 

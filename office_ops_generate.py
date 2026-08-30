@@ -23,6 +23,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import CellIsRule
 from openpyxl.utils import get_column_letter
 
+import hub_time
 from office_ops import _parse_sales_reps
 
 TEMPLATE_PATH = Path(__file__).resolve().parent / 'static' / 'office_ops' / 'monthly_outlook_goals_template_2026.xlsx'
@@ -402,7 +403,9 @@ def pl_movers(pl_summary, min_dollars=PL_MOVE_MIN_DOLLARS,
 def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=None):
     """Deeper sales / margin / profit / AR narrative for leadership."""
     lines = []
-    now = datetime.now().strftime('%Y-%m-%d %H:%M')
+    # Eastern. datetime.now() on Render is UTC, so the pack was stamped
+    # four or five hours ahead of when anyone actually generated it.
+    now = hub_time.now().strftime('%Y-%m-%d %H:%M') + ' ET'
     lines.append('Monday Numbers · Insights')
     lines.append(f'Generated {now}')
     lines.append('')

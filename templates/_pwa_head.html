@@ -10,6 +10,60 @@
 <meta name="theme-color" content="#004C8C">
 
 <script>
+/* A scroll must never edit a number.
+ *
+ * Chrome and Safari treat a wheel over a FOCUSED <input type="number"> as
+ * increment/decrement. Thomas hit it on the Pipeline Board (2026-08-29):
+ * click into Sub Pay, scroll, and the money moves instead of the page.
+ *
+ * The Pipeline was the least of it. The same fields are on the four
+ * estimators and on the company pricing defaults, and the `step` values there
+ * are not small: Labor $/sq steps by 5, Markup and Overhead by 100. One notch
+ * of an accidental scroll is $100 on a bid, or $5/square on what every future
+ * siding estimate starts from — with nothing on screen to say it happened.
+ *
+ * This file is included by every page in the Hub that has a form, so the
+ * guard lives here rather than being repeated per template. (The Pipeline
+ * Board has its own copy: it does not include this partial, and it forwards
+ * the scroll to its table rather than to the page.)
+ *
+ * Preventing the default is what stops the spin. Forwarding the delta is what
+ * stops every money field becoming a dead patch where scrolling does nothing.
+ * The listener must NOT be passive — a passive listener cannot preventDefault,
+ * so the guard would be installed and silently do nothing.
+ */
+(function () {
+  function scrollableAncestor(node) {
+    for (var el = node; el && el !== document.body; el = el.parentElement) {
+      var style = window.getComputedStyle(el);
+      if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight) {
+        return el;
+      }
+    }
+    return null;
+  }
+
+  document.addEventListener('wheel', function (ev) {
+    try {
+      var el = ev.target;
+      if (!el || el.tagName !== 'INPUT' || el.type !== 'number') return;
+      if (el.disabled || el.readOnly) return;
+      ev.preventDefault();
+      // deltaMode 0 is pixels, 1 is lines, 2 is pages. Treating lines as
+      // pixels would scroll the page three pixels per notch of a mouse wheel.
+      var step = ev.deltaMode === 1 ? 16
+               : (ev.deltaMode === 2 ? window.innerHeight : 1);
+      var amount = ev.deltaY * step;
+      var box = scrollableAncestor(el);
+      if (box) { box.scrollTop += amount; } else { window.scrollBy(0, amount); }
+    } catch (e) {
+      /* Never break the page over a scroll. */
+    }
+  }, { passive: false, capture: true });
+})();
+</script>
+
+<script>
 /* Service worker registration.
  *
  * Deliberately defensive: this runs on every page in the Hub, and an uncaught

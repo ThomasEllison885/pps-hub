@@ -85,7 +85,7 @@
           <td>{{ p.pm_name or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ p.proj_type or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ (p.generated_by or '')|replace('_',' ')|title }}</td>
-          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at | et_fmt('%b %d, %Y') if p.generated_at else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -130,7 +130,7 @@ const ppms = [
     clientType: {{ (p.client_type or '—')|tojson }},
     occupied: {{ (p.occupied or '—')|tojson }},
     value: {{ (p.total_value or '—')|tojson }},
-    date: {{ (p.generated_at.strftime('%B %d, %Y') if p.generated_at else '—')|tojson }},
+    date: {{ (p.generated_at | et_fmt('%B %d, %Y') if p.generated_at else '—')|tojson }},
   }{% if not loop.last %},{% endif %}
   {% endfor %}
 ];

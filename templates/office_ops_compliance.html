@@ -111,7 +111,7 @@
         <h1>Compliance</h1>
         <p>
           Checked {{ checked }} sub{{ 's' if checked != 1 else '' }}
-          {% if last_run_at %} · data as of {{ last_run_at[:16].replace('T',' ') }}{% else %} · never run yet{% endif %}
+          {% if last_run_at %} · data as of {{ last_run_at | et_at }}{% else %} · never run yet{% endif %}
         </p>
       </div>
       <div>
@@ -138,7 +138,7 @@
             <div class="name">{{ r.name }}</div>
             <div class="detail">
               {{ r.group }}
-              {% if show_source and r.effective_ins %} · expires {{ r.effective_ins.strftime('%m/%d/%Y') }} [{{ r.effective_source }}]{% endif %}
+              {% if show_source and r.effective_ins %} · expires {{ r.effective_ins | et_fmt('%m/%d/%Y') }} [{{ r.effective_source }}]{% endif %}
               {% if r.coi_kind == 'image' %} · photo on file{% endif %}
             </div>
           </div>
@@ -164,8 +164,8 @@
               {% if f.match_confidence == 'fuzzy' %}<span class="detail">(matched to "{{ f.matched_sub }}")</span>{% endif %}
             </div>
             <div class="detail">
-              {{ '${:,.0f}'.format(f.amount) if f.amount is not none else '$?' }} requested {{ f.date.strftime('%m/%d/%Y') if f.date else '—' }}
-              · sub {{ f.our_status.replace('_', ' ') }}, expires {{ f.effective_ins.strftime('%m/%d/%Y') if f.effective_ins else '—' }}
+              {{ '${:,.0f}'.format(f.amount) if f.amount is not none else '$?' }} requested {{ f.date | et_fmt('%m/%d/%Y') if f.date else '—' }}
+              · sub {{ f.our_status.replace('_', ' ') }}, expires {{ f.effective_ins | et_fmt('%m/%d/%Y') if f.effective_ins else '—' }}
               {% if f.status_disagreement %} · <strong>board says compliant, we say otherwise</strong>{% endif %}
             </div>
           </div>
@@ -218,7 +218,7 @@
         <div class="row">
           <div>
             <div class="name">{{ r.name }}</div>
-            <div class="detail">board says {{ r.manual_ins.strftime('%m/%d/%Y') if r.manual_ins else '—' }}, COI PDF says {{ r.extracted_ins.strftime('%m/%d/%Y') if r.extracted_ins else '—' }}</div>
+            <div class="detail">board says {{ r.manual_ins | et_fmt('%m/%d/%Y') if r.manual_ins else '—' }}, COI PDF says {{ r.extracted_ins | et_fmt('%m/%d/%Y') if r.extracted_ins else '—' }}</div>
           </div>
           {{ view_coi_btn(r) }}
         </div>
@@ -252,7 +252,7 @@
               {% if r.coi_kind == 'image' %} · "{{ r.coi_name }}" — photo, open to read
               {% elif r.coi_name %} · "{{ r.coi_name }}" — no text to read
               {% else %} · no COI on file{% endif %}
-              {% if r.manual_ins %} · board date {{ r.manual_ins.strftime('%m/%d/%Y') }} (fallback){% endif %}
+              {% if r.manual_ins %} · board date {{ r.manual_ins | et_fmt('%m/%d/%Y') }} (fallback){% endif %}
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">

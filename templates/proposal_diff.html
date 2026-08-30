@@ -144,8 +144,8 @@
   {% for row in rows %}
   <div class="history-item" onclick="toggleHistory('hist_{{ row.id }}')">
     <div class="hi-header">
-      <div class="hi-name">{{ row.submitted_at.strftime('%b %d, %Y') if row.submitted_at else 'Comparison' }}</div>
-      <div class="hi-date">{{ row.submitted_at.strftime('%b %d, %Y') if row.submitted_at else '' }}</div>
+      <div class="hi-name">{{ row.submitted_at | et_fmt('%b %d, %Y') if row.submitted_at else 'Comparison' }}</div>
+      <div class="hi-date">{{ row.submitted_at | et_fmt('%b %d, %Y') if row.submitted_at else '' }}</div>
     </div>
     {% if is_admin %}
     <div class="hi-by">Submitted by {{ row.display_name }}</div>

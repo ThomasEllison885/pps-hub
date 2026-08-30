@@ -146,7 +146,7 @@
       </thead>
       <tbody>
         {% for p in rows %}
-        <tr class="proposal-data-row" data-idx="{{ loop.index0 }}" data-search="{{ ((p.property_name or '') ~ ' ' ~ (p.client_name or '') ~ ' ' ~ (p.property_address or '') ~ ' ' ~ (p.scopes_selected or '') ~ ' ' ~ (p.consultant_name or '') ~ ' ' ~ (p.generated_by or ''))|lower }}" data-template="{{ p.template_type or 'short' }}" data-date="{{ p.generated_at.strftime('%Y-%m-%d') if p.generated_at else '' }}" onclick="showDetail({{ loop.index0 }})">
+        <tr class="proposal-data-row" data-idx="{{ loop.index0 }}" data-search="{{ ((p.property_name or '') ~ ' ' ~ (p.client_name or '') ~ ' ' ~ (p.property_address or '') ~ ' ' ~ (p.scopes_selected or '') ~ ' ' ~ (p.consultant_name or '') ~ ' ' ~ (p.generated_by or ''))|lower }}" data-template="{{ p.template_type or 'short' }}" data-date="{{ p.generated_at | et_fmt('%Y-%m-%d') if p.generated_at else '' }}" onclick="showDetail({{ loop.index0 }})">
           <td class="prop-name">{{ p.property_name or p.client_name or 'Unnamed' }}
             {% if p.proposal_number %}<br><span style="font-size:11px;color:#aaa;font-weight:400;">{{ p.proposal_number }}</span>{% endif %}
           </td>
@@ -155,7 +155,7 @@
           <td><span class="badge">{{ p.property_type or '—' }}</span></td>
           <td style="font-size:12px;color:#888;">{{ p.template_type|template_label }}</td>
           <td style="font-size:12px;color:#888;max-width:180px;">{{ (p.scopes_selected or '—')[:60] }}{% if p.scopes_selected and p.scopes_selected|length > 60 %}…{% endif %}</td>
-          <td style="font-size:12px;color:#aaa;">{{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '—' }}</td>
+          <td style="font-size:12px;color:#aaa;">{{ p.generated_at | et_fmt('%b %d, %Y') if p.generated_at else '—' }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -215,7 +215,7 @@ const proposals = [
     type: {{ (p.property_type or '—')|tojson }},
     template: {{ (p.template_type|template_label)|tojson }},
     scopes: {{ (p.scopes_selected or '—')|tojson }},
-    date: {{ (p.generated_at.strftime('%B %d, %Y at %I:%M %p') if p.generated_at else '—')|tojson }},
+    date: {{ (p.generated_at | et_fmt('%B %d, %Y at %I:%M %p') if p.generated_at else '—')|tojson }},
     issue: {{ (p.existing_issue or '')|tojson }},
     outcome: {{ (p.intended_outcome or '')|tojson }},
     notes: {{ (p.scope_notes or '')|tojson }},

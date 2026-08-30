@@ -76,7 +76,7 @@
       {% for p in proposals %}
       <div class="act-item" onclick="openActivityDetail('proposal', {{ p.id }})" style="cursor:pointer;">
         <div class="act-name">{{ p.property_name or p.client_name or 'Unnamed' }}</div>
-        <div class="act-meta">{{ p.consultant_name }} · {{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }} · {{ p.property_type or '' }}</div>
+        <div class="act-meta">{{ p.consultant_name }} · {{ p.generated_at | et_fmt('%b %d, %Y') if p.generated_at else '' }} · {{ p.property_type or '' }}</div>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No proposals generated</div>{% endif %}
@@ -88,7 +88,7 @@
       {% for p in ppms %}
       <div class="act-item" onclick="openActivityDetail('ppm', {{ p.id }})" style="cursor:pointer;">
         <div class="act-name">{{ p.client_name or p.property_name or 'Unnamed' }}{% if p.proj_type %} · {{ p.proj_type }}{% endif %}</div>
-        <div class="act-meta">{{ p.pm_name or '' }} · {{ p.generated_at.strftime('%b %d, %Y') if p.generated_at else '' }}</div>
+        <div class="act-meta">{{ p.pm_name or '' }} · {{ p.generated_at | et_fmt('%b %d, %Y') if p.generated_at else '' }}</div>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No PPMs generated</div>{% endif %}
@@ -101,7 +101,7 @@
       {% for s in subscopes %}
       <div class="act-item" onclick="openActivityDetail('tps', {{ s.id }})" style="cursor:pointer;">
         <div class="act-name">{{ s.property_name or 'Unnamed' }}</div>
-        <div class="act-meta">{{ s.language|title if s.language else '' }} · {{ s.generated_at.strftime('%b %d, %Y') if s.generated_at else '' }}</div>
+        <div class="act-meta">{{ s.language|title if s.language else '' }} · {{ s.generated_at | et_fmt('%b %d, %Y') if s.generated_at else '' }}</div>
       </div>
       {% endfor %}
       {% else %}<div class="empty">No Trade Partner Scopes generated</div>{% endif %}
@@ -111,7 +111,7 @@
       {% if feedback_items %}
       {% for f in feedback_items %}
       <div class="act-item">
-        <div class="act-meta">{{ f.submitted_at.strftime('%b %d, %Y') if f.submitted_at else '' }}</div>
+        <div class="act-meta">{{ f.submitted_at | et_fmt('%b %d, %Y') if f.submitted_at else '' }}</div>
         <div class="act-name" style="font-weight:400;margin-top:4px;">{{ f.message }}</div>
       </div>
       {% endfor %}
