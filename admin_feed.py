@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import user_aliases
+
 
 ACTIVITY_KIND_LABELS = {
     'proposal': 'Proposal',
@@ -25,7 +27,22 @@ ACTIVITY_KIND_LABELS = {
 
 
 def _pretty_key(user_key):
-    return (user_key or '').replace('_', ' ').title() or '—'
+    """A readable name from a roster key.
+
+    Resolves first, for the same reason `daily_digest._display_name` does: all
+    three tables this feed merges carry `generated_by`, which is the short
+    consultant key on anything logged before 093244f or through a bookmarked
+    proposal tool. Without the resolve, `'rachel'` prettifies into a perfectly
+    convincing **"Rachel"**, and the Admin feed shows two people who are one
+    person — the same symptom as the nightly digest, on the page Thomas is
+    most likely to be looking at when he wonders who did something.
+
+    No roster is consulted here on purpose: this module stays free of `app.py`
+    so it can be tested, so it prettifies rather than looks up. That is also
+    why the fix is `resolve` and not `resolve_for` — the job is to make a key
+    readable, not to decide whether it belongs to anyone.
+    """
+    return user_aliases.resolve(user_key).replace('_', ' ').title() or '—'
 
 
 def merge_activity(proposals, ppms, subscopes, limit=30):
@@ -48,7 +65,7 @@ def merge_activity(proposals, ppms, subscopes, limit=30):
             'id': p.get('id'),
             'title': p.get('property_name') or p.get('client_name') or 'Unnamed',
             'who': _pretty_key(p.get('generated_by')),
-            'user_key': p.get('generated_by'),
+            'user_key': user_aliases.resolve(p.get('generated_by')),
             'context': p.get('consultant_name') or '',
             'extra': '',
             'when': p.get('generated_at'),
@@ -61,7 +78,7 @@ def merge_activity(proposals, ppms, subscopes, limit=30):
             'id': p.get('id'),
             'title': p.get('client_name') or p.get('property_name') or 'Unnamed',
             'who': _pretty_key(p.get('generated_by')),
-            'user_key': p.get('generated_by'),
+            'user_key': user_aliases.resolve(p.get('generated_by')),
             'context': p.get('pm_name') or '',
             'extra': p.get('proj_type') or '',
             'when': p.get('generated_at'),
@@ -78,7 +95,7 @@ def merge_activity(proposals, ppms, subscopes, limit=30):
             'id': s.get('id'),
             'title': s.get('property_name') or 'Unnamed',
             'who': _pretty_key(s.get('generated_by')),
-            'user_key': s.get('generated_by'),
+            'user_key': user_aliases.resolve(s.get('generated_by')),
             'context': s.get('consultant_name') or '',
             'extra': ' · '.join(bits),
             'when': s.get('generated_at'),

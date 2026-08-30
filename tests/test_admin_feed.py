@@ -117,3 +117,51 @@ def test_only_proposals_carry_a_document_to_download():
 def test_empty_and_none_inputs_are_both_fine():
     assert merge_activity([], [], []) == []
     assert merge_activity(None, None, None) == []
+
+
+# --- Attribution ------------------------------------------------------------
+#
+# The fourth read site of the alias bug (093244f, 6adb7e8, d6cc921, 44a33db).
+# All three tables merged here carry `generated_by`, which is the short
+# consultant key on anything logged before 093244f or through a bookmarked
+# proposal tool — and `_pretty_key` used to `.title()` it straight onto the
+# page, so `'rachel'` became a perfectly convincing "Rachel" sitting next to
+# "Rachel Farler". Nothing was dropped and nothing looked broken, which is
+# exactly why this survived three earlier passes at the same bug.
+
+def test_a_short_consultant_key_shows_the_persons_real_name():
+    feed = merge_activity([_p(1, datetime(2026, 8, 21), generated_by='rachel')],
+                          [], [])
+    assert feed[0]['who'] == 'Rachel Farler', 'the feed grew a second Rachel'
+    assert feed[0]['user_key'] == 'rachel_farler'
+
+
+def test_the_two_spellings_are_one_person_to_anything_filtering_the_feed():
+    """`user_key` is what the Admin page filters and links on, so it has to
+    agree with the name shown beside it."""
+    feed = merge_activity(
+        [_p(1, datetime(2026, 8, 21), generated_by='rachel'),
+         _p(2, datetime(2026, 8, 20), generated_by='rachel_farler')], [], [])
+    assert {i['user_key'] for i in feed} == {'rachel_farler'}
+
+
+def test_every_log_resolves_not_just_proposals():
+    feed = merge_activity([_p(1, datetime(2026, 8, 21), generated_by='rachel')],
+                          [_ppm(2, datetime(2026, 8, 20), generated_by='tony')],
+                          [_tps(3, datetime(2026, 8, 19), generated_by='adam')])
+    assert [i['who'] for i in feed] == ['Rachel Farler', 'Tony Cumella', 'Adam Cupito']
+
+
+def test_a_key_belonging_to_nobody_is_still_prettified():
+    """The fallback stays — a departed employee's rows keep arriving and
+    "Derek Kidney" reads better than a bare key. The change is that it now
+    only fires when there really is nobody behind the key."""
+    feed = merge_activity([_p(1, datetime(2026, 8, 21),
+                              generated_by='derek_kidney')], [], [])
+    assert feed[0]['who'] == 'Derek Kidney'
+    assert feed[0]['user_key'] == 'derek_kidney'
+
+
+def test_a_missing_author_still_renders_the_dash():
+    feed = merge_activity([_p(1, datetime(2026, 8, 21), generated_by=None)], [], [])
+    assert feed[0]['who'] == '—', 'resolve() must not break the empty case'
