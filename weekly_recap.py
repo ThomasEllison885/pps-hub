@@ -543,7 +543,12 @@ def build_recap_email(groups, start, recipient_key=None, users=None):
     """(subject, text_body, html_body) — one person's copy of the recap."""
     label = week_label(start)
     total = sum(r['total'] for g in groups for r in g['rows'])
-    subject = f'PPS Hub — week of {label}'
+    # Thomas, 2026-08-31. "PPS Hub — week of Aug 17–23" said when the email was
+    # about, not what it was, and it lands in an inbox beside every other
+    # automated Hub message. Naming the ranking in the subject is the point:
+    # this is the one email that tells someone where they stand, and it should
+    # be findable a month later by searching for what it does.
+    subject = f'PPS Hub Activity Ranked Week of {label}'
 
     you = None
     for g in groups:

@@ -584,3 +584,35 @@ def test_disabled_recap_sends_nothing():
         assert result['reason'] == 'disabled'
     finally:
         os.environ.pop('WEEKLY_RECAP_ENABLED', None)
+
+
+# --- Subject line -----------------------------------------------------------
+#
+# Thomas, 2026-08-31. The old subject — "PPS Hub — week of Aug 17–23" — said
+# when the email was about, not what it was, and it arrives beside every other
+# automated Hub message. This is the one email that tells someone where they
+# stand, so the subject says so.
+
+def test_the_subject_names_what_the_email_is():
+    subject, _text, _html = wr.build_recap_email(
+        wr.build_groups(_USERS, {'andy_potts': {'proposal': 5}}),
+        datetime(2026, 8, 17), 'andy_potts', _USERS,
+    )
+    assert subject.startswith('PPS Hub Activity Ranked Week of ')
+
+
+def test_the_subject_still_says_which_week():
+    """The reason a person can find last month's copy. Losing the date while
+    renaming the subject would be a quiet regression — every week's email
+    would have an identical subject line."""
+    subject, _text, _html = wr.build_recap_email(
+        wr.build_groups(_USERS, {}), datetime(2026, 8, 17), 'andy_potts', _USERS,
+    )
+    assert subject == 'PPS Hub Activity Ranked Week of Aug 17–23'
+
+
+def test_a_week_spanning_two_months_still_reads_properly():
+    subject, _text, _html = wr.build_recap_email(
+        wr.build_groups(_USERS, {}), datetime(2026, 8, 31), 'andy_potts', _USERS,
+    )
+    assert subject == 'PPS Hub Activity Ranked Week of Aug 31 – Sep 6'
