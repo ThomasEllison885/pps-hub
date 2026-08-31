@@ -751,16 +751,45 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
     but never counted. See _collect_usage_events: the headline number has
     always meant work produced, and fifteen newly instrumented pages must not
     quietly inflate it.
+
+    ── People are grouped by `user_key`, never by the name on the line ──────
+
+    This used to group on `display_name`, which is the same mistake as the one
+    the alias fixes chased through five modules, one layer further on: the key
+    was right and nothing ever looked at it.
+
+    Nine of the collectors render `row['display_name'] or _display_name(...)`,
+    preferring a name **stored on the row at write time** — a frozen copy of
+    `session['display_name']`. So a person's two lines only agree while the
+    roster display name has never changed. Rename someone in `USERS` — which
+    has happened here, twice, in one week (`23238da`, `8706c94`) — and every
+    row written before the rename carries the old string. Grouping on that
+    string split one person into two blocks with two separate counts, and
+    "N items from N people" counted them twice. QUIET TODAY was already right,
+    because it is the one thing here that reads `user_key`.
+
+    So: group by key, and take the heading from the roster. The stored name is
+    the *fallback*, which is what keeps departed staff readable — `derek_kidney`
+    has no roster entry, and the name frozen on his rows is the best label
+    available for them.
     """
     people = defaultdict(list)
     for it in items:
-        people[it['display_name']].append(it)
+        people[it['user_key']].append(it)
+
+    def _heading(user_key):
+        """Roster name first; the name frozen on the row only if nobody owns
+        the key. `next(...)` because every item in the bucket shares the key,
+        so any of them will do for the fallback."""
+        stored = next((i['display_name'] for i in people[user_key]
+                       if i['display_name']), '')
+        return _display_name(users, user_key, stored)
 
     did = [it for it in items if it['kind'] != SEEN_KIND]
 
     day_label = report_date.strftime('%A, %b %d, %Y')
     total = len(did)
-    person_count = len({it['display_name'] for it in did})
+    person_count = len({it['user_key'] for it in did})
     if total == 0:
         subject = f'PPS Hub Daily Digest — {day_label} (no team activity)'
     else:
@@ -785,11 +814,13 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
     if not people:
         lines.append('  (no activity)')
 
-    for name in sorted(people.keys()):
+    # Sorted by the name a reader sees, not by the key they never see.
+    ordered = sorted(people.keys(), key=lambda k: (_heading(k).lower(), k))
+    for key in ordered:
         # "Looked at" sorts last for a person and is not in their count.
-        person_items = sorted(people[name], key=lambda i: i['kind'] == SEEN_KIND)
+        person_items = sorted(people[key], key=lambda i: i['kind'] == SEEN_KIND)
         person_did = [i for i in person_items if i['kind'] != SEEN_KIND]
-        lines.append(f'{name} ({len(person_did)})')
+        lines.append(f'{_heading(key)} ({len(person_did)})')
         for it in person_items:
             meta = f' · {it["meta"]}' if it['meta'] else ''
             extra = f' · {it["extra"]}' if it['extra'] else ''
@@ -833,9 +864,10 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
         for label, n in _kind_totals(counts)
     )
     person_blocks = []
-    for name in sorted(people.keys()):
+    for key in ordered:
+        name = _heading(key)
         # Same as the text body: "Looked at" sorts last and is not counted.
-        person_items = sorted(people[name], key=lambda i: i['kind'] == SEEN_KIND)
+        person_items = sorted(people[key], key=lambda i: i['kind'] == SEEN_KIND)
         person_did = [i for i in person_items if i['kind'] != SEEN_KIND]
         item_lis = []
         for it in person_items:

@@ -151,3 +151,74 @@ def test_keys_that_were_never_aliases_pass_through(key):
     been roster keys. Resolving them must be a no-op — this is the assertion
     that the fix cannot break the eleven collectors that were already right."""
     assert dd._item(key, 'X', 'proposal', 'Proposal', 'T', '', AT)['user_key'] == key
+
+
+# ── grouping is by key, not by the name on the line ─────────────────────────
+#
+# The alias fix (44a33db) put the right `user_key` on every item. It did not
+# help the part of the email that never looked at it: `build_digest_email`
+# grouped on `display_name`.
+#
+# That matters because nine collectors render `row['display_name'] or
+# _display_name(...)` — preferring a name **stored on the row when it was
+# written**, a frozen copy of `session['display_name']`. Two lines from the
+# same person only agree while the roster display name has never changed.
+# Renaming someone in USERS has happened here twice in one week (23238da,
+# 8706c94), and every row written before a rename keeps the old string.
+
+def _stored(user_key, stored_name, kind='siding', label='Siding estimate'):
+    """An item the way the estimate/site-visit/feedback collectors build it:
+    the name comes off the row, not the roster."""
+    return dd._item(user_key, stored_name, kind, label, 'Maple Court', '', AT)
+
+
+def test_one_person_is_one_block_even_when_the_stored_name_is_stale():
+    _, text, _ = _email([_did('rachel'), _stored('rachel_farler', 'Rachel')])
+    body = text.split('BY PERSON')[1]
+    assert 'Rachel Farler (2)' in body, 'her two lines were split into two people'
+    assert '\nRachel (' not in body, 'a second block under the stale name'
+
+
+def test_the_people_count_does_not_double_her():
+    _, text, _ = _email([_did('rachel'), _stored('rachel_farler', 'Rachel')])
+    assert 'from 1 people' in text
+
+
+def test_the_heading_is_the_roster_name_not_whichever_row_sorted_first():
+    """Two stale spellings and no roster-derived line at all — the heading
+    still has to be what the roster says her name is today."""
+    _, text, _ = _email([_stored('rachel_farler', 'Rachel'),
+                         _stored('rachel_farler', 'R. Farler', kind='gutter',
+                                 label='Gutter estimate')])
+    assert 'Rachel Farler (2)' in text.split('BY PERSON')[1]
+
+
+def test_someone_off_the_roster_keeps_the_name_frozen_on_their_rows():
+    """The fallback is the point of keeping the stored name at all. Derek has
+    no roster entry, so the name written onto his rows is the best label
+    available — better than prettifying his key, and much better than
+    dropping him."""
+    _, text, _ = _email([_stored('derek_kidney', 'Derek Kidney', kind='ppm',
+                                 label='PPM')])
+    assert 'Derek Kidney (1)' in text.split('BY PERSON')[1]
+
+
+def test_blocks_are_still_ordered_by_the_name_a_reader_sees():
+    """Grouping moved to the key; the ordering must not move with it, or the
+    email starts sorting by 'phil_miller' vs 'Rachel Farler'."""
+    _, text, _ = _email([_did('rachel'), _did('andy_potts'),
+                         _stored('phil_miller', 'Phil Miller', kind='ppm',
+                                 label='PPM')])
+    body = text.split('BY PERSON')[1]
+    order = [ln.split(' (')[0] for ln in body.split('\n')
+             if ln and not ln.startswith(' ') and '(' in ln]
+    assert order == sorted(order, key=str.lower), f'blocks out of order: {order}'
+
+
+def test_the_html_and_the_text_body_agree_on_who_did_what():
+    """Two renderings of one grouping. They drifted apart once already when
+    the text body was fixed and the HTML kept its own loop."""
+    _, text, html = _email([_did('rachel'), _stored('rachel_farler', 'Rachel')])
+    assert 'Rachel Farler' in html
+    assert '>Rachel <' not in html, 'the HTML still splits her'
+    assert html.count('Rachel Farler') == 1, 'two blocks in the HTML'
