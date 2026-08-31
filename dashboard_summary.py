@@ -40,10 +40,14 @@ note above SCORED_USAGE_ACTIONS in weekly_recap.py for why that stays out.
 
 ── Why it is cached, and why the cache holds everyone ──────────────────────
 
-`collect_scores` is roughly a dozen GROUP BY queries. There is still no
-connection pool (review F-05), so running that per dashboard load would be
-the most expensive thing on the page by a wide margin. It is cached for
-CACHE_TTL_SECONDS.
+`collect_scores` is roughly a dozen GROUP BY queries, so running it per
+dashboard load would be the most expensive thing on the page by a wide
+margin. It is cached for CACHE_TTL_SECONDS.
+
+The cache is justified by those queries, not by connection cost — this note
+used to say "there is still no connection pool", which stopped being true on
+2026-08-25 (`db_pool.py`). Pooling makes the *connection* cheap; it does not
+make a dozen GROUP BYs cheap. The TTL stays exactly as it is.
 
 The cache holds the whole `{user_key: ...}` map rather than one person's
 row, because `collect_scores` computes everyone in the same dozen queries —

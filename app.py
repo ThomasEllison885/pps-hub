@@ -1482,13 +1482,24 @@ def can_edit_pricing_defaults(user_key):
 
 
 # How often a live session re-checks that its password is still current.
-# Not per-request on purpose: there is no connection pool yet (see
-# docs/HUB_REVIEW_2026-08-21.md F-05), so a SELECT on every request would mean
-# a fresh Postgres connect on every request. The cost of the throttle is that a
-# password reset can take up to this long to evict other devices — acceptable
-# for "someone lost a phone", and worth revisiting once pooling lands, at which
-# point this can safely drop to every request.
-PASSWORD_EPOCH_RECHECK_SECONDS = 15 * 60
+#
+# Was 15 minutes, for a reason that stopped being true: with no connection pool,
+# a SELECT on every request meant a fresh Postgres connect on every request.
+# Pooling landed 2026-08-25 (`db_pool.py`), and this comment went on citing its
+# absence for six days — which is why the value is now pinned by a test rather
+# than defended by a paragraph.
+#
+# **Still not per-request, and that is a decision rather than an oversight.**
+# The check sits on the path of *every* request, which includes Pipeline Board's
+# three-second poll and every static asset — not just page loads. Sixty seconds
+# takes eviction latency from fifteen minutes to one, which is the whole
+# practical benefit of the change, at one query per person per minute. Going to
+# zero buys the remaining fifty-nine seconds in exchange for a permanent
+# per-hit tax on the busiest path in the app.
+#
+# What the throttle costs: a password reset can take up to this long to evict
+# the person's other devices. One minute is well inside "someone lost a phone".
+PASSWORD_EPOCH_RECHECK_SECONDS = 60
 
 
 def _session_password_stale(user_key):
