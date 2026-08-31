@@ -45,7 +45,14 @@
   .contents a:hover { text-decoration: underline; }
   .contents .lane-tag { color: #bbb; font-size: 11px; }
 
-  .g-section { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; margin-bottom: 14px; scroll-margin-top: 16px; }
+  /* The Hub header is `position: sticky; top: 0`, so landing a section 16px
+     below the viewport top parked its <h2> UNDERNEATH the header — you arrived
+     at body text with no idea which section you were in. Thomas, 2026-08-31:
+     "when you press the table of contents links it goes too far down. Have it
+     show the header too. Not directly to the text."
+     `--header-h` is 64 / 52 / 48px across the breakpoints, so the variable is
+     doing real work: a hardcoded 80px would overshoot on a phone. */
+  .g-section { background: white; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 24px; margin-bottom: 14px; scroll-margin-top: calc(var(--header-h) + 16px); }
   .g-section h2 { font-size: 17px; color: var(--dark-blue); margin-bottom: 4px; font-weight: 700; }
   .g-lane { font-size: 11px; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
   .g-section h3 { font-size: 13px; color: var(--dark-blue); margin: 16px 0 6px; font-weight: 700; }

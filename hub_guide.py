@@ -413,27 +413,16 @@ SECTIONS = [
             ]),
         ],
     ),
-    dict(
-        id='what-not', title='What not to do', access=EVERYONE,
-        body=[
-            ('ul', [
-                'Do not share a login. Ever. When someone leaves we take '
-                'their name off the roster and their session dies — that only '
-                'works if you never loaned them yours.',
-                'Do not score yourself by opening pages. The recap ignores '
-                'that on purpose.',
-                'Do not put salaries, appraisals, or “who we might let '
-                'go” in Ask PPS or a training note.',
-                'Do not import a spreadsheet onto a Pipeline Board unless you '
-                'are leadership — and even then, only when a new consultant is '
-                'starting from Excel.',
-                'Do not rebuild a personal tracker for something the Hub '
-                'already stores.',
-                'Do not call Office Ops “the admin page.” Admin is '
-                'mine. Office Ops is Numbers and Compliance.',
-            ]),
-        ],
-    ),
+    # The 'what-not' section was removed 2026-08-31 at Thomas's request — a
+    # six-item list of prohibitions, most of which the Hub already enforces in
+    # code rather than by asking. Its full text is in `git log -p` if any of it
+    # is ever wanted back. Two of the six were the only place a rule was
+    # written down, and both are still true, so they are noted here rather
+    # than lost with the section: **never share a login** (offboarding works by
+    # removing a name from the roster, which does nothing if someone is signed
+    # in as somebody else), and **no salaries, appraisals or exit talk in Ask
+    # PPS or a training note** — that lives in `~/PPS Operating Memory` and
+    # nowhere the Hub can serve it.
     dict(
         id='broken', title='If it is broken', access=EVERYONE,
         body=[

@@ -159,11 +159,18 @@ def test_hidden_count_matches_what_was_dropped():
 
 
 def test_everyone_gets_the_things_everyone_needs():
-    """However narrow your access, you still get how to sign in and what not
-    to do."""
+    """However narrow your access, you still get how to sign in, what the
+    dashboard is, how you are scored, and what to do when it breaks.
+
+    `what-not` was on this list until 2026-08-31, when Thomas removed that
+    section — six prohibitions, most of which the Hub enforces in code rather
+    than by asking people not to. Dropped from here rather than kept as a
+    stub: an "essential section" nobody can reach is a failing test with no
+    bug behind it.
+    """
     for ctx in (FIELD_CONSULTANT, LEADER, NEW_HIRE):
         ids = _ids(_sections(ctx))
-        for essential in ('start', 'dashboard', 'what-not', 'broken', 'recap'):
+        for essential in ('start', 'dashboard', 'broken', 'recap'):
             assert essential in ids
 
 
