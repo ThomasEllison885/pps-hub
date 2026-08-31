@@ -251,3 +251,83 @@ def test_a_broken_query_does_not_take_the_digest_down():
     dd._collect_usage_events(Boom(), USERS, [], datetime(2026, 8, 26),
                              datetime(2026, 8, 27), got.append)
     assert got == []
+
+
+# --- What the daily number is FOR ---------------------------------------------
+#
+# Thomas, 2026-08-31, asked directly and answered directly. Both of the
+# counting quirks found in the 2026-08-31 audit are decisions, not defects:
+#
+#   "Logins are positive and any action are good. The actual number isn't as
+#    important as they are actually doing it. Not for my daily email. The
+#    weekly it matters only slightly more since it is 'competition' related."
+#
+# So the daily digest answers **"is the team using the Hub"**, and the weekly
+# recap answers **"who did how much"**. Two questions, two counting rules, on
+# purpose — and the tests below exist because both quirks look exactly like
+# bugs to anyone reading the code cold. One of them was reported as a finding
+# before it was confirmed as a decision.
+#
+# The line between them is not "loose vs strict". It is that the weekly is a
+# ranked comparison between people and the daily is not, so anything a person
+# could inflate has to be bounded in the weekly and needs no bounding here.
+
+def test_a_hub_login_counts_toward_the_daily_total():
+    """Reads like double-counting — signing in is not work. Here it is
+    deliberate: someone who signed in and did nothing else still showed up,
+    and showing up is the thing this email is watching for.
+
+    The weekly recap does the opposite. `login_attempts` is not in
+    SCORED_SOURCES, because a leaderboard where sign-ins score is a
+    leaderboard you win by signing in."""
+    subject, text, _ = _email(
+        [dd._item('andy_potts', 'Andy Potts', 'login', 'Hub login',
+                  'Signed in', '', AT)],
+        counts={'login': 1},
+    )
+    assert '(1 activity)' in subject
+    assert 'Hub logins: 1' in text.split('AT A GLANCE')[1]
+
+
+def test_a_rolled_up_line_counts_as_one_activity_here():
+    """psc_progress, pipeline and usage-event actions are one line covering
+    several acts — "7 checklist items completed", "3 new · 2 edits". The
+    headline therefore counts LINES, not acts, and undercounts those kinds.
+
+    Left as-is on purpose. The number is a presence signal, not a score, and
+    each line still states its own real figure. The weekly recap is where the
+    count has to be exact, and there `collect_scores` sums COUNT(*) per source
+    — which is why the two emails can legitimately disagree about the size of
+    the same day's work."""
+    subject, text, _ = _email(
+        [dd._item('andy_potts', 'Andy Potts', 'psc_progress', 'PSC training',
+                  '7 checklist items completed', '', AT)],
+        counts={'psc_progress': 1},
+    )
+    assert '(1 activity)' in subject, 'the headline counts the line'
+    assert '7 checklist items completed' in text, 'the line states the real number'
+
+
+def test_the_weekly_recap_does_not_score_sign_ins():
+    """The other half of the decision, asserted where someone changing the
+    daily rule would be standing. If logins ever become a scored source, the
+    ranked email starts rewarding attendance."""
+    import weekly_recap as wr
+    tables = {src[2] for src in wr.SCORED_SOURCES}
+    assert 'login_attempts' not in tables
+    assert 'hub_usage_events' not in tables, (
+        'usage events reach the recap through _collect_usage, filtered to '
+        'SCORED_USAGE_ACTIONS — adding the table here would let opens in')
+
+
+def test_the_weekly_recap_counts_acts_not_rows_of_output():
+    """`collect_scores` sums COUNT(*) per source, so the competition number is
+    the real one. This is the assertion that keeps the daily's looser rule
+    from being copied into the weekly by someone tidying up."""
+    import inspect
+
+    import weekly_recap as wr
+    source = inspect.getsource(wr.collect_scores)
+    assert 'COUNT(*)' in source
+    assert 'scores[owner][kind] += int(n or 0)' in source, (
+        'the recap stopped summing real counts')
