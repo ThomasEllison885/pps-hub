@@ -650,14 +650,81 @@ function renderAll() {
   if (typeof sizeScrollerSoon === 'function') sizeScrollerSoon();
 }
 
+// ── Keeping the caret across a row re-render (2026-08-31) ────────────────
+//
+// Rachel: "when I'm working in the pipeline and I try to tab over to the next
+// section, I still have to click in the box to start typing."
+//
+// Not nitpicky, and not a tab-order problem — the tab worked. This is what
+// happened:
+//
+//   1. Tab out of a cell fires `onblur` -> `saveField`, which POSTs.
+//   2. The browser moves focus to the next cell. Caret is there, correctly.
+//   3. A few hundred milliseconds later the POST returns and
+//      `patchEntryInPlace` calls `old.replaceWith(fresh)` — replacing the
+//      WHOLE row, including the element she is sitting in. Focus falls back
+//      to <body>, and anything typed in that window goes with it.
+//   4. She clicks the box, because there is nothing else to do.
+//
+// It presents as flaky rather than broken because it is a race: type slowly
+// on a fast connection and you never see it. That is why it reached us as an
+// apology ("this feels nitpicky") rather than a bug report.
+//
+// The hazard was already known here — the 3s poll has a guard for exactly it
+// ("Never stomp a row while the local user has a field in it focused"). The
+// save path never got the same protection. But the poll's answer, skip the
+// patch, is wrong on this path: the save response is how the server's derived
+// values arrive (property_name blur fills client_contact from the Hub), so
+// skipping it would trade a lost caret for a lost auto-fill.
+//
+// So: carry the caret across the replace instead of avoiding the replace.
+function captureCellFocus(rowEl) {
+  const el = document.activeElement;
+  if (!rowEl || !el || !rowEl.contains(el)) return null;
+  const field = el.getAttribute('data-field');
+  if (!field) return null;
+  let start = null, end = null;
+  // Chrome throws InvalidStateError reading selectionStart on
+  // <input type="number">, which is what Amount and Sub Pay are.
+  try { start = el.selectionStart; end = el.selectionEnd; } catch (e) {}
+  return {
+    field,
+    start,
+    end,
+    value: el.value,
+    // `defaultValue` is the value renderRow wrote into the markup, so this is
+    // "has she typed since this row was drawn" with no bookkeeping of our own.
+    // It decides who wins: her keystrokes if she has touched the field, the
+    // server's value if she has not — which is what lets the client_contact
+    // auto-fill still land in a field she has merely tabbed into.
+    dirty: el.tagName !== 'SELECT' && el.value !== el.defaultValue,
+  };
+}
+
+function restoreCellFocus(rowEl, held) {
+  if (!rowEl || !held) return;
+  const el = rowEl.querySelector(`[data-field="${held.field}"]`);
+  if (!el) return;
+  if (held.dirty) el.value = held.value;
+  // preventScroll because the row is already where she is looking. Without it
+  // a save landing while the board is scrolled sideways yanks the viewport.
+  el.focus({preventScroll: true});
+  if (held.start !== null) {
+    try { el.setSelectionRange(held.start, held.end); } catch (e) {}
+  }
+  if (el.tagName === 'TEXTAREA') autoGrow(el);
+}
+
 function patchEntryInPlace(entry) {
   const idx = entries.findIndex(e => e.id === entry.id);
   if (idx === -1) { entries.push(entry); } else { entries[idx] = entry; }
   // Only re-render the one row so nobody's in-progress typing elsewhere is disturbed.
   const old = document.getElementById(`row-${entry.id}`);
+  const held = captureCellFocus(old);
   const fresh = renderRow(entry);
   if (old) { old.replaceWith(fresh); } else { document.getElementById('board-body').appendChild(fresh); }
   wireCellEvents(fresh);
+  restoreCellFocus(fresh, held);
   // renderRow builds a clean <tr>, so the filter class is gone. Without this
   // an edited or polled row reappears mid-search — and an edit that makes a
   // row stop matching should hide it, which is also what people expect.
