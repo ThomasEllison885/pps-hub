@@ -785,8 +785,15 @@ function wireCellEvents(root) {
       el.oninput = () => autoGrow(el);
     } else if (el.getAttribute('data-field') === 'client_contact') {
       el.oninput = () => showClientSuggest(el);
-      el.onkeydown = (ev) => handleSuggestKey(ev, el);
     }
+    // One keydown slot, two jobs, and the order matters: the client-contact
+    // suggestion list owns Enter while it has a highlighted row, and calls
+    // preventDefault when it takes it. Checking `defaultPrevented` is what
+    // stops Enter both picking a suggestion and jumping a cell.
+    el.onkeydown = (ev) => {
+      if (el.getAttribute('data-field') === 'client_contact') handleSuggestKey(ev, el);
+      if (!ev.defaultPrevented) cellKeydown(ev, el);
+    };
   });
   scope.querySelectorAll('[data-archive]').forEach(btn => {
     btn.onclick = () => archiveRow(btn.getAttribute('data-archive'));
@@ -794,6 +801,60 @@ function wireCellEvents(root) {
   // Sizing every textarea in one pass, after the handlers are on, so the
   // existing content fits without waiting for someone to type in it.
   autoGrowAll(scope.querySelectorAll('textarea'));
+}
+
+// ── Enter moves to the next cell (2026-08-31) ────────────────────────────
+//
+// Thomas, after the tab fix: "Can you make it to where you hit enter and it
+// goes to the next cell too?" Enter did nothing at all before — there is no
+// <form> here, so it was a keystroke that looked like it should commit a cell
+// and didn't.
+//
+// Enter is Tab, and Shift+Enter is Shift+Tab. Moving focus fires the existing
+// `onblur`, so the cell saves on the way out exactly as it always has — this
+// adds a way to move, not a second way to save.
+//
+// **Textareas keep their newline.** Project and Notes are deliberately
+// multi-line and auto-grow; taking Enter away from them to save a keystroke
+// elsewhere would be a straight downgrade for the two fields people write
+// most in. Ctrl+Enter / Cmd+Enter moves on from those, which is the
+// convention everywhere else that has a multi-line box inside a form.
+//
+// Two things this deliberately does NOT do:
+//   * It does not go DOWN a column, spreadsheet-style. "Next cell" here means
+//     the next one you would have tabbed to, because the ask was to make
+//     Enter behave like Tab, and a board row is read left to right.
+//   * It does not stop at the end of a row. Walking a flat list of cells in
+//     DOM order means the last cell of one row leads to the first of the
+//     next, which is what filling a board in actually looks like.
+function boardCells() {
+  const body = document.getElementById('board-body');
+  if (!body) return [];
+  return Array.from(body.querySelectorAll('[data-field]')).filter(
+    // `offsetParent` is null for a cell inside a `.row-filtered` row, which is
+    // `display: none` during a search. Focusing one of those does nothing at
+    // all, so Enter would look broken while a search was running.
+    el => el.offsetParent !== null && !el.disabled);
+}
+
+function cellKeydown(ev, el) {
+  if (ev.key !== 'Enter') return;
+  // Mid-composition Enter is committing an IME candidate, not moving a cell.
+  if (ev.isComposing || ev.keyCode === 229) return;
+  const isTextarea = el.tagName === 'TEXTAREA';
+  const withModifier = ev.ctrlKey || ev.metaKey;
+  if (isTextarea && !withModifier) return;   // newline, as before
+  ev.preventDefault();
+  const cells = boardCells();
+  const here = cells.indexOf(el);
+  if (here === -1) return;
+  const next = cells[here + (ev.shiftKey && !isTextarea ? -1 : 1)];
+  if (!next) return;
+  next.focus();
+  // Tabbing into a text field selects what is in it, so Enter does too —
+  // otherwise the two keys land you in the same box feeling different, and
+  // the caret sits wherever the click-target happened to be.
+  try { if (typeof next.select === 'function') next.select(); } catch (e) {}
 }
 
 function saveField(el, extraFields, after) {
