@@ -288,7 +288,8 @@ USERS = {
 # credential is now known, and it lived in plaintext in this repo's history.
 # Two reasons not to reintroduce a shared login of any kind:
 #   1. Every action through it recorded as user_key 'admin', so per-person usage
-#      for whoever used it was unrecoverable — see docs/HUB_REVIEW_2026-08-21.md F-01.
+#      for whoever used it was unrecoverable — F-01. See CLAUDE.md, "Shared
+#      'Admin' login REMOVED (2026-08-21)".
 #   2. No email on the row, so Forgot Password could never work; the only recovery
 #      path was editing this file.
 # Give a real named USERS entry instead, and put them on the specific rosters

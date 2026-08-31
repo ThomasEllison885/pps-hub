@@ -24,7 +24,8 @@ the unpaired PM sit at the bottom forever, for reasons that have nothing to do
 with effort, and the first person who works that out stops believing the email.
 Groups keep the comparison between people whose weeks are actually comparable.
 
-See docs/HUB_REVIEW_2026-08-21.md F-04 for the reasoning behind the whole thing.
+F-04 is the finding behind the whole thing. See CLAUDE.md, "Hub review
+(2026-08-21)" — the original write-up is not in this repo.
 """
 
 from __future__ import annotations
