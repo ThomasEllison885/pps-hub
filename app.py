@@ -4291,7 +4291,10 @@ def dashboard():
         user_notifications=user_notifications,
         sales_lane_open=sales_lane_open,
         production_lane_open=production_lane_open,
-        admin_lane_open=is_admin,
+        # Open for leadership too, since 2026-08-31: the Admin lane is where
+        # Office Ops moved to, and it was a visible card in Production before.
+        # Starting it folded would have made the move read as a removal.
+        admin_lane_open=is_admin or office_ops_access,
         team_view=team_view,
         consultants=accessible_consultants,
         recent_proposals=recent_proposals,

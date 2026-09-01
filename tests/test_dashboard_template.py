@@ -276,3 +276,116 @@ def test_the_greeting_no_longer_promises_open_lanes(full):
     """It used to read "both sections open so you can reach either lane",
     which stopped being true when the lanes started folded on phones."""
     assert 'both sections open' not in full
+
+
+# --- The Admin lane (2026-08-31) ---------------------------------------------
+#
+# Thomas: "Put office ops in its own section. Call it admin."
+#
+# Office Ops used to be a card in Production & Field for leadership, and a
+# second copy of the same card inside the owner-only "Admin & Company
+# Settings" lane. It is now in one place: a lane called Admin, which
+# leadership can see for the first time.
+#
+# The shape worth protecting is that ONE lane is called Admin and who sees
+# which card inside it is decided per card. The obvious alternative — a second
+# leadership lane also called Admin — gives you a dashboard where "the Admin
+# section" means something different depending on who is looking at it.
+#
+# The gate is deliberately two conditions rather than one tier check: Office
+# Ops is leadership, the company settings are owner-only, and they are
+# separate questions that happen to share a lane. Collapsing them is how a
+# leadership user ends up looking at the feedback inbox.
+
+OWNER_PRICING = {'is_custom': True, 'updated_label': 'today',
+                 'updated_by_name': 'Thomas', 'siding_labor': 1,
+                 'roofing_labor': 2, 'gutter_lf': 3, 'painting_hour': 4}
+
+
+def _render(**over):
+    return _env().get_template('dashboard.html').render(**_ctx(**over))
+
+
+def _lane(html, name):
+    if f'data-lane="{name}"' not in html:
+        return None
+    return html.split(f'data-lane="{name}"', 1)[1].split('</details>', 1)[0]
+
+
+def _cards(block):
+    return re.findall(r'pps-tool-name">([^<]+)', block or '')
+
+
+def test_office_ops_has_left_production_and_field():
+    """The move, from the side people will notice."""
+    for role in ('consultant', 'pm', 'office_manager', 'admin'):
+        html = _render(user_role=role, office_ops_access=True,
+                       pricing_summary=OWNER_PRICING)
+        assert 'office-ops' not in _lane(html, 'production'), (
+            f'Office Ops is still in Production & Field for {role}')
+
+
+def test_leadership_gets_an_admin_lane_with_office_ops_in_it():
+    html = _render(user_role='consultant', office_ops_access=True)
+    admin = _lane(html, 'admin')
+    assert admin is not None, 'leadership cannot see the Admin lane'
+    assert _cards(admin) == ['Office Ops'], (
+        'leadership sees more than Office Ops in the Admin lane')
+
+
+def test_the_lane_is_called_admin_and_nothing_longer():
+    """"Call it admin" — not "Admin & Company Settings", which is what it was
+    when only Thomas could see it."""
+    html = _render(user_role='consultant', office_ops_access=True)
+    assert '<div class="lane-title">Admin</div>' in html
+
+
+def test_there_is_only_ever_one_lane_called_admin():
+    for role, over in (('consultant', {}), ('office_manager', {}),
+                       ('admin', {'pricing_summary': OWNER_PRICING})):
+        html = _render(user_role=role, office_ops_access=True, **over)
+        assert html.count('data-lane="admin"') == 1, f'{role} sees two Admin lanes'
+
+
+def test_the_owner_keeps_every_card_he_had():
+    html = _render(user_role='admin', office_ops_access=True,
+                   pricing_summary=OWNER_PRICING, unread_feedback=2)
+    cards = _cards(_lane(html, 'admin'))
+    for expected in ('Office Ops', 'Estimating Pricing Defaults', 'Feedback Inbox',
+                     'Proposal Comparisons', 'Team View', 'Admin Hub'):
+        assert expected in cards, f'{expected} fell out of the Admin lane'
+
+
+def test_leadership_does_not_get_the_owners_cards():
+    """The reason the gate is per card. Tony has Office Ops; he does not have
+    the feedback inbox, the diffs, or the Admin Hub."""
+    html = _render(user_role='consultant', office_ops_access=True,
+                   unread_feedback=3, unread_diffs=2)
+    admin = _lane(html, 'admin')
+    for owner_only in ('Feedback Inbox', 'Proposal Comparisons', 'Admin Hub'):
+        assert owner_only not in admin
+    assert '/admin/feedback' not in admin, 'the feedback lane-link leaked'
+    assert '3 feedback' not in html, 'the unread count leaked to leadership'
+
+
+def test_someone_without_office_ops_sees_no_admin_lane_at_all():
+    html = _render(user_role='consultant', office_ops_access=False)
+    assert _lane(html, 'admin') is None
+    assert 'office-ops' not in html
+
+
+def test_office_ops_is_the_first_card_in_the_lane():
+    """For leadership it is the only one; for Thomas it is the one with
+    something new in it most days."""
+    html = _render(user_role='admin', office_ops_access=True,
+                   pricing_summary=OWNER_PRICING)
+    assert _cards(_lane(html, 'admin'))[0] == 'Office Ops'
+
+
+def test_admin_sorts_last_for_everyone_but_the_owner():
+    """Flex `order` defaults to 0, and `.lane-sales` is 1 for a consultant —
+    so an unordered `.lane-admin` would have put Office Ops above Tony's own
+    proposals the moment he could see the lane."""
+    html = _render(user_role='consultant', office_ops_access=True)
+    assert re.search(r'\.lane-admin \{ order: 3; \}', html)
+    assert re.search(r'\.dash-role-admin \.lane-admin \{ order: 0; \}', html)

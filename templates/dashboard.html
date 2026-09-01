@@ -53,6 +53,12 @@
   .dash-role-pm .lane-sales { order: 2; }
   .dash-role-consultant .lane-sales { order: 1; }
   .dash-role-consultant .lane-production { order: 2; }
+  /* Admin sits last for everyone except Thomas, who leads with it. Explicit
+     rather than left to flex's default of 0: once leadership started seeing
+     this lane (2026-08-31), an unordered `.lane-admin` sorted ahead of
+     `.lane-sales { order: 1 }` — so Tony would have opened his dashboard to
+     Office Ops sitting above his own proposals. */
+  .lane-admin { order: 3; }
   .dash-role-admin .lane-admin { order: 0; }
   .lane-admin summary { background: linear-gradient(90deg, rgba(184,146,42,0.08), transparent); }
   .pricing-snippet { font-size: 12px; color: #666; line-height: 1.55; margin-top: 4px; }
@@ -433,23 +439,16 @@
           {% if user_role in ('pm', 'consultant', 'admin') %}
           <a href="/my-tpscopes" class="lane-link">My TPS →</a>
           {% endif %}
-          {% if office_ops_access %}
-          <a href="/office-ops" class="lane-link">Office Ops →</a>
-          {% endif %}
           <a href="/estimating" class="lane-link">Estimating →</a>
         </div>
       </summary>
       <div class="lane-body">
         <div class="tools-grid">
-          {% if office_ops_access %}
-          <a href="/office-ops" class="pps-tool-card">
-            <div class="pps-tool-icon">📥</div>
-            <div class="pps-tool-name">Office Ops</div>
-            <div class="pps-tool-desc">Drop AR aging, ranked collections, Numbers draft — Stephanie, Thomas &amp; Trey.</div>
-            <span class="tool-badge">Ops</span>
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
+          {# Office Ops moved out of this lane on 2026-08-31 (Thomas: "Put
+             office ops in its own section. Call it admin."). It is now the
+             only card leadership sees in the Admin lane below. Everything
+             else in this lane stays — the ask was about Office Ops, not a
+             reshuffle. #}
 
           <a href="#" onclick="openTool('{{ proposal_url }}/ppm'); return false;" class="pps-tool-card">
             <div class="pps-tool-icon">📋</div>
@@ -541,20 +540,53 @@
       </div>
     </details>
 
-    {% if user_role == 'admin' and pricing_summary %}
+    {# ── Admin (2026-08-31) ──────────────────────────────────────────────
+       Thomas: "Put office ops in its own section. Call it admin."
+
+       Rather than adding a second lane, this one widened. Two lanes both
+       called Admin — one owner-only with the company settings, one for
+       leadership with Office Ops in it — would have been the obvious way to
+       read that sentence, and it produces a dashboard where "the Admin
+       section" means different things to different people. One section
+       named Admin; who sees which cards inside it is per card.
+
+       Note the gate is deliberately not `office_ops_access or is_admin`
+       written as one tier check: Office Ops is leadership, the company
+       settings are owner-only, and they are separate questions that happen
+       to share a lane. Collapsing them into one check is how a leadership
+       user ends up looking at the feedback inbox. #}
+    {% set show_owner_admin = user_role == 'admin' and pricing_summary %}
+    {% if office_ops_access or show_owner_admin %}
     <details class="dashboard-lane lane-admin" data-lane="admin" {% if admin_lane_open %}open{% endif %}>
       <summary>
         <div>
-          <div class="lane-title">Admin &amp; Company Settings</div>
-          <div class="lane-sub">Estimator pricing, feedback inbox, and team oversight</div>
+          <div class="lane-title">Admin</div>
+          <div class="lane-sub">{% if show_owner_admin %}Office Ops, estimator pricing, feedback inbox, and team oversight{% else %}Numbers and compliance{% endif %}</div>
         </div>
         <div class="lane-links" onclick="event.stopPropagation()">
+          {% if office_ops_access %}<a href="/office-ops" class="lane-link">Office Ops →</a>{% endif %}
+          {% if show_owner_admin %}
           <a href="/admin/pricing-defaults" class="lane-link">Pricing →</a>
           {% if unread_feedback > 0 %}<a href="/admin/feedback" class="lane-link">{{ unread_feedback }} feedback →</a>{% endif %}
+          {% endif %}
         </div>
       </summary>
       <div class="lane-body">
         <div class="tools-grid">
+          {# First card in the lane on purpose: for leadership it is the only
+             one, and for Thomas it is the one with something new in it most
+             days. #}
+          {% if office_ops_access %}
+          <a href="/office-ops" class="pps-tool-card">
+            <div class="pps-tool-icon">📥</div>
+            <div class="pps-tool-name">Office Ops</div>
+            <div class="pps-tool-desc">AR aging, ranked collections, and the Numbers draft.</div>
+            <span class="tool-badge">Ops</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
+          {% if show_owner_admin %}
           <a href="/admin/pricing-defaults" class="pps-tool-card">
             <div class="pps-tool-icon">💰</div>
             <div class="pps-tool-name">Estimating Pricing Defaults</div>
@@ -605,22 +637,13 @@
           </a>
           {% endfor %}
 
-          {% if office_ops_access %}
-          <a href="/office-ops" class="pps-tool-card">
-            <div class="pps-tool-icon">📥</div>
-            <div class="pps-tool-name">Office Ops</div>
-            <div class="pps-tool-desc">AR drop, collections brief, Numbers draft (Stephanie + you).</div>
-            <span class="tool-badge">Private</span>
-            <div class="tool-meta">Open →</div>
-          </a>
-          {% endif %}
-
           <a href="/admin" class="pps-tool-card">
             <div class="pps-tool-icon">⚙️</div>
             <div class="pps-tool-name">Admin Hub</div>
             <div class="pps-tool-desc">Users, vault, proposals, site visits, and system health.</div>
             <div class="tool-meta">Open →</div>
           </a>
+          {% endif %}
 
         </div>
       </div>
