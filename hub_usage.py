@@ -65,6 +65,13 @@ ACTION_LABELS = {
     'upload': 'Uploaded',
     'generate': 'Generated',
     'notes': 'Saved notes',
+    # Ask PPS records the outcome, not just the act. A question the Hub could
+    # NOT answer is the more useful of the two: it names something the company
+    # has not written down yet. Both stay out of weekly_recap's
+    # SCORED_USAGE_ACTIONS — asking a question is not a deliverable, and a
+    # leaderboard that counted it would teach people to ask questions.
+    'answered': 'Asked (answered)',
+    'unanswered': 'Asked (no answer)',
 }
 
 

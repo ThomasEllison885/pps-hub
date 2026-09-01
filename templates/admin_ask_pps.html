@@ -86,6 +86,16 @@
     Review pending team answers here. Dashboard and <a href="/ask-pps" style="color:var(--blue);font-weight:600;">Field Ask PPS</a>
     stay the same for everyone (including you).
   </p>
+  {# A missing knowledge source degrades every answer quietly — the assistant
+     simply knows less, and says so in the same voice it uses when it genuinely
+     has nothing. So it is said out loud, on the page a curator is already on. #}
+  {% for w in source_warnings or [] %}
+  <div style="background:#FFF8E7;border:1px solid #FFE0A3;border-left:3px solid #F9A825;
+              border-radius:8px;padding:10px 14px;margin:0 0 10px;font-size:13px;
+              line-height:1.6;color:#7A5B00;">
+    <strong>Missing knowledge source.</strong> {{ w }}
+  </div>
+  {% endfor %}
   <div class="stats">
     <div class="stat"><div class="n">{{ open_gaps or 0 }}</div><div class="l">Open gaps</div></div>
     <div class="stat"><div class="n">{{ open_prompts or 0 }}</div><div class="l">Open prompts</div></div>

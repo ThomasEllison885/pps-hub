@@ -11,6 +11,7 @@ from functools import wraps
 from flask import jsonify, redirect, render_template, request, session, url_for
 from psycopg2.extras import RealDictCursor
 import db_ddl
+import hub_usage
 
 from estimators.pricing_defaults import SYSTEM_DEFAULTS, get_pricing_defaults
 from production_board_reference import production_board_ask_pps_entries
@@ -464,6 +465,25 @@ _VOICE_TERMINOLOGY_FALLBACK = (
     'Property context: apartments → residents; condos/HOAs → homeowners; '
     'hospitality → guests; commercial → tenants OK.'
 )
+
+
+def knowledge_source_warnings():
+    """Knowledge sources the assistant expects and has not got.
+
+    Only one today. It is a list because "the file is missing" is exactly the
+    kind of thing that is discovered a second and third time, and a list of
+    strings on the curation page costs nothing to extend.
+    """
+    warnings = []
+    if not os.path.exists(PROPOSAL_VOICE_PATH):
+        warnings.append(
+            'The proposal voice guide is missing from the Hub '
+            f'({os.path.relpath(PROPOSAL_VOICE_PATH, os.path.dirname(__file__))}). '
+            'Ask PPS is using a short built-in summary of the voice rules '
+            'instead of the real guide, so its wording advice is thinner than '
+            'it should be, and seeding adds no voice entries. Adding the file '
+            'and re-running Seed fixes both.')
+    return warnings
 
 
 def _load_voice_terminology():
@@ -2085,12 +2105,19 @@ def _retrieve_entries(get_db_fn, question):
         voice = cur.fetchall()
         cur.close()
 
+        # Tagged, not just concatenated. `directory` and `voice` are pulled in
+        # WHOLE on every question regardless of what was asked — they are
+        # framing, not answers — and the formatter needs to know which is
+        # which so they cannot eat the budget the real matches need. See
+        # _format_entries_for_prompt.
         seen = set()
         merged = []
-        for row in directory + voice + ranked:
+        for row, always_on in ([(r, True) for r in directory + voice]
+                               + [(r, False) for r in ranked]):
             if row['id'] in seen:
                 continue
             seen.add(row['id'])
+            row['always_on'] = always_on
             merged.append(row)
         return merged
     except Exception as e:
@@ -2101,14 +2128,53 @@ def _retrieve_entries(get_db_fn, question):
 
 
 def _format_entries_for_prompt(entries):
+    """The retrieved entries as one context block, within MAX_CONTEXT_CHARS.
+
+    ── The bug this is shaped around ───────────────────────────────────────
+
+    This used to walk `directory + voice + ranked` in order and **`break`** at
+    the first block that did not fit. Every `team_directory` and
+    `voice_language` entry is retrieved on every question, whatever was asked,
+    so as those two categories grow they push the search-ranked matches out —
+    and because it broke rather than skipped, one oversized entry early in the
+    list dropped *everything* after it. The assistant then answers "I don't
+    know" while the answer sits in an entry it never saw, and the failure is
+    invisible: the reply looks like a normal closed-book miss.
+
+    So the budget is split rather than consumed first-come. The ranked matches
+    — the only entries chosen because of the question — get a guaranteed
+    share, and the always-on framing takes what is left. Anything either pass
+    could not fit is offered the leftovers at the end, so a small entry is
+    never dropped because a large one went first.
+
+    Ranked entries lead the block. They are the ones the question actually
+    matched, and the model reads the top of its context most carefully.
+    """
+    ranked = [e for e in entries if not e.get('always_on')]
+    always_on = [e for e in entries if e.get('always_on')]
+
+    def block_for(e):
+        return f'[{e["category"]}] {e["title"]}\n{e["content"]}'
+
     parts = []
-    total = 0
-    for e in entries:
-        block = f'[{e["category"]}] {e["title"]}\n{e["content"]}'
-        if total + len(block) > MAX_CONTEXT_CHARS:
-            break
-        parts.append(block)
-        total += len(block) + 2
+    used = [0]
+    packed = set()
+
+    def pack(rows, budget):
+        for e in rows:
+            if id(e) in packed:
+                continue
+            block = block_for(e)
+            if used[0] + len(block) > budget:
+                continue          # skip, never stop — see the note above
+            packed.add(id(e))
+            parts.append(block)
+            used[0] += len(block) + 2
+
+    # Matches first, and they may use the whole budget if the framing is small.
+    pack(ranked, MAX_CONTEXT_CHARS)
+    # Framing gets whatever the matches left.
+    pack(always_on, MAX_CONTEXT_CHARS)
     return '\n\n'.join(parts)
 
 
@@ -2237,6 +2303,17 @@ def ask_question(get_db_fn, user_key, user_role, question, api_key, model):
 
     if not is_curator(user_key):
         _increment_usage(get_db_fn, user_key)
+
+    # The action that says whether this feature earns its keep, and the one
+    # number nobody could see: how many questions get asked, and how many the
+    # Hub could actually answer. `answered` is already stored per row in
+    # ask_pps_questions; recording it here too puts Ask PPS on the adoption
+    # view beside every other tool, where the comparison is.
+    hub_usage.record_usage(
+        get_db_fn, user_key, 'ask_pps',
+        'answered' if answered else 'unanswered',
+        question[:255],
+    )
 
     return {
         'success': True,
@@ -2397,6 +2474,13 @@ def get_admin_data(get_db_fn, users):
             'open_prompts': open_prompts,
             'prompts': get_open_prompts_admin(get_db_fn, users),
             'category_coverage': get_category_coverage(get_db_fn),
+            # Surfaced rather than logged. The voice guide source file has been
+            # absent from this repo the whole time, and _load_voice_terminology
+            # falls back to a short inline stub without complaining — so every
+            # answer has been shaped by a fraction of the voice rules and
+            # nothing said so. A warning in a log nobody reads is barely better
+            # than silence; this puts it on the page a curator is already on.
+            'source_warnings': knowledge_source_warnings(),
             'psc_gap_preview': len(discover_psc_training_gaps(get_db_fn)),
             'feedback_gap_preview': len(discover_psc_feedback_gaps(get_db_fn)),
             'audit_gap_preview': len(discover_knowledge_audit_gaps(get_db_fn)),
@@ -2501,6 +2585,13 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
         """Field-facing Ask PPS only (same experience for everyone, including curators)."""
         user_key = session['user_key']
         user_role = session.get('role', '')
+        # Ask PPS was the only page in the Hub recording nothing. `hub_usage`
+        # has had the label since F-03 and nothing ever wrote it, so the
+        # adoption view shows the feature as untouched whether it is used or
+        # not — which is why "I don't know how helpful it is" had no answer.
+        # Recorded here rather than with @logs_open because that decorator
+        # lives in app.py and these routes are registered from this module.
+        hub_usage.record_usage(get_db_fn, user_key, 'ask_pps', 'open')
         q = (request.args.get('q') or '').strip()
         recent = get_recent_questions(get_db_fn, user_key)
         # Same queue rules as dashboard — no curator “see everything / assign” UI.
