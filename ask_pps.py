@@ -12,6 +12,7 @@ from flask import jsonify, redirect, render_template, request, session, url_for
 from psycopg2.extras import RealDictCursor
 import db_ddl
 import hub_usage
+import training_overlay
 
 from estimators.pricing_defaults import SYSTEM_DEFAULTS, get_pricing_defaults
 from production_board_reference import production_board_ask_pps_entries
@@ -465,6 +466,78 @@ _VOICE_TERMINOLOGY_FALLBACK = (
     'Property context: apartments → residents; condos/HOAs → homeowners; '
     'hospitality → guests; commercial → tenants OK.'
 )
+
+
+# ── Approved answer → training curriculum (2026-08-31) ──────────────────────
+#
+# Thomas: "My idea was for those answers to be incorporated into the PSC (or
+# PM) training. But the questions aren't that good and when they are answered
+# the process for adding them (I would need to review / edit them first)."
+#
+# The review step he described already existed — Edit / Approve / Reject on
+# this page, with the team's original answer frozen beside the edit. What was
+# missing was the hop after it. Until now the only route from an approved
+# answer into the curriculum was a person hand-editing psc_training_data.py;
+# there is a PM training item in that file whose text says, in as many words,
+# "This came directly from the team via Ask PPS."
+#
+# The link needed to automate it was already in the data and thrown away. A
+# prompt minted from a `[TO DOCUMENT]` marker carries
+#
+#     source_ref = 'psc:<module_id>:<index>'
+#
+# so an approved answer to one of those prompts knows exactly which curriculum
+# module it fills. `discover_psc_training_gaps` writes that; nothing read it.
+#
+# **It files a DRAFT, not curriculum.** `training_overlay.create_item` leaves
+# `published_at` NULL, so the item waits in the training editor for Thomas to
+# reword and publish. That is deliberate and is the whole reason this is safe
+# to wire up: a team member's answer, approved for the knowledge base, is not
+# automatically good enough to teach a new hire from. Two reviews, because
+# they are two different questions — "is this true" and "is this how we teach
+# it".
+
+PSC_SOURCE_REF_PREFIX = 'psc:'
+
+
+def training_target_for_source_ref(source_ref):
+    """(module, target) for a prompt's source_ref, or (None, None).
+
+    Only `psc:<module_id>:<index>` resolves automatically — it is the only
+    prefix that names a curriculum container. The other prompt sources
+    (audit:, pscfb:, pmfb:, user:) are questions about the company rather than
+    about a specific module, so the curator picks the destination instead of
+    this guessing one. Guessing wrong would file a good answer under a heading
+    nobody looks at, which is worse than asking.
+    """
+    ref = (source_ref or '').strip()
+    if not ref.startswith(PSC_SOURCE_REF_PREFIX):
+        return None, None
+    parts = ref.split(':')
+    if len(parts) < 2 or not parts[1]:
+        return None, None
+    return 'psc', {'kind': 'section', 'section': 'company_operations',
+                   'group_id': parts[1]}
+
+
+def company_operations_modules():
+    """[(module_id, title)] for the curator's destination picker.
+
+    Read from the live curriculum rather than a list kept here, so a module
+    renamed in psc_training_data.py cannot leave this dropdown offering a
+    destination that `_target_container` will refuse to resolve.
+    """
+    try:
+        _o, _w, _cv, _st, company_operations = get_training_curriculum()
+    except Exception as e:
+        print(f'Ask PPS curriculum read error: {e}')
+        return []
+    out = []
+    for module in (company_operations or {}).get('modules', []) or []:
+        mid = module.get('id')
+        if mid:
+            out.append((mid, module.get('title') or mid))
+    return out
 
 
 def knowledge_source_warnings():
@@ -2372,7 +2445,8 @@ def get_admin_data(get_db_fn, users):
         cur.execute(
             '''SELECT k.*, u.display_name AS author_display,
                       a.answer AS prompt_raw_answer,
-                      p.question AS prompt_question
+                      p.question AS prompt_question,
+                      p.source_ref AS prompt_source_ref
                FROM knowledge_entries k
                LEFT JOIN hub_users u ON u.user_key = k.author_key
                LEFT JOIN knowledge_prompt_answers a ON a.entry_id = k.id
@@ -2481,6 +2555,10 @@ def get_admin_data(get_db_fn, users):
             # nothing said so. A warning in a log nobody reads is barely better
             # than silence; this puts it on the page a curator is already on.
             'source_warnings': knowledge_source_warnings(),
+            # Destinations for "send to training", read from the live
+            # curriculum so a renamed module cannot leave the picker offering
+            # somewhere the overlay will refuse to place an item.
+            'training_modules': company_operations_modules(),
             'psc_gap_preview': len(discover_psc_training_gaps(get_db_fn)),
             'feedback_gap_preview': len(discover_psc_feedback_gaps(get_db_fn)),
             'audit_gap_preview': len(discover_knowledge_audit_gaps(get_db_fn)),
@@ -2964,6 +3042,113 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
             print(f'Ask PPS resolve gap error: {e}')
         finally:
             conn.close()
+        return redirect(url_for('admin_ask_pps'))
+
+    @app.route('/admin/ask-pps/pending/<int:entry_id>/to-training', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_to_training(entry_id):
+        """Approve this answer AND file it as a training draft.
+
+        Two things in one click because they are one decision — "yes, and this
+        belongs in the curriculum" — but they land in two different states on
+        purpose. The knowledge entry goes `active` and is answerable
+        immediately; the curriculum item is a **draft**, waiting in the
+        training editor for Thomas to reword and publish.
+
+        That split is the point. "Is this true" and "is this how we teach it"
+        are different questions, and a team member's answer can pass the first
+        without passing the second. Nothing a colleague typed reaches a new
+        hire's programme without someone rewriting it first.
+        """
+        module = (request.form.get('training_module') or 'psc').strip()
+        group_id = (request.form.get('group_id') or '').strip()
+
+        conn = get_db_fn()
+        if not conn:
+            return redirect(url_for('admin_ask_pps'))
+        entry = None
+        try:
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur.execute(
+                '''SELECT k.id, k.title, k.content, k.status,
+                          p.question AS prompt_question,
+                          p.source_ref AS prompt_source_ref
+                     FROM knowledge_entries k
+                     LEFT JOIN knowledge_prompt_answers a ON a.entry_id = k.id
+                     LEFT JOIN knowledge_prompts p ON p.id = a.prompt_id
+                    WHERE k.id = %s''',
+                (entry_id,),
+            )
+            entry = cur.fetchone()
+            cur.close()
+        except Exception as e:
+            print(f'Ask PPS to-training read error: {e}')
+        finally:
+            conn.close()
+
+        if not entry:
+            return redirect(url_for('admin_ask_pps'))
+
+        # The prompt's own source_ref wins when it has one — it names the
+        # module the question came from, which is a better answer than
+        # anything a dropdown default could offer. The picker is the fallback
+        # for prompts that were never tied to a module.
+        auto_module, target = training_target_for_source_ref(
+            entry.get('prompt_source_ref'))
+        if target:
+            module = auto_module
+        elif group_id:
+            target = {'kind': 'section', 'section': 'company_operations',
+                      'group_id': group_id}
+        if not target:
+            return redirect(url_for('admin_ask_pps') + f'#pending-{entry_id}')
+
+        question = (entry.get('prompt_question') or entry.get('title') or '').strip()
+        item_id = training_overlay.create_item(
+            get_db_fn, module, target,
+            {
+                # The question becomes the heading and the answer the body, so
+                # the draft reads as curriculum rather than as a transcript of
+                # a form submission.
+                'title': question[:200] or 'From Ask PPS',
+                'text': (entry.get('content') or '').strip(),
+                'topic_summary': 'Drafted from an Ask PPS answer — reword before publishing.',
+            },
+            session.get('user_key'),
+        )
+        if not item_id:
+            return redirect(url_for('admin_ask_pps') + f'#pending-{entry_id}')
+
+        # Only approve once the draft is safely filed. The other order would
+        # lose the answer's place in the pending list if the overlay write
+        # failed, and a curator would have no way of telling that it had.
+        if entry.get('status') == 'pending':
+            conn = get_db_fn()
+            if conn:
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        '''UPDATE knowledge_entries
+                              SET status = 'active',
+                                  search_tsv = to_tsvector('english',
+                                      COALESCE(title,'') || ' ' || COALESCE(content,'')),
+                                  updated_at = NOW()
+                            WHERE id = %s AND status = 'pending'
+                            RETURNING author_key''',
+                        (entry_id,),
+                    )
+                    row = cur.fetchone()
+                    conn.commit()
+                    cur.close()
+                    if row:
+                        notify_ask_pps_approved(get_db_fn, row[0], entry_id,
+                                                entry.get('title') or '')
+                except Exception as e:
+                    print(f'Ask PPS to-training approve error: {e}')
+                finally:
+                    conn.close()
+        training_overlay.clear_cache()
         return redirect(url_for('admin_ask_pps'))
 
     @app.route('/admin/ask-pps/gap/<int:gap_id>/dismiss', methods=['POST'])

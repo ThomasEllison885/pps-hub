@@ -310,6 +310,30 @@
             <button type="submit" class="btn btn-muted">Reject</button>
           </form>
         </div>
+        {# Approve AND file a curriculum draft. The knowledge entry goes live
+           immediately; the training item waits in the training editor as a
+           draft for rewording — "is this true" and "is this how we teach it"
+           are different questions, and an answer can pass the first without
+           passing the second. When the prompt came from a [TO DOCUMENT]
+           marker its source_ref already names the module, so there is nothing
+           to choose. #}
+        <form method="post" action="{{ url_for('admin_ask_pps_to_training', entry_id=p.id) }}"
+              class="btn-row view-actions" style="margin-top:6px;align-items:center;gap:8px;">
+          {% if p.prompt_source_ref and p.prompt_source_ref.startswith('psc:') %}
+          <button type="submit" class="btn btn-primary">Approve &amp; draft into PSC training</button>
+          <span style="font-size:12px;color:#666;">
+            fills the gap this question came from
+          </span>
+          {% elif training_modules %}
+          <select name="group_id" style="font-size:13px;padding:4px 6px;">
+            <option value="">Send to training module…</option>
+            {% for mid, title in training_modules %}
+            <option value="{{ mid }}">{{ title }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-muted">Approve &amp; draft</button>
+          {% endif %}
+        </form>
         <form class="edit-panel" method="post" action="{{ url_for('admin_ask_pps_edit_pending', entry_id=p.id) }}">
           <div class="pending-question" style="font-size:15px;margin-bottom:10px;">{{ p.display_question or p.title }}</div>
           <div class="pending-by" style="margin-bottom:10px;">{{ p.author_display or p.author_key }} · not editable</div>
