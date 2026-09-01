@@ -878,3 +878,18 @@ body {
   .pps-step-progress-fill { height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.2s ease; width: 0%; }
   .pps-step-progress-text { white-space: nowrap; flex-shrink: 0; }
 }
+
+/* ── The content column (2026-09-01) ──────────────────────────────────
+   One width, defined once. It used to be set per page and had reached 13
+   different values across 48 templates — Dashboard 1000, My Proposals 1100,
+   Ask PPS 720 — so the column jumped width as you moved through the Hub.
+
+   1100px because it was already the most common and suits the table- and
+   card-heavy pages that make up most of the Hub.
+
+   Pages with a reason to be narrower keep their own max-width and say why in
+   a comment: long-form reading (the guide, the training courses, Ask PPS),
+   forms filled on a phone (site visit), printed estimator output, and the
+   Pipeline Board, which is deliberately full-bleed. tests/test_layout.py
+   holds that list, so "narrow" stays a decision rather than a leftover. */
+.main { max-width: 1100px; margin-left: auto; margin-right: auto; }
