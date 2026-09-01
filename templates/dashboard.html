@@ -49,17 +49,15 @@
   .lane-link { font-size: 11px; font-weight: 600; color: var(--blue); text-decoration: none; white-space: nowrap; }
   .lane-link:hover { text-decoration: underline; }
   .lane-body { padding: 0 18px 18px; }
-  .dash-role-pm .lane-production { order: 1; }
-  .dash-role-pm .lane-sales { order: 2; }
-  .dash-role-consultant .lane-sales { order: 1; }
-  .dash-role-consultant .lane-production { order: 2; }
-  /* Admin sits last for everyone except Thomas, who leads with it. Explicit
-     rather than left to flex's default of 0: once leadership started seeing
-     this lane (2026-08-31), an unordered `.lane-admin` sorted ahead of
-     `.lane-sales { order: 1 }` — so Tony would have opened his dashboard to
-     Office Ops sitting above his own proposals. */
-  .lane-admin { order: 3; }
-  .dash-role-admin .lane-admin { order: 0; }
+  /* Lane order is per person and comes from the server — see
+     dashboard_lanes.py, and the inline `order` on each <details> below. It
+     used to be four role rules here (`.dash-role-pm .lane-production` and so
+     on), which meant the order followed your role and could not be set for
+     the people who do not fit their role's shape. Two mechanisms deciding one
+     thing is how they end up disagreeing, so those rules are gone rather than
+     kept as a fallback. If `lane_order` is ever missing, every lane computes
+     to `order: 0` and they fall back to document order — sales, production,
+     admin — which is the default anyway. */
   .lane-admin summary { background: linear-gradient(90deg, rgba(184,146,42,0.08), transparent); }
   .pricing-snippet { font-size: 12px; color: #666; line-height: 1.55; margin-top: 4px; }
   .recent-feed { background: white; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 22px; margin-bottom: 28px; border: 1px solid var(--border); }
@@ -336,7 +334,7 @@
   {% endif %}
 
   <div class="dashboard-lanes">
-    <details class="dashboard-lane lane-sales" data-lane="sales" {% if sales_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-sales" data-lane="sales" style="order: {{ lane_order.get('sales', 0) }}" {% if sales_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Sales &amp; Consulting</div>
@@ -426,7 +424,7 @@
       </div>
     </details>
 
-    <details class="dashboard-lane lane-production" data-lane="production" {% if production_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-production" data-lane="production" style="order: {{ lane_order.get('production', 0) }}" {% if production_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Production &amp; Field</div>
@@ -557,7 +555,7 @@
        user ends up looking at the feedback inbox. #}
     {% set show_owner_admin = user_role == 'admin' and pricing_summary %}
     {% if office_ops_access or show_owner_admin %}
-    <details class="dashboard-lane lane-admin" data-lane="admin" {% if admin_lane_open %}open{% endif %}>
+    <details class="dashboard-lane lane-admin" data-lane="admin" style="order: {{ lane_order.get('admin', 0) }}" {% if admin_lane_open %}open{% endif %}>
       <summary>
         <div>
           <div class="lane-title">Admin</div>

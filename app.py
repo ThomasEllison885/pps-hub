@@ -185,6 +185,7 @@ from tiers import (
     TIER_OWNER, TIER_LEADERSHIP, TIER_TEAM, DEFAULT_TIER,
     tier_label,
 )
+import dashboard_lanes
 import tiers as _tiers
 import user_aliases
 
@@ -4295,6 +4296,10 @@ def dashboard():
         # Office Ops moved to, and it was a visible card in Production before.
         # Starting it folded would have made the move read as a removal.
         admin_lane_open=is_admin or office_ops_access,
+        # Which lane leads, per person (dashboard_lanes.py). Replaced four
+        # role-based CSS rules; order is a preference, not access, so a lane
+        # someone cannot see simply is not rendered.
+        lane_order=dashboard_lanes.css_order(user_key),
         team_view=team_view,
         consultants=accessible_consultants,
         recent_proposals=recent_proposals,

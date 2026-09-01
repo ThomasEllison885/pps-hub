@@ -96,7 +96,8 @@ def _ctx(**over):
         can_edit_pricing=False,
         pricing_summary=None,
         proposal_url='https://tool.example.com',
-        session={'role': 'consultant', 'user_key': 'andy_potts'},
+        session={"role": "consultant", "user_key": "andy_potts"},
+        lane_order={"sales": 0, "production": 1, "admin": 2},
     )
     ctx.update(over)
     return ctx
@@ -382,10 +383,45 @@ def test_office_ops_is_the_first_card_in_the_lane():
     assert _cards(_lane(html, 'admin'))[0] == 'Office Ops'
 
 
-def test_admin_sorts_last_for_everyone_but_the_owner():
-    """Flex `order` defaults to 0, and `.lane-sales` is 1 for a consultant —
-    so an unordered `.lane-admin` would have put Office Ops above Tony's own
-    proposals the moment he could see the lane."""
-    html = _render(user_role='consultant', office_ops_access=True)
-    assert re.search(r'\.lane-admin \{ order: 3; \}', html)
-    assert re.search(r'\.dash-role-admin \.lane-admin \{ order: 0; \}', html)
+def test_admin_does_not_float_above_the_lane_someone_leads_with():
+    """Same guarantee as the CSS rule this replaced, through the mechanism
+    that replaced it. Flex `order` defaults to 0, so a lane nobody placed
+    sorts FIRST — which is why `order_for` returns every lane rather than
+    only the ones someone expressed a preference about. Tony has Office Ops
+    and leads with Sales; Admin must not jump him."""
+    import dashboard_lanes as dl
+    order = dl.css_order('tony_cumella')
+    assert order['admin'] > order['sales'], 'Office Ops sits above his proposals'
+    html = _render(user_role='consultant', office_ops_access=True,
+                   lane_order=order)
+    assert f'data-lane="admin" style="order: {order["admin"]}"' in html
+
+
+def test_each_lane_carries_the_order_the_server_decided():
+    """The order arrives as an inline style per lane. It used to be four
+    role-based CSS rules; both mechanisms at once is how they disagree."""
+    import dashboard_lanes as dl
+    html = _render(user_role='office_manager', office_ops_access=True,
+                   lane_order=dl.css_order('stephanie_whetstone'))
+    for lane, pos in (('sales', 1), ('production', 2), ('admin', 0)):
+        assert re.search(rf'data-lane="{lane}" style="order: {pos}"', html), (
+            f'{lane} is not carrying order {pos}')
+
+
+def test_the_role_based_order_rules_are_gone():
+    html = _render()
+    for dead in ('.dash-role-pm .lane-production', '.dash-role-consultant .lane-sales',
+                 '.dash-role-admin .lane-admin'):
+        # The selector is named in a comment explaining what it replaced, so
+        # match the rule — selector followed by an `order` declaration.
+        assert not re.search(re.escape(dead) + r'\s*\{\s*order:', html), (
+            f'{dead} is back and fighting the server')
+
+
+def test_a_missing_lane_order_still_renders_in_document_order():
+    """Every lane computes to 0, which is document order — sales, production,
+    admin. A blank dashboard would be a much worse failure than a default
+    one."""
+    html = _render(lane_order={})
+    assert html.count('style="order: 0"') >= 2
+    assert 'data-lane="sales"' in html and 'data-lane="production"' in html
