@@ -1734,6 +1734,122 @@ def assign_prompt(get_db_fn, prompt_id, target_role, target_user_key=None, persp
     return {'ok': True}
 
 
+def ask_gap_of_person(get_db_fn, gap_id, target_user_key, created_by,
+                     target_role='any', perspective='field'):
+    """Turn ONE unanswered question into a prompt aimed at ONE person.
+
+    `sync_prompts_from_gaps` already existed and does the bulk version: every
+    open gap at once, aimed at a *role* guessed from a keyword regex over the
+    question text. That is the right tool for clearing a backlog and the wrong
+    one for the common case, which is that Thomas reads a gap and knows
+    exactly whose head the answer is in. A role guess sends "how do we handle
+    a stalled Monday board" to all five PMs and gets it answered by none of
+    them; naming Trey gets it answered by Trey.
+
+    The gap leaves the open queue (`gap_status='asked'`) rather than sitting
+    there looking undealt-with. It comes back as `resolved` when the answer is
+    approved — see `close_prompt_for_entry`, which is the other half of this
+    loop.
+
+    `source_gap_id` has been a column on `knowledge_prompts` since the table
+    was created, with an index on it, and only the bulk sync ever set it. It
+    is what lets an approved answer find its way back to the question that
+    prompted it.
+    """
+    if target_role not in PROMPT_TARGET_ROLES:
+        return {'ok': False, 'error': 'Invalid role.'}
+    if perspective not in PROMPT_PERSPECTIVES:
+        return {'ok': False, 'error': 'Invalid perspective.'}
+    conn = get_db_fn()
+    if not conn:
+        return {'ok': False, 'error': 'Database unavailable'}
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT id, question, gap_topic FROM ask_pps_questions
+                WHERE id = %s''',
+            (gap_id,),
+        )
+        gap = cur.fetchone()
+        if not gap:
+            return {'ok': False, 'error': 'Question not found.'}
+        # Idempotent by the same check the bulk sync uses, so a double-click
+        # does not put the same question in front of someone twice.
+        if _prompt_exists_for_gap(cur, gap['id'], perspective):
+            cur.execute(
+                "UPDATE ask_pps_questions SET gap_status = 'asked' WHERE id = %s",
+                (gap_id,),
+            )
+            conn.commit()
+            cur.close()
+            return {'ok': True, 'already': True}
+        _create_prompt(
+            cur, gap['question'],
+            _gap_topic_to_category(gap.get('gap_topic') or 'general'),
+            target_role, perspective, 'gap', created_by,
+            source_gap_id=gap['id'],
+            target_user_key=target_user_key or None,
+            # Above everything generated. Someone asked this out loud and got
+            # nothing back; it outranks a question scraped from a curriculum
+            # marker in July.
+            priority=20,
+        )
+        cur.execute(
+            "UPDATE ask_pps_questions SET gap_status = 'asked' WHERE id = %s",
+            (gap_id,),
+        )
+        conn.commit()
+        cur.close()
+        return {'ok': True}
+    except Exception as e:
+        conn.rollback()
+        print(f'Ask PPS ask-gap error: {e}')
+        return {'ok': False, 'error': str(e)}
+    finally:
+        conn.close()
+
+
+def close_prompt_for_entry(cur, entry_id):
+    """Retire the prompt behind an approved answer, and resolve its gap.
+
+    **On approval, not on answering** — and the distinction is the whole
+    design. `knowledge_prompt_answers` is `UNIQUE(prompt_id, user_key)`, so
+    several people answering the same question is deliberate: two accounts of
+    how something is done is useful right up until one of them is published.
+    Closing when the first person answers would throw the second away;
+    closing when a curator approves one is what "documented" means.
+
+    Without this a question keeps circulating after it has been answered,
+    approved and published — the Hub asking the team something it can now
+    answer itself, which is the fastest way to teach people the prompts are
+    not worth reading. `_topic_documented` already stops *new* prompts being
+    minted for a documented topic; nothing retired the existing ones.
+
+    Runs inside the caller's transaction: if the approval rolls back, so does
+    the close.
+    """
+    cur.execute(
+        '''UPDATE knowledge_prompts
+              SET status = 'answered', updated_at = NOW()
+            WHERE id = (SELECT prompt_id FROM knowledge_prompt_answers
+                         WHERE entry_id = %s)
+              AND status = 'open'
+        RETURNING source_gap_id''',
+        (entry_id,),
+    )
+    row = cur.fetchone()
+    gap_id = (row or {}).get('source_gap_id') if isinstance(row, dict) else (
+        row[0] if row else None)
+    if gap_id:
+        cur.execute(
+            "UPDATE ask_pps_questions "
+            "   SET gap_status = 'resolved', resolved_entry_id = %s "
+            " WHERE id = %s AND gap_status <> 'resolved'",
+            (entry_id, gap_id),
+        )
+    return gap_id
+
+
 def sync_prompts_from_gaps(get_db_fn, created_by, include_policy=False):
     """Turn open Q&A gaps into prompts — field team first, leadership optional."""
     conn = get_db_fn()
@@ -2437,6 +2553,9 @@ def get_admin_data(get_db_fn, users):
             '''SELECT * FROM ask_pps_questions
                WHERE gap_status = 'open'
                ORDER BY created_at DESC LIMIT 100'''
+            # 'asked' is deliberately not here. A question that has been put to
+            # someone is dealt with as far as this queue is concerned; it comes
+            # back as 'resolved' when their answer is approved.
         )
         gaps = cur.fetchall()
         for g in gaps:
@@ -2559,6 +2678,11 @@ def get_admin_data(get_db_fn, users):
             # curriculum so a renamed module cannot leave the picker offering
             # somewhere the overlay will refuse to place an item.
             'training_modules': company_operations_modules(),
+            # Who a gap can be put to. The roster, so the picker cannot offer
+            # somebody who has left.
+            'roster': sorted(
+                ((k, (v or {}).get('display') or k) for k, v in (users or {}).items()),
+                key=lambda kv: kv[1]),
             'psc_gap_preview': len(discover_psc_training_gaps(get_db_fn)),
             'feedback_gap_preview': len(discover_psc_feedback_gaps(get_db_fn)),
             'audit_gap_preview': len(discover_knowledge_audit_gaps(get_db_fn)),
@@ -3139,6 +3263,8 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                         (entry_id,),
                     )
                     row = cur.fetchone()
+                    if row:
+                        close_prompt_for_entry(cur, entry_id)
                     conn.commit()
                     cur.close()
                     if row:
@@ -3150,6 +3276,27 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                     conn.close()
         training_overlay.clear_cache()
         return redirect(url_for('admin_ask_pps'))
+
+    @app.route('/admin/ask-pps/gap/<int:gap_id>/ask', methods=['POST'])
+    @require_login
+    @require_ask_pps_curator
+    def admin_ask_pps_ask_gap(gap_id):
+        """Put one unanswered question in front of one person.
+
+        The two things that already existed were "answer it yourself" and
+        "dismiss it", plus a bulk sync that turns every open gap into a
+        role-targeted prompt at once. Neither covers the common case: reading
+        a gap and knowing whose head the answer is in.
+        """
+        target_user_key = (request.form.get('target_user_key') or '').strip()
+        if target_user_key and target_user_key not in users:
+            return redirect(url_for('admin_ask_pps') + '#gaps')
+        target_role = (request.form.get('target_role') or 'any').strip()
+        ask_gap_of_person(
+            get_db_fn, gap_id, target_user_key, session.get('user_key'),
+            target_role=target_role,
+        )
+        return redirect(url_for('admin_ask_pps') + '#gaps')
 
     @app.route('/admin/ask-pps/gap/<int:gap_id>/dismiss', methods=['POST'])
     @require_login
@@ -3191,6 +3338,12 @@ def register_routes(app, get_db_fn, users, claude_api_key, claude_model, require
                     (entry_id,),
                 )
                 transitioned = cur.fetchone()
+                if transitioned:
+                    # Publishing the answer retires the question. Same
+                    # transaction as the approval, so if one rolls back both
+                    # do — a closed prompt with an unapproved answer behind it
+                    # is a question nobody can see and nobody can find.
+                    close_prompt_for_entry(cur, entry_id)
                 conn.commit()
                 cur.close()
             except Exception as e:

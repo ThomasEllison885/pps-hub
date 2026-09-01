@@ -250,6 +250,20 @@
             <button type="submit" class="btn btn-primary">Publish & resolve</button>
           </div>
         </form>
+        {# The third option, and usually the right one: you know whose head the
+           answer is in. Their answer comes back through the same review path
+           as any other prompt answer, and approving it resolves this gap. #}
+        <form method="post" action="{{ url_for('admin_ask_pps_ask_gap', gap_id=g.id) }}"
+              style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select name="target_user_key" required style="font-size:13px;padding:4px 6px;">
+            <option value="">Ask this of…</option>
+            {% for key, name in roster or [] %}
+            <option value="{{ key }}">{{ name }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-primary">Ask them</button>
+          <span style="font-size:12px;color:#666;">goes to their dashboard</span>
+        </form>
         <form method="post" action="{{ url_for('admin_ask_pps_dismiss_gap', gap_id=g.id) }}" style="margin-top:8px;">
           <button type="submit" class="btn btn-muted">Dismiss</button>
         </form>
