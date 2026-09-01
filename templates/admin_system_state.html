@@ -7,8 +7,8 @@
 {% include '_pwa_head.html' %}
 <title>PPS Hub · System State</title>
 <style>
-  :root{--blue:#0096D6;--dark-blue:#004C8C;--light-bg:#EBF6FC;--gray:#444;--border:#D8E8F2;--shadow:0 2px 16px rgba(0,76,140,0.08);--radius:10px;
-        --ok:#1B7A4B;--ok-bg:#E6F4EC;--warn:#8A5A05;--warn-bg:#FBF1DE;--bad:#B71C1C;--bad-bg:#FDECEA;}
+  /* Palette: pps-global.css. Do not redefine it here — tests/test_palette.py */
+  :root { --ok:#1B7A4B; --ok-bg:#E6F4EC; --warn:#8A5A05; --warn-bg:#FBF1DE; --bad:#B71C1C; --bad-bg:#FDECEA; }
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
   .main{max-width:980px;margin:0 auto;padding:32px 24px 60px;}
