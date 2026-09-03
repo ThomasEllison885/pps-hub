@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response, g, has_request_context
 import pipeline_board
 import office_ops
+import production_link
 import insurance_compliance
 import crm_contact_sync
 import estimate_assignments
@@ -4158,6 +4159,7 @@ def dashboard():
     pipeline_board_access = bool(pipeline_boards)
     # Office Ops: leadership tier and up (Thomas, Stephanie, Tony, Trey).
     office_ops_access = office_ops.can_access_office_ops(USERS, user_key)
+    production_link_access = production_link.can_view(USERS, user_key)
 
     date_events = get_date_events(user_key, is_admin=real_is_admin)
     recent_feed = _build_dashboard_recent_feed(
@@ -4237,6 +4239,8 @@ def dashboard():
             allowed_tools.add('pipeline')
         if office_ops_access:
             allowed_tools |= {'office_ops', 'compliance'}
+        if production_link_access:
+            allowed_tools.add('production_link')
         if psc_training_enrolled:
             allowed_tools.add('psc_training')
         if pm_training_open:
@@ -4317,6 +4321,7 @@ def dashboard():
         pipeline_board_pair_key=pipeline_board_pair_key,
         pipeline_boards=pipeline_boards,
         office_ops_access=office_ops_access,
+        production_link_access=production_link_access,
         unread_feedback=unread_feedback,
         unread_diffs=unread_diffs,
         can_edit_pricing=edit_pricing,
@@ -9790,6 +9795,7 @@ ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, requir
 pipeline_board.register_routes(app, get_db, USERS, require_login)
 office_ops.register_routes(app, get_db, USERS, require_login, send_email_fn=_send_digest_email,
                             claude_api_key=CLAUDE_API_KEY, claude_model=CLAUDE_MODEL)
+production_link.register_routes(app, get_db, USERS, require_login)
 
 
 if __name__ == '__main__':

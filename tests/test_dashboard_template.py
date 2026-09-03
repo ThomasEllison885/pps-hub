@@ -91,6 +91,7 @@ def _ctx(**over):
         pipeline_boards=[{'key': 'andy_potts', 'consultant_display': 'Andy Potts',
                           'pm_display': 'Ben Cole'}],
         office_ops_access=False,
+        production_link_access=False,
         unread_feedback=0,
         unread_diffs=0,
         can_edit_pricing=False,
@@ -315,6 +316,20 @@ def _lane(html, name):
 
 def _cards(block):
     return re.findall(r'pps-tool-name">([^<]+)', block or '')
+
+
+def test_awarded_work_card_is_leadership_only():
+    """A join, not a board — and not on a consultant's dashboard. Trey is
+    the reader; Andy should not see a Production Board lookalike."""
+    html = _render()
+    prod = _lane(html, 'production')
+    assert 'Awarded work' not in _cards(prod)
+    assert '/production-link' not in (prod or '')
+    html = _render(production_link_access=True)
+    prod = _lane(html, 'production')
+    assert 'Awarded work' in _cards(prod)
+    assert '/production-link' in prod
+    assert 'Monday stays the board' in prod
 
 
 def test_office_ops_has_left_production_and_field():

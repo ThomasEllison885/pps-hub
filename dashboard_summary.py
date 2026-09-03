@@ -296,6 +296,7 @@ TOOLS = {
     'pipeline':     {'icon': '🗂️', 'name': 'Pipeline Board',     'path': '/pipeline-board'},
     'office_ops':   {'icon': '📥',  'name': 'Office Ops',         'path': '/office-ops'},
     'compliance':   {'icon': '🛡️', 'name': 'Compliance',         'path': '/office-ops/compliance'},
+    'production_link': {'icon': '🔗', 'name': 'Awarded work',      'path': '/production-link'},
     'psc_training': {'icon': '🎓',  'name': 'PSC Training',       'path': '/psc-training'},
     'pm_training':  {'icon': '🔧',  'name': 'PM Training',        'path': '/pm-training'},
     # Reachable from F-03 (2026-08-26), which instrumented the pages that
@@ -320,6 +321,7 @@ USAGE_FEATURE_TO_TOOL = {
     'pipeline': 'pipeline',
     'office_ops': 'office_ops',
     'compliance': 'compliance',
+    'production_link': 'production_link',
     'clients': 'clients',
     'proposal_history': 'proposal_history',
     'ppm_history': 'ppm_history',

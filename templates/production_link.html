@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Awarded work</title>
+<style>
+  /* Palette: pps-global.css. Do not redefine it here — tests/test_palette.py */
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:var(--page-bg);color:var(--gray);min-height:100vh;}
+  .main{margin:0 auto;padding:36px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:16px;max-width:46rem;line-height:1.5;}
+  .banner{
+    background:var(--amber-light);border:1px solid #F5CBA7;color:#7D4E00;
+    border-radius:var(--radius);padding:12px 14px;font-size:13px;line-height:1.45;margin-bottom:20px;
+  }
+  .banner strong{color:#6B3F00;}
+  .err{
+    background:var(--red-light);border:1px solid #F5B7B1;color:var(--red);
+    border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;font-size:14px;
+  }
+  .stats-row{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;}
+  .stat-card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 18px;min-width:110px;}
+  .stat-num{font-size:22px;font-weight:700;color:var(--dark-blue);font-variant-numeric:tabular-nums;}
+  .stat-lbl{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px;}
+  .search-wrap{margin-bottom:22px;}
+  .search-input{width:100%;max-width:420px;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;}
+  .search-input:focus{border-color:var(--blue);}
+  .search-hint{font-size:12px;color:#aaa;margin-top:6px;}
+  .group{margin-bottom:28px;}
+  .group-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;
+              font-size:12px;font-weight:600;color:var(--dark-blue);text-transform:uppercase;letter-spacing:0.08em;
+              margin-bottom:10px;padding-bottom:8px;border-bottom:1.5px solid var(--border);}
+  .group-meta{font-size:12px;color:#888;text-transform:none;letter-spacing:0;font-weight:500;}
+  .table-wrap{overflow-x:auto;background:white;border-radius:var(--radius);box-shadow:var(--shadow);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;padding:10px 12px;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#888;border-bottom:1px solid var(--border);white-space:nowrap;}
+  td{padding:10px 12px;border-bottom:1px solid var(--border-light);vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  tr.filtered-out{display:none;}
+  .job-name{font-weight:600;color:var(--dark-blue);max-width:280px;}
+  .muted{color:#888;}
+  .key{font-variant-numeric:tabular-nums;font-family:ui-monospace,Menlo,monospace;font-size:12px;}
+  .money{font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .pill{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--border);background:#fff;}
+  .pill-linked{background:var(--green-light);color:var(--green);border-color:#A9DFBF;}
+  .pill-gap{background:var(--amber-light);color:#9A5B00;border-color:#F5CBA7;}
+  .pill-none{background:#F4F6F7;color:#888;}
+  .links a{color:var(--blue);text-decoration:none;font-size:12px;margin-right:8px;}
+  .links a:hover{text-decoration:underline;}
+  .empty{text-align:center;color:#bbb;padding:28px 16px;font-size:14px;}
+  .source{font-size:12px;color:#aaa;margin-top:8px;}
+  @media(max-width:700px){
+    .main{padding:24px 14px 40px;}
+    .job-name{max-width:200px;}
+  }
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">Awarded work</span>
+  </a>
+  <div class="pps-header-right">
+    <span class="pps-header-user">{{ user_display }}</span>
+    <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Awarded work</div>
+  <p class="page-sub">The four live groups from Monday’s Production Board, with Hub proposals, PPMs, and TPS next to each job. Monday stays the board. This page does not write anything back.</p>
+
+  <div class="banner">
+    <strong>Not the Production Board.</strong>
+    On Hold, Needs Scheduled, Scheduled, and In Progress only.
+    Waiting on Margins and warranty stay on Monday.
+    Join is proposal number — a cell that says “Warranty work” is not a number.
+  </div>
+
+  {% if error %}
+  <div class="err">
+    Could not read Monday. Showing nothing rather than an empty board.
+    <div class="muted" style="margin-top:6px;">{{ error }}</div>
+  </div>
+  {% else %}
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-num">{{ summary.totals.jobs }}</div><div class="stat-lbl">Jobs</div></div>
+    <div class="stat-card"><div class="stat-num">{{ summary.totals.with_key }}</div><div class="stat-lbl">Have a #</div></div>
+    <div class="stat-card"><div class="stat-num">{{ summary.totals.hub_proposal }}</div><div class="stat-lbl">Hub proposal</div></div>
+    <div class="stat-card"><div class="stat-num">{{ summary.totals.hub_ppm }}</div><div class="stat-lbl">Hub PPM</div></div>
+    <div class="stat-card"><div class="stat-num">{{ summary.totals.ppm_gap }}</div><div class="stat-lbl">No Hub PPM</div></div>
+    <div class="stat-card"><div class="stat-num">${{ '{:,.0f}'.format(summary.totals.job_size) }}</div><div class="stat-lbl">Job size</div></div>
+  </div>
+  <p class="source">
+    {% if source == 'monday' %}Live from Monday{% elif source == 'fixture' %}Sample data — not live Monday{% else %}Unknown source{% endif %}
+    {% if fetched_label %} · {{ fetched_label }} ET{% endif %}
+  </p>
+  {% endif %}
+
+  {% if not error %}
+  <div class="search-wrap">
+    <input type="search" id="funnelSearch" class="search-input" placeholder="Filter by job, PM, consultant, proposal #…" autocomplete="off">
+    <div class="search-hint">Hides rows; does not remove them. Same as Pipeline Board search.</div>
+  </div>
+
+  {% for gname in funnel_groups %}
+  {% set rows = groups[gname] %}
+  {% set gsum = summary.groups[loop.index0] %}
+  <section class="group" id="g-{{ loop.index }}">
+    <div class="group-head">
+      <span>{{ gname }}</span>
+      <span class="group-meta">{{ gsum.jobs }} job{% if gsum.jobs != 1 %}s{% endif %}
+        · {{ gsum.hub_ppm }} Hub PPM
+        · {{ gsum.ppm_gap }} without
+        {% if gsum.job_size %} · ${{ '{:,.0f}'.format(gsum.job_size) }}{% endif %}
+      </span>
+    </div>
+    <div class="table-wrap">
+      {% if rows %}
+      <table class="funnel-table">
+        <thead>
+          <tr>
+            <th>Job</th>
+            <th>PM</th>
+            <th>Consultant</th>
+            <th>#</th>
+            <th>Size</th>
+            <th>Monday PPM</th>
+            <th>Hub</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="funnel-row" data-search="{{ (r.name ~ ' ' ~ r.project_manager ~ ' ' ~ r.consultant ~ ' ' ~ (r.key or '') ~ ' ' ~ r.trade)|lower }}">
+            <td>
+              <div class="job-name">{{ r.name }}</div>
+              {% if r.trade %}<div class="muted">{{ r.trade }}</div>{% endif %}
+            </td>
+            <td>{{ r.project_manager or '—' }}</td>
+            <td>{{ r.consultant or '—' }}</td>
+            <td class="key">
+              {% if r.key %}{{ r.key }}{% if r.key_source == 'name' %}<div class="muted">from name</div>{% endif %}
+              {% else %}<span class="muted">{{ r.proposal_number_raw or 'none' }}</span>{% endif %}
+            </td>
+            <td class="money">{% if r.job_size is not none %}${{ '{:,.0f}'.format(r.job_size) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td>{{ r.monday_ppm or '—' }}</td>
+            <td>
+              {% if r.ppm_gap %}
+                <span class="pill pill-gap">No Hub PPM</span>
+                {% if r.hub_proposal or r.hub_tps %}
+                <div class="muted" style="margin-top:4px;">
+                  {% if r.hub_proposal %}Proposal in Hub{% endif %}
+                  {% if r.hub_tps %}{% if r.hub_proposal %} · {% endif %}TPS{% endif %}
+                </div>
+                {% endif %}
+              {% elif r.hub_ppm %}
+                <span class="pill pill-linked">In Hub</span>
+                <div class="muted" style="margin-top:4px;">
+                  {% if r.hub_proposal %}Proposal · {% endif %}PPM{% if r.hub_tps %} · TPS{% endif %}
+                </div>
+              {% elif r.key %}
+                <span class="pill pill-none">No Hub docs</span>
+              {% else %}
+                <span class="pill pill-none">No #</span>
+              {% endif %}
+            </td>
+            <td class="links">
+              {% if r.monday_url %}<a href="{{ r.monday_url }}" target="_blank" rel="noopener">Monday</a>{% endif %}
+              {% if r.hub_proposal and r.hub_proposal.document_id %}
+                <a href="/api/documents/{{ r.hub_proposal.document_id }}/download">Proposal</a>
+              {% endif %}
+              {% if r.generate_ppm_url and r.ppm_gap %}
+                <a href="{{ r.generate_ppm_url }}" target="_blank" rel="noopener">Generate PPM</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty">Nothing in this group.</div>
+      {% endif %}
+    </div>
+  </section>
+  {% endfor %}
+  {% endif %}
+</div>
+<script>
+(function(){
+  var box = document.getElementById('funnelSearch');
+  if (!box) return;
+  box.addEventListener('input', function(){
+    var q = (box.value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    document.querySelectorAll('.funnel-row').forEach(function(row){
+      var hay = row.getAttribute('data-search') || '';
+      var ok = q.every(function(term){ return hay.indexOf(term) !== -1; });
+      row.classList.toggle('filtered-out', !ok);
+    });
+  });
+})();
+</script>
+</body>
+</html>

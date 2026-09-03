@@ -51,6 +51,8 @@ FEATURE_LABELS = {
     'pricing_defaults': 'Estimating Defaults',
     # 2026-08-29 — the adoption view reads this table and appears in it
     'adoption': 'Adoption',
+    # 2026-09-03 — read-only Monday funnel × Hub docs. Not a board.
+    'production_link': 'Awarded work',
 }
 
 KNOWN_FEATURES = frozenset(FEATURE_LABELS)

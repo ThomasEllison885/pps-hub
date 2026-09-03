@@ -1,0 +1,137 @@
+{
+  "board_url": "https://pure-property-solutions.monday.com/boards/672538971",
+  "colmap": {
+    "proposal_number": "proposal_number",
+    "ppm": "ppm",
+    "consultant": "consultant",
+    "project_manager": "project_manager",
+    "job_size": "job_size",
+    "trade": "trade"
+  },
+  "hub_docs": {
+    "proposals": [
+      {"id": 101, "proposal_number": "AP26155", "property_name": "Indian Creek 5456", "generated_at": "2026-08-12T14:00:00", "document_id": 44},
+      {"id": 102, "proposal_number": "RF26165", "property_name": "Sugar Glen siding", "generated_at": "2026-07-30T11:00:00", "document_id": 45}
+    ],
+    "ppms": [
+      {"id": 11, "proposal_number": "AP26155", "property_name": "Indian Creek 5456", "generated_at": "2026-08-20T09:00:00"}
+    ],
+    "tps": [
+      {"id": 21, "proposal_number": "AP26155", "property_name": "Indian Creek 5456", "generated_at": "2026-08-21T10:00:00"}
+    ]
+  },
+  "items": [
+    {
+      "id": "1001",
+      "name": "AP26155 Indian Creek 5456 Leak in Basement",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1001",
+      "group": {"title": "Awarded - On Hold"},
+      "column_values": [
+        {"id": "proposal_number", "text": "AP26155"},
+        {"id": "ppm", "text": "No"},
+        {"id": "consultant", "text": "Andy Potts"},
+        {"id": "project_manager", "text": "Ben Ramsey"},
+        {"id": "job_size", "text": "2900"},
+        {"id": "trade", "text": "Exterior Maintenance"}
+      ]
+    },
+    {
+      "id": "1002",
+      "name": "3166 Shadow Ridge ct-Entry door",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1002",
+      "group": {"title": "Awarded - On Hold"},
+      "column_values": [
+        {"id": "proposal_number", "text": "Warranty work"},
+        {"id": "ppm", "text": ""},
+        {"id": "consultant", "text": "Andy Potts"},
+        {"id": "project_manager", "text": "Ben Ramsey"},
+        {"id": "job_size", "text": ""},
+        {"id": "trade", "text": "Carpentry"}
+      ]
+    },
+    {
+      "id": "1003",
+      "name": "RF26165 Siding at Sugar Glen",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1003",
+      "group": {"title": "Needs Scheduled"},
+      "column_values": [
+        {"id": "proposal_number", "text": "RF26165"},
+        {"id": "ppm", "text": "Yes"},
+        {"id": "consultant", "text": "Rachel Farler"},
+        {"id": "project_manager", "text": "Derek Kidney"},
+        {"id": "job_size", "text": "3125"},
+        {"id": "trade", "text": "Siding"}
+      ]
+    },
+    {
+      "id": "1004",
+      "name": "Connor — balcony replacements",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1004",
+      "group": {"title": "Needs Scheduled"},
+      "column_values": [
+        {"id": "proposal_number", "text": "460136"},
+        {"id": "ppm", "text": "No"},
+        {"id": "consultant", "text": "Adam Cupito"},
+        {"id": "project_manager", "text": "Jordan Allen"},
+        {"id": "job_size", "text": "30363"},
+        {"id": "trade", "text": "Carpentry"}
+      ]
+    },
+    {
+      "id": "1005",
+      "name": "TC7364 Woodlands painting wrap",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1005",
+      "group": {"title": "Scheduled"},
+      "column_values": [
+        {"id": "proposal_number", "text": "TC7364"},
+        {"id": "ppm", "text": ""},
+        {"id": "consultant", "text": "Tony Cumella"},
+        {"id": "project_manager", "text": "Nick Triplett"},
+        {"id": "job_size", "text": "18400"},
+        {"id": "trade", "text": "Painting"}
+      ]
+    },
+    {
+      "id": "1006",
+      "name": "CK4440D Commons at Kettering roof leak",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1006",
+      "group": {"title": "In Progress"},
+      "column_values": [
+        {"id": "proposal_number", "text": "CK4440D"},
+        {"id": "ppm", "text": "Yes"},
+        {"id": "consultant", "text": "Andy Potts"},
+        {"id": "project_manager", "text": "Ben Ramsey"},
+        {"id": "job_size", "text": ""},
+        {"id": "trade", "text": "Exterior Maintenance"}
+      ]
+    },
+    {
+      "id": "1007",
+      "name": "No number, no name key",
+      "url": "https://pure-property-solutions.monday.com/boards/672538971/pulses/1007",
+      "group": {"title": "In Progress"},
+      "column_values": [
+        {"id": "proposal_number", "text": ""},
+        {"id": "ppm", "text": ""},
+        {"id": "consultant", "text": "Adam Cupito"},
+        {"id": "project_manager", "text": "Jordan Allen"},
+        {"id": "job_size", "text": "12500"},
+        {"id": "trade", "text": "Roofing"}
+      ]
+    },
+    {
+      "id": "9999",
+      "name": "THIS SHOULD NEVER RENDER — Waiting on Margins",
+      "url": "",
+      "group": {"title": "Waiting on Margins"},
+      "column_values": [
+        {"id": "proposal_number", "text": "AP00000"},
+        {"id": "ppm", "text": "Yes"},
+        {"id": "consultant", "text": "Nobody"},
+        {"id": "project_manager", "text": "Nobody"},
+        {"id": "job_size", "text": "999999"},
+        {"id": "trade", "text": "None"}
+      ]
+    }
+  ]
+}

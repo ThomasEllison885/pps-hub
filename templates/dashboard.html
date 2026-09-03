@@ -451,6 +451,19 @@
             <div class="tool-meta">Open →</div>
           </a>
 
+          {# Read-only join, not a Hub Production Board. Leadership only
+             while this is a spike — Trey is the reader. Monday stays the
+             board; this puts Hub PPMs next to the four live groups. #}
+          {% if production_link_access %}
+          <a href="/production-link" class="pps-tool-card">
+            <div class="pps-tool-icon">🔗</div>
+            <div class="pps-tool-name">Awarded work</div>
+            <div class="pps-tool-desc">On Hold through In Progress from Monday, with Hub proposals and PPMs beside each job. Monday stays the board.</div>
+            <span class="tool-badge">Join</span>
+            <div class="tool-meta">Open →</div>
+          </a>
+          {% endif %}
+
           {% if consultants %}
           <a href="#" onclick="openTool('{{ proposal_url }}/subscope'); return false;" class="pps-tool-card">
             <div class="pps-tool-icon">📝</div>

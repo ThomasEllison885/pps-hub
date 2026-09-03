@@ -55,7 +55,7 @@ BOARDS = lambda ctx: bool(ctx.get('pipeline_boards'))              # noqa: E731
 
 
 def facts(session_days, statuses, completed_statuses, rolling_weeks,
-          activity_cap, recap_day, recap_hour):
+          activity_cap, recap_day, recap_hour, funnel_groups=None):
     """The numbers the prose would otherwise hardcode.
 
     Every one of these is read from the module that implements it, so the
@@ -64,6 +64,9 @@ def facts(session_days, statuses, completed_statuses, rolling_weeks,
     in_progress = [s['label'] for s in statuses
                    if s['value'] not in completed_statuses]
     done = [s['label'] for s in statuses if s['value'] in completed_statuses]
+    if funnel_groups is None:
+        import production_link as _pl
+        funnel_groups = _pl.FUNNEL_GROUPS
     return {
         'session_days': session_days,
         'statuses_in_progress': ', '.join(in_progress),
@@ -71,6 +74,7 @@ def facts(session_days, statuses, completed_statuses, rolling_weeks,
         'rolling_weeks': rolling_weeks,
         'activity_cap': activity_cap,
         'recap_when': f'{recap_day} around {recap_hour}',
+        'funnel_groups': ', '.join(funnel_groups),
     }
 
 
@@ -276,6 +280,23 @@ SECTIONS = [
                   'what you saw versus what was proposed. This is the record '
                   'when someone asks three weeks later what was on the '
                   'building.'),
+        ],
+    ),
+    dict(
+        id='awarded-work', title='Awarded work', access=LEADERSHIP,
+        lane='Leadership only',
+        body=[
+            ('p', 'A join, not a board. It reads Monday’s Production Board '
+                  'for {funnel_groups} and puts Hub proposals, PPMs, and TPS '
+                  'next to each job, matched on proposal number. Waiting on '
+                  'Margins and warranty stay on Monday. Nothing writes back.'),
+            ('p', 'A cell that says “Warranty work” is not a number. Some '
+                  'Monday rows use a numeric token that will not match a Hub '
+                  'AP26155-style proposal — that miss is the point of the '
+                  'page, not something to guess through.'),
+            ('note', 'Monday is still the Production Board. If this page and '
+                     'Monday disagree, Monday is right about the job and this '
+                     'page is right about whether a Hub PPM exists.'),
         ],
     ),
     dict(

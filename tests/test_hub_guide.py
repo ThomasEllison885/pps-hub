@@ -125,12 +125,24 @@ def test_a_consultant_does_not_read_two_pages_about_office_ops():
     assert 'office-ops' not in ids
     assert 'training-editor' not in ids
     assert 'pricing-defaults' not in ids
+    assert 'awarded-work' not in ids
     assert 'pipeline' in ids and 'proposal' in ids
+
+
+def test_awarded_work_lists_the_funnel_groups():
+    """The four groups in the guide have to be the four the page reads,
+    or the guide becomes another PDF."""
+    import production_link
+    text = _text(_sections(LEADER))
+    for group in production_link.FUNNEL_GROUPS:
+        assert group in text
+    assert 'Waiting on Margins' in text  # named as out, not as in
 
 
 def test_leadership_gets_the_leadership_sections():
     ids = _ids(_sections(LEADER))
-    for section_id in ('office-ops', 'training-editor', 'pricing-defaults'):
+    for section_id in ('office-ops', 'training-editor', 'pricing-defaults',
+                       'awarded-work'):
         assert section_id in ids
 
 

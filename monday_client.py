@@ -479,3 +479,102 @@ def parse_people_column(column_value):
         str(p['id']) for p in (parsed.get('personsAndTeams') or [])
         if p.get('kind') == 'person'
     ]
+
+
+# Production Board — read-only funnel fetch (2026-09-03). Hub does not write
+# to this board. Column IDs are discovered by title at runtime because this
+# board was last sampled in August and titles are the stable names; the
+# Estimates board taught us the ids are opaque (`dup__of_sales_lead_…`).
+PRODUCTION_BOARD_ID = os.environ.get('MONDAY_PRODUCTION_BOARD_ID', '672538971')
+
+
+def describe_board(board_id):
+    """id, name, url, columns [{id, title, type}], groups [{id, title}]."""
+    query = '''
+    query($boardId: [ID!]) {
+      boards(ids: $boardId) {
+        id
+        name
+        url
+        columns { id title type }
+        groups { id title }
+      }
+    }
+    '''
+    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
+    return boards[0] if boards else {}
+
+
+def fetch_grouped_items(board_id, groups, column_ids):
+    """Raw items from named groups only. Empty ``groups`` returns [] rather
+    than the whole board — that is the property that keeps Waiting on Margins
+    (191 jobs) and warranty off the Hub page.
+
+    Read-only: this issues ``boards`` / ``items_page`` / ``next_items_page``.
+    There is no ``change_column_value`` in this module for Production.
+    """
+    if not groups:
+        return []
+    board_id = board_id or PRODUCTION_BOARD_ID
+    wanted = set(groups)
+    col_json = json.dumps(list(column_ids) if column_ids else [])
+    items = []
+    query = f'''
+    query($boardId: [ID!]) {{
+      boards(ids: $boardId) {{
+        groups {{
+          title
+          items_page(limit: 50) {{
+            cursor
+            items {{
+              id
+              name
+              url
+              group {{ title }}
+              column_values(ids: {col_json}) {{
+                id
+                text
+                value
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+    '''
+    next_query = f'''
+    query($cursor: String!) {{
+      next_items_page(cursor: $cursor, limit: 50) {{
+        cursor
+        items {{
+          id
+          name
+          url
+          group {{ title }}
+          column_values(ids: {col_json}) {{
+            id
+            text
+            value
+          }}
+        }}
+      }}
+    }}
+    '''
+    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
+    for board in boards:
+        for group in board.get('groups') or []:
+            title = group.get('title')
+            if title not in wanted:
+                continue
+            page = group.get('items_page') or {}
+            for it in page.get('items') or []:
+                items.append(it)
+            cursor = page.get('cursor')
+            while cursor:
+                next_page = monday_graphql(next_query, {'cursor': cursor}).get('next_items_page') or {}
+                for it in next_page.get('items') or []:
+                    it.setdefault('group', {'title': title})
+                    items.append(it)
+                cursor = next_page.get('cursor')
+    return items
+
