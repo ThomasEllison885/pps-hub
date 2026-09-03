@@ -311,9 +311,12 @@ def load_hub_index(get_db_fn):
 
 def join_funnel(jobs, hub_index, proposal_url=None):
     """Attach Hub docs. Jobs outside FUNNEL_GROUPS are dropped — that is
-    the whole point of the spike, not a display filter."""
+    the whole point of the spike, not a display filter.
+
+    ``proposal_url`` is accepted and ignored. The first version used it to
+    link a blank /ppm form; a Monday number is not a proposal file.
+    """
     hub_index = hub_index or {}
-    ppm_tool = (proposal_url or '').rstrip('/') + '/ppm' if proposal_url else ''
     grouped = {g: [] for g in FUNNEL_GROUPS}
     for job in jobs or []:
         group = job.get('group')
@@ -325,7 +328,6 @@ def join_funnel(jobs, hub_index, proposal_url=None):
         row['hub_proposal'] = docs.get('proposal')
         row['hub_ppm'] = docs.get('ppm')
         row['hub_tps'] = docs.get('tps')
-        row['generate_ppm_url'] = ppm_tool if key else ''
         monday_yes = (row.get('monday_ppm') or '').strip().lower() == 'yes'
         row['ppm_gap'] = bool(key) and not row['hub_ppm']
         row['ppm_disagrees'] = monday_yes and not row['hub_ppm']

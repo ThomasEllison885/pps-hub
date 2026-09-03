@@ -176,9 +176,6 @@
               {% if r.hub_proposal and r.hub_proposal.document_id %}
                 <a href="/api/documents/{{ r.hub_proposal.document_id }}/download">Proposal</a>
               {% endif %}
-              {% if r.generate_ppm_url and r.ppm_gap %}
-                <a href="{{ r.generate_ppm_url }}" target="_blank" rel="noopener">Generate PPM</a>
-              {% endif %}
             </td>
           </tr>
           {% endfor %}

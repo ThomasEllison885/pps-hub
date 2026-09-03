@@ -171,6 +171,21 @@ def test_numeric_key_does_not_match_a_hub_ap_number():
     assert grouped['Needs Scheduled'][0]['link_state'] == 'key_only'
 
 
+def test_a_monday_number_is_not_a_ppm_button():
+    """PPM is generated from the proposal file. A key with no Hub proposal
+    must not offer a link to the empty /ppm form."""
+    jobs = [{'group': 'In Progress', 'key': 'CK4440D', 'name': 'Kettering'}]
+    row = pl.join_funnel(jobs, {}, proposal_url='https://tool.example.com')['In Progress'][0]
+    assert 'generate_ppm_url' not in row or not row.get('generate_ppm_url')
+    with_prop = pl.join_funnel(
+        [{'group': 'Needs Scheduled', 'key': 'AP26155', 'name': 'IC',
+          'monday_ppm': 'No'}],
+        _hub(), proposal_url='https://tool.example.com',
+    )['Needs Scheduled'][0]
+    assert with_prop['hub_proposal']
+    assert not with_prop.get('generate_ppm_url')
+
+
 def test_error_is_not_an_empty_board():
     """Pipeline Board's wipe: [] from a failed fetch looked like no jobs.
     build_view must carry the error and not a zero-job summary pretending
@@ -250,9 +265,9 @@ def test_page_renders_the_four_groups_and_says_it_is_not_the_board(monkeypatch):
     assert html.count('Waiting on Margins') == 1  # the banner naming it as out
     assert 'AP26155' in html
     assert 'Warranty work' in html or 'none' in html
-    assert 'Generate PPM' in html  # RF26165 gap
     assert 'No Hub PPM' in html
-    assert 'https://tool.example.com/ppm' in html
+    assert 'Generate PPM' not in html
+    assert '/ppm' not in html
     assert ':root' not in html  # palette is global
     css = html.split('<style>', 1)[1].split('</style>', 1)[0]
     main_block = css.split('.main', 1)[-1].split('}', 1)[0]
