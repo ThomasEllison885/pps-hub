@@ -176,6 +176,8 @@
               {% if r.hub_proposal and r.hub_proposal.document_id %}
                 <a href="/api/documents/{{ r.hub_proposal.document_id }}/download">Proposal</a>
               {% endif %}
+              {% if r.ppm_url %}<a href="{{ r.ppm_url }}" target="_blank" rel="noopener">PPM</a>{% endif %}
+              {% if r.tps_url %}<a href="{{ r.tps_url }}" target="_blank" rel="noopener">TPS</a>{% endif %}
             </td>
           </tr>
           {% endfor %}

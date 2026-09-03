@@ -289,7 +289,10 @@ SECTIONS = [
             ('p', 'A join, not a board. It reads Monday’s Production Board '
                   'for {funnel_groups} and puts Hub proposals, PPMs, and TPS '
                   'next to each job, matched on proposal number. Waiting on '
-                  'Margins and warranty stay on Monday. Nothing writes back.'),
+                  'Margins and warranty stay on Monday. Nothing writes back. '
+                  'Monday opens the job. Proposal downloads the file. PPM and '
+                  'TPS open the tool with that file already loaded — they do '
+                  'not generate until you fill the rest and press the button.'),
             ('p', 'A cell that says “Warranty work” is not a number. Some '
                   'Monday rows use a numeric token that will not match a Hub '
                   'AP26155-style proposal — that miss is the point of the '

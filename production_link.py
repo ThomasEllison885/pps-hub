@@ -309,12 +309,33 @@ def load_hub_index(get_db_fn):
                 pass
 
 
+def _tool_urls(proposal_url, document_id, log_id=None):
+    """PPM/TPS links that open the proposal tool with this vault file.
+
+    No document_id → no links. A Monday number is not a file, and a blank
+    /ppm form is not a link worth having.
+    """
+    if not proposal_url or not document_id:
+        return '', ''
+    base = proposal_url.rstrip('/')
+    try:
+        doc = int(document_id)
+    except (TypeError, ValueError):
+        return '', ''
+    ppm = f'{base}/ppm?document={doc}'
+    tps = f'{base}/subscope?document={doc}'
+    try:
+        log = int(log_id) if log_id is not None else 0
+    except (TypeError, ValueError):
+        log = 0
+    if log:
+        tps = f'{tps}&log={log}'
+    return ppm, tps
+
+
 def join_funnel(jobs, hub_index, proposal_url=None):
     """Attach Hub docs. Jobs outside FUNNEL_GROUPS are dropped — that is
     the whole point of the spike, not a display filter.
-
-    ``proposal_url`` is accepted and ignored. The first version used it to
-    link a blank /ppm form; a Monday number is not a proposal file.
     """
     hub_index = hub_index or {}
     grouped = {g: [] for g in FUNNEL_GROUPS}
@@ -328,6 +349,9 @@ def join_funnel(jobs, hub_index, proposal_url=None):
         row['hub_proposal'] = docs.get('proposal')
         row['hub_ppm'] = docs.get('ppm')
         row['hub_tps'] = docs.get('tps')
+        prop = row['hub_proposal'] or {}
+        row['ppm_url'], row['tps_url'] = _tool_urls(
+            proposal_url, prop.get('document_id'), prop.get('id'))
         monday_yes = (row.get('monday_ppm') or '').strip().lower() == 'yes'
         row['ppm_gap'] = bool(key) and not row['hub_ppm']
         row['ppm_disagrees'] = monday_yes and not row['hub_ppm']

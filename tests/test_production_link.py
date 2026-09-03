@@ -176,14 +176,31 @@ def test_a_monday_number_is_not_a_ppm_button():
     must not offer a link to the empty /ppm form."""
     jobs = [{'group': 'In Progress', 'key': 'CK4440D', 'name': 'Kettering'}]
     row = pl.join_funnel(jobs, {}, proposal_url='https://tool.example.com')['In Progress'][0]
-    assert 'generate_ppm_url' not in row or not row.get('generate_ppm_url')
-    with_prop = pl.join_funnel(
-        [{'group': 'Needs Scheduled', 'key': 'AP26155', 'name': 'IC',
-          'monday_ppm': 'No'}],
+    assert not row.get('ppm_url')
+    assert not row.get('tps_url')
+
+
+def test_ppm_and_tps_links_need_the_vault_file():
+    """The useful link opens the tool with ?document= so it can load the
+    file. No document_id, no link — even if we have a proposal_url."""
+    with_file = pl.join_funnel(
+        [{'group': 'Needs Scheduled', 'key': 'AP26155', 'name': 'IC'}],
         _hub(), proposal_url='https://tool.example.com',
     )['Needs Scheduled'][0]
-    assert with_prop['hub_proposal']
-    assert not with_prop.get('generate_ppm_url')
+    assert with_file['ppm_url'] == 'https://tool.example.com/ppm?document=44'
+    assert with_file['tps_url'].startswith(
+        'https://tool.example.com/subscope?document=44')
+    assert 'log=1' in with_file['tps_url']
+    no_file = pl.index_hub_docs(
+        proposal_rows=[{'id': 9, 'proposal_number': 'TC7364',
+                        'property_name': 'Woodlands', 'generated_at': '2026-08-01'}],
+    )
+    row = pl.join_funnel(
+        [{'group': 'Scheduled', 'key': 'TC7364', 'name': 'Woodlands'}],
+        no_file, proposal_url='https://tool.example.com',
+    )['Scheduled'][0]
+    assert row['hub_proposal']
+    assert not row['ppm_url'] and not row['tps_url']
 
 
 def test_error_is_not_an_empty_board():
@@ -267,7 +284,11 @@ def test_page_renders_the_four_groups_and_says_it_is_not_the_board(monkeypatch):
     assert 'Warranty work' in html or 'none' in html
     assert 'No Hub PPM' in html
     assert 'Generate PPM' not in html
-    assert '/ppm' not in html
+    assert '/ppm?document=44' in html
+    assert '/subscope?document=44' in html
+    assert 'CK4440D' in html
+    # Kettering has a key and no Hub file — Monday only, no fake tool links.
+    assert html.count('/ppm?document=') == 2  # AP26155 + RF26165
     assert ':root' not in html  # palette is global
     css = html.split('<style>', 1)[1].split('</style>', 1)[0]
     main_block = css.split('.main', 1)[-1].split('}', 1)[0]
