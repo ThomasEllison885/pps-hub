@@ -61,11 +61,29 @@ _REJECT_RE = re.compile(
 
 FIXTURE_ENV = 'PRODUCTION_LINK_FIXTURE'
 
+# Parked 2026-09-04. Thomas: the Monday Production Board is too important to
+# mess with; take the module off the Hub but keep the code. Flip
+# PRODUCTION_LINK_ENABLED=true (and restart) to put the page, dashboard
+# card, and guide section back. Join logic, template, and tests stay.
+ENABLED_ENV = 'PRODUCTION_LINK_ENABLED'
+
+
+def is_enabled():
+    """Off unless the env var is an explicit true. Default false is the
+    parked state — a missing var must not bring the page back."""
+    return os.environ.get(ENABLED_ENV, 'false').strip().lower() in (
+        '1', 'true', 'yes',
+    )
+
 
 def can_view(users, user_key):
-    """Leadership. Same people as Office Ops today; a separate function so
-    this page cannot inherit a future narrowing of Office Ops, or vice versa.
+    """Leadership, and only while the module is switched on.
+
+    Same people as Office Ops today; a separate function so this page
+    cannot inherit a future narrowing of Office Ops, or vice versa.
     """
+    if not is_enabled():
+        return False
     return is_leadership(users, user_key)
 
 

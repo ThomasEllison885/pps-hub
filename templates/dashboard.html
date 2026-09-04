@@ -451,9 +451,9 @@
             <div class="tool-meta">Open →</div>
           </a>
 
-          {# Read-only join, not a Hub Production Board. Leadership only
-             while this is a spike — Trey is the reader. Monday stays the
-             board; this puts Hub PPMs next to the four live groups. #}
+          {# Parked 2026-09-04 (PRODUCTION_LINK_ENABLED). Card stays in
+             the template so flipping the env restores it; can_view is
+             false for everyone until then. #}
           {% if production_link_access %}
           <a href="/production-link" class="pps-tool-card">
             <div class="pps-tool-icon">🔗</div>

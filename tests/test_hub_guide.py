@@ -129,10 +129,18 @@ def test_a_consultant_does_not_read_two_pages_about_office_ops():
     assert 'pipeline' in ids and 'proposal' in ids
 
 
-def test_awarded_work_lists_the_funnel_groups():
+def test_awarded_work_is_parked_with_the_page():
+    """Off the Hub with the module. The section stays in SECTIONS so
+    flipping PRODUCTION_LINK_ENABLED restores it."""
+    assert 'awarded-work' not in _ids(_sections(LEADER))
+    assert 'awarded-work' in [s['id'] for s in hub_guide.SECTIONS]
+
+
+def test_awarded_work_lists_the_funnel_groups(monkeypatch):
     """The four groups in the guide have to be the four the page reads,
     or the guide becomes another PDF."""
     import production_link
+    monkeypatch.setenv(production_link.ENABLED_ENV, 'true')
     text = _text(_sections(LEADER))
     for group in production_link.FUNNEL_GROUPS:
         assert group in text
@@ -141,9 +149,16 @@ def test_awarded_work_lists_the_funnel_groups():
 
 def test_leadership_gets_the_leadership_sections():
     ids = _ids(_sections(LEADER))
-    for section_id in ('office-ops', 'training-editor', 'pricing-defaults',
-                       'awarded-work'):
+    for section_id in ('office-ops', 'training-editor', 'pricing-defaults'):
         assert section_id in ids
+    assert 'awarded-work' not in ids
+
+
+def test_awarded_work_returns_when_the_switch_is_on(monkeypatch):
+    import production_link
+    monkeypatch.setenv(production_link.ENABLED_ENV, 'true')
+    assert 'awarded-work' in _ids(_sections(LEADER))
+    assert 'awarded-work' not in _ids(_sections(FIELD_CONSULTANT))
 
 
 def test_psc_training_only_shows_when_it_applies():

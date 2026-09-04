@@ -235,16 +235,25 @@ def test_fixture_hides_waiting_on_margins_and_shows_the_join(monkeypatch):
 
 # ── access ──────────────────────────────────────────────────────────────────
 
-def test_leadership_can_view_and_a_consultant_cannot():
+def test_it_is_parked_even_for_the_owner():
+    """Thomas, 2026-09-04: take it off the Hub. A missing env var must not
+    bring the Production Board join back."""
+    users = {
+        'thomas_ellison': {'tier': 'owner', 'display': 'Thomas'},
+        'trey_hollmeyer': {'tier': 'leadership', 'display': 'Trey'},
+    }
+    assert pl.is_enabled() is False
+    assert not pl.can_view(users, 'thomas_ellison')
+    assert not pl.can_view(users, 'trey_hollmeyer')
+
+
+def test_leadership_can_view_only_when_switched_on(monkeypatch):
+    monkeypatch.setenv(pl.ENABLED_ENV, 'true')
     users = {
         'thomas_ellison': {'tier': 'owner', 'display': 'Thomas'},
         'trey_hollmeyer': {'tier': 'leadership', 'display': 'Trey'},
         'andy_potts': {'tier': 'team', 'display': 'Andy'},
-        'unknown_person': {'tier': 'leadership', 'display': 'Nope'},
     }
-    # unknown_person is in the dict so has_tier can see the tier — but a
-    # missing key fails closed. Drop them:
-    users.pop('unknown_person')
     assert pl.can_view(users, 'thomas_ellison')
     assert pl.can_view(users, 'trey_hollmeyer')
     assert not pl.can_view(users, 'andy_potts')

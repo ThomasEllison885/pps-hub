@@ -49,6 +49,13 @@ EVERYONE = lambda ctx: True                                        # noqa: E731
 CONSULTANT_WORK = lambda ctx: bool(ctx.get('consultants'))         # noqa: E731
 LEADERSHIP = lambda ctx: bool(ctx.get('is_leadership'))            # noqa: E731
 OWNER = lambda ctx: bool(ctx.get('is_owner'))                      # noqa: E731
+
+
+def _awarded_work_access(ctx):
+    """Parked with production_link. Code stays; the section comes back
+    when PRODUCTION_LINK_ENABLED is on."""
+    import production_link as _pl
+    return bool(ctx.get('is_leadership')) and _pl.is_enabled()
 PSC = lambda ctx: bool(ctx.get('psc_training_enrolled')            # noqa: E731
                        or ctx.get('psc_training_oversight'))
 BOARDS = lambda ctx: bool(ctx.get('pipeline_boards'))              # noqa: E731
@@ -283,7 +290,8 @@ SECTIONS = [
         ],
     ),
     dict(
-        id='awarded-work', title='Awarded work', access=LEADERSHIP,
+        id='awarded-work', title='Awarded work',
+        access=_awarded_work_access,
         lane='Leadership only',
         body=[
             ('p', 'A join, not a board. It reads Monday’s Production Board '

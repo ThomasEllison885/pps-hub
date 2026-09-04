@@ -70,6 +70,12 @@ services:
       # turning this on (2026-08-10). Flip to "true" to enable.
       - key: ESTIMATE_NOTIFICATIONS_ENABLED
         value: "false"
+      # Awarded work (production_link.py) — join of Monday Production Board
+      # funnel × Hub docs. Built, then parked 2026-09-04: Thomas does not
+      # want Hub touching that board. Code stays. Flip to "true" to restore
+      # the page, dashboard card, and guide section.
+      - key: PRODUCTION_LINK_ENABLED
+        value: "false"
 
   - type: cron
     name: pps-hub-daily-digest
