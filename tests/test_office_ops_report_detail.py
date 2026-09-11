@@ -392,8 +392,8 @@ def test_the_pl_sheet_carries_the_movers_and_the_detail(workbook):
     assert 'compensation line(s) withheld' not in text
 
 
-def test_the_team_goal_in_insights_is_11m():
-    """Thomas, 2026-09-11: under 'to hit $10M' put 'to hit $11M' and show it."""
+def test_insights_show_both_10m_and_11m_goals():
+    """Thomas, 2026-09-11: have $10M AND $11M as goal."""
     from datetime import date
     text = gen._build_insights(
         {'team_month': {1: 400000, 2: 500000}, 'year': 2026,
@@ -401,10 +401,14 @@ def test_the_team_goal_in_insights_is_11m():
         None,
         today=date(2026, 9, 11),
     )
+    assert 'To hit $10M goal' in text
     assert 'To hit $11M goal' in text
-    assert '$10M' not in text
-    assert gen.TEAM_ANNUAL_GOAL == 11_000_000
-    assert gen._goal_millions_label() == '$11M'
+    ten = text.index('To hit $10M goal')
+    eleven = text.index('To hit $11M goal')
+    assert ten < eleven, 'the $10M plan is the first goal, $11M the stretch'
+    assert gen.TEAM_ANNUAL_GOAL == 10_000_000
+    assert gen.TEAM_GOAL_STRETCH == 11_000_000
+    assert gen.TEAM_GOALS == (10_000_000, 11_000_000)
 
 
 def test_quarterly_team_lines_land_in_insights():
@@ -415,8 +419,14 @@ def test_quarterly_team_lines_land_in_insights():
     )
     assert 'Q1 (Jan–Mar):' in text
     assert 'Q2 (Apr–Jun):' in text
-    # Q1 actual 1.5M vs 15% of 11M = 1.65M
-    assert '$1,500,000 vs goal $1,650,000' in text
+    # Q1 actual 1.5M vs 15% of $10M = 1.5M
+    assert '$1,500,000 vs goal $1,500,000' in text
+
+
+def _fill_rgb(cell):
+    fg = cell.fill.fgColor
+    rgb = getattr(fg, 'rgb', None) if fg is not None else None
+    return str(rgb or '').upper()
 
 
 def test_the_quarterly_sheet_is_filled_with_values_not_formulas():
@@ -440,7 +450,7 @@ def test_the_quarterly_sheet_is_filled_with_values_not_formulas():
     assert abs(q1_actual - 350000) < 0.01
     q1_goal = qs['B2'].value
     assert isinstance(q1_goal, (int, float)), q1_goal
-    assert abs(q1_goal - 1_650_000) < 0.01  # 15% of $11M
+    assert abs(q1_goal - 1_500_000) < 0.01  # 15% of $10M
     # Q2 actual = 80k
     assert abs(float(qs['C3'].value) - 80000) < 0.01
     # By Sales: Adam Q1 actual in B10 (row 10 = Adam, col B = Q1 actual)
@@ -449,9 +459,43 @@ def test_the_quarterly_sheet_is_filled_with_values_not_formulas():
     assert abs(adam_q1 - 300000) < 0.01
     tony_q1 = qs['B9'].value
     assert abs(float(tony_q1) - 50000) < 0.01
-    # Monthly Team N11 is the $11M goal the quarterly math used
-    assert wb['Monthly Team']['N11'].value == gen.TEAM_ANNUAL_GOAL
+    # Sheet Goal $ is the $10M plan; insights also carry the $11M stretch.
+    assert wb['Monthly Team']['N11'].value == gen.TEAM_ANNUAL_GOAL == 10_000_000
+    assert 'To hit $10M goal' in insights
     assert 'To hit $11M goal' in insights
+
+
+def test_consultant_quarter_is_green_on_hit_and_red_on_miss():
+    """Thomas, 2026-09-11: green/red on the quarterly team for that
+    consultant, that quarter, against their goal — not yellow actuals
+    with a difference column you have to notice."""
+    import openpyxl
+    invoices = [
+        # Adam Q1 goal is 18% of $3.5M = $630k. $800k is a hit.
+        {'date': '2026-01-20', 'amount': 800000, 'sales_reps': ['Adam Cupito']},
+        # Tony Q1 goal is 14% of $2.25M = $315k. $50k is a miss.
+        {'date': '2026-03-10', 'amount': 50000, 'sales_reps': ['Tony Cumella']},
+    ]
+    raw, _insights, _meta = gen.generate_from_qb(invoices, year=2026)
+    qs = openpyxl.load_workbook(io.BytesIO(raw))['Quarterly Breakdowns']
+    green = 'FFC6EFCE'
+    red = 'FFFFC7CE'
+    # Adam row 10, Q1 actual B / diff D
+    assert qs['B10'].value == 800000
+    assert _fill_rgb(qs['B10']).endswith(green)
+    assert qs['D10'].value > 0
+    assert _fill_rgb(qs['D10']).endswith(green)
+    # Tony row 9
+    assert qs['B9'].value == 50000
+    assert _fill_rgb(qs['B9']).endswith(red)
+    assert qs['D9'].value < 0
+    assert _fill_rgb(qs['D9']).endswith(red)
+    # Team Q1 is a miss vs $1.5M — actual itself is red too
+    assert _fill_rgb(qs['B3']).endswith(red)
+    assert _fill_rgb(qs['B4']).endswith(red)
+    # Q4 has not started (latest month is March) — no red sea
+    assert qs['G15'].fill.fill_type in (None, 'none') or _fill_rgb(qs['G15']) in (
+        '', '00000000', 'NONE')
 
 
 def test_no_compensation_line_survives_into_the_workbook(workbook):

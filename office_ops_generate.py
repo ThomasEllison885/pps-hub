@@ -63,10 +63,12 @@ FONT_BOLD = Font(name='Calibri', size=11, bold=True)
 
 MONTH_COLS = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 12, 12: 13}
 
-# Team full-year goal on Monthly Team N11. Thomas, 2026-09-11: the insights
-# line and the Goal $ row both move from $10M to $11M. Individual consultant
-# books on Monthly Sales still sum to $10M — those were not asked to change.
-TEAM_ANNUAL_GOAL = 11_000_000
+# Sheet Goal $ (Monthly Team N11, quarterly team Goal) stays the $10M plan —
+# that is what the consultant books add up to. Insights also show the $11M
+# stretch. Thomas, 2026-09-11: have both.
+TEAM_ANNUAL_GOAL = 10_000_000
+TEAM_GOAL_STRETCH = 11_000_000
+TEAM_GOALS = (TEAM_ANNUAL_GOAL, TEAM_GOAL_STRETCH)
 # Same mix as Monthly Team row 10 in the 2026 outlook template.
 TEAM_MONTH_GOAL_PCT = {
     1: 0.035, 2: 0.05, 3: 0.065, 4: 0.075, 5: 0.095, 6: 0.11,
@@ -401,16 +403,31 @@ def _write_money(cell, val, yellow=False):
         cell.fill = FILL_YELLOW
 
 
-def _write_signed(cell, val, percent=False):
-    v = float(val or 0)
-    cell.value = v
-    cell.number_format = '0%' if percent else '"$"#,##0.00'
-    if v > 0:
+def _apply_hit_miss_style(cell, met):
+    if met:
         cell.fill = FILL_POS
         cell.font = Font(color='FF006100', name='Calibri', size=11)
-    elif v < 0:
+    else:
         cell.fill = FILL_NEG
         cell.font = Font(color='FF9C0006', name='Calibri', size=11)
+
+
+def _write_signed(cell, val, percent=False):
+    """Hit/miss number: green if the goal was met (diff >= 0), red if not."""
+    v = float(val or 0)
+    cell.value = round(v, 4) if percent else round(v, 2)
+    cell.number_format = '0%' if percent else '"$"#,##0.00'
+    _apply_hit_miss_style(cell, v >= 0)
+
+
+def _write_actual_vs_goal(cell, actual, goal, color=True):
+    """The consultant/team actual, green if that quarter's goal was met."""
+    v = round(float(actual or 0), 2)
+    cell.value = v
+    cell.number_format = '"$"#,##0.00'
+    if not color:
+        return
+    _apply_hit_miss_style(cell, v >= float(goal or 0))
 
 
 def _fill_quarterly_sheet(wb, sales_agg):
@@ -429,19 +446,31 @@ def _fill_quarterly_sheet(wb, sales_agg):
         if n11:
             annual = n11
     pcts = _team_goal_pcts(team_ws)
+    team = sales_agg.get('team_month') or {}
+    latest = max(team) if team else 0
 
     for row in _quarterly_team_rows(
             sales_agg, annual=annual, pcts=pcts, include_empty=True):
         col = TEAM_Q_COL[row['q']]
+        months = QUARTER_MONTHS[row['q']]
+        started = bool(latest) and months[0] <= latest
         _write_money(ws.cell(2, col), row['goal'])
-        _write_money(ws.cell(3, col), row['actual'], yellow=True)
-        _write_signed(ws.cell(4, col), row['diff'])
-        pct = (row['diff'] / row['goal']) if row['goal'] else 0.0
-        _write_signed(ws.cell(5, col), pct, percent=True)
+        _write_actual_vs_goal(
+            ws.cell(3, col), row['actual'], row['goal'], color=started)
+        if started:
+            _write_signed(ws.cell(4, col), row['diff'])
+            pct = (row['diff'] / row['goal']) if row['goal'] else 0.0
+            _write_signed(ws.cell(5, col), pct, percent=True)
+        else:
+            _write_money(ws.cell(4, col), row['diff'])
+            if row['goal']:
+                ws.cell(5, col).value = row['diff'] / row['goal']
+                ws.cell(5, col).number_format = '0%'
 
     by_rep = sales_agg.get('by_rep_month') or {}
     for q, layout in SALES_Q_LAYOUT.items():
         months = QUARTER_MONTHS[q]
+        started = bool(latest) and months[0] <= latest
         for i, (first, actual_r, goal_r, hist_r) in enumerate(QUARTER_REPS):
             r = layout['row0'] + i
             months_map = _rep_months(by_rep, first)
@@ -453,9 +482,13 @@ def _fill_quarterly_sheet(wb, sales_agg):
                 )
             else:
                 goal = 0.0
-            _write_money(ws.cell(r, layout['actual']), actual, yellow=True)
+            _write_actual_vs_goal(
+                ws.cell(r, layout['actual']), actual, goal, color=started)
             _write_money(ws.cell(r, layout['goal']), goal)
-            _write_signed(ws.cell(r, layout['diff']), actual - goal)
+            if started:
+                _write_signed(ws.cell(r, layout['diff']), actual - goal)
+            else:
+                _write_money(ws.cell(r, layout['diff']), actual - goal)
 
 
 def _note_parts(val):
@@ -644,30 +677,35 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None,
                         f'{days_in_year} days ≈ ${_money(daily)}/day · '
                         f'~${_money(daily * 7)}/wk; not a forecast)'
                     )
-                    goal_label = _goal_millions_label()
-                    gap_goal = TEAM_ANNUAL_GOAL - ytd
-                    if gap_goal > 0:
-                        days_left = days_in_year - days_elapsed
-                        need_day = gap_goal / days_left if days_left else gap_goal
-                        need_wk = need_day * 7
-                        lines.append(
-                            f'• To hit {goal_label} goal: ~${_money(need_day)}/day '
-                            f'(~${_money(need_wk)}/wk) for remaining {days_left} day(s) '
-                            f'(${_money(gap_goal)} still needed)'
-                        )
-                    else:
-                        lines.append(
-                            f'• YTD already at/above {goal_label} full-year goal.'
-                        )
+                    days_left = days_in_year - days_elapsed
+                    for goal in TEAM_GOALS:
+                        label = _goal_millions_label(goal)
+                        gap = goal - ytd
+                        if gap > 0:
+                            need_day = gap / days_left if days_left else gap
+                            lines.append(
+                                f'• To hit {label} goal: ~${_money(need_day)}/day '
+                                f'(~${_money(need_day * 7)}/wk) for remaining '
+                                f'{days_left} day(s) (${_money(gap)} still needed)'
+                            )
+                        else:
+                            lines.append(
+                                f'• YTD already at/above {label} full-year goal.'
+                            )
                 elif days_elapsed >= days_in_year:
                     lines.append(
                         f'• Full-year invoiced (year complete): ${_money(ytd)}'
                     )
-                    if ytd >= TEAM_ANNUAL_GOAL:
-                        lines.append(
-                            f'• YTD already at/above {_goal_millions_label()} '
-                            f'full-year goal.'
-                        )
+                    for goal in TEAM_GOALS:
+                        label = _goal_millions_label(goal)
+                        if ytd >= goal:
+                            lines.append(
+                                f'• YTD already at/above {label} full-year goal.'
+                            )
+                        else:
+                            lines.append(
+                                f'• Short of {label} goal by ${_money(goal - ytd)}.'
+                            )
                 for qrow in _quarterly_team_rows(sales_agg):
                     qn = Q_LABEL[qrow['q']]
                     ml = Q_MONTH_LABEL[qrow['q']]
