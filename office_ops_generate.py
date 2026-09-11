@@ -63,6 +63,35 @@ FONT_BOLD = Font(name='Calibri', size=11, bold=True)
 
 MONTH_COLS = {1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 12, 12: 13}
 
+# Team full-year goal on Monthly Team N11. Thomas, 2026-09-11: the insights
+# line and the Goal $ row both move from $10M to $11M. Individual consultant
+# books on Monthly Sales still sum to $10M — those were not asked to change.
+TEAM_ANNUAL_GOAL = 11_000_000
+# Same mix as Monthly Team row 10 in the 2026 outlook template.
+TEAM_MONTH_GOAL_PCT = {
+    1: 0.035, 2: 0.05, 3: 0.065, 4: 0.075, 5: 0.095, 6: 0.11,
+    7: 0.08, 8: 0.095, 9: 0.115, 10: 0.085, 11: 0.115, 12: 0.08,
+}
+QUARTER_MONTHS = {1: (1, 2, 3), 2: (4, 5, 6), 3: (7, 8, 9), 4: (10, 11, 12)}
+TEAM_Q_COL = {1: 2, 2: 3, 3: 4, 4: 5}  # B C D E
+# Quarterly Breakdowns "By Sales": Q1/Q2 start row 8, Q3/Q4 start row 15.
+SALES_Q_LAYOUT = {
+    1: {'row0': 8, 'actual': 2, 'goal': 3, 'diff': 4},
+    2: {'row0': 8, 'actual': 7, 'goal': 8, 'diff': 9},
+    3: {'row0': 15, 'actual': 2, 'goal': 3, 'diff': 4},
+    4: {'row0': 15, 'actual': 7, 'goal': 8, 'diff': 9},
+}
+# (first name, Monthly Sales actual row, goal row, historial-% row)
+QUARTER_REPS = (
+    ('Thomas', 4, 3, 2),
+    ('Tony', 10, 9, 8),
+    ('Adam', 16, 15, 14),
+    ('Andy', 22, 21, 20),
+    ('Rachel', 28, 27, 26),
+)
+Q_LABEL = {1: 'Q1', 2: 'Q2', 3: 'Q3', 4: 'Q4'}
+Q_MONTH_LABEL = {1: 'Jan–Mar', 2: 'Apr–Jun', 3: 'Jul–Sep', 4: 'Oct–Dec'}
+
 
 def _parse_invoice_date(val):
     if val is None or val == '':
@@ -260,7 +289,7 @@ def _fill_sales_sheet(ws, sales_agg):
 
 
 def _fill_team_sheet(ws, sales_agg):
-    """2026 Actual $ row 13 from team_month; leave 2025 and goals alone."""
+    """2026 Actual $ row 13 from team_month; stamp the annual goal on N11."""
     team = sales_agg['team_month']
     # 2026 block starts row 9; Actual $ is row 13
     for m in range(1, 13):
@@ -274,6 +303,159 @@ def _fill_team_sheet(ws, sales_agg):
     # Full year sum formula
     ws.cell(13, 14).value = '=SUM(B13:M13)'
     ws.cell(13, 14).number_format = '"$"#,##0.00'
+    n11 = ws.cell(11, 14)
+    n11.value = TEAM_ANNUAL_GOAL
+    n11.number_format = '"$"#,##0'
+
+
+def _as_number(val):
+    """Coerce a cell to float. Formulas return None so the caller can derive."""
+    if val is None:
+        return 0.0
+    if isinstance(val, bool):
+        return 0.0
+    if isinstance(val, (int, float)):
+        return float(val)
+    if isinstance(val, str):
+        if val.startswith('='):
+            return None
+        s = val.strip().replace(',', '').replace('$', '').replace('—', '')
+        if s in ('', '-', '–'):
+            return 0.0
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+def _goal_millions_label(n=None):
+    n = TEAM_ANNUAL_GOAL if n is None else n
+    m = n / 1_000_000
+    if m == int(m):
+        return f'${int(m)}M'
+    return f'${m:g}M'
+
+
+def _team_goal_pcts(team_ws=None):
+    pcts = dict(TEAM_MONTH_GOAL_PCT)
+    if team_ws is None:
+        return pcts
+    for m, col in MONTH_COLS.items():
+        n = _as_number(team_ws.cell(10, col).value)
+        if n:
+            pcts[m] = n
+    return pcts
+
+
+def _quarterly_team_rows(sales_agg, annual=None, pcts=None, include_empty=False):
+    """Team actual vs goal per quarter. Insights skip unstarted quarters."""
+    annual = TEAM_ANNUAL_GOAL if annual is None else annual
+    pcts = pcts or TEAM_MONTH_GOAL_PCT
+    team = sales_agg.get('team_month') or {}
+    latest = max(team) if team else 0
+    rows = []
+    for q, months in QUARTER_MONTHS.items():
+        actual = sum(float(team.get(m) or 0) for m in months)
+        if not include_empty and actual == 0 and months[0] > latest:
+            continue
+        if not include_empty and actual == 0 and not latest:
+            continue
+        goal = sum(float(pcts[m]) * annual for m in months)
+        rows.append({
+            'q': q,
+            'actual': actual,
+            'goal': goal,
+            'diff': actual - goal,
+        })
+    return rows
+
+
+def _rep_months(by_rep, first):
+    first = first.lower()
+    out = {}
+    for name, months in (by_rep or {}).items():
+        low = (name or '').lower().replace(',', ' ')
+        tokens = low.split()
+        if first not in tokens and not low.startswith(first):
+            continue
+        for m, v in months.items():
+            out[int(m)] = out.get(int(m), 0.0) + float(v or 0)
+    return out
+
+
+def _sales_month_goal(sales_ws, goal_row, hist_row, month):
+    col = MONTH_COLS[month]
+    raw = _as_number(sales_ws.cell(goal_row, col).value)
+    if raw is not None:
+        return raw
+    hist = _as_number(sales_ws.cell(hist_row, col).value) or 0.0
+    annual = _as_number(sales_ws.cell(goal_row, 14).value) or 0.0
+    return hist * annual
+
+
+def _write_money(cell, val, yellow=False):
+    cell.value = round(float(val or 0), 2)
+    cell.number_format = '"$"#,##0.00'
+    if yellow:
+        cell.fill = FILL_YELLOW
+
+
+def _write_signed(cell, val, percent=False):
+    v = float(val or 0)
+    cell.value = v
+    cell.number_format = '0%' if percent else '"$"#,##0.00'
+    if v > 0:
+        cell.fill = FILL_POS
+        cell.font = Font(color='FF006100', name='Calibri', size=11)
+    elif v < 0:
+        cell.fill = FILL_NEG
+        cell.font = Font(color='FF9C0006', name='Calibri', size=11)
+
+
+def _fill_quarterly_sheet(wb, sales_agg):
+    """Write Team + By Sales as values. The template is formulas that SUM
+    Monthly Team / Monthly Sales — openpyxl does not calculate them, so the
+    sheet shipped empty unless Excel happened to recalc. Same reason
+    `_paint_computed_diffs` already writes Monthly hit/miss as values."""
+    if 'Quarterly Breakdowns' not in wb.sheetnames:
+        return
+    ws = wb['Quarterly Breakdowns']
+    team_ws = wb['Monthly Team'] if 'Monthly Team' in wb.sheetnames else None
+    sales_ws = wb['Monthly Sales'] if 'Monthly Sales' in wb.sheetnames else None
+    annual = TEAM_ANNUAL_GOAL
+    if team_ws is not None:
+        n11 = _as_number(team_ws.cell(11, 14).value)
+        if n11:
+            annual = n11
+    pcts = _team_goal_pcts(team_ws)
+
+    for row in _quarterly_team_rows(
+            sales_agg, annual=annual, pcts=pcts, include_empty=True):
+        col = TEAM_Q_COL[row['q']]
+        _write_money(ws.cell(2, col), row['goal'])
+        _write_money(ws.cell(3, col), row['actual'], yellow=True)
+        _write_signed(ws.cell(4, col), row['diff'])
+        pct = (row['diff'] / row['goal']) if row['goal'] else 0.0
+        _write_signed(ws.cell(5, col), pct, percent=True)
+
+    by_rep = sales_agg.get('by_rep_month') or {}
+    for q, layout in SALES_Q_LAYOUT.items():
+        months = QUARTER_MONTHS[q]
+        for i, (first, actual_r, goal_r, hist_r) in enumerate(QUARTER_REPS):
+            r = layout['row0'] + i
+            months_map = _rep_months(by_rep, first)
+            actual = sum(months_map.get(m, 0.0) for m in months)
+            if sales_ws is not None:
+                goal = sum(
+                    _sales_month_goal(sales_ws, goal_r, hist_r, m)
+                    for m in months
+                )
+            else:
+                goal = 0.0
+            _write_money(ws.cell(r, layout['actual']), actual, yellow=True)
+            _write_money(ws.cell(r, layout['goal']), goal)
+            _write_signed(ws.cell(r, layout['diff']), actual - goal)
 
 
 def _note_parts(val):
@@ -400,7 +582,8 @@ def pl_movers(pl_summary, min_dollars=PL_MOVE_MIN_DOLLARS,
     return kept
 
 
-def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=None):
+def _build_insights(sales_agg, ar_summary, notes_by_customer=None,
+                    pl_summary=None, today=None):
     """Deeper sales / margin / profit / AR narrative for leadership."""
     lines = []
     # Eastern. datetime.now() on Render is UTC, so the pack was stamped
@@ -443,7 +626,7 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
                 year_start = date(sales_year, 1, 1)
                 year_end = date(sales_year, 12, 31)
                 days_in_year = (year_end - year_start).days + 1  # 365 or 366
-                today = date.today()
+                today = today or date.today()
                 if today.year > sales_year:
                     as_of = year_end
                 elif today.year < sales_year:
@@ -461,24 +644,43 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
                         f'{days_in_year} days ≈ ${_money(daily)}/day · '
                         f'~${_money(daily * 7)}/wk; not a forecast)'
                     )
-                    gap_10m = 10000000 - ytd
-                    if gap_10m > 0:
+                    goal_label = _goal_millions_label()
+                    gap_goal = TEAM_ANNUAL_GOAL - ytd
+                    if gap_goal > 0:
                         days_left = days_in_year - days_elapsed
-                        need_day = gap_10m / days_left if days_left else gap_10m
+                        need_day = gap_goal / days_left if days_left else gap_goal
                         need_wk = need_day * 7
                         lines.append(
-                            f'• To hit $10M goal: ~${_money(need_day)}/day '
+                            f'• To hit {goal_label} goal: ~${_money(need_day)}/day '
                             f'(~${_money(need_wk)}/wk) for remaining {days_left} day(s) '
-                            f'(${_money(gap_10m)} still needed)'
+                            f'(${_money(gap_goal)} still needed)'
                         )
                     else:
-                        lines.append('• YTD already at/above $10M full-year goal.')
+                        lines.append(
+                            f'• YTD already at/above {goal_label} full-year goal.'
+                        )
                 elif days_elapsed >= days_in_year:
                     lines.append(
                         f'• Full-year invoiced (year complete): ${_money(ytd)}'
                     )
-                    if ytd >= 10000000:
-                        lines.append('• YTD already at/above $10M full-year goal.')
+                    if ytd >= TEAM_ANNUAL_GOAL:
+                        lines.append(
+                            f'• YTD already at/above {_goal_millions_label()} '
+                            f'full-year goal.'
+                        )
+                for qrow in _quarterly_team_rows(sales_agg):
+                    qn = Q_LABEL[qrow['q']]
+                    ml = Q_MONTH_LABEL[qrow['q']]
+                    hit = qrow['diff']
+                    direction = 'hit' if hit >= 0 else 'miss'
+                    line = (
+                        f'• {qn} ({ml}): ${_money(qrow["actual"])} vs '
+                        f'goal ${_money(qrow["goal"])} — {direction} '
+                        f'${_money(abs(hit))}'
+                    )
+                    if qrow['goal']:
+                        line += f' ({_pct_delta(hit / qrow["goal"])})'
+                    lines.append(line)
         lines.append(
             f'• Invoice volume: {sales_agg.get("invoice_count", 0)} · '
             f'50/50-style splits: {sales_agg.get("split_invoice_count", 0)}'
@@ -603,12 +805,6 @@ def _build_insights(sales_agg, ar_summary, notes_by_customer=None, pl_summary=No
             lines.append(
                 f'• Read {len(pl_lines)} line item(s) from the P&L for the '
                 f'year-over-year comparison below.'
-            )
-        withheld = pl_summary.get('withheld_comp_lines') or 0
-        if withheld:
-            lines.append(
-                f'• {withheld} compensation line(s) are deliberately not in '
-                f'this pack — payroll and owner comp stay out of Hub reports.'
             )
     else:
         lines.append(
@@ -817,6 +1013,7 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
         _ensure_cf(wb['Monthly Team'], 'B14:M15', le=True)
 
     if 'Quarterly Breakdowns' in wb.sheetnames:
+        _fill_quarterly_sheet(wb, sales_agg)
         _ensure_cf(wb['Quarterly Breakdowns'], 'B4:E5')
         _ensure_cf(wb['Quarterly Breakdowns'], 'D8:D19')
         _ensure_cf(wb['Quarterly Breakdowns'], 'I8:I19')
@@ -1042,15 +1239,6 @@ def generate_from_qb(invoice_list, ar_summary=None, notes_by_customer=None, pl_s
                 ws_pl.cell(row, 3, py).number_format = '"$"#,##0'
                 ws_pl.cell(row, 4, ty - py).number_format = '"$"#,##0;[Red]-"$"#,##0'
                 row += 1
-        withheld = pl_summary.get('withheld_comp_lines') or 0
-        if withheld:
-            # Say it on the sheet, not only in the insights. A list that is
-            # silently incomplete is worse than a shorter list.
-            ws_pl.cell(
-                row, 1,
-                f'{withheld} compensation line(s) withheld — payroll and owner '
-                f'comp are kept out of Hub reports.'
-            ).font = Font(name='Calibri', size=10, italic=True, color='FF666666')
 
     # Widen columns so currency doesn't show as ####
     _autosize_workbook(wb)
@@ -1159,11 +1347,11 @@ def _paint_computed_diffs(wb):
                 actual = float(actual)
             except (TypeError, ValueError):
                 continue
-            # Goal $ may be formula — use Goal % * 10M from N11
+            # Goal $ may be formula — use Goal % * N11 (team annual).
             try:
-                annual = float(ws.cell(11, 14).value or 10000000)
+                annual = float(ws.cell(11, 14).value or TEAM_ANNUAL_GOAL)
             except (TypeError, ValueError):
-                annual = 10000000.0
+                annual = float(TEAM_ANNUAL_GOAL)
             goal_pct = ws.cell(10, col).value
             try:
                 goal = float(goal_pct) * annual if goal_pct is not None else 0.0

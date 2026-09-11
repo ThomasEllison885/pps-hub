@@ -404,11 +404,13 @@ def _row_bucket(cells, colmap):
 # compensation lines are, in practice, individual pay — and CLAUDE.md's
 # sensitive-data boundary says comp lives in Operating Memory, never in
 # Hub-facing content. The Monday pack is stored in Postgres, rendered into an
-# Excel and emailed. So those lines are dropped at parse time (never stored),
-# and the count of what was dropped is reported, because a reader who is not
-# told something was withheld will read the list as complete.
+# Excel and emailed. So those lines are dropped at parse time (never stored).
+# The count is kept on the parse result for tests; it is not printed on the
+# pack. Thomas, 2026-09-11: take the "N compensation line(s) withheld" copy
+# off the report. The drop stays; the announcement does not.
 #
-# Thomas chose this on 2026-08-27 over "all lines, nothing excluded".
+# Thomas chose dropping the lines on 2026-08-27 over "all lines, nothing
+# excluded". The announcement was reversed 2026-09-11.
 PL_COMP_HINTS = (
     'officer compensation', 'officers compensation', "officer's compensation",
     'owner draw', "owner's draw", 'owners draw', 'member draw', "member's draw",

@@ -173,9 +173,12 @@ def test_the_hint_list_is_matched_on_substrings():
     assert not office_ops._is_comp_line('Dumpsters')
 
 
-def test_the_insights_say_that_something_was_withheld(pl):
+def test_the_insights_do_not_announce_the_withheld_lines(pl):
+    """Thomas, 2026-09-11: take that sentence off the pack. The lines still
+    do not ship (see test_compensation_lines_are_dropped_at_parse_time)."""
     text = gen._build_insights({'team_month': {}}, None, pl_summary=pl)
-    assert 'compensation line(s) are deliberately not in this pack' in text
+    assert 'compensation line(s)' not in text
+    assert 'payroll and owner' not in text.lower()
 
 
 # ── what counts as unusual ──────────────────────────────────────────────────
@@ -386,7 +389,69 @@ def test_the_pl_sheet_carries_the_movers_and_the_detail(workbook):
     assert 'Unusual moves year over year' in text
     assert 'All line items' in text
     assert 'Vehicle Repairs' in text
-    assert 'compensation line(s) withheld' in text
+    assert 'compensation line(s) withheld' not in text
+
+
+def test_the_team_goal_in_insights_is_11m():
+    """Thomas, 2026-09-11: under 'to hit $10M' put 'to hit $11M' and show it."""
+    from datetime import date
+    text = gen._build_insights(
+        {'team_month': {1: 400000, 2: 500000}, 'year': 2026,
+         'invoice_count': 4},
+        None,
+        today=date(2026, 9, 11),
+    )
+    assert 'To hit $11M goal' in text
+    assert '$10M' not in text
+    assert gen.TEAM_ANNUAL_GOAL == 11_000_000
+    assert gen._goal_millions_label() == '$11M'
+
+
+def test_quarterly_team_lines_land_in_insights():
+    text = gen._build_insights(
+        {'team_month': {1: 400000, 2: 500000, 3: 600000, 4: 100000},
+         'year': 2026, 'invoice_count': 8},
+        None,
+    )
+    assert 'Q1 (Jan–Mar):' in text
+    assert 'Q2 (Apr–Jun):' in text
+    # Q1 actual 1.5M vs 15% of 11M = 1.65M
+    assert '$1,500,000 vs goal $1,650,000' in text
+
+
+def test_the_quarterly_sheet_is_filled_with_values_not_formulas():
+    """The template is SUM formulas from Monthly Team / Monthly Sales.
+    openpyxl does not calculate them, so a generated pack used to ship the
+    Quarterly Breakdowns sheet empty. Write the numbers."""
+    import openpyxl
+    invoices = [
+        {'date': '2026-01-15', 'amount': 100000, 'sales_reps': ['Adam Cupito']},
+        {'date': '2026-02-10', 'amount': 200000, 'sales_reps': ['Adam Cupito']},
+        {'date': '2026-03-20', 'amount': 50000, 'sales_reps': ['Tony Cumella']},
+        {'date': '2026-04-05', 'amount': 80000, 'sales_reps': ['Andy Potts']},
+    ]
+    raw, insights, _meta = gen.generate_from_qb(invoices, year=2026)
+    wb = openpyxl.load_workbook(io.BytesIO(raw))
+    assert 'Quarterly Breakdowns' in wb.sheetnames
+    qs = wb['Quarterly Breakdowns']
+    # Team Q1 actual = 100k+200k+50k = 350k, as a number, not =SUM(...)
+    q1_actual = qs['B3'].value
+    assert isinstance(q1_actual, (int, float)), q1_actual
+    assert abs(q1_actual - 350000) < 0.01
+    q1_goal = qs['B2'].value
+    assert isinstance(q1_goal, (int, float)), q1_goal
+    assert abs(q1_goal - 1_650_000) < 0.01  # 15% of $11M
+    # Q2 actual = 80k
+    assert abs(float(qs['C3'].value) - 80000) < 0.01
+    # By Sales: Adam Q1 actual in B10 (row 10 = Adam, col B = Q1 actual)
+    adam_q1 = qs['B10'].value
+    assert isinstance(adam_q1, (int, float)), adam_q1
+    assert abs(adam_q1 - 300000) < 0.01
+    tony_q1 = qs['B9'].value
+    assert abs(float(tony_q1) - 50000) < 0.01
+    # Monthly Team N11 is the $11M goal the quarterly math used
+    assert wb['Monthly Team']['N11'].value == gen.TEAM_ANNUAL_GOAL
+    assert 'To hit $11M goal' in insights
 
 
 def test_no_compensation_line_survives_into_the_workbook(workbook):

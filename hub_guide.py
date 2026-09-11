@@ -384,8 +384,7 @@ SECTIONS = [
                   'out anything that moved at least $2,500 <em>and</em> 15% '
                   'against the same period last year, grouped into income, '
                   'job costs and overhead. Payroll and owner compensation '
-                  'lines are left out of the pack on purpose, and it says how '
-                  'many were left out. The A/R block carries past-due dollars, '
+                  'stay out of the pack. The A/R block carries past-due dollars, '
                   'operating AR excluding Bridges, concentration, and the '
                   'chase list by name.'),
             ('p', 'Each upload box shows what is currently in it — filename, '
