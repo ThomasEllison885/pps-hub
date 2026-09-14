@@ -47,7 +47,7 @@ import dashboard_lanes as dl  # noqa: E402
 SALES_FIRST = ('thomas_ellison', 'tony_cumella', 'adam_cupito', 'rachel_farler',
                'andy_potts', 'trey_hollmeyer')
 PRODUCTION_FIRST = ('james_boling', 'ben_ramsey', 'phil_miller',
-                    'nick_triplett', 'jordan_allen')
+                    'nick_triplett', 'jordan_allen', 'andy_baur')
 
 
 # ── the assignments themselves ──────────────────────────────────────────────

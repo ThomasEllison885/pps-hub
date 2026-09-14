@@ -282,6 +282,13 @@ USERS = {
         'title': 'Office Manager',
         'email': 'Stephanie@purepropsolutions.com',
     },
+    'andy_baur': {
+        'display': 'Andy Baur',
+        'role': 'pm',
+        'tier': TIER_TEAM,
+        'title': 'Project Manager',
+        'email': 'abaur@purepropsolutions.com',
+    },
 }
 
 # REMOVED 2026-08-21 — the shared "Admin" picker login (user_key 'admin',

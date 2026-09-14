@@ -46,7 +46,7 @@ DEFAULT_ORDER = LANES
 #
 # Thomas, 2026-08-31, deciding these one by one:
 #   * Stephanie opens the Hub to do Numbers and Compliance, so Admin leads.
-#   * The five project managers lead with Production & Field.
+#   * The project managers (jobs PMs, including Bauer) lead with Production & Field.
 #   * "Everyone else can keep sales and consulting at the top" — which he
 #     confirmed includes himself, so the owner no longer leads with Admin.
 #   * Trey is a PM and is deliberately NOT in the Production group. He was
@@ -61,6 +61,7 @@ LANE_ORDER = {
     'phil_miller': ('production',),
     'nick_triplett': ('production',),
     'jordan_allen': ('production',),
+    'andy_baur': ('production',),
 }
 
 

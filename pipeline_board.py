@@ -56,10 +56,9 @@ PRIMARY_PM_FOR_CONSULTANT = {
     'andy_potts': 'ben_ramsey',
     'adam_cupito': 'jordan_allen',
     'tony_cumella': 'nick_triplett',
-    # rachel_farler has no PM as of 2026-08-28 (Derek Kidney offboarded).
-    # The board stays; board_label() renders it "Rachel". Do not point
-    # this at a departed user_key — _display would print the raw key in the
-    # header. Leave the consultant out of this dict until a new pair is named.
+    # Rachel's PM as of 2026-09-14 (Andy Baur, first day). Derek Kidney was
+    # offboarded 2026-08-28; do not point this at a departed user_key.
+    'rachel_farler': 'andy_baur',
 }
 
 # BOARD_ACCESS and BOARD_ACCESS_ALL were deleted 2026-08-21: every board is now

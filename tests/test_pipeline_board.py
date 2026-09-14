@@ -248,6 +248,7 @@ _USERS = {
     'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager',
                             'tier': 'leadership'},
     'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin', 'tier': 'owner'},
+    'andy_baur': {'display': 'Andy Baur', 'role': 'pm', 'tier': 'team'},
 }
 
 
@@ -262,6 +263,7 @@ def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'ben_ramsey') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'jordan_allen') == 'adam_cupito'
     assert pb.get_pair_key(_USERS, 'nick_triplett') == 'tony_cumella'
+    assert pb.get_pair_key(_USERS, 'andy_baur') == 'rachel_farler'
 
 
 def test_get_pair_key_owner_has_no_pair_of_their_own():
@@ -353,8 +355,19 @@ def test_list_accessible_boards_labels_the_working_pair():
     assert boards['andy_potts']['pm_display'] == 'Ben Ramsey'
     assert boards['andy_potts']['consultant_display'] == 'Andy Potts'
     assert boards['andy_potts']['board_label'] == 'Andy Potts / Ben Ramsey'
-    assert boards['rachel_farler']['pm_display'] == ''
-    assert boards['rachel_farler']['board_label'] == 'Rachel'
+    assert boards['rachel_farler']['pm_display'] == 'Andy Baur'
+    assert boards['rachel_farler']['board_label'] == 'Rachel Farler / Andy Baur'
+
+
+def test_andy_baur_is_on_the_live_roster():
+    """First day 2026-09-14. Display matches the email, not Andy Potts."""
+    import app as hub_app
+    u = hub_app.USERS['andy_baur']
+    assert u['display'] == 'Andy Baur'
+    assert u['role'] == 'pm'
+    assert u['tier'] == 'team'
+    assert u['email'] == 'abaur@purepropsolutions.com'
+    assert 'andy_baur' not in __import__('user_aliases').CONSULTANT_ALIASES
 
 
 def test_derek_kidney_is_gone_from_the_live_roster_source():
@@ -383,14 +396,10 @@ def test_retired_derek_kidney_has_no_boards():
         assert pb.can_access_board(_USERS, 'derek_kidney', ck) is False, ck
 
 
-def test_unpaired_board_is_just_first_name():
-    """Rachel has no PM after Derek left. The board is hers, labelled Rachel.
-
-    Do not fall back to 'Just Rachel', 'PM', or a leftover user_key — those
-    would show in the header and the dashboard cards.
-    """
-    assert 'rachel_farler' not in pb.PRIMARY_PM_FOR_CONSULTANT
-    assert pb.board_label(_USERS, 'rachel_farler') == 'Rachel'
+def test_rachel_is_paired_with_andy_baur():
+    """Rachel's PM as of 2026-09-14. The board is no longer first-name-only."""
+    assert pb.PRIMARY_PM_FOR_CONSULTANT.get('rachel_farler') == 'andy_baur'
+    assert pb.board_label(_USERS, 'rachel_farler') == 'Rachel Farler / Andy Baur'
     assert pb.board_label(_USERS, 'andy_potts') == 'Andy Potts / Ben Ramsey'
 
 
