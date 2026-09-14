@@ -343,10 +343,24 @@ def test_retired_shared_admin_login_has_no_boards():
 
 
 def test_list_accessible_boards_is_every_board_for_everyone():
-    """Every roster member gets the full switcher (2026-08-21)."""
+    """Every roster member gets the full switcher (2026-08-21).
+
+    Order is assignment-first, so this asserts the set, not BOARD_CONSULTANTS
+    order. See test_assigned_board_is_listed_first.
+    """
+    expected = set(pb.BOARD_CONSULTANTS)
     for user_key in _USERS:
         keys = [b['key'] for b in pb.list_accessible_boards(_USERS, user_key)]
-        assert keys == list(pb.BOARD_CONSULTANTS), user_key
+        assert set(keys) == expected, user_key
+        assert len(keys) == len(expected)
+
+
+def test_assigned_board_is_listed_first():
+    """Andy Baur's module is Rachel's board, not the first consultant in the tuple."""
+    assert pb.list_accessible_boards(_USERS, 'andy_baur')[0]['key'] == 'rachel_farler'
+    assert pb.list_accessible_boards(_USERS, 'ben_ramsey')[0]['key'] == 'andy_potts'
+    assert pb.list_accessible_boards(_USERS, 'rachel_farler')[0]['key'] == 'rachel_farler'
+    assert pb.list_accessible_boards(_USERS, 'andy_potts')[0]['key'] == 'andy_potts'
 
 
 def test_list_accessible_boards_labels_the_working_pair():

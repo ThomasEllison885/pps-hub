@@ -335,7 +335,13 @@ def get_pair_key(users, user_key):
 
 
 def list_accessible_boards(users, user_key):
-    """Ordered list of boards this user can open, for the switcher / dashboard."""
+    """Ordered list of boards this user can open, for the switcher / dashboard.
+
+    Everyone still sees every board (2026-08-21). The assigned pair is listed
+    first so a PM's own module is the one under their finger — Andy Baur
+    should open Rachel's board, not Andy Potts's, which is first in
+    BOARD_CONSULTANTS.
+    """
     boards = []
     for ck in BOARD_CONSULTANTS:
         if can_access_board(users, user_key, ck):
@@ -346,6 +352,9 @@ def list_accessible_boards(users, user_key):
                 'pm_display': _display(users, pm_key) if pm_key else '',
                 'board_label': board_label(users, ck),
             })
+    assigned = get_pair_key(users, user_key)
+    if assigned:
+        boards.sort(key=lambda b: (0 if b['key'] == assigned else 1))
     return boards
 
 
