@@ -22,6 +22,7 @@ import dashboard_summary
 import hub_guide
 import db_pool
 import db_ddl
+import roster
 import hub_adoption
 import hub_time
 import hub_usage
@@ -290,6 +291,7 @@ USERS = {
         'email': 'abaur@purepropsolutions.com',
     },
 }
+roster.assert_users(USERS)
 
 # REMOVED 2026-08-21 — the shared "Admin" picker login (user_key 'admin',
 # hardcoded password, added 2026-08-18 as the RJ login in 2f6dd58/d570f81/e07043b).
@@ -1310,7 +1312,7 @@ def _init_db_body(conn, cur):
     # working password hash. Idempotent; a no-op once the row is gone.
     db_ddl.optional_step(
         cur,
-        "DELETE FROM hub_users WHERE user_key IN ('admin', 'derek_kidney')",
+        "DELETE FROM hub_users WHERE user_key IN " + roster.retired_sql_in_list(),
         label='retired login cleanup')
 
     # Rewrite historical short consultant keys to roster keys, once.
@@ -3128,6 +3130,14 @@ def _internal_api_ok():
         return False
     api_key = (request.headers.get('X-API-Key') or '').strip()
     return api_key == INTERNAL_API_KEY
+
+
+@app.route('/api/roster')
+def api_roster():
+    """Live people for satellite dropdowns (TPS, PPM). History is not this list."""
+    if not _internal_api_ok():
+        return jsonify({'error': 'Unauthorized'}), 401
+    return jsonify({'people': roster.people_payload(USERS)})
 
 
 # ── ROUTES ──────────────────────────────────────────────────────────────────────

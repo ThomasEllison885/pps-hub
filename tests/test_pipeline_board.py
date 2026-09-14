@@ -392,8 +392,8 @@ def test_derek_kidney_is_gone_from_the_live_roster_source():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     body = open(os.path.join(root, 'app.py')).read()
     assert "'derek_kidney': {" not in body
-    assert "derek_kidney" in body, 'the cleanup DELETE should still name him'
-    assert "DELETE FROM hub_users WHERE user_key IN ('admin', 'derek_kidney')" in body
+    assert 'retired_sql_in_list' in body
+    assert 'derek_kidney' in open(os.path.join(root, 'roster.py')).read()
 
 
 def test_retired_derek_kidney_has_no_boards():
