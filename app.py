@@ -201,6 +201,7 @@ USERS = {
         'tier': TIER_OWNER,
         'title': 'President',
         'email': 'thomas@purepropsolutions.com',
+        'phone': '513-280-2276',
     },
     'tony_cumella': {
         'display': 'Tony Cumella',
@@ -208,6 +209,7 @@ USERS = {
         'tier': TIER_LEADERSHIP,
         'title': 'VP of Sales',
         'email': 'Tony@purepropsolutions.com',
+        'phone': '937-609-5369',
     },
     'adam_cupito': {
         'display': 'Adam Cupito',
@@ -215,6 +217,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Adam@purepropsolutions.com',
+        'phone': '513-649-7279',
     },
     'rachel_farler': {
         'display': 'Rachel Farler',
@@ -222,6 +225,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Rachel@purepropsolutions.com',
+        'phone': '513-764-4006',
     },
     'andy_potts': {
         'display': 'Andy Potts',
@@ -229,6 +233,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'Andy@purepropsolutions.com',
+        'phone': '513-238-2260',
     },
     'phil_miller': {
         'display': 'Phil Miller',
@@ -237,6 +242,7 @@ USERS = {
         # Title only (2026-08-23, Thomas) — see the note on jordan_allen.
         'title': 'Project Engineer',
         'email': 'phil@purepropsolutions.com',
+        'phone': '937-689-9747',
     },
     'nick_triplett': {
         'display': 'Nick Triplett',
@@ -244,6 +250,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'nick@purepropsolutions.com',
+        'phone': '614-391-5189',
     },
     'trey_hollmeyer': {
         'display': 'Trey Hollmeyer',
@@ -251,6 +258,7 @@ USERS = {
         'tier': TIER_LEADERSHIP,
         'title': 'Production Manager',
         'email': 'trey@purepropsolutions.com',
+        'phone': '513-697-0977',
     },
     'james_boling': {
         'display': 'James Boling',
@@ -258,6 +266,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'James@purepropsolutions.com',
+        'phone': '513-764-0687',
     },
     'jordan_allen': {
         'display': 'Jordan Allen',
@@ -268,6 +277,7 @@ USERS = {
         # are unchanged, so nothing about what he can see or do moves.
         'title': 'Senior Project Manager',
         'email': 'jordan@purepropsolutions.com',
+        'phone': '513-499-4563',
     },
     'ben_ramsey': {
         'display': 'Ben Ramsey',
@@ -275,6 +285,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'ben@purepropsolutions.com',
+        'phone': '859-317-3504',
     },
     'stephanie_whetstone': {
         'display': 'Stephanie Whetstone',

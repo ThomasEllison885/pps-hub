@@ -22,6 +22,13 @@ def test_andy_baur_is_a_pm_on_the_live_roster():
     assert person['role'] == 'pm'
     assert person['email'] == 'abaur@purepropsolutions.com'
     assert person['display'] == 'Andy Baur'
+    assert person.get('phone') == '937-716-3950'
+
+
+def test_pm_phones_are_on_the_live_roster():
+    import app as hub
+    assert hub.USERS['phil_miller'].get('phone')
+    assert hub.USERS['nick_triplett'].get('phone')
 
 
 def test_derek_is_retired_not_live():
