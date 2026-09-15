@@ -289,6 +289,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Project Manager',
         'email': 'abaur@purepropsolutions.com',
+        'phone': '937-716-3950',
     },
 }
 roster.assert_users(USERS)
