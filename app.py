@@ -97,6 +97,30 @@ DATABASE_URL = os.environ.get('DATABASE_URL', '')
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024  # 10 MB per file
 VAULT_STORAGE_LIMIT_BYTES = int(os.environ.get('VAULT_STORAGE_LIMIT_MB', '512')) * 1024 * 1024
 
+# Werkzeug parses the whole request body before a view function runs, so the
+# per-file check inside client_files_upload is already too late — a 2 GB POST
+# has been spooled to Render's ephemeral disk by the time we look at it. This
+# rejects it at the door with a 413, which the HTTPException handler below
+# turns into JSON for /api/ paths.
+#
+# The largest LEGITIMATE post is /analyze-diff, which takes two proposal files
+# at MAX_DOCUMENT_BYTES each. 24 MB leaves headroom over that pair for
+# multipart framing and the form fields. Raising MAX_DOCUMENT_BYTES means
+# raising this too — tests/test_upload_limits.py says so out loud.
+MAX_REQUEST_BYTES = 24 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = MAX_REQUEST_BYTES
+
+
+@app.after_request
+def _security_headers(response):
+    """Downloads all go out as attachments, so a mislabelled MIME type is not
+    currently an XSS vector. `nosniff` is what keeps that true if a future
+    download route ever forgets `as_attachment=True`."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Referrer-Policy', 'same-origin')
+    return response
+
 _IS_DEBUG = os.environ.get('FLASK_DEBUG', '').lower() in ('1', 'true', 'yes')
 app.config.update(
     SESSION_COOKIE_SECURE=not _IS_DEBUG,
@@ -8445,6 +8469,24 @@ def _vault_bytes_used(cur):
     return int(row[0] or 0)
 
 
+def _record_client_file_usage(user_key, action, filename):
+    """Attachments are work, so they belong in adoption and the nightly digest.
+
+    Without this the newest feature in the Hub is invisible to /admin/adoption
+    and to the digest — the two places built specifically to stop guessing what
+    people use. Deletes are recorded for a second reason: contacts are shared,
+    anyone on the roster can remove anyone's attachment, and a name against the
+    act is the whole audit trail there is.
+
+    Best-effort, like every other usage write. Never let it break the upload.
+    """
+    try:
+        from hub_usage import record_usage
+        record_usage(get_db, user_key, 'clients', action, filename or '')
+    except Exception as e:
+        print(f'usage log failed (clients/{action}): {e}')
+
+
 def _client_file_payload(row):
     return {
         'id': row['id'],
@@ -8582,6 +8624,7 @@ def client_files_upload(client_id):
         conn.commit()
         cur.close()
         conn.close()
+        _record_client_file_usage(user_key, 'upload', filename)
         return jsonify({'success': True, 'file': _client_file_payload(row)}), 201
     except Exception as e:
         _log_exception(e, 'clients/files/upload')
@@ -8633,7 +8676,7 @@ def client_files_delete(client_id, document_id):
         cur.execute(
             '''DELETE FROM documents
                WHERE id = %s AND doc_type = %s AND log_id = %s
-               RETURNING id''',
+               RETURNING id, filename''',
             (document_id, client_files.CLIENT_FILE_DOC_TYPE, client_id),
         )
         row = cur.fetchone()
@@ -8642,6 +8685,7 @@ def client_files_delete(client_id, document_id):
         conn.close()
         if not row:
             return jsonify({'error': 'File not found'}), 404
+        _record_client_file_usage(user_key, 'delete', row.get('filename') or '')
         return jsonify({'success': True, 'deleted_id': row['id']})
     except Exception as e:
         _log_exception(e, 'clients/files/delete')

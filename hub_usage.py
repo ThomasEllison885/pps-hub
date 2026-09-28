@@ -67,6 +67,13 @@ ACTION_LABELS = {
     'upload': 'Uploaded',
     'generate': 'Generated',
     'notes': 'Saved notes',
+    # Removing a shared client attachment — see _record_client_file_usage in
+    # app.py. Contacts are shared, so anyone on the roster can delete anyone's
+    # file; a name against the act is the whole audit trail there is.
+    # Deliberately NOT in weekly_recap.SCORED_USAGE_ACTIONS: deleting is not a
+    # deliverable, and a leaderboard that counted it would be a leaderboard for
+    # deleting things.
+    'delete': 'Deleted',
     # Ask PPS records the outcome, not just the act. A question the Hub could
     # NOT answer is the more useful of the two: it names something the company
     # has not written down yet. Both stay out of weekly_recap's
