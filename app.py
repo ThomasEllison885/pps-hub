@@ -56,6 +56,7 @@ from auth_helpers import (
     consume_password_reset_token, reset_url_for_token,
 )
 import ask_pps
+import client_files
 def _load_dotenv():
     """Load .env into os.environ (keys already set in the environment win)."""
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -4781,31 +4782,47 @@ def document_download(document_id):
         if not conn:
             return jsonify({'error': 'Database unavailable'}), 503
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        row = _get_proposal_log_for_document(cur, document_id)
-        if not row:
+        cur.execute(
+            '''SELECT id, doc_type, filename, mime_type, file_data
+               FROM documents WHERE id = %s''',
+            (document_id,),
+        )
+        doc = cur.fetchone()
+        if not doc or not doc.get('file_data'):
             cur.close()
             conn.close()
             return jsonify({'error': 'Document not found'}), 404
-        if not _user_can_download_proposal(user_key, role, row):
+
+        if doc['doc_type'] == 'proposal':
+            row = _get_proposal_log_for_document(cur, document_id)
+            if not row:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Document not found'}), 404
+            if not _user_can_download_proposal(user_key, role, row):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Permission denied'}), 403
+        elif doc['doc_type'] == client_files.CLIENT_FILE_DOC_TYPE:
+            if not can_manage_contacts(user_key):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Permission denied'}), 403
+        else:
             cur.close()
             conn.close()
-            return jsonify({'error': 'Permission denied'}), 403
+            return jsonify({'error': 'Document not found'}), 404
 
-        cur.execute(
-            'SELECT filename, mime_type, file_data FROM documents WHERE id = %s',
-            (document_id,)
-        )
-        doc = cur.fetchone()
+        payload = bytes(doc['file_data'])
+        filename = doc['filename']
+        mime_type = doc['mime_type'] or 'application/octet-stream'
         cur.close()
         conn.close()
-        if not doc or not doc.get('file_data'):
-            return jsonify({'error': 'File data missing'}), 404
-
         return send_file(
-            BytesIO(bytes(doc['file_data'])),
+            BytesIO(payload),
             as_attachment=True,
-            download_name=doc['filename'],
-            mimetype=doc['mime_type'],
+            download_name=filename,
+            mimetype=mime_type,
         )
     except Exception as e:
         print(f"Document download error: {e}")
@@ -4926,12 +4943,14 @@ def _fetch_vault_summary(cur):
         vault['recent_missing_file'] = cur.fetchone()['c'] or 0
         cur.execute('''
             SELECT d.id, d.doc_type, d.filename, d.size_bytes, d.created_at, d.user_key, d.log_id,
-                   pl.property_name, pl.consultant_name, pl.generated_by
+                   pl.property_name, pl.consultant_name, pl.generated_by,
+                   cl.name AS client_name
             FROM documents d
             LEFT JOIN proposal_log pl ON pl.id = d.log_id AND d.doc_type = 'proposal'
+            LEFT JOIN clients cl ON cl.id = d.log_id AND d.doc_type = %s
             ORDER BY d.created_at DESC
             LIMIT 100
-        ''')
+        ''', (client_files.CLIENT_FILE_DOC_TYPE,))
         vault['files'] = cur.fetchall()
 
         limit = VAULT_STORAGE_LIMIT_BYTES
@@ -8403,6 +8422,232 @@ def clients_save():
         return resp, 500
 
 
+def _contacts_api_user():
+    """JSON 401/403 for contact-file APIs (do not HTML-redirect)."""
+    user_key = session.get('user_key')
+    if not user_key:
+        return None, (jsonify({'error': 'Not authenticated'}), 401)
+    if not can_manage_contacts(user_key):
+        return None, (jsonify({'error': 'Permission denied'}), 403)
+    return user_key, None
+
+
+def _client_exists(cur, client_id):
+    cur.execute('SELECT id FROM clients WHERE id = %s', (client_id,))
+    return cur.fetchone() is not None
+
+
+def _vault_bytes_used(cur):
+    cur.execute('SELECT COALESCE(SUM(size_bytes), 0) AS b FROM documents')
+    row = cur.fetchone()
+    if isinstance(row, dict):
+        return int(row.get('b') or 0)
+    return int(row[0] or 0)
+
+
+def _client_file_payload(row):
+    return {
+        'id': row['id'],
+        'filename': row['filename'],
+        'mime_type': row['mime_type'],
+        'size_bytes': row['size_bytes'],
+        'size_label': client_files.format_bytes(row['size_bytes']),
+        'created_at': row['created_at'].isoformat() if row.get('created_at') else '',
+        'uploaded_by': row['user_key'],
+    }
+
+
+@app.route('/api/clients/<int:client_id>/files')
+def client_files_list(client_id):
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if not _client_exists(cur, client_id):
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Client not found'}), 404
+        cur.execute(
+            '''SELECT id, filename, mime_type, size_bytes, created_at, user_key
+               FROM documents
+               WHERE doc_type = %s AND log_id = %s
+               ORDER BY created_at DESC''',
+            (client_files.CLIENT_FILE_DOC_TYPE, client_id),
+        )
+        rows = cur.fetchall()
+        used = _vault_bytes_used(cur)
+        cur.close()
+        conn.close()
+        limit = VAULT_STORAGE_LIMIT_BYTES
+        remaining = max(0, limit - used)
+        return jsonify({
+            'files': [_client_file_payload(r) for r in rows],
+            'vault': {
+                'used_bytes': used,
+                'limit_bytes': limit,
+                'remaining_bytes': remaining,
+                'used_mb': round(used / (1024 * 1024), 1),
+                'limit_mb': int(limit / (1024 * 1024)),
+                'remaining_mb': round(remaining / (1024 * 1024), 1),
+                'max_file_mb': MAX_DOCUMENT_BYTES // (1024 * 1024),
+            },
+        })
+    except Exception as e:
+        _log_exception(e, 'clients/files/list')
+        return jsonify({'error': GENERIC_API_ERROR}), 500
+
+
+@app.route('/api/clients/<int:client_id>/files', methods=['POST'])
+def client_files_upload(client_id):
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
+    incoming = request.files.get('file')
+    if not incoming or not incoming.filename:
+        return jsonify({'error': 'Choose a file to attach.'}), 400
+
+    filename = client_files.safe_client_filename(incoming.filename)
+    if not filename:
+        return jsonify({'error': 'Invalid file name.'}), 400
+    if client_files.is_blocked_client_filename(filename):
+        return jsonify({
+            'error': 'That file type cannot be stored. Use a photo, PDF, Word, Excel, or similar.',
+        }), 400
+
+    if request.content_length and request.content_length > MAX_DOCUMENT_BYTES + 256 * 1024:
+        limit_mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
+        return jsonify({'error': f'File exceeds {limit_mb} MB limit'}), 413
+
+    try:
+        size = _upload_size_bytes(incoming)
+    except Exception:
+        size = None
+    if size is not None and size > MAX_DOCUMENT_BYTES:
+        limit_mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
+        return jsonify({'error': f'File exceeds {limit_mb} MB limit'}), 413
+    if size == 0:
+        return jsonify({'error': 'File is empty.'}), 400
+
+    file_bytes = incoming.read()
+    if not file_bytes:
+        return jsonify({'error': 'File is empty.'}), 400
+    if len(file_bytes) > MAX_DOCUMENT_BYTES:
+        limit_mb = MAX_DOCUMENT_BYTES // (1024 * 1024)
+        return jsonify({'error': f'File exceeds {limit_mb} MB limit'}), 413
+
+    mime_type = (incoming.mimetype or '').strip() or 'application/octet-stream'
+    mime_type = mime_type[:100]
+
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if not _client_exists(cur, client_id):
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Client not found'}), 404
+        used = _vault_bytes_used(cur)
+        if client_files.vault_would_exceed(used, len(file_bytes), VAULT_STORAGE_LIMIT_BYTES):
+            remaining_mb = round(max(0, VAULT_STORAGE_LIMIT_BYTES - used) / (1024 * 1024), 1)
+            cur.close()
+            conn.close()
+            return jsonify({
+                'error': (
+                    f'Hub vault is nearly full ({remaining_mb} MB left of '
+                    f'{int(VAULT_STORAGE_LIMIT_BYTES / (1024 * 1024))} MB). '
+                    'Delete unused files or ask Thomas to raise the limit.'
+                ),
+            }), 413
+        cur.execute(
+            '''INSERT INTO documents
+               (doc_type, log_id, user_key, filename, mime_type, size_bytes, file_data)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)
+               RETURNING id, filename, mime_type, size_bytes, created_at, user_key''',
+            (
+                client_files.CLIENT_FILE_DOC_TYPE,
+                client_id,
+                user_key,
+                filename,
+                mime_type,
+                len(file_bytes),
+                psycopg2.Binary(file_bytes),
+            ),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'success': True, 'file': _client_file_payload(row)}), 201
+    except Exception as e:
+        _log_exception(e, 'clients/files/upload')
+        return jsonify({'error': GENERIC_API_ERROR}), 500
+
+
+@app.route('/api/clients/<int:client_id>/files/<int:document_id>/download')
+def client_files_download(client_id, document_id):
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''SELECT filename, mime_type, file_data
+               FROM documents
+               WHERE id = %s AND doc_type = %s AND log_id = %s''',
+            (document_id, client_files.CLIENT_FILE_DOC_TYPE, client_id),
+        )
+        doc = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not doc or not doc.get('file_data'):
+            return jsonify({'error': 'File not found'}), 404
+        return send_file(
+            BytesIO(bytes(doc['file_data'])),
+            as_attachment=True,
+            download_name=doc['filename'],
+            mimetype=doc['mime_type'] or 'application/octet-stream',
+        )
+    except Exception as e:
+        _log_exception(e, 'clients/files/download')
+        return jsonify({'error': GENERIC_API_ERROR}), 500
+
+
+@app.route('/api/clients/<int:client_id>/files/<int:document_id>', methods=['DELETE'])
+def client_files_delete(client_id, document_id):
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify({'error': 'Database unavailable'}), 503
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            '''DELETE FROM documents
+               WHERE id = %s AND doc_type = %s AND log_id = %s
+               RETURNING id''',
+            (document_id, client_files.CLIENT_FILE_DOC_TYPE, client_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+        cur.close()
+        conn.close()
+        if not row:
+            return jsonify({'error': 'File not found'}), 404
+        return jsonify({'success': True, 'deleted_id': row['id']})
+    except Exception as e:
+        _log_exception(e, 'clients/files/delete')
+        return jsonify({'error': GENERIC_API_ERROR}), 500
+
+
 @app.route('/api/clients/seed', methods=['POST'])
 def clients_seed():
     """Seed clients from JSON — admin only, run once."""
@@ -8446,7 +8691,20 @@ def clients_page():
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute('SELECT * FROM clients ORDER BY name')
+            cur.execute(
+                '''SELECT c.id, c.name, c.email, c.company, c.property_name, c.address,
+                          c.notes, c.added_by, c.updated_at, c.created_at,
+                          COALESCE(f.n, 0) AS files_count
+                   FROM clients c
+                   LEFT JOIN (
+                       SELECT log_id, COUNT(*)::int AS n
+                       FROM documents
+                       WHERE doc_type = %s
+                       GROUP BY log_id
+                   ) f ON f.log_id = c.id
+                   ORDER BY c.name''',
+                (client_files.CLIENT_FILE_DOC_TYPE,),
+            )
             rows = cur.fetchall()
             cur.close(); conn.close()
     except Exception as e:

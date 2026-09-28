@@ -15,13 +15,24 @@
   .badge-company { background:var(--light-bg); color:var(--dark-blue); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
   .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,30,60,0.5); z-index:900; align-items:center; justify-content:center; }
   .modal-overlay.active { display:flex; }
-  .modal { background:white; border-radius:14px; padding:28px; width:90%; max-width:500px; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
+  .modal { background:white; border-radius:14px; padding:28px; width:90%; max-width:560px; max-height:90vh; overflow-y:auto; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
   .modal-title { font-family:var(--font-serif); font-size:21px; color:var(--dark-blue); margin-bottom:18px; }
   .form-grid { display:grid; gap:12px; }
   .form-field label { display:block; font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
   .form-field input { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:var(--font-body); outline:none; }
   .form-field input:focus { border-color:var(--blue); }
   .modal-actions { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
+  .file-count { color:var(--blue); font-size:12px; font-weight:600; white-space:nowrap; }
+  .files-panel { margin-top:22px; padding-top:18px; border-top:1px solid var(--border-light); }
+  .files-hint { font-size:12px; color:#888; margin:0 0 10px; line-height:1.4; }
+  .files-pick { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .files-pick input[type=file] { flex:1; min-width:0; font-size:13px; }
+  .files-list { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .file-row { display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--light-bg-2); border-radius:8px; font-size:13px; }
+  .file-row .file-name { flex:1; min-width:0; font-weight:600; color:var(--dark-blue); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file-row .file-meta { color:#888; font-size:11px; white-space:nowrap; }
+  .file-row a, .file-row button { background:none; border:none; cursor:pointer; font-size:12px; color:var(--blue); font-family:var(--font-body); padding:0; text-decoration:none; }
+  .file-row button.file-del { color:var(--red); }
 </style>
 </head>
 <body>
@@ -48,7 +59,7 @@
   <div class="pps-table-card">
     <table class="pps-table" id="clientTable">
       <thead>
-        <tr><th>Name</th><th>Company</th><th>Email</th><th>Property</th></tr>
+        <tr><th>Name</th><th>Company</th><th>Email</th><th>Property</th><th></th></tr>
       </thead>
       <tbody>
         {% for r in rows %}
@@ -57,6 +68,7 @@
           <td><span class="badge-company">{{ r.company or '—' }}</span></td>
           <td style="color:#666;">{{ r.email or '—' }}</td>
           <td style="color:#888;font-size:12px;">{{ r.property_name or '—' }}</td>
+          <td>{% if r.files_count %}<span class="file-count" title="{{ r.files_count }} attached file{{ 's' if r.files_count != 1 else '' }}">{{ r.files_count }} file{{ 's' if r.files_count != 1 else '' }}</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -85,6 +97,19 @@
       <div class="form-field"><label>Property Name</label><input type="text" id="editProperty" placeholder="e.g. Vantage Point West"></div>
       <div class="form-field"><label>Property Address</label><input type="text" id="editAddress" placeholder="Street, City, State ZIP"></div>
     </div>
+    <p id="filesNeedSave" class="files-hint" style="margin-top:16px;">Save the contact first, then you can attach a site map, photo, or other file.</p>
+    <div id="filesSection" class="files-panel" style="display:none;">
+      <div class="form-field">
+        <label>Files</label>
+        <p class="files-hint">Site maps, photos, PDFs, Word, Excel — most file types, up to 10 MB each. Stored on this contact for later.</p>
+        <div class="files-pick">
+          <input type="file" id="clientFileInput" multiple>
+          <button type="button" class="pps-btn pps-btn-outline pps-btn-sm" onclick="uploadClientFiles()">Attach</button>
+        </div>
+      </div>
+      <div id="filesList" class="files-list"></div>
+      <div id="filesStatus" class="files-hint" style="margin-top:8px;"></div>
+    </div>
     <div class="modal-actions">
       <button class="pps-btn pps-btn-outline" onclick="closeModal()">Cancel</button>
       <button class="pps-btn pps-btn-primary" onclick="saveClient()">Save Client</button>
@@ -94,6 +119,8 @@
 </div>
 
 <script>
+let clientListDirty = false;
+
 function filterTable(q) {
   const rows = document.querySelectorAll('#clientTable tbody tr');
   const ql = q.toLowerCase();
@@ -103,6 +130,17 @@ function filterTable(q) {
   });
 }
 
+function showFilesFor(clientId) {
+  const hasId = !!clientId;
+  document.getElementById('filesNeedSave').style.display = hasId ? 'none' : '';
+  document.getElementById('filesSection').style.display = hasId ? '' : 'none';
+  document.getElementById('filesList').innerHTML = '';
+  document.getElementById('filesStatus').textContent = '';
+  const input = document.getElementById('clientFileInput');
+  if (input) input.value = '';
+  if (hasId) loadClientFiles(clientId);
+}
+
 function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Client';
   document.getElementById('editClientId').value = '';
@@ -110,6 +148,7 @@ function openAdd() {
     document.getElementById(id).value = '';
   });
   document.getElementById('saveStatus').textContent = '';
+  showFilesFor('');
   document.getElementById('clientModal').classList.add('active');
   document.getElementById('editName').focus();
 }
@@ -123,20 +162,22 @@ function openEdit(client) {
   document.getElementById('editProperty').value = client.property_name || '';
   document.getElementById('editAddress').value = client.address || '';
   document.getElementById('saveStatus').textContent = '';
+  showFilesFor(client.id);
   document.getElementById('clientModal').classList.add('active');
 }
 
 function closeModal() {
   document.getElementById('clientModal').classList.remove('active');
+  if (clientListDirty) location.reload();
 }
 
 async function saveClient() {
   const name = document.getElementById('editName').value.trim();
   if (!name) { document.getElementById('saveStatus').textContent = 'Name is required.'; return; }
-  
+
   const data = {
     id: document.getElementById('editClientId').value || null,
-    name, 
+    name,
     company: document.getElementById('editCompany').value.trim(),
     email:   document.getElementById('editEmail').value.trim(),
     property_name: document.getElementById('editProperty').value.trim(),
@@ -145,22 +186,142 @@ async function saveClient() {
 
   try {
     const resp = await fetch('/api/clients/save', {
-      method:'POST', 
+      method:'POST',
       headers:{'Content-Type':'application/json'},
       credentials:'same-origin',
       body: JSON.stringify(data)
     });
     const result = await resp.json();
     if (result.success) {
+      clientListDirty = true;
+      document.getElementById('editClientId').value = result.id;
+      document.getElementById('modalTitle').textContent = 'Edit Client';
       document.getElementById('saveStatus').style.color = 'var(--green)';
-      document.getElementById('saveStatus').textContent = '✓ Saved';
-      setTimeout(() => location.reload(), 800);
+      document.getElementById('saveStatus').textContent = data.id ? '✓ Saved' : '✓ Saved — you can attach files now';
+      showFilesFor(result.id);
     } else {
       document.getElementById('saveStatus').style.color = 'var(--red)';
       document.getElementById('saveStatus').textContent = result.error || 'Save failed';
     }
   } catch(e) {
     document.getElementById('saveStatus').textContent = 'Error: ' + e.message;
+  }
+}
+
+function formatFileDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+async function loadClientFiles(clientId) {
+  const list = document.getElementById('filesList');
+  const status = document.getElementById('filesStatus');
+  list.innerHTML = '';
+  status.textContent = '';
+  try {
+    const resp = await fetch('/api/clients/' + clientId + '/files', { credentials: 'same-origin' });
+    const data = await resp.json();
+    if (!resp.ok) {
+      status.textContent = data.error || 'Could not load files.';
+      return;
+    }
+    const files = data.files || [];
+    if (!files.length) {
+      list.innerHTML = '<div class="files-hint">No files yet.</div>';
+    } else {
+      files.forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'file-row';
+        const name = document.createElement('div');
+        name.className = 'file-name';
+        name.textContent = f.filename;
+        name.title = f.filename;
+        const meta = document.createElement('div');
+        meta.className = 'file-meta';
+        meta.textContent = [f.size_label, formatFileDate(f.created_at)].filter(Boolean).join(' · ');
+        const dl = document.createElement('a');
+        dl.href = '/api/clients/' + clientId + '/files/' + f.id + '/download';
+        dl.textContent = 'Download';
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'file-del';
+        del.textContent = 'Delete';
+        del.onclick = () => deleteClientFile(clientId, f.id, f.filename);
+        row.appendChild(name);
+        row.appendChild(meta);
+        row.appendChild(dl);
+        row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+    if (data.vault && data.vault.remaining_mb != null) {
+      status.textContent = data.vault.remaining_mb + ' MB vault space left · ' + data.vault.max_file_mb + ' MB per file';
+    }
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
+  }
+}
+
+async function uploadClientFiles() {
+  const clientId = document.getElementById('editClientId').value;
+  const input = document.getElementById('clientFileInput');
+  const status = document.getElementById('filesStatus');
+  if (!clientId) {
+    status.textContent = 'Save the contact first.';
+    return;
+  }
+  const files = Array.from(input.files || []);
+  if (!files.length) {
+    status.textContent = 'Choose a file first.';
+    return;
+  }
+  status.textContent = 'Uploading…';
+  for (const file of files) {
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const resp = await fetch('/api/clients/' + clientId + '/files', {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd,
+      });
+      const result = await resp.json();
+      if (!resp.ok || !result.success) {
+        status.style.color = 'var(--red)';
+        status.textContent = result.error || ('Could not attach ' + file.name);
+        return;
+      }
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      status.textContent = 'Error: ' + e.message;
+      return;
+    }
+  }
+  clientListDirty = true;
+  input.value = '';
+  status.style.color = '';
+  await loadClientFiles(clientId);
+}
+
+async function deleteClientFile(clientId, fileId, filename) {
+  if (!confirm('Delete “' + filename + '” from this contact?')) return;
+  const status = document.getElementById('filesStatus');
+  try {
+    const resp = await fetch('/api/clients/' + clientId + '/files/' + fileId, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+    });
+    const result = await resp.json();
+    if (!resp.ok || !result.success) {
+      status.textContent = result.error || 'Delete failed';
+      return;
+    }
+    clientListDirty = true;
+    await loadClientFiles(clientId);
+  } catch (e) {
+    status.textContent = 'Error: ' + e.message;
   }
 }
 </script>

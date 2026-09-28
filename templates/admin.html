@@ -378,8 +378,8 @@
         {% for f in vault.files %}
         <tr id="vault_row_{{ f.id }}" class="{% if f.log_id and f.doc_type == 'proposal' %}vault-row-clickable{% endif %}" {% if f.log_id and f.doc_type == 'proposal' %}onclick="openActivityDetail('proposal', {{ f.log_id }})"{% endif %}>
           <td>
-            <div style="font-weight:600;color:var(--dark-blue);">{{ f.property_name or f.filename }}</div>
-            <div style="font-size:11px;color:#aaa;">{{ f.filename }}</div>
+            <div style="font-weight:600;color:var(--dark-blue);">{{ f.property_name or f.client_name or f.filename }}</div>
+            <div style="font-size:11px;color:#aaa;">{{ f.filename }}{% if f.doc_type == 'client_file' %} · Client file{% endif %}</div>
           </td>
           <td style="font-size:13px;color:#888;">{{ f.consultant_name or '—' }}</td>
           <td style="font-size:12px;color:#888;">{{ f.user_key.replace('_',' ').title() if f.user_key else '—' }}</td>
@@ -742,7 +742,7 @@
   });
 
   async function deleteVaultFile(id, name) {
-    if (!confirm('Delete vaulted file for “' + name + '”?\n\nThe proposal history row stays — only the stored file is removed.')) return;
+    if (!confirm('Delete stored file “' + name + '”?\n\nThis cannot be undone. Proposal history rows stay if this was a generated proposal.')) return;
     try {
       const r = await fetch('/admin/vault/delete', {
         method: 'POST',
