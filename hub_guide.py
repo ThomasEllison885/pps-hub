@@ -177,12 +177,13 @@ SECTIONS = [
         id='clients', title='Clients', access=EVERYONE,
         lane='Sales &amp; consulting',
         body=[
-            ('p', 'Shared contact list for proposals and pipeline. Search by '
-                  'name, email, or company. Add a contact once. Monday CRM '
-                  'syncs new contacts weekly (insert-only — it will not '
-                  'overwrite a Hub-only contact). Placeholder names like '
-                  '“New Contact” are skipped. Use this instead of a '
-                  'personal spreadsheet.'),
+            ('p', 'Every contact from the Monday CRM Contacts board, for '
+                  'proposals and pipeline. Your own contacts are listed first; '
+                  'flip to All A–Z to see everyone’s. Monday is where contacts '
+                  'live: add or change one there (“Add contact in Monday”) and '
+                  'the Hub picks it up on the weekly sync, or press Sync now. '
+                  'Contacts cannot be edited in the Hub — a Monday sync would '
+                  'undo it. Files you attach to a contact stay in the Hub.'),
         ],
     ),
     dict(

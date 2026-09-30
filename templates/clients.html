@@ -5,25 +5,50 @@
 <link rel="stylesheet" href="/static/pps-global.css">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 {% include '_pwa_head.html' %}
-<title>PPS Hub · Client Database</title>
+<title>PPS Hub · Contacts</title>
 <style>
-  .search-bar { display:flex; gap:10px; margin-bottom:20px; }
-  .search-bar input { flex:1; padding:10px 14px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:var(--font-body); outline:none; }
-  .search-bar input:focus { border-color:var(--blue); }
-  .client-row td { padding:10px 16px; border-bottom:1px solid var(--border-light); font-size:13.5px; }
+  .sync-bar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 16px; background:var(--light-bg); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:14px; font-size:13px; color:var(--gray); }
+  .sync-bar .sync-text { flex:1; min-width:220px; line-height:1.5; }
+  .sync-bar .sync-text strong { color:var(--dark-blue); }
+  .sync-msg { font-size:13px; margin:-6px 0 14px; line-height:1.5; }
+  .sync-msg.err { color:var(--red); }
+  .sync-msg.ok { color:var(--green); }
+  .sync-report { margin:0 0 14px; font-size:13px; }
+  .sync-report details { background:white; border:1px solid var(--border-light); border-radius:8px; padding:8px 12px; margin-bottom:8px; }
+  .sync-report summary { cursor:pointer; font-weight:600; color:var(--dark-blue); }
+  .sync-report ul { margin:8px 0 2px 18px; padding:0; line-height:1.6; }
+  .sync-report a { color:var(--blue); }
+  .first-sync { padding:16px; border:1.5px solid var(--blue); border-radius:var(--radius); background:white; margin-bottom:16px; font-size:13.5px; line-height:1.55; }
+  .first-sync h3 { margin:0 0 6px; font-family:var(--font-serif); color:var(--dark-blue); font-size:18px; }
+  .first-sync .actions { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+  .toolbar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center; }
+  .toolbar input[type=text] { flex:1; min-width:200px; padding:10px 14px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:14px; font-family:var(--font-body); outline:none; }
+  .toolbar input[type=text]:focus { border-color:var(--blue); }
+  .toolbar select { padding:9px 10px; border:1.5px solid var(--border); border-radius:var(--radius); font-size:13px; font-family:var(--font-body); background:white; }
+  .seg { display:inline-flex; border:1.5px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+  .seg button { background:white; border:none; padding:9px 12px; font-size:13px; font-family:var(--font-body); cursor:pointer; color:var(--dark-blue); }
+  .seg button + button { border-left:1.5px solid var(--border); }
+  .seg button.on { background:var(--dark-blue); color:white; }
+  .table-wrap { overflow-x:auto; }
+  .client-row td { padding:10px 14px; border-bottom:1px solid var(--border-light); font-size:13.5px; vertical-align:top; }
   .client-row:hover td { background:#F6FAFE; cursor:pointer; }
+  .client-row .nm { font-weight:600; color:var(--dark-blue); }
+  .mine-tag { display:inline-block; margin-left:6px; background:var(--blue); color:white; font-size:10px; font-weight:700; letter-spacing:0.04em; padding:1px 6px; border-radius:8px; vertical-align:middle; }
+  .muted { color:#888; }
+  .divider-row td { padding:8px 14px; background:var(--light-bg-2); font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#888; }
   .badge-company { background:var(--light-bg); color:var(--dark-blue); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
+  .file-count { color:var(--blue); font-size:12px; font-weight:600; white-space:nowrap; }
   .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,30,60,0.5); z-index:900; align-items:center; justify-content:center; }
   .modal-overlay.active { display:flex; }
-  .modal { background:white; border-radius:14px; padding:28px; width:90%; max-width:560px; max-height:90vh; overflow-y:auto; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
-  .modal-title { font-family:var(--font-serif); font-size:21px; color:var(--dark-blue); margin-bottom:18px; }
-  .form-grid { display:grid; gap:12px; }
-  .form-field label { display:block; font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
-  .form-field input { width:100%; padding:9px 12px; border:1.5px solid var(--border); border-radius:8px; font-size:14px; font-family:var(--font-body); outline:none; }
-  .form-field input:focus { border-color:var(--blue); }
-  .modal-actions { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
-  .file-count { color:var(--blue); font-size:12px; font-weight:600; white-space:nowrap; }
-  .files-panel { margin-top:22px; padding-top:18px; border-top:1px solid var(--border-light); }
+  .modal { background:white; border-radius:14px; padding:26px; width:92%; max-width:560px; max-height:90vh; overflow-y:auto; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
+  .modal-title { font-family:var(--font-serif); font-size:21px; color:var(--dark-blue); }
+  .detail { display:grid; grid-template-columns:110px 1fr; gap:8px 14px; margin-top:16px; font-size:13.5px; }
+  .detail dt { font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; padding-top:2px; }
+  .detail dd { margin:0; word-break:break-word; }
+  .readonly-note { font-size:12px; color:#888; margin-top:14px; line-height:1.5; }
+  .readonly-note a { color:var(--blue); }
+  .files-panel { margin-top:20px; padding-top:16px; border-top:1px solid var(--border-light); }
+  .files-panel label { display:block; font-size:11px; font-weight:600; color:var(--dark-blue); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
   .files-hint { font-size:12px; color:#888; margin:0 0 10px; line-height:1.4; }
   .files-pick { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .files-pick input[type=file] { flex:1; min-width:0; font-size:13px; }
@@ -33,6 +58,12 @@
   .file-row .file-meta { color:#888; font-size:11px; white-space:nowrap; }
   .file-row a, .file-row button { background:none; border:none; cursor:pointer; font-size:12px; color:var(--blue); font-family:var(--font-body); padding:0; text-decoration:none; }
   .file-row button.file-del { color:var(--red); }
+  .modal-actions { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
+  @media (max-width:700px) {
+    .col-title, .col-phone, .col-owner { display:none; }
+    .detail { grid-template-columns:1fr; gap:2px; }
+    .detail dd { margin-bottom:8px; }
+  }
 </style>
 </head>
 <body>
@@ -40,38 +71,68 @@
   <a href="/dashboard" class="pps-header-left">
     <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
     <div class="pps-header-divider"></div>
-    <span class="pps-header-title">Client Database</span>
+    <span class="pps-header-title">Contacts</span>
   </a>
   <div class="pps-header-right">
-    {% if can_edit %}<button class="pps-btn-header primary" onclick="openAdd()">+ Add Client</button>{% endif %}
+    <a href="{{ monday_board_url }}" target="_blank" rel="noopener" class="pps-btn-header primary">+ Add contact in Monday ↗</a>
     <a href="/dashboard" class="pps-btn-header">← Dashboard</a>
   </div>
 </header>
 
 <div class="pps-main">
-  <div class="pps-page-title">Client Database</div>
-  <p class="pps-page-sub">{{ rows|length }} contacts · Click any row to view or edit</p>
+  <div class="pps-page-title">Contacts</div>
+  <p class="pps-page-sub">From the Monday CRM Contacts board. Add or change a contact in Monday and it shows up here on the next sync.</p>
 
-  <div class="search-bar">
-    <input type="text" id="searchInput" placeholder="Search by name or company…" oninput="filterTable(this.value)">
+  {% if not sync_initialized %}
+  <div class="first-sync" id="firstSync">
+    <h3>Contacts are moving to Monday</h3>
+    {% if is_owner %}
+    <div>The first sync replaces the Hub's own contact list with the Monday Contacts board. Old Hub contacts are archived, not deleted, and their attachments move to the Monday contact with the same email. Preview it first; nothing is written until you apply.</div>
+    <div class="actions">
+      <button type="button" class="pps-btn pps-btn-outline" id="previewBtn" onclick="firstSync(false)">Preview first sync</button>
+      <button type="button" class="pps-btn pps-btn-primary" id="applyBtn" onclick="firstSync(true)" disabled>Apply first sync</button>
+    </div>
+    {% else %}
+    <div>The contact list below is still the Hub's own. It switches to the Monday Contacts board once Thomas runs the first sync.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="sync-bar">
+    <div class="sync-text" id="syncText">
+      {% if last_sync_label %}
+        Last synced <strong>{{ last_sync_label }}</strong> by <strong>{{ last_sync_by }}</strong> · {{ last_sync_counts }}
+      {% else %}
+        Not synced from Monday yet.
+      {% endif %}
+    </div>
+    {% if sync_initialized %}
+    <button type="button" class="pps-btn pps-btn-primary pps-btn-sm" id="syncBtn" onclick="syncNow()">Sync now</button>
+    {% endif %}
+  </div>
+  <div class="sync-msg" id="syncMsg"></div>
+  <div class="sync-report" id="syncReport"></div>
+
+  <div class="toolbar">
+    <input type="text" id="searchInput" placeholder="Search name, company, email, title…" oninput="render()">
+    <div class="seg" role="group" aria-label="Sort">
+      <button type="button" id="sortMine" class="on" onclick="setSort('mine')">Mine first</button>
+      <button type="button" id="sortAz" onclick="setSort('az')">All A–Z</button>
+    </div>
+    <select id="groupSelect" onchange="render()" aria-label="Monday group">
+      <option value="">All groups</option>
+      {% for g in groups %}<option value="{{ g }}"{% if g == default_group %} selected{% endif %}>{{ g }}</option>{% endfor %}
+    </select>
   </div>
 
-  <div class="pps-table-card">
+  <p class="pps-page-sub" id="countLine" style="margin-top:-6px;"></p>
+
+  <div class="pps-table-card table-wrap">
     <table class="pps-table" id="clientTable">
       <thead>
-        <tr><th>Name</th><th>Company</th><th>Email</th><th>Property</th><th></th></tr>
+        <tr><th>Name</th><th>Company</th><th class="col-title">Title</th><th>Email</th><th class="col-phone">Phone</th><th class="col-owner">Owner</th><th></th></tr>
       </thead>
-      <tbody>
-        {% for r in rows %}
-        <tr class="client-row" onclick="openEdit({{ r|tojson }})">
-          <td style="font-weight:600;color:var(--dark-blue);">{{ r.name }}</td>
-          <td><span class="badge-company">{{ r.company or '—' }}</span></td>
-          <td style="color:#666;">{{ r.email or '—' }}</td>
-          <td style="color:#888;font-size:12px;">{{ r.property_name or '—' }}</td>
-          <td>{% if r.files_count %}<span class="file-count" title="{{ r.files_count }} attached file{{ 's' if r.files_count != 1 else '' }}">{{ r.files_count }} file{{ 's' if r.files_count != 1 else '' }}</span>{% endif %}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
+      <tbody id="clientBody"></tbody>
     </table>
   </div>
 
@@ -82,87 +143,140 @@
   </div>
 </div>
 
-<!-- Client Modal -->
+<!-- Contact card: read-only. Monday owns these fields. -->
 <div class="modal-overlay" id="clientModal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
-      <div class="modal-title" id="modalTitle">Add Client</div>
-      <button onclick="closeModal()" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;">✕</button>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+      <div class="modal-title" id="modalTitle">Contact</div>
+      <button onclick="closeModal()" aria-label="Close" style="background:none;border:none;font-size:20px;color:#aaa;cursor:pointer;">✕</button>
     </div>
     <input type="hidden" id="editClientId">
-    <div class="form-grid">
-      <div class="form-field"><label>Name *</label><input type="text" id="editName" placeholder="Full name"></div>
-      <div class="form-field"><label>Company</label><input type="text" id="editCompany" placeholder="Property management company"></div>
-      <div class="form-field"><label>Email</label><input type="email" id="editEmail" placeholder="email@company.com"></div>
-      <div class="form-field"><label>Property Name</label><input type="text" id="editProperty" placeholder="e.g. Vantage Point West"></div>
-      <div class="form-field"><label>Property Address</label><input type="text" id="editAddress" placeholder="Street, City, State ZIP"></div>
-    </div>
-    <p id="filesNeedSave" class="files-hint" style="margin-top:16px;">Save the contact first, then you can attach a site map, photo, or other file.</p>
-    <div id="filesSection" class="files-panel" style="display:none;">
-      <div class="form-field">
-        <label>Files</label>
-        <p class="files-hint">Site maps, photos, PDFs, Word, Excel — most file types, up to 10 MB each. Stored on this contact for later.</p>
-        <div class="files-pick">
-          <input type="file" id="clientFileInput" multiple>
-          <button type="button" class="pps-btn pps-btn-outline pps-btn-sm" onclick="uploadClientFiles()">Attach</button>
-        </div>
+    <dl class="detail" id="detailList"></dl>
+    <p class="readonly-note" id="readonlyNote"></p>
+    <div id="filesSection" class="files-panel">
+      <label>Files</label>
+      <p class="files-hint">Site maps, photos, PDFs, Word, Excel — most file types, up to 10 MB each. Kept in the Hub on this contact; a Monday sync never touches them.</p>
+      <div class="files-pick">
+        <input type="file" id="clientFileInput" multiple>
+        <button type="button" class="pps-btn pps-btn-outline pps-btn-sm" onclick="uploadClientFiles()">Attach</button>
       </div>
       <div id="filesList" class="files-list"></div>
       <div id="filesStatus" class="files-hint" style="margin-top:8px;"></div>
     </div>
     <div class="modal-actions">
-      <button class="pps-btn pps-btn-outline" onclick="closeModal()">Cancel</button>
-      <button class="pps-btn pps-btn-primary" onclick="saveClient()">Save Client</button>
+      <button class="pps-btn pps-btn-outline" onclick="closeModal()">Close</button>
     </div>
-    <div id="saveStatus" style="margin-top:10px;font-size:13px;text-align:right;"></div>
   </div>
 </div>
 
 <script>
+const ROWS = {{ rows|tojson }};
+const BOARD_URL = {{ monday_board_url|tojson }};
+let sortMode = 'mine';
 let clientListDirty = false;
 
-function filterTable(q) {
-  const rows = document.querySelectorAll('#clientTable tbody tr');
-  const ql = q.toLowerCase();
-  rows.forEach(r => {
-    const text = r.textContent.toLowerCase();
-    r.style.display = text.includes(ql) ? '' : 'none';
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+function setSort(mode) {
+  sortMode = mode;
+  document.getElementById('sortMine').classList.toggle('on', mode === 'mine');
+  document.getElementById('sortAz').classList.toggle('on', mode === 'az');
+  render();
+}
+
+function matches(r, terms) {
+  if (!terms.length) return true;
+  const hay = [r.name, r.company, r.email, r.title, r.phone, r.property_name, (r.owner_names || []).join(' ')]
+    .filter(Boolean).join(' ').toLowerCase();
+  return terms.every(t => hay.includes(t));
+}
+
+function render() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  const terms = q ? q.split(/\s+/) : [];
+  const group = document.getElementById('groupSelect').value;
+  let list = ROWS.filter(r => (!group || r.monday_group === group) && matches(r, terms));
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, {sensitivity: 'base'});
+  list.sort(sortMode === 'mine' ? ((a, b) => (b.mine - a.mine) || byName(a, b)) : byName);
+
+  const body = document.getElementById('clientBody');
+  body.innerHTML = '';
+  const mineShown = list.filter(r => r.mine).length;
+  list.forEach((r, i) => {
+    if (sortMode === 'mine' && mineShown && i === mineShown) {
+      const tr = el('tr', 'divider-row');
+      const td = el('td', null, 'Everyone else’s');
+      td.colSpan = 7;
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+    body.appendChild(rowFor(r));
   });
+  const scope = group ? ' in ' + group : '';
+  document.getElementById('countLine').textContent =
+    list.length + ' of ' + ROWS.length + ' contacts' + scope +
+    (sortMode === 'mine' ? ' · ' + mineShown + ' yours shown first' : '');
 }
 
-function showFilesFor(clientId) {
-  const hasId = !!clientId;
-  document.getElementById('filesNeedSave').style.display = hasId ? 'none' : '';
-  document.getElementById('filesSection').style.display = hasId ? '' : 'none';
-  document.getElementById('filesList').innerHTML = '';
-  document.getElementById('filesStatus').textContent = '';
-  const input = document.getElementById('clientFileInput');
-  if (input) input.value = '';
-  if (hasId) loadClientFiles(clientId);
+function rowFor(r) {
+  const tr = el('tr', 'client-row');
+  tr.onclick = () => openContact(r);
+  const name = el('td');
+  name.appendChild(el('span', 'nm', r.name));
+  if (r.mine) name.appendChild(el('span', 'mine-tag', 'YOURS'));
+  tr.appendChild(name);
+  const co = el('td');
+  co.appendChild(el('span', 'badge-company', r.company || '—'));
+  tr.appendChild(co);
+  tr.appendChild(el('td', 'col-title muted', r.title || '—'));
+  tr.appendChild(el('td', 'muted', r.email || '—'));
+  tr.appendChild(el('td', 'col-phone muted', r.phone || '—'));
+  tr.appendChild(el('td', 'col-owner muted', (r.owner_names || []).join(', ') || '—'));
+  const files = el('td');
+  if (r.files_count) {
+    files.appendChild(el('span', 'file-count', r.files_count + ' file' + (r.files_count !== 1 ? 's' : '')));
+  }
+  tr.appendChild(files);
+  return tr;
 }
 
-function openAdd() {
-  document.getElementById('modalTitle').textContent = 'Add Client';
-  document.getElementById('editClientId').value = '';
-  ['editName','editCompany','editEmail','editProperty','editAddress'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
-  document.getElementById('saveStatus').textContent = '';
-  showFilesFor('');
-  document.getElementById('clientModal').classList.add('active');
-  document.getElementById('editName').focus();
-}
-
-function openEdit(client) {
-  document.getElementById('modalTitle').textContent = 'Edit Client';
-  document.getElementById('editClientId').value = client.id || '';
-  document.getElementById('editName').value = client.name || '';
-  document.getElementById('editCompany').value = client.company || '';
-  document.getElementById('editEmail').value = client.email || '';
-  document.getElementById('editProperty').value = client.property_name || '';
-  document.getElementById('editAddress').value = client.address || '';
-  document.getElementById('saveStatus').textContent = '';
-  showFilesFor(client.id);
+function openContact(r) {
+  document.getElementById('modalTitle').textContent = r.name;
+  document.getElementById('editClientId').value = r.id;
+  const dl = document.getElementById('detailList');
+  dl.innerHTML = '';
+  const add = (label, value, href) => {
+    if (!value) return;
+    dl.appendChild(el('dt', null, label));
+    const dd = el('dd');
+    if (href) { const a = el('a', null, value); a.href = href; dd.appendChild(a); }
+    else dd.textContent = value;
+    dl.appendChild(dd);
+  };
+  add('Company', r.company);
+  add('Title', r.title);
+  add('Email', r.email, r.email ? 'mailto:' + r.email : null);
+  add('Phone', r.phone, r.phone ? 'tel:' + r.phone.replace(/[^\d+]/g, '') : null);
+  add('Owner', (r.owner_names || []).join(', '));
+  add('Group', r.monday_group);
+  add('Property', r.property_name);
+  add('Address', r.address);
+  const note = document.getElementById('readonlyNote');
+  note.innerHTML = '';
+  if (r.monday_url) {
+    note.appendChild(document.createTextNode('To change this contact, edit it in Monday; the Hub picks it up on the next sync. '));
+    const a = el('a', null, 'Open in Monday ↗');
+    a.href = r.monday_url; a.target = '_blank'; a.rel = 'noopener';
+    note.appendChild(a);
+  } else {
+    note.textContent = 'This contact is from the Hub’s old list and is not in Monday yet.';
+  }
+  loadClientFiles(r.id);
   document.getElementById('clientModal').classList.add('active');
 }
 
@@ -171,42 +285,134 @@ function closeModal() {
   if (clientListDirty) location.reload();
 }
 
-async function saveClient() {
-  const name = document.getElementById('editName').value.trim();
-  if (!name) { document.getElementById('saveStatus').textContent = 'Name is required.'; return; }
+// ── Sync ──────────────────────────────────────────────────────────────────
 
-  const data = {
-    id: document.getElementById('editClientId').value || null,
-    name,
-    company: document.getElementById('editCompany').value.trim(),
-    email:   document.getElementById('editEmail').value.trim(),
-    property_name: document.getElementById('editProperty').value.trim(),
-    address: document.getElementById('editAddress').value.trim(),
-  };
+function showMsg(text, kind) {
+  const m = document.getElementById('syncMsg');
+  m.className = 'sync-msg' + (kind ? ' ' + kind : '');
+  m.textContent = text || '';
+}
 
-  try {
-    const resp = await fetch('/api/clients/save', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      credentials:'same-origin',
-      body: JSON.stringify(data)
+function reportList(title, items, render, open) {
+  const d = el('details');
+  if (open) d.open = true;
+  d.appendChild(el('summary', null, title));
+  const ul = el('ul');
+  items.forEach(it => { const li = el('li'); render(li, it); ul.appendChild(li); });
+  d.appendChild(ul);
+  return d;
+}
+
+function link(text, href) {
+  const a = el('a', null, text);
+  a.href = href; a.target = '_blank'; a.rel = 'noopener';
+  return a;
+}
+
+function showReport(r) {
+  const box = document.getElementById('syncReport');
+  box.innerHTML = '';
+  if (!r || !r.ok) return;
+  if (r.skipped_inactivation) {
+    box.appendChild(el('div', 'sync-msg err', 'Safety stop: ' + r.skipped_inactivation));
+  }
+  if (r.first_sync) {
+    const moved = r.files_moved || [], left = r.files_left || [];
+    const summary = r.legacy_archived + ' old Hub contacts ' + (r.applied ? 'archived' : 'would be archived') +
+      ' · ' + moved.length + ' attachment' + (moved.length === 1 ? '' : 's') + (r.applied ? ' moved' : ' would move') +
+      ' · ' + left.length + ' left on archived contacts';
+    box.appendChild(el('div', 'sync-msg', summary));
+    if (moved.length) box.appendChild(reportList('Attachments moving to the Monday contact (' + moved.length + ')', moved,
+      (li, f) => li.textContent = f.filename + ': ' + f.old_contact + ' → ' + f.new_contact));
+    if (left.length) box.appendChild(reportList('Attachments staying on archived contacts (' + left.length + ')', left,
+      (li, f) => li.textContent = f.filename + ' on ' + f.old_contact + ' — ' + f.why, true));
+  }
+  if ((r.owners_unmatched || []).length) {
+    box.appendChild(el('div', 'sync-msg', 'Owners the Hub can’t match to a person: ' + r.owners_unmatched.join(', ') +
+      '. Reassign their contacts in Monday.'));
+  }
+  const dups = r.duplicates || [];
+  box.appendChild(reportList('Possible duplicates in Monday — same email (' + dups.length + ')', dups, (li, d) => {
+    li.appendChild(document.createTextNode(d.email + ': '));
+    d.items.forEach((it, i) => {
+      if (i) li.appendChild(document.createTextNode(', '));
+      li.appendChild(link(it.name + (it.placeholder ? ' (placeholder)' : ''), it.url));
     });
-    const result = await resp.json();
-    if (result.success) {
-      clientListDirty = true;
-      document.getElementById('editClientId').value = result.id;
-      document.getElementById('modalTitle').textContent = 'Edit Client';
-      document.getElementById('saveStatus').style.color = 'var(--green)';
-      document.getElementById('saveStatus').textContent = data.id ? '✓ Saved' : '✓ Saved — you can attach files now';
-      showFilesFor(result.id);
-    } else {
-      document.getElementById('saveStatus').style.color = 'var(--red)';
-      document.getElementById('saveStatus').textContent = result.error || 'Save failed';
-    }
-  } catch(e) {
-    document.getElementById('saveStatus').textContent = 'Error: ' + e.message;
+  }));
+  const ph = r.placeholders || [];
+  if (ph.length) box.appendChild(reportList('“New Contact” placeholders left out (' + ph.length + ')', ph, (li, p) => {
+    li.appendChild(link('Open in Monday', p.url));
+    if (p.email) li.appendChild(document.createTextNode(' · ' + p.email));
+  }));
+}
+
+function describeFailure(data, status) {
+  if (data && data.message) return data.message;
+  if (data && data.error) return data.error;
+  return 'Sync failed (HTTP ' + status + ').';
+}
+
+async function postSync(url, btn, busyText) {
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = busyText;
+  showMsg('');
+  try {
+    const resp = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+    let data = null;
+    try { data = await resp.json(); } catch (e) { /* non-JSON error page */ }
+    return { resp, data };
+  } catch (e) {
+    return { resp: null, data: { message: 'Network error: ' + e.message } };
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
   }
 }
+
+async function syncNow() {
+  const btn = document.getElementById('syncBtn');
+  const { resp, data } = await postSync('/api/clients/sync', btn, 'Syncing…');
+  if (data && data.skipped && data.reason === 'already_running') {
+    showMsg('A sync is already running. Give it a few seconds and refresh.', '');
+    return;
+  }
+  if (!resp || !resp.ok || !data || !data.ok) {
+    showMsg(describeFailure(data, resp ? resp.status : 0), 'err');
+    return;
+  }
+  document.getElementById('syncText').innerHTML = '';
+  const t = document.getElementById('syncText');
+  t.appendChild(document.createTextNode('Last synced '));
+  t.appendChild(el('strong', null, data.last_label));
+  t.appendChild(document.createTextNode(' by '));
+  t.appendChild(el('strong', null, data.by_label));
+  t.appendChild(document.createTextNode(' · ' + data.counts_label));
+  showMsg('Synced. Refresh to see the updated list.', 'ok');
+  showReport(data);
+  clientListDirty = true;
+}
+
+async function firstSync(apply) {
+  const btn = document.getElementById(apply ? 'applyBtn' : 'previewBtn');
+  const { resp, data } = await postSync('/api/clients/sync/first?apply=' + (apply ? '1' : '0'), btn,
+    apply ? 'Applying…' : 'Previewing…');
+  if (!resp || !resp.ok || !data || !data.ok) {
+    showMsg(describeFailure(data, resp ? resp.status : 0), 'err');
+    return;
+  }
+  if (!apply) {
+    showMsg('Preview: ' + data.created + ' Monday contacts would be created. Nothing has been written yet.', '');
+    showReport(data);
+    document.getElementById('applyBtn').disabled = false;
+    return;
+  }
+  showMsg('First sync applied. Reloading…', 'ok');
+  showReport(data);
+  setTimeout(() => location.reload(), 1500);
+}
+
+// ── Attachments (Hub-only; unchanged from 2026-09-28) ─────────────────────
 
 function formatFileDate(iso) {
   if (!iso) return '';
@@ -220,6 +426,9 @@ async function loadClientFiles(clientId) {
   const status = document.getElementById('filesStatus');
   list.innerHTML = '';
   status.textContent = '';
+  status.style.color = '';
+  const input = document.getElementById('clientFileInput');
+  if (input) input.value = '';
   try {
     const resp = await fetch('/api/clients/' + clientId + '/files', { credentials: 'same-origin' });
     const data = await resp.json();
@@ -232,22 +441,14 @@ async function loadClientFiles(clientId) {
       list.innerHTML = '<div class="files-hint">No files yet.</div>';
     } else {
       files.forEach(f => {
-        const row = document.createElement('div');
-        row.className = 'file-row';
-        const name = document.createElement('div');
-        name.className = 'file-name';
-        name.textContent = f.filename;
+        const row = el('div', 'file-row');
+        const name = el('div', 'file-name', f.filename);
         name.title = f.filename;
-        const meta = document.createElement('div');
-        meta.className = 'file-meta';
-        meta.textContent = [f.size_label, formatFileDate(f.created_at)].filter(Boolean).join(' · ');
-        const dl = document.createElement('a');
+        const meta = el('div', 'file-meta', [f.size_label, formatFileDate(f.created_at)].filter(Boolean).join(' · '));
+        const dl = el('a', null, 'Download');
         dl.href = '/api/clients/' + clientId + '/files/' + f.id + '/download';
-        dl.textContent = 'Download';
-        const del = document.createElement('button');
+        const del = el('button', 'file-del', 'Delete');
         del.type = 'button';
-        del.className = 'file-del';
-        del.textContent = 'Delete';
         del.onclick = () => deleteClientFile(clientId, f.id, f.filename);
         row.appendChild(name);
         row.appendChild(meta);
@@ -268,10 +469,6 @@ async function uploadClientFiles() {
   const clientId = document.getElementById('editClientId').value;
   const input = document.getElementById('clientFileInput');
   const status = document.getElementById('filesStatus');
-  if (!clientId) {
-    status.textContent = 'Save the contact first.';
-    return;
-  }
   const files = Array.from(input.files || []);
   if (!files.length) {
     status.textContent = 'Choose a file first.';
@@ -300,8 +497,6 @@ async function uploadClientFiles() {
     }
   }
   clientListDirty = true;
-  input.value = '';
-  status.style.color = '';
   await loadClientFiles(clientId);
 }
 
@@ -324,6 +519,8 @@ async function deleteClientFile(clientId, fileId, filename) {
     status.textContent = 'Error: ' + e.message;
   }
 }
+
+render();
 </script>
 </body>
 </html>

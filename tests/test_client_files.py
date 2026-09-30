@@ -177,9 +177,12 @@ def test_per_file_cap_is_still_ten_megabytes():
     assert 'MAX_DOCUMENT_BYTES = 10 * 1024 * 1024' in SRC
 
 
-def test_modal_lets_you_attach_after_the_contact_has_an_id():
+def test_contact_card_still_takes_attachments():
+    # 2026-09-30: contacts became a read-only Monday mirror, so there is no
+    # "save first" step any more — every listed contact already has an id.
+    # Attachments stayed (Thomas: yes to adding files on synced contacts).
     assert "id=\"filesSection\"" in HTML
-    assert "Save the contact first" in HTML
+    assert "Save the contact first" not in HTML
     assert "/api/clients/' + clientId + '/files'" in HTML or '/api/clients/\' + clientId + \'/files' in HTML
     assert 'uploadClientFiles' in HTML
     assert 'deleteClientFile' in HTML

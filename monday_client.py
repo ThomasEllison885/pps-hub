@@ -224,77 +224,173 @@ def fetch_pay_request_items(board_id=None, groups=PAY_REQUEST_ACTIVE_GROUPS):
     return items
 
 
-# CRM Contacts board — synced weekly into the Hub's /clients picker (Thomas,
-# 2026-08-10). The board's own "Company" connect-column (contact_account) is
-# empty on every item checked live — same unused-connect-column pattern as
-# every other board this session — so company isn't pulled from here.
+# CRM Contacts board — the source of truth for Hub contacts (2026-09-30).
+#
+# The Hub is a read-only MIRROR of this board: crm_contact_sync.py upserts
+# every item by its Monday item ID. Nothing here writes to Monday.
+#
+# History worth knowing cold: the first version (2026-08-10) pulled only
+# email + phone, 50 per page, and said the Company connect-column was empty
+# in practice. That was true of the items checked then and is not true now —
+# 597 of 683 contacts had a Company linked on 2026-09-30, and 52 link more
+# than one. So company is pulled, as display text plus the linked Companies
+# board (7902650882) item IDs.
+#
+# Column IDs confirmed live 2026-09-30:
+#   contact_email     email
+#   contact_phone     phone — raw digits ("9376702068"); formatted on display
+#   title5            DROPDOWN, multi-select, mixes job titles with industry
+#                     tags ("Condos, Community Association Manager"). Kept as
+#                     Monday's text rather than split: splitting would mean
+#                     deciding which labels are "titles", and Monday is the
+#                     place to clean that up.
+#   contact_account   board_relation → Companies (7902650882)
+#   people_mkm1m3s6   people, titled "Consultant" (was "Salesman"). 81
+#                     contacts have more than one owner.
+# Ignored on purpose (Thomas): status5, long_text4, the calendar column, and
+# every other board_relation column.
 CONTACTS_BOARD_ID = os.environ.get('MONDAY_CONTACTS_BOARD_ID', '7902650879')
+MONDAY_ACCOUNT_SLUG = os.environ.get('MONDAY_ACCOUNT_SLUG', 'purepropsolutions')
 
 CONTACTS_COL_EMAIL = 'contact_email'
 CONTACTS_COL_PHONE = 'contact_phone'
+CONTACTS_COL_TITLE = 'title5'
+CONTACTS_COL_COMPANY = 'contact_account'
+CONTACTS_COL_OWNER = 'people_mkm1m3s6'
 
 # Default placeholder title Monday gives a freshly-created contact before
-# anyone renames it — confirmed live in real data, not hypothetical.
+# anyone renames it — confirmed live in real data, not hypothetical. These
+# are left OUT of the Hub (Thomas, 2026-09-30) and listed in the sync report
+# so someone fixes them in Monday.
 PLACEHOLDER_CONTACT_NAMES = {'new contact'}
 
-_CONTACTS_COLUMN_IDS = '["contact_email", "contact_phone"]'
+# Monday's items_page maximum. 683 contacts = two requests.
+CONTACTS_PAGE_SIZE = 500
 
-_CONTACTS_NEXT_PAGE_QUERY = f'''
-query($cursor: String!) {{
-  next_items_page(cursor: $cursor, limit: 50) {{
-    cursor
-    items {{
+_CONTACTS_COLUMN_IDS = json.dumps([
+    CONTACTS_COL_EMAIL, CONTACTS_COL_PHONE, CONTACTS_COL_TITLE,
+    CONTACTS_COL_COMPANY, CONTACTS_COL_OWNER,
+])
+
+_CONTACTS_ITEM_FIELDS = f'''
       id
       name
+      group {{ id title }}
       column_values(ids: {_CONTACTS_COLUMN_IDS}) {{
         id
         text
         value
+        ... on BoardRelationValue {{ display_value linked_item_ids }}
       }}
+'''
+
+_CONTACTS_FIRST_PAGE_QUERY = f'''
+query($boardId: [ID!], $limit: Int!) {{
+  boards(ids: $boardId) {{
+    id
+    items_page(limit: $limit) {{
+      cursor
+      items {{ {_CONTACTS_ITEM_FIELDS} }}
     }}
   }}
 }}
 '''
 
+_CONTACTS_NEXT_PAGE_QUERY = f'''
+query($cursor: String!, $limit: Int!) {{
+  next_items_page(cursor: $cursor, limit: $limit) {{
+    cursor
+    items {{ {_CONTACTS_ITEM_FIELDS} }}
+  }}
+}}
+'''
 
-def fetch_contacts_items(board_id=None):
-    """Return all items from the Contacts board (no group filter — unlike
-    Sub Info/Pay Request, this board isn't organized into meaningful
-    groups for this purpose). Same items_page/next_items_page pagination
-    shape used elsewhere in this module."""
-    board_id = board_id or CONTACTS_BOARD_ID
-    items = []
-    query = f'''
-    query($boardId: [ID!]) {{
-      boards(ids: $boardId) {{
-        items_page(limit: 50) {{
-          cursor
-          items {{
-            id
-            name
-            column_values(ids: {_CONTACTS_COLUMN_IDS}) {{
-              id
-              text
-              value
-            }}
-          }}
-        }}
-      }}
-    }}
-    '''
-    boards = monday_graphql(query, {'boardId': [board_id]}).get('boards') or []
-    for board in boards:
-        page = board.get('items_page') or {}
-        for it in page.get('items') or []:
-            items.append(it)
 
-        cursor = page.get('cursor')
-        while cursor:
-            next_page = monday_graphql(_CONTACTS_NEXT_PAGE_QUERY, {'cursor': cursor}).get('next_items_page') or {}
-            for it in next_page.get('items') or []:
-                items.append(it)
-            cursor = next_page.get('cursor')
+class MondayAccessError(RuntimeError):
+    """The token cannot see the board — regenerate it, do not retry.
+
+    Kept separate from ordinary API errors because the fix is a person doing
+    something in Monday's admin, not waiting and trying again. Monday reports
+    this two ways and both land here: an explicit authorization error, and —
+    the quiet one — `boards(ids: [...])` coming back as an empty list, which
+    is what a board you are not allowed to see looks like. Treating that
+    empty list as "the board has no contacts" is how a sync would mark every
+    Hub contact inactive, so it must be an error.
+    """
+
+
+_ACCESS_ERROR_MARKERS = (
+    'not authorized', 'unauthorized', 'permission', 'forbidden',
+    'usernotauthorized', 'user_unauthorized', 'missing_required_permissions',
+)
+
+
+def _looks_like_access_error(message):
+    text = (message or '').lower().replace(' ', '')
+    return any(m.replace(' ', '') in text for m in _ACCESS_ERROR_MARKERS)
+
+
+def _contacts_graphql(query, variables):
+    try:
+        return monday_graphql(query, variables, timeout=60)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise MondayAccessError(
+                f'Monday refused the token (HTTP {e.code}). It may belong to an '
+                f'account that cannot see the CRM Contacts board '
+                f'{CONTACTS_BOARD_ID}; regenerate MONDAY_API_TOKEN from an '
+                f'account that can.'
+            ) from e
+        raise
+    except RuntimeError as e:
+        if _looks_like_access_error(str(e)):
+            raise MondayAccessError(
+                f'Monday says this token is not allowed to read the CRM '
+                f'Contacts board {CONTACTS_BOARD_ID}: {e}'
+            ) from e
+        raise
+
+
+def fetch_contacts_board(board_id=None, page_size=CONTACTS_PAGE_SIZE):
+    """Every item on the Contacts board, all groups, raw from Monday.
+
+    Cursor-paged. Raises MondayAccessError when the board is not visible to
+    the token (see the class for why an empty `boards` list is an error).
+    A board that is visible but genuinely empty returns [] — the caller's
+    safety check decides what to do with that.
+    """
+    board_id = str(board_id or CONTACTS_BOARD_ID)
+    data = _contacts_graphql(_CONTACTS_FIRST_PAGE_QUERY,
+                             {'boardId': [board_id], 'limit': page_size})
+    boards = data.get('boards') or []
+    if not boards:
+        raise MondayAccessError(
+            f'Monday returned no board for id {board_id}. The token on the '
+            f'Hub (MONDAY_API_TOKEN) most likely belongs to an account that '
+            f'cannot see the CRM Contacts board; regenerate it from one that can.'
+        )
+    page = boards[0].get('items_page') or {}
+    items = list(page.get('items') or [])
+    cursor = page.get('cursor')
+    seen_cursors = set()
+    while cursor:
+        if cursor in seen_cursors:  # never loop forever on a misbehaving API
+            break
+        seen_cursors.add(cursor)
+        nxt = _contacts_graphql(_CONTACTS_NEXT_PAGE_QUERY,
+                                {'cursor': cursor, 'limit': page_size})
+        nxt = nxt.get('next_items_page') or {}
+        items.extend(nxt.get('items') or [])
+        cursor = nxt.get('cursor')
     return items
+
+
+def contacts_board_url(board_id=None):
+    return f'https://{MONDAY_ACCOUNT_SLUG}.monday.com/boards/{board_id or CONTACTS_BOARD_ID}'
+
+
+def contact_item_url(item_id, board_id=None):
+    return f'{contacts_board_url(board_id)}/pulses/{item_id}'
 
 
 def resolve_asset_urls(asset_ids):

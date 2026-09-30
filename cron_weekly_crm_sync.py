@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Render cron entrypoint — POST to hub weekly CRM contact sync API."""
+"""Render cron entrypoint — POST to the Hub's weekly Monday contact sync.
+
+Same pattern as cron_weekly_recap.py: wake the web service, POST with
+INTERNAL_API_KEY, retry a cold start. The Hub does the Monday pull itself
+(crm_contact_sync.py), so the Monday token never leaves the web service.
+"""
 
 import json
 import os
@@ -74,10 +79,19 @@ def main():
             data = json.loads(body)
         except json.JSONDecodeError:
             return 0 if 200 <= status < 300 else 1
-        if data.get('ok'):
-            print(f"OK: checked {data.get('checked', '?')} contacts, added={data.get('added')}, sent={data.get('sent')}")
+        if data.get('skipped'):
+            print(f"OK (skipped): {data.get('reason')} — {data.get('message', '')}")
             return 0
-        print('ERROR: CRM sync endpoint returned ok=false')
+        if data.get('ok'):
+            mode = 'applied' if data.get('applied') else 'PREVIEW (first sync not applied yet)'
+            print(f"OK {mode}: {data.get('checked', '?')} Monday items, "
+                  f"created={data.get('created')} updated={data.get('updated')} "
+                  f"inactivated={data.get('inactivated')} duplicates={len(data.get('duplicates') or [])} "
+                  f"email_sent={data.get('sent')}")
+            return 0
+        print(f"ERROR: {data.get('error')} — {data.get('message', '')}")
+        if data.get('error') == 'monday_access':
+            print('The MONDAY_API_TOKEN on the pps-hub web service cannot see the CRM Contacts board. Regenerate it.')
         return 1
     except urllib.error.HTTPError as e:
         body = e.read().decode('utf-8', errors='replace')

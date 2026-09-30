@@ -13,6 +13,7 @@ import office_ops
 import production_link
 import insurance_compliance
 import crm_contact_sync
+import monday_client
 import estimate_assignments
 import weekly_recap
 import password_campaign
@@ -980,6 +981,11 @@ def _init_db_body(conn, cur):
     ''')
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(LOWER(name))")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_clients_company ON clients(LOWER(company))")
+    # Monday mirror columns (2026-09-30) — see crm_contact_sync.py. The unique
+    # index on monday_item_id is the duplicate guarantee; everything else is
+    # the synced fields plus active/archived bookkeeping.
+    for stmt in crm_contact_sync.SCHEMA_STATEMENTS:
+        cur.execute(stmt)
 
     # Site visit log
     cur.execute('''
@@ -3581,7 +3587,13 @@ def cron_weekly_recap():
 
 @app.route('/api/cron/weekly-crm-sync', methods=['POST'])
 def cron_weekly_crm_sync():
-    """Weekly sync: new Monday CRM contacts into the Hub /clients picker."""
+    """Weekly: mirror the Monday CRM Contacts board into Hub contacts.
+
+    Same shape as the weekly recap: the Render cron only POSTs here with
+    INTERNAL_API_KEY, and the Hub does the Monday pull itself, so the Monday
+    token lives only on the web service. Until Thomas applies the first sync
+    this sends him a preview instead of applying (crm_contact_sync).
+    """
     if not _internal_api_ok():
         return jsonify({'error': 'Unauthorized'}), 401
 
@@ -3590,6 +3602,7 @@ def cron_weekly_crm_sync():
             get_db,
             _send_digest_email,
             [USERS['thomas_ellison']['email']],
+            USERS,
         )
         system_state.record_job_run(get_db, 'weekly_crm_sync', result)
         return jsonify(result), 200
@@ -8327,11 +8340,25 @@ def email_doc():
 
 @app.route('/api/clients/search')
 def clients_search():
-    """Search clients by name or company — returns top 10 matches."""
-    # Allow cross-origin from proposal tool (server-to-server or CORS)
+    """Search active contacts — top 10, the caller's own contacts first.
+
+    Read by three pickers: the proposal tool (server-to-server via its proxy,
+    which passes `user_key`), the Pipeline Board's Client Contact suggestions,
+    and the painting estimator's property lookup. The response keeps every
+    field it always had (id, name, email, company, property_name, address) so
+    none of them needed changing; phone, title, group, owners and `mine` are
+    additions.
+
+    Contacts are a read-only mirror of Monday (crm_contact_sync). Inactive
+    rows — removed from Monday, or the pre-Monday Hub contacts archived by
+    the first sync — never appear. By default only Monday's "Active Contacts"
+    group is searched; `group=all` searches every group. If that group is ever
+    renamed in Monday the default falls back to everything rather than
+    quietly returning nothing.
+    """
     api_key = request.headers.get('X-API-Key', '')
     session_ok = session.get('user_key')
-    internal_ok = api_key == INTERNAL_API_KEY
+    internal_ok = bool(INTERNAL_API_KEY) and api_key == INTERNAL_API_KEY
     if not session_ok and not internal_ok:
         resp = jsonify({'error': 'Not authenticated'})
         resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -8339,24 +8366,43 @@ def clients_search():
     q = request.args.get('q', '').strip()
     if len(q) < 2:
         return jsonify([])
+    me = session.get('user_key') or (request.args.get('user_key') if internal_ok else None) or ''
+    all_groups = (request.args.get('group') or '').strip().lower() == 'all'
     try:
         conn = get_db()
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
+            like = f'%{q.lower()}%'
             cur.execute('''
-                SELECT id, name, email, company, property_name, address
+                SELECT id, name, email, phone, title, company, property_name, address,
+                       monday_group, owner_names,
+                       COALESCE(%(me)s = ANY(owner_user_keys), FALSE) AS mine
                 FROM clients
-                WHERE LOWER(name) LIKE %s
-                   OR LOWER(company) LIKE %s
-                   OR LOWER(property_name) LIKE %s
+                WHERE is_active
+                  AND (LOWER(name) LIKE %(like)s
+                       OR LOWER(COALESCE(company, '')) LIKE %(like)s
+                       OR LOWER(COALESCE(property_name, '')) LIKE %(like)s
+                       OR LOWER(COALESCE(email, '')) LIKE %(like)s)
+                  AND (%(all)s
+                       OR monday_group IS NULL
+                       OR monday_group = %(group)s
+                       OR NOT EXISTS (SELECT 1 FROM clients g
+                                      WHERE g.is_active AND g.monday_group = %(group)s))
                 ORDER BY
-                    CASE WHEN LOWER(name) LIKE %s THEN 0 ELSE 1 END,
-                    name
+                    COALESCE(%(me)s = ANY(owner_user_keys), FALSE) DESC,
+                    CASE WHEN LOWER(name) LIKE %(prefix)s THEN 0 ELSE 1 END,
+                    LOWER(name)
                 LIMIT 10
-            ''', (f'%{q.lower()}%', f'%{q.lower()}%', f'%{q.lower()}%', f'{q.lower()}%'))
-            rows = cur.fetchall()
+            ''', {'me': me, 'like': like, 'prefix': f'{q.lower()}%', 'all': all_groups,
+                  'group': crm_contact_sync.DEFAULT_GROUP})
+            rows = []
+            for r in cur.fetchall():
+                r = dict(r)
+                r['phone'] = crm_contact_sync.format_phone(r.get('phone'))
+                r['owner_names'] = list(r.get('owner_names') or [])
+                rows.append(r)
             cur.close(); conn.close()
-            resp = jsonify([dict(r) for r in rows])
+            resp = jsonify(rows)
             resp.headers['Access-Control-Allow-Origin'] = '*'
             resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
             return resp
@@ -8379,71 +8425,84 @@ def clients_search_options():
     return resp
 
 
-@app.route('/api/clients/save', methods=['POST', 'OPTIONS'])
-def clients_save():
-    """Create or update a client record."""
-    if request.method == 'OPTIONS':
-        resp = jsonify({})
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        resp.headers['Access-Control-Allow-Headers'] = 'X-API-Key, Content-Type'
-        resp.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        return resp
+# /api/clients/save, /api/clients/seed and /admin/seed-clients were removed
+# 2026-09-30. Contacts are a read-only mirror of Monday now: new contacts are
+# added in Monday ("Add contact in Monday" on /clients) and arrive on the next
+# sync, and Monday overwrites the synced fields every run, so a Hub edit would
+# be silently undone within a week. Do not restore a save route.
 
-    data = request.get_json() or {}
-    api_key = request.headers.get('X-API-Key', '')
-    internal_ok = api_key == INTERNAL_API_KEY
 
-    user_key = session.get('user_key')
-    if internal_ok and data.get('user_key'):
-        user_key = data.get('user_key')
+def _clients_sync_payload(result):
+    """The sync result plus the labels the page shows beside the button."""
+    out = dict(result)
+    if result.get('ok') and result.get('applied'):
+        out['last_label'] = hub_time.datetime_label(result.get('at'))
+        out['by_label'] = crm_contact_sync.by_label(result.get('by'), USERS)
+        out['counts_label'] = crm_contact_sync.counts_line(result)
+    return out
 
-    if not user_key:
-        resp = jsonify({'error': 'Not authenticated'})
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        return resp, 401
 
-    if not can_manage_contacts(user_key):
-        resp = jsonify({'error': 'Permission denied'})
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        return resp, 403
-    client_id = data.get('id')
-    name    = (data.get('name') or '').strip()
-    email   = (data.get('email') or '').strip()
-    company = (data.get('company') or '').strip()
-    prop    = (data.get('property_name') or '').strip()
-    address = (data.get('address') or '').strip()
-    notes   = (data.get('notes') or '').strip()
+def _clients_sync_status(result):
+    if result.get('ok'):
+        return 200
+    if result.get('reason') == 'already_running':
+        return 200
+    if result.get('reason') == 'awaiting_first_sync':
+        return 409
+    if result.get('error') == 'monday_access':
+        return 502
+    return 500
 
-    if not name:
-        resp = jsonify({'error': 'Name is required'})
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        return resp, 400
 
+@app.route('/api/clients/sync', methods=['POST'])
+def clients_sync_now():
+    """"Sync now" — anyone on the roster (Thomas, 2026-09-30).
+
+    Safe to press twice: a run already in progress makes the second request a
+    no-op (advisory lock in crm_contact_sync), and the page disables the
+    button while it waits. Refuses until the owner has applied the first sync.
+    """
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
     try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-            if client_id:
-                cur.execute('''
-                    UPDATE clients SET name=%s, email=%s, company=%s,
-                    property_name=%s, address=%s, notes=%s, updated_at=NOW()
-                    WHERE id=%s RETURNING id
-                ''', (name, email, company, prop, address, notes, client_id))
-            else:
-                cur.execute('''
-                    INSERT INTO clients (name, email, company, property_name, address, notes, added_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
-                ''', (name, email, company, prop, address, notes, user_key))
-            row = cur.fetchone()
-            conn.commit(); cur.close(); conn.close()
-            resp = jsonify({'success': True, 'id': row['id']})
-            resp.headers['Access-Control-Allow-Origin'] = '*'
-            return resp
+        result = crm_contact_sync.run_sync(get_db, USERS, user_key, apply=True)
     except Exception as e:
-        _log_exception(e, 'clients/save')
-        resp = jsonify({'error': GENERIC_API_ERROR})
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        return resp, 500
+        _log_exception(e, 'clients/sync')
+        return jsonify({'ok': False, 'error': 'sync_failed', 'message': GENERIC_API_ERROR}), 500
+    if result.get('ok') and result.get('applied'):
+        try:
+            hub_usage.record_usage(get_db, user_key, 'clients', 'sync', crm_contact_sync.counts_line(result))
+        except Exception as e:
+            print(f'usage log failed (clients/sync): {e}')
+    return jsonify(_clients_sync_payload(result)), _clients_sync_status(result)
+
+
+@app.route('/api/clients/sync/first', methods=['POST'])
+def clients_sync_first():
+    """Owner-only: preview (?apply=0) or apply (?apply=1) the first sync.
+
+    The first applied sync archives every pre-Monday Hub contact, so it runs
+    once, on purpose, after the numbers have been seen. After that this route
+    behaves like an ordinary sync and is never needed again.
+    """
+    user_key, err = _contacts_api_user()
+    if err:
+        return err
+    if not is_owner(user_key):
+        return jsonify({'ok': False, 'error': 'Owner only'}), 403
+    apply = (request.args.get('apply') or '').strip() == '1'
+    try:
+        result = crm_contact_sync.run_sync(get_db, USERS, user_key, apply=apply, initial=True)
+    except Exception as e:
+        _log_exception(e, 'clients/sync/first')
+        return jsonify({'ok': False, 'error': 'sync_failed', 'message': GENERIC_API_ERROR}), 500
+    if result.get('ok') and result.get('applied'):
+        try:
+            hub_usage.record_usage(get_db, user_key, 'clients', 'sync', crm_contact_sync.counts_line(result))
+        except Exception as e:
+            print(f'usage log failed (clients/sync/first): {e}')
+    return jsonify(_clients_sync_payload(result)), _clients_sync_status(result)
 
 
 def _contacts_api_user():
@@ -8692,41 +8751,18 @@ def client_files_delete(client_id, document_id):
         return jsonify({'error': GENERIC_API_ERROR}), 500
 
 
-@app.route('/api/clients/seed', methods=['POST'])
-def clients_seed():
-    """Seed clients from JSON — admin only, run once."""
-    if session.get('role') != 'admin':
-        return jsonify({'error': 'Admin only'}), 403
-    data = request.get_json()
-    clients_data = data.get('clients', [])
-    inserted = 0
-    try:
-        conn = get_db()
-        if conn:
-            cur = conn.cursor()
-            for c in clients_data:
-                name = (c.get('name') or '').strip()
-                if not name: continue
-                # Skip if name already exists
-                cur.execute('SELECT id FROM clients WHERE LOWER(name) = LOWER(%s)', (name,))
-                if cur.fetchone(): continue
-                cur.execute('''
-                    INSERT INTO clients (name, email, company, property_name, address, added_by)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                ''', (name, c.get('email',''), c.get('company',''),
-                      c.get('property_name',''), c.get('address',''), 'seed'))
-                inserted += 1
-            conn.commit(); cur.close(); conn.close()
-        return jsonify({'success': True, 'inserted': inserted})
-    except Exception as e:
-        return _api_error(e)
-
-
 @app.route('/clients')
 @require_login
 @logs_open('clients')
 def clients_page():
-    """Client / contacts database — admin, consultants, office, and all PMs."""
+    """Contacts — a read-only mirror of the Monday CRM Contacts board.
+
+    Everyone sees and searches every contact (same as Monday). The list opens
+    "Mine first" — the viewer's own contacts, by Monday owner, then everyone
+    else's — and on the "Active Contacts" group; both are toggles on the page.
+    Clicking a contact opens a read-only card with its attachments, which stay
+    Hub-only and are never touched by a sync.
+    """
     user_key = session.get('user_key')
     if not can_manage_contacts(user_key):
         return redirect(url_for('dashboard'))
@@ -8736,8 +8772,9 @@ def clients_page():
         if conn:
             cur = conn.cursor(cursor_factory=RealDictCursor)
             cur.execute(
-                '''SELECT c.id, c.name, c.email, c.company, c.property_name, c.address,
-                          c.notes, c.added_by, c.updated_at, c.created_at,
+                '''SELECT c.id, c.name, c.email, c.phone, c.title, c.company,
+                          c.property_name, c.address, c.monday_item_id, c.monday_group,
+                          c.owner_names, c.owner_user_keys, c.synced_at,
                           COALESCE(f.n, 0) AS files_count
                    FROM clients c
                    LEFT JOIN (
@@ -8746,21 +8783,42 @@ def clients_page():
                        WHERE doc_type = %s
                        GROUP BY log_id
                    ) f ON f.log_id = c.id
-                   ORDER BY c.name''',
+                   WHERE c.is_active
+                   ORDER BY LOWER(c.name)''',
                 (client_files.CLIENT_FILE_DOC_TYPE,),
             )
-            rows = cur.fetchall()
+            for r in cur.fetchall():
+                r = dict(r)
+                keys = list(r.pop('owner_user_keys', None) or [])
+                r['mine'] = user_key in keys
+                r['owner_names'] = list(r.get('owner_names') or [])
+                r['phone'] = crm_contact_sync.format_phone(r.get('phone'))
+                r['monday_url'] = (monday_client.contact_item_url(r['monday_item_id'])
+                                   if r.get('monday_item_id') else '')
+                r.pop('synced_at', None)
+                rows.append(r)
             cur.close(); conn.close()
     except Exception as e:
         print(f"Clients page error: {e}")
-    return render_template('clients.html', rows=rows, can_edit=True)
 
-
-@app.route('/admin/seed-clients')
-def seed_clients_page():
-    if session.get('role') != 'admin':
-        return redirect(url_for('login'))
-    return render_template('seed_clients.html')
+    groups = sorted({r['monday_group'] for r in rows if r.get('monday_group')})
+    last = crm_contact_sync.load_last_sync(get_db) or {}
+    initialized = crm_contact_sync.is_initialized(get_db)
+    return render_template(
+        'clients.html',
+        rows=rows,
+        groups=groups,
+        default_group=(crm_contact_sync.DEFAULT_GROUP
+                       if crm_contact_sync.DEFAULT_GROUP in groups else ''),
+        mine_count=sum(1 for r in rows if r['mine']),
+        last_sync=last,
+        last_sync_label=hub_time.datetime_label(last.get('at')) if last else '',
+        last_sync_by=crm_contact_sync.by_label(last.get('by'), USERS) if last else '',
+        last_sync_counts=crm_contact_sync.counts_line(last) if last else '',
+        sync_initialized=initialized,
+        is_owner=is_owner(user_key),
+        monday_board_url=monday_client.contacts_board_url(),
+    )
 
 
 @app.route('/test-token')

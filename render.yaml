@@ -128,6 +128,11 @@ services:
     name: pps-hub-weekly-crm-sync
     runtime: python
     # 4 UTC Monday ≈ Sunday ~11pm-midnight US/Eastern (EDT/EST) — Sunday EOD.
+    # Mirrors the Monday CRM Contacts board into Hub contacts (2026-09-30).
+    # This service only POSTs with INTERNAL_API_KEY; the Monday pull happens
+    # on the web service, so MONDAY_API_TOKEN is NOT set here. Trigger Run is
+    # safe: before the first sync is applied it only emails Thomas a preview,
+    # and after that a run is exactly what "Sync now" does.
     schedule: "0 4 * * 1"
     buildCommand: pip install -r requirements.txt
     startCommand: python cron_weekly_crm_sync.py

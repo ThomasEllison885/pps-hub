@@ -56,7 +56,7 @@ KNOWN_JOBS = [
     ('daily_digest', 'Daily digest', 'Nightly, ~midnight–3am ET'),
     ('weekly_recap', 'Weekly team recap', 'Mondays ~7am ET'),
     ('weekly_tp_compliance', 'Trade Partner compliance', 'Mondays ~7am ET'),
-    ('weekly_crm_sync', 'CRM contact sync', 'Sundays ~11pm ET'),
+    ('weekly_crm_sync', 'Monday contact sync', 'Sundays ~midnight ET'),
     ('daily_estimate_check', 'Estimate assignments', 'Daily ~7am ET'),
 ]
 

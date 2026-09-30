@@ -81,6 +81,11 @@ ACTION_LABELS = {
     # leaderboard that counted it would teach people to ask questions.
     'answered': 'Asked (answered)',
     'unanswered': 'Asked (no answer)',
+    # "Sync now" on /clients (2026-09-30). NOT in weekly_recap's
+    # SCORED_USAGE_ACTIONS: pressing a button that pulls Monday is not a
+    # deliverable, and anyone can press it. Deliberately not 'refresh', which
+    # IS scored (it is the compliance "Run now").
+    'sync': 'Synced contacts from Monday',
 }
 
 
