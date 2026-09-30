@@ -29,15 +29,26 @@
   .seg button { background:white; border:none; padding:9px 12px; font-size:13px; font-family:var(--font-body); cursor:pointer; color:var(--dark-blue); }
   .seg button + button { border-left:1.5px solid var(--border); }
   .seg button.on { background:var(--dark-blue); color:white; }
-  .table-wrap { overflow-x:auto; }
-  .client-row td { padding:10px 14px; border-bottom:1px solid var(--border-light); font-size:13.5px; vertical-align:top; }
+  /* Four columns, fixed layout (2026-09-30 rework). Seven auto-sized columns
+     in a ~990px card squeezed Owner and Phone to one word per line. */
+  #clientTable { table-layout:fixed; width:100%; }
+  #clientTable th, #clientTable td { padding:11px 14px; }
+  #clientTable col.c-contact { width:31%; }
+  #clientTable col.c-company { width:23%; }
+  #clientTable col.c-reach { width:29%; }
+  #clientTable col.c-owner { width:17%; }
+  .client-row td { border-bottom:1px solid var(--border-light); font-size:13.5px; vertical-align:top; line-height:1.4; }
   .client-row:hover td { background:#F6FAFE; cursor:pointer; }
+  .client-row.mine td:first-child { box-shadow:inset 3px 0 0 var(--blue); }
   .client-row .nm { font-weight:600; color:var(--dark-blue); }
-  .mine-tag { display:inline-block; margin-left:6px; background:var(--blue); color:white; font-size:10px; font-weight:700; letter-spacing:0.04em; padding:1px 6px; border-radius:8px; vertical-align:middle; }
+  .client-row .sub { color:#888; font-size:12.5px; margin-top:2px; }
+  .client-row .one-line { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .client-row .co { color:var(--gray); }
+  .client-row .owner { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--gray); font-size:13px; }
+  .client-row .owner .former { color:#aaa; font-size:11px; margin-left:4px; }
   .muted { color:#888; }
-  .divider-row td { padding:8px 14px; background:var(--light-bg-2); font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#888; }
-  .badge-company { background:var(--light-bg); color:var(--dark-blue); padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
-  .file-count { color:var(--blue); font-size:12px; font-weight:600; white-space:nowrap; }
+  .divider-row td { padding:9px 14px; background:var(--light-bg-2); font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:#7a8a99; border-bottom:1px solid var(--border-light); }
+  .file-count { display:inline-block; margin-left:6px; color:var(--blue); font-size:11px; font-weight:600; white-space:nowrap; }
   .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,30,60,0.5); z-index:900; align-items:center; justify-content:center; }
   .modal-overlay.active { display:flex; }
   .modal { background:white; border-radius:14px; padding:26px; width:92%; max-width:560px; max-height:90vh; overflow-y:auto; box-shadow:0 12px 48px rgba(0,0,0,0.18); }
@@ -59,8 +70,20 @@
   .file-row a, .file-row button { background:none; border:none; cursor:pointer; font-size:12px; color:var(--blue); font-family:var(--font-body); padding:0; text-decoration:none; }
   .file-row button.file-del { color:var(--red); }
   .modal-actions { display:flex; gap:10px; margin-top:20px; justify-content:flex-end; }
+  /* Phones: each contact becomes a stacked block instead of a table row,
+     so nothing scrolls sideways and nothing has to be hidden. */
   @media (max-width:700px) {
-    .col-title, .col-phone, .col-owner { display:none; }
+    #clientTable, #clientTable tbody { display:block; }
+    #clientTable thead, #clientTable colgroup { display:none; }
+    #clientTable tr.client-row { display:block; padding:12px 14px; border-bottom:1px solid var(--border-light); }
+    #clientTable tr.client-row td { display:block; padding:0; border:none; }
+    #clientTable tr.client-row.mine { box-shadow:inset 3px 0 0 var(--blue); }
+    #clientTable tr.client-row.mine td:first-child { box-shadow:none; }
+    #clientTable tr.client-row td + td { margin-top:3px; }
+    #clientTable tr.divider-row, #clientTable tr.divider-row td { display:block; }
+    .client-row td .owner { display:inline; }
+    .client-row td .owner:first-child::before { content:'Owner: '; color:#aaa; }
+    .client-row td .owner + .owner::before { content:', '; }
     .detail { grid-template-columns:1fr; gap:2px; }
     .detail dd { margin-bottom:8px; }
   }
@@ -127,10 +150,11 @@
 
   <p class="pps-page-sub" id="countLine" style="margin-top:-6px;"></p>
 
-  <div class="pps-table-card table-wrap">
+  <div class="pps-table-card">
     <table class="pps-table" id="clientTable">
+      <colgroup><col class="c-contact"><col class="c-company"><col class="c-reach"><col class="c-owner"></colgroup>
       <thead>
-        <tr><th>Name</th><th>Company</th><th class="col-title">Title</th><th>Email</th><th class="col-phone">Phone</th><th class="col-owner">Owner</th><th></th></tr>
+        <tr><th>Contact</th><th>Company</th><th>Email · Phone</th><th>Owner</th></tr>
       </thead>
       <tbody id="clientBody"></tbody>
     </table>
@@ -207,41 +231,69 @@ function render() {
   const body = document.getElementById('clientBody');
   body.innerHTML = '';
   const mineShown = list.filter(r => r.mine).length;
+  const divider = text => {
+    const tr = el('tr', 'divider-row');
+    const td = el('td', null, text);
+    td.colSpan = 4;
+    tr.appendChild(td);
+    body.appendChild(tr);
+  };
   list.forEach((r, i) => {
-    if (sortMode === 'mine' && mineShown && i === mineShown) {
-      const tr = el('tr', 'divider-row');
-      const td = el('td', null, 'Everyone else’s');
-      td.colSpan = 7;
-      tr.appendChild(td);
-      body.appendChild(tr);
+    if (sortMode === 'mine' && mineShown) {
+      if (i === 0) divider('Your contacts (' + mineShown + ')');
+      if (i === mineShown) divider('Everyone else’s (' + (list.length - mineShown) + ')');
     }
     body.appendChild(rowFor(r));
   });
   const scope = group ? ' in ' + group : '';
   document.getElementById('countLine').textContent =
     list.length + ' of ' + ROWS.length + ' contacts' + scope +
-    (sortMode === 'mine' ? ' · ' + mineShown + ' yours shown first' : '');
+    (mineShown ? ' · ' + mineShown + ' yours' : '') +
+    (list.some(r => r.files_count) ? ' · 📎 = has files attached' : '');
 }
 
 function rowFor(r) {
-  const tr = el('tr', 'client-row');
+  const tr = el('tr', 'client-row' + (r.mine ? ' mine' : ''));
   tr.onclick = () => openContact(r);
-  const name = el('td');
-  name.appendChild(el('span', 'nm', r.name));
-  if (r.mine) name.appendChild(el('span', 'mine-tag', 'YOURS'));
-  tr.appendChild(name);
-  const co = el('td');
-  co.appendChild(el('span', 'badge-company', r.company || '—'));
-  tr.appendChild(co);
-  tr.appendChild(el('td', 'col-title muted', r.title || '—'));
-  tr.appendChild(el('td', 'muted', r.email || '—'));
-  tr.appendChild(el('td', 'col-phone muted', r.phone || '—'));
-  tr.appendChild(el('td', 'col-owner muted', (r.owner_names || []).join(', ') || '—'));
-  const files = el('td');
+
+  const contact = el('td');
+  const nm = el('div', 'nm');
+  nm.appendChild(document.createTextNode(r.name));
   if (r.files_count) {
-    files.appendChild(el('span', 'file-count', r.files_count + ' file' + (r.files_count !== 1 ? 's' : '')));
+    // Paperclip marks a contact with Hub attachments (site maps, photos).
+    const clip = el('span', 'file-count', '📎 ' + r.files_count);
+    clip.title = r.files_count + ' file' + (r.files_count === 1 ? '' : 's') + ' attached';
+    nm.appendChild(clip);
   }
-  tr.appendChild(files);
+  contact.appendChild(nm);
+  if (r.title) {
+    const t = el('div', 'sub one-line', r.title);
+    t.title = r.title;
+    contact.appendChild(t);
+  }
+  tr.appendChild(contact);
+
+  tr.appendChild(el('td', r.company ? 'co' : 'co muted', r.company || '—'));
+
+  const reach = el('td');
+  const email = el('div', 'one-line' + (r.email ? '' : ' muted'), r.email || '—');
+  if (r.email) email.title = r.email;
+  reach.appendChild(email);
+  if (r.phone) reach.appendChild(el('div', 'sub one-line', r.phone));
+  tr.appendChild(reach);
+
+  const owner = el('td');
+  const owners = r.owner_names || [];
+  if (!owners.length) owner.appendChild(el('div', 'owner muted', '—'));
+  owners.forEach(n => {
+    const d = el('div', 'owner');
+    const former = / \(former\)$/.test(n);
+    d.appendChild(document.createTextNode(former ? n.replace(/ \(former\)$/, '') : n));
+    if (former) d.appendChild(el('span', 'former', 'former'));
+    d.title = n;
+    owner.appendChild(d);
+  });
+  tr.appendChild(owner);
   return tr;
 }
 
