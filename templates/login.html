@@ -155,7 +155,10 @@
     margin-bottom: 8px;
   }
 
-  /* Tappable name list — reliable on phones (native <select> is flaky) */
+  /* Tappable name list — reliable on phones (native <select> is flaky).
+     Keep a max-height on every width. Uncapping at 480px used to dump
+     Password / Sign In below the fold on a laptop (roster of 13); the
+     same page on a phone stayed capped and signed in. */
   .name-list {
     display: flex;
     flex-direction: column;
@@ -310,7 +313,6 @@
     .brand-strip .brand-motto { width: min(100%, 400px); }
     .card { padding: 32px 28px 36px; }
     .card h1 { font-size: 1.6rem; }
-    .name-list { max-height: none; }
   }
 
   /* Very small phones: hide motto so form is above the fold */
@@ -435,6 +437,12 @@
       // Ensure radio is selected even if label hit area is odd on some WebViews
       input.checked = true;
       sync();
+      // Name-pick is a user gesture, so iOS allows focus here. Puts the
+      // password field on screen and the caret in it — laptop users who
+      // only saw the name list were otherwise stuck.
+      if (pw) {
+        try { pw.focus(); } catch (e) {}
+      }
     });
   });
 
