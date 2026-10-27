@@ -32,7 +32,7 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 
 import json
 import re
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 import openpyxl
 from psycopg2.extras import RealDictCursor
@@ -236,6 +236,378 @@ def init_tables(cur):
         'CREATE INDEX IF NOT EXISTS idx_pipeline_board_backups_pair '
         'ON pipeline_board_backups(pair_key, created_at DESC)'
     )
+    # Append-only clock for how long a row sat in each status. updated_at
+    # cannot do this: notes and amounts rewrite it, and archive had no
+    # timestamp of its own. No foreign key. Archived rows stay, and a
+    # restore must not cascade the log away.
+    cur.execute('''
+        CREATE TABLE IF NOT EXISTS pipeline_board_status_history (
+            id SERIAL PRIMARY KEY,
+            entry_id INTEGER NOT NULL,
+            pair_key VARCHAR(100) NOT NULL,
+            event VARCHAR(20) NOT NULL,
+            from_status VARCHAR(30),
+            to_status VARCHAR(30),
+            changed_by VARCHAR(100),
+            changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+    ''')
+    cur.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pipeline_board_status_history_entry '
+        'ON pipeline_board_status_history(entry_id, changed_at)'
+    )
+    cur.execute(
+        'CREATE INDEX IF NOT EXISTS idx_pipeline_board_status_history_pair '
+        'ON pipeline_board_status_history(pair_key, changed_at)'
+    )
+    _ensure_status_history(cur)
+
+
+_HISTORY_SAVEPOINT = 'pb_status_hist'
+_BASELINE_SAVEPOINT = 'pb_status_baseline'
+
+
+def _as_utc(value):
+    """TIMESTAMPTZ comes back aware. Naive values are UTC, matching the Hub sweep."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _insert_history_row(cur, entry_id, pair_key, event, from_status, to_status,
+                        changed_by, changed_at=None):
+    """The INSERT itself. Raises on failure so a caller can choose to swallow it."""
+    if changed_at is None:
+        cur.execute(
+            '''INSERT INTO pipeline_board_status_history
+                   (entry_id, pair_key, event, from_status, to_status, changed_by)
+               VALUES (%s, %s, %s, %s, %s, %s)''',
+            (entry_id, pair_key, event, from_status, to_status, changed_by),
+        )
+    else:
+        cur.execute(
+            '''INSERT INTO pipeline_board_status_history
+                   (entry_id, pair_key, event, from_status, to_status,
+                    changed_by, changed_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+            (entry_id, pair_key, event, from_status, to_status,
+             changed_by, changed_at),
+        )
+
+
+def _record_status_event(cur, entry_id, pair_key, event, from_status, to_status,
+                         changed_by, changed_at=None):
+    """Append one history row. A failure must not abort the caller's edit.
+
+    The insert runs inside its own savepoint. Postgres aborts the whole
+    transaction on a failed statement, so a bare except around the INSERT
+    would leave the edit uncommittable. Rolling back the savepoint clears
+    that and leaves the entry change in place.
+    """
+    try:
+        cur.execute(f'SAVEPOINT {_HISTORY_SAVEPOINT}')
+    except Exception as e:
+        print(f'Pipeline board status history error: {e}')
+        return False
+    try:
+        _insert_history_row(
+            cur, entry_id, pair_key, event, from_status, to_status,
+            changed_by, changed_at,
+        )
+    except Exception as e:
+        print(f'Pipeline board status history error: {e}')
+        try:
+            cur.execute(f'ROLLBACK TO SAVEPOINT {_HISTORY_SAVEPOINT}')
+            cur.execute(f'RELEASE SAVEPOINT {_HISTORY_SAVEPOINT}')
+        except Exception:
+            pass
+        return False
+    try:
+        cur.execute(f'RELEASE SAVEPOINT {_HISTORY_SAVEPOINT}')
+    except Exception:
+        pass
+    return True
+
+
+def _ensure_status_history(cur):
+    """Baseline rows that predate this table, then mine retained snapshots.
+
+    Idempotent. An entry that already has any history row is left alone, so
+    a second startup does not stack another baseline on top of live edits.
+    The whole step sits in one savepoint: a missing table on a half-built
+    database skips the backfill and does not take init_tables down with it.
+    """
+    try:
+        cur.execute(f'SAVEPOINT {_BASELINE_SAVEPOINT}')
+    except Exception as e:
+        print(f'Pipeline board status history baseline error: {e}')
+        return
+    try:
+        _insert_status_baselines(cur)
+        _backfill_status_from_backups(cur)
+    except Exception as e:
+        print(f'Pipeline board status history baseline error: {e}')
+        try:
+            cur.execute(f'ROLLBACK TO SAVEPOINT {_BASELINE_SAVEPOINT}')
+            cur.execute(f'RELEASE SAVEPOINT {_BASELINE_SAVEPOINT}')
+        except Exception:
+            pass
+        return
+    try:
+        cur.execute(f'RELEASE SAVEPOINT {_BASELINE_SAVEPOINT}')
+    except Exception:
+        pass
+
+
+def _insert_status_baselines(cur):
+    """One 'created' row at created_at, then a 'baseline' (or 'archived') at now.
+
+    Existing rows did not record their opening status, so the created event
+    carries a null to_status. The baseline event is the moment the clock
+    starts, and its to_status is whatever the row is in right now.
+    """
+    cur.execute(
+        '''SELECT e.id, e.pair_key, e.status, e.archived, e.created_at
+           FROM pipeline_board_entries e
+           WHERE NOT EXISTS (
+               SELECT 1 FROM pipeline_board_status_history h
+               WHERE h.entry_id = e.id
+           )'''
+    )
+    for row in cur.fetchall():
+        # Direct inserts, not _record_status_event. A failure has to raise
+        # so the baseline savepoint rolls the pair of rows back together.
+        # Swallowing one would leave a created event and no baseline, and
+        # the next startup would skip the entry because it already has history.
+        _insert_history_row(
+            cur, row['id'], row['pair_key'], 'created', None, None,
+            'baseline', changed_at=row.get('created_at'),
+        )
+        if row.get('archived'):
+            _insert_history_row(
+                cur, row['id'], row['pair_key'], 'archived',
+                row.get('status'), None, 'baseline',
+            )
+        else:
+            _insert_history_row(
+                cur, row['id'], row['pair_key'], 'baseline',
+                None, row.get('status'), 'baseline',
+            )
+
+
+def _backfill_status_from_backups(cur):
+    """Status changes visible between retained snapshots, tagged changed_by backfill.
+
+    pipeline_board_backups keeps BACKUP_KEEP_PER_PAIR snapshots per board and
+    prunes the rest, so this cannot see further back than whatever is still
+    in the table. A transition is two active snapshots of the same entry
+    whose status text differs. The first snapshot only tells us the status
+    we start from. The jump from the last snapshot to today's status is not
+    invented here. The baseline row already marks today.
+    """
+    cur.execute(
+        '''SELECT id, pair_key, created_at, payload
+           FROM pipeline_board_backups
+           ORDER BY created_at ASC, id ASC'''
+    )
+    backups = cur.fetchall()
+    if not backups:
+        return
+
+    cur.execute(
+        '''SELECT entry_id, event, changed_at
+           FROM pipeline_board_status_history
+           WHERE changed_by = 'baseline' '''
+    )
+    created_at = {}
+    baseline_at = {}
+    for row in cur.fetchall():
+        if row['event'] == 'created':
+            created_at[row['entry_id']] = _as_utc(row['changed_at'])
+        else:
+            baseline_at[row['entry_id']] = _as_utc(row['changed_at'])
+    if not created_at:
+        return
+
+    cur.execute(
+        '''SELECT entry_id, from_status, to_status, changed_at
+           FROM pipeline_board_status_history
+           WHERE changed_by = 'backfill' '''
+    )
+    seen = {
+        (row['entry_id'], row['from_status'], row['to_status'],
+         _as_utc(row['changed_at']))
+        for row in cur.fetchall()
+    }
+
+    previous = {}
+    for backup in backups:
+        when = _as_utc(backup.get('created_at'))
+        if when is None:
+            continue
+        payload = backup.get('payload') or []
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, list):
+            continue
+        pair_key = backup.get('pair_key')
+        for raw in payload:
+            if not isinstance(raw, dict):
+                continue
+            entry_id = raw.get('id')
+            if entry_id not in created_at:
+                continue
+            opened = created_at.get(entry_id)
+            closed = baseline_at.get(entry_id)
+            if opened is not None and when < opened:
+                continue
+            if closed is not None and when >= closed:
+                continue
+            if raw.get('archived'):
+                continue
+            status = raw.get('status')
+            if not status:
+                continue
+            status = str(status)[:30]
+            prev = previous.get(entry_id)
+            previous[entry_id] = status
+            if prev is None or prev == status:
+                continue
+            key = (entry_id, prev, status, when)
+            if key in seen:
+                continue
+            if _record_status_event(
+                cur, entry_id, raw.get('pair_key') or pair_key, 'status',
+                prev, status, 'backfill', changed_at=when,
+            ):
+                seen.add(key)
+
+
+def _log_restore_changes(cur, pair_key, user_key, before, after):
+    """One 'restored' row per entry whose status or archived flag actually moved."""
+    for entry_id, aft in after.items():
+        bef = before.get(entry_id)
+        archived_now = bool(aft.get('archived'))
+        status_now = aft.get('status')
+        if bef is None:
+            _record_status_event(
+                cur, entry_id, pair_key, 'restored', None,
+                None if archived_now else status_now, user_key,
+            )
+            continue
+        if bef.get('status') == status_now and bool(bef.get('archived')) == archived_now:
+            continue
+        _record_status_event(
+            cur, entry_id, pair_key, 'restored', bef.get('status'),
+            None if archived_now else status_now, user_key,
+        )
+
+
+def status_durations(get_db_fn, pair_key=None, since=None, now=None):
+    """Time each entry has spent in each status, in seconds.
+
+    The open status runs to now. A null to_status (archived, or the
+    synthetic created row) adds no time. `since` clips intervals. It does
+    not drop the status a row was already in at that moment.
+
+    Returns (rows, error). rows is a list of
+    {entry_id, pair_key, current_status, by_status: [{status, label, seconds}]}.
+    """
+    conn = get_db_fn()
+    if not conn:
+        return None, 'Database unavailable'
+    now = _as_utc(now) or datetime.now(timezone.utc)
+    since = _as_utc(since)
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        if pair_key:
+            cur.execute(
+                '''SELECT id, entry_id, pair_key, to_status, changed_at
+                   FROM pipeline_board_status_history
+                   WHERE pair_key = %s
+                   ORDER BY entry_id, changed_at, id''',
+                (pair_key,),
+            )
+        else:
+            cur.execute(
+                '''SELECT id, entry_id, pair_key, to_status, changed_at
+                   FROM pipeline_board_status_history
+                   ORDER BY pair_key, entry_id, changed_at, id'''
+            )
+        fetched = cur.fetchall()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f'Pipeline board status history read error: {e}')
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return None, 'Could not read status history'
+    return _durations_from_events(fetched, now, since), None
+
+
+def _durations_from_events(events, now, since=None):
+    grouped = {}
+    order = []
+    for raw in events:
+        entry_id = raw['entry_id']
+        if entry_id not in grouped:
+            grouped[entry_id] = []
+            order.append(entry_id)
+        grouped[entry_id].append(raw)
+
+    rows = []
+    for entry_id in order:
+        evs = grouped[entry_id]
+        totals = {}
+        seen_order = []
+        current = None
+        pair = evs[0].get('pair_key')
+        for i, ev in enumerate(evs):
+            start = _as_utc(ev.get('changed_at'))
+            if start is None:
+                continue
+            if i + 1 < len(evs):
+                end = _as_utc(evs[i + 1].get('changed_at')) or now
+            else:
+                end = now
+            current = ev.get('to_status')
+            status = ev.get('to_status')
+            if not status:
+                continue
+            if since is not None:
+                if end <= since:
+                    continue
+                if start < since:
+                    start = since
+            seconds = (end - start).total_seconds()
+            if seconds <= 0:
+                continue
+            if status not in totals:
+                seen_order.append(status)
+                totals[status] = 0
+            totals[status] += seconds
+        rows.append({
+            'entry_id': entry_id,
+            'pair_key': pair,
+            'current_status': current,
+            'by_status': [
+                {
+                    'status': status,
+                    'label': STATUS_LABELS.get(status, status),
+                    'seconds': int(round(totals[status])),
+                }
+                for status in seen_order
+            ],
+        })
+    return rows
 
 
 # Segment prefixes import_workbook used to fold into Notes (see below) --
@@ -493,6 +865,9 @@ def create_entry(get_db_fn, pair_key, user_key):
             RETURNING *
         ''', (pair_key, proposal_number, pair_key, user_key, user_key))
         row = _row_to_dict(cur.fetchone())
+        _record_status_event(
+            cur, row['id'], pair_key, 'created', None, 'new', user_key,
+        )
         conn.commit()
         cur.close()
         conn.close()
@@ -545,25 +920,45 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
     sets.append('updated_by = %s')
     sets.append('updated_at = NOW()')
     params.append(user_key)
-    params.extend([entry_id, pair_key])
 
     conn = get_db_fn()
     if not conn:
         return None, 'Database unavailable'
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute(f'''
-            UPDATE pipeline_board_entries SET {", ".join(sets)}
-            WHERE id = %s AND pair_key = %s AND archived = FALSE
-            RETURNING *
-        ''', params)
+        # Old status is read under a row lock in this same transaction, then
+        # returned by the UPDATE. A notes-only save, or a status re-saved
+        # unchanged, does not get a history row.
+        cur.execute(
+            f'''WITH old AS (
+                    SELECT id, status
+                    FROM pipeline_board_entries
+                    WHERE id = %s AND pair_key = %s AND archived = FALSE
+                    FOR UPDATE
+                )
+                UPDATE pipeline_board_entries AS e
+                SET {", ".join(sets)}
+                FROM old
+                WHERE e.id = old.id
+                RETURNING e.*, old.status AS _old_status''',
+            [entry_id, pair_key, *params],
+        )
         row = cur.fetchone()
+        if not row:
+            conn.commit()
+            cur.close()
+            conn.close()
+            return None, 'Entry not found'
+        old_status = row.pop('_old_status', None)
+        if 'status' in fields and old_status != fields['status']:
+            _record_status_event(
+                cur, entry_id, pair_key, 'status', old_status, fields['status'], user_key,
+            )
+        result = _row_to_dict(row)
         conn.commit()
         cur.close()
         conn.close()
-        if not row:
-            return None, 'Entry not found'
-        return _row_to_dict(row), None
+        return result, None
     except Exception as e:
         print(f'Pipeline board update error: {e}')
         return None, 'Could not save'
@@ -795,19 +1190,25 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
             if po_key:
                 existing_pos.add(po_key)
 
+            imported_status = fields.get('status', 'draft')
             cur.execute('''
                 INSERT INTO pipeline_board_entries
                     (pair_key, proposal_number, property_name, address, project, status,
                      amount, sub_pay, trade_partner, client_contact, notes, row_order,
                      created_by, updated_by)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
             ''', (
                 pair_key, fields.get('proposal_number'), fields.get('property_name'),
-                fields.get('address'), fields.get('project'), fields.get('status', 'draft'),
+                fields.get('address'), fields.get('project'), imported_status,
                 fields.get('amount'), fields.get('sub_pay'), fields.get('trade_partner'),
                 fields.get('client_contact'), fields.get('notes'), row_order,
                 user_key, user_key,
             ))
+            new_id = cur.fetchone()['id']
+            _record_status_event(
+                cur, new_id, pair_key, 'imported', None, imported_status, user_key,
+            )
             row_order += 1
             imported += 1
         conn.commit()
@@ -966,6 +1367,17 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute(
+            '''SELECT id, status, archived
+               FROM pipeline_board_entries
+               WHERE pair_key = %s
+               FOR UPDATE''',
+            (pair_key,),
+        )
+        before = {
+            r['id']: {'status': r['status'], 'archived': bool(r['archived'])}
+            for r in cur.fetchall()
+        }
+        cur.execute(
             '''UPDATE pipeline_board_entries
                SET archived = TRUE, updated_at = NOW(), updated_by = %s
                WHERE pair_key = %s AND archived = FALSE''',
@@ -1027,6 +1439,17 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
                 )
                 inserted += 1
                 restored += 1
+        cur.execute(
+            '''SELECT id, status, archived
+               FROM pipeline_board_entries
+               WHERE pair_key = %s''',
+            (pair_key,),
+        )
+        after = {
+            r['id']: {'status': r['status'], 'archived': bool(r['archived'])}
+            for r in cur.fetchall()
+        }
+        _log_restore_changes(cur, pair_key, user_key, before, after)
         conn.commit()
         cur.close()
         conn.close()
@@ -1042,16 +1465,24 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
         return None, 'Restore failed'
 
 
-def archive_entry(get_db_fn, entry_id, pair_key):
+def archive_entry(get_db_fn, entry_id, pair_key, user_key=None):
     conn = get_db_fn()
     if not conn:
         return False
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute('''
-            UPDATE pipeline_board_entries SET archived = TRUE, updated_at = NOW()
-            WHERE id = %s AND pair_key = %s
+            UPDATE pipeline_board_entries
+            SET archived = TRUE, updated_at = NOW()
+            WHERE id = %s AND pair_key = %s AND archived = FALSE
+            RETURNING id, pair_key, status
         ''', (entry_id, pair_key))
+        row = cur.fetchone()
+        if row:
+            _record_status_event(
+                cur, row['id'], row['pair_key'], 'archived',
+                row['status'], None, user_key,
+            )
         conn.commit()
         cur.close()
         conn.close()
@@ -1181,7 +1612,7 @@ def register_routes(app, get_db_fn, users, require_login):
         user_key, pair_key = _current_pair()
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return jsonify({'error': 'Not authorized'}), 403
-        ok = archive_entry(get_db_fn, entry_id, pair_key)
+        ok = archive_entry(get_db_fn, entry_id, pair_key, user_key)
         if not ok:
             return jsonify({'error': 'Could not remove row'}), 500
         snapshot_board(get_db_fn, pair_key, 'archive', user_key)
@@ -1245,6 +1676,26 @@ def register_routes(app, get_db_fn, users, require_login):
         if err:
             return jsonify({'error': err}), 400
         return jsonify({'success': True, **summary})
+
+    @app.route('/api/pipeline-board/status-durations', methods=['GET'])
+    @require_login
+    def pipeline_board_status_durations_api():
+        """Leadership read of time-in-status. Not linked from the board page."""
+        user_key = session.get('user_key')
+        if not is_leadership(users, user_key):
+            return jsonify({'error': 'Not authorized'}), 403
+        pair = (request.args.get('pair') or '').strip() or None
+        since_raw = (request.args.get('since') or '').strip()
+        since = None
+        if since_raw:
+            try:
+                since = datetime.fromisoformat(since_raw.replace('Z', '+00:00'))
+            except ValueError:
+                return jsonify({'error': 'since must be an ISO timestamp'}), 400
+        rows, err = status_durations(get_db_fn, pair_key=pair, since=since)
+        if err:
+            return jsonify({'error': err}), 503
+        return jsonify({'success': True, 'entries': rows})
 
     @app.route('/api/pipeline-board/export', methods=['GET'])
     @require_login
