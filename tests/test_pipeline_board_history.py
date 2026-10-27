@@ -11,6 +11,7 @@ from io import BytesIO
 
 import openpyxl
 
+import db_ddl
 import pipeline_board as pb
 
 
@@ -326,6 +327,36 @@ class Cur:
         pass
 
 
+class TupleCur(Cur):
+    """The cursor `init_db` actually passes: tuples plus a description.
+
+    Dict rows hide the bug where `row['id']` throws on a tuple and the
+    baseline savepoint swallows it, so the clock never starts.
+    """
+
+    def __init__(self, store):
+        super().__init__(store)
+        self.description = None
+
+    def _materialize(self, rows):
+        if not rows or not isinstance(rows[0], dict):
+            self.description = None
+            return rows
+        keys = list(rows[0].keys())
+        self.description = [(key,) for key in keys]
+        return [tuple(row[key] for key in keys) for row in rows]
+
+    def fetchone(self):
+        rows = self._materialize(self._rows[:1])
+        self._rows = self._rows[1:]
+        return rows[0] if rows else None
+
+    def fetchall(self):
+        rows = self._materialize(self._rows)
+        self._rows = []
+        return rows
+
+
 def _db(store=None):
     store = store or Store()
     return store, (lambda: Conn(store))
@@ -432,6 +463,44 @@ def test_baseline_is_idempotent_and_marks_archived_rows():
     created = next(h for h in first if h['entry_id'] == active['id'] and h['event'] == 'created')
     assert created['to_status'] is None
     assert created['changed_at'] == active['created_at']
+
+
+def test_baseline_runs_for_every_board_on_the_tuple_cursor_init_uses():
+    """init_db wraps conn.cursor(), which yields tuples, then checkpoints it."""
+    store, _get_db = _db()
+    store.add_entry('andy_potts', 'draft', datetime(2026, 1, 2, tzinfo=timezone.utc))
+    store.add_entry('adam_cupito', 'needs_scope', datetime(2026, 2, 2, tzinfo=timezone.utc))
+    store.add_entry('tony_cumella', 'scoped', datetime(2026, 3, 2, tzinfo=timezone.utc))
+    rachel = store.add_entry(
+        'rachel_farler', 'sent', datetime(2026, 4, 2, tzinfo=timezone.utc),
+    )
+    store.backups.append({
+        'id': 1,
+        'pair_key': 'rachel_farler',
+        'created_at': datetime(2026, 5, 1, tzinfo=timezone.utc),
+        'payload': [{
+            'id': rachel['id'], 'pair_key': 'rachel_farler',
+            'status': 'draft', 'archived': False,
+        }],
+    })
+    store.backups.append({
+        'id': 2,
+        'pair_key': 'rachel_farler',
+        'created_at': datetime(2026, 6, 1, tzinfo=timezone.utc),
+        'payload': [{
+            'id': rachel['id'], 'pair_key': 'rachel_farler',
+            'status': 'sent', 'archived': False,
+        }],
+    })
+    pb.init_tables(db_ddl.checkpointed(TupleCur(store)))
+    pairs = {h['pair_key'] for h in store.history if h['changed_by'] == 'baseline'}
+    assert pairs == {'andy_potts', 'adam_cupito', 'tony_cumella', 'rachel_farler'}
+    backfill = [h for h in store.history if h['changed_by'] == 'backfill']
+    assert len(backfill) == 1
+    assert backfill[0]['pair_key'] == 'rachel_farler'
+    assert (backfill[0]['from_status'], backfill[0]['to_status']) == ('draft', 'sent')
+    pb.init_tables(db_ddl.checkpointed(TupleCur(store)))
+    assert len(store.history) == 9
 
 
 def test_backup_mining_records_snapshot_transitions_once():

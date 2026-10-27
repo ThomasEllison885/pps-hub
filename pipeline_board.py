@@ -280,6 +280,20 @@ def _as_utc(value):
     return value.astimezone(timezone.utc)
 
 
+def _as_record(cur, row):
+    """One fetched row as a dict.
+
+    Edits use RealDictCursor. `init_db` does not: it passes the plain tuple
+    cursor from `db_ddl.checkpointed(conn.cursor())`. Reading `row['id']` on
+    that cursor throws, the baseline savepoint swallows it, and the clock
+    never starts for rows already on the board.
+    """
+    if row is None or isinstance(row, dict):
+        return row
+    names = [d[0] for d in (getattr(cur, 'description', None) or ())]
+    return dict(zip(names, row))
+
+
 def _insert_history_row(cur, entry_id, pair_key, event, from_status, to_status,
                         changed_by, changed_at=None):
     """The INSERT itself. Raises on failure so a caller can choose to swallow it."""
@@ -380,7 +394,7 @@ def _insert_status_baselines(cur):
                WHERE h.entry_id = e.id
            )'''
     )
-    for row in cur.fetchall():
+    for row in (_as_record(cur, raw) for raw in cur.fetchall()):
         # Direct inserts, not _record_status_event. A failure has to raise
         # so the baseline savepoint rolls the pair of rows back together.
         # Swallowing one would leave a created event and no baseline, and
@@ -416,7 +430,7 @@ def _backfill_status_from_backups(cur):
            FROM pipeline_board_backups
            ORDER BY created_at ASC, id ASC'''
     )
-    backups = cur.fetchall()
+    backups = [_as_record(cur, raw) for raw in cur.fetchall()]
     if not backups:
         return
 
@@ -427,7 +441,7 @@ def _backfill_status_from_backups(cur):
     )
     created_at = {}
     baseline_at = {}
-    for row in cur.fetchall():
+    for row in (_as_record(cur, raw) for raw in cur.fetchall()):
         if row['event'] == 'created':
             created_at[row['entry_id']] = _as_utc(row['changed_at'])
         else:
@@ -443,7 +457,7 @@ def _backfill_status_from_backups(cur):
     seen = {
         (row['entry_id'], row['from_status'], row['to_status'],
          _as_utc(row['changed_at']))
-        for row in cur.fetchall()
+        for row in (_as_record(cur, raw) for raw in cur.fetchall())
     }
 
     previous = {}
