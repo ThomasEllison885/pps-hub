@@ -1398,6 +1398,21 @@ def _init_db_body(conn, cur):
         "'%escalations that are not sales or production%'",
         label='thomas directory covers sales')
 
+    # Thomas, 2026-11-09: "Clear out the Ask PPS questions that have already
+    # been answered." 22 prompts had answers from July-August and were still
+    # being put to the team. Closed as 'answered' (not 'dismissed') so the gap
+    # sync, which skips any non-dismissed ref, does not mint them again.
+    # Answers are untouched; pending ones still wait in /admin/ask-pps.
+    # One-shot by cutoff: the normal rule (a prompt closes when a curator
+    # approves an answer, so several people can answer) stands for anything
+    # answered after today. Idempotent; a no-op once applied.
+    db_ddl.optional_step(
+        cur,
+        "UPDATE knowledge_prompts p SET status = 'answered', updated_at = NOW() "
+        "WHERE p.status = 'open' AND EXISTS (SELECT 1 FROM knowledge_prompt_answers a "
+        "WHERE a.prompt_id = p.id AND a.created_at < '2026-11-10')",
+        label='close prompts answered before 2026-11-10')
+
     # Rewrite historical short consultant keys to roster keys, once.
     #
     # `/log-proposal` has written resolved keys since 093244f (2026-08-29), so
