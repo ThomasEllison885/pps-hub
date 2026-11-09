@@ -1631,46 +1631,80 @@ def live_psc_gap_refs():
     Read from the curriculum file alone, no database, so a failed query can
     never make every gap look answered.
     """
+    return set(_live_psc_gap_topics())
+
+
+def _live_psc_gap_topics():
+    """{ref: topic} for every `[TO DOCUMENT]` bullet, topic lowercased without '?'."""
     _, _, _, _, company_operations = get_training_curriculum()
-    refs = set()
+    topics = {}
     for module in company_operations.get('modules', []):
         module_id = module.get('id', '')
         for i, sop in enumerate(module.get('sop_placeholders', [])):
             if '[TO DOCUMENT]' in sop:
-                refs.add(f'psc:{module_id}:{i}')
-    return refs
+                topic = re.sub(r'^\[TO DOCUMENT\]\s*', '', sop).strip().rstrip('?').strip().lower()
+                topics[f'psc:{module_id}:{i}'] = re.sub(r'\s+', ' ', topic)
+    return topics
 
 
 def retire_documented_psc_prompts(cur):
-    """Dismiss open prompts whose `[TO DOCUMENT]` bullet has been answered in code.
+    """Close or re-point open `psc:` prompts whose position no longer holds that gap.
 
-    Thomas answered six of the gaps directly on 2026-11-09 and they went into
-    `psc_training_data.py`. Nothing closed the prompts already minted from
-    those bullets, so the team would have kept being asked questions the
-    training now answers. `close_prompt_for_entry` only covers the Ask PPS
-    approval path.
+    A prompt minted from a `[TO DOCUMENT]` bullet is keyed by list position.
+    When the bullet is answered in code (Thomas, 2026-11-09, six of them) the
+    prompt never closed, so the team kept being asked what the training now
+    says. `close_prompt_for_entry` only covers the Ask PPS approval path.
 
-    `dismissed`, not `answered`: `_prompt_exists_by_ref` ignores dismissed rows,
-    so if a future edit puts a new gap at the same position it still gets a
-    prompt. Pending answers are untouched; they still wait for curator review.
+    **Positions also drift.** Live data on 2026-11-09: "Sample client update"
+    was asked as `psc:ops_client_comms:5` and answered twice, then an earlier
+    bullet was added and the gap sits at `:6`. Dismissing it would have thrown
+    the question away and minted a fresh one at `:6` for the team to answer a
+    third time. So a prompt whose question still names a live gap in the same
+    module is **re-pointed** to that gap's current position, unless another
+    open prompt already holds it. Anything else is `dismissed`, not `answered`:
+    `_prompt_exists_by_ref` ignores dismissed rows, so a future gap at the
+    same position still gets a prompt. Answers are never touched; pending ones
+    still wait for curator review.
 
-    **Answering a gap must not move another one.** A ref is a list position, so
-    adding bullets above a remaining `[TO DOCUMENT]` line would re-point its
-    open prompt at a different question. Add answer lines after the last gap
-    in a module, or in place of the gap they answer.
+    Rule that follows: add answer lines in place of the gap they answer, or
+    below the last gap in a module, never above a remaining one.
     """
-    live = live_psc_gap_refs()
+    live = _live_psc_gap_topics()
     if not live:
         return 0  # an empty curriculum is a bug upstream, not "everything answered"
     cur.execute(
-        "SELECT id, source_ref FROM knowledge_prompts "
-        "WHERE status = 'open' AND source_ref LIKE 'psc:%%'"
+        "SELECT id, source_ref, question FROM knowledge_prompts "
+        "WHERE status = 'open' AND source_ref LIKE 'psc:%%' ORDER BY id"
     )
-    stale = []
+    rows = []
     for row in cur.fetchall():
-        pid, ref = (row['id'], row['source_ref']) if isinstance(row, dict) else (row[0], row[1])
-        if ref not in live:
+        if isinstance(row, dict):
+            rows.append((row['id'], row['source_ref'], row.get('question') or ''))
+        else:
+            rows.append((row[0], row[1], row[2] if len(row) > 2 else ''))
+    held = {ref for _, ref, _ in rows if ref in live}
+    stale, moves = [], []
+    for pid, ref, question in rows:
+        if ref in live:
+            continue
+        module = ref.split(':')[1] if ref.count(':') >= 2 else ''
+        q = re.sub(r'\s+', ' ', (question or '').lower())
+        target = next(
+            (r for r, topic in live.items()
+             if r.split(':')[1] == module and r not in held and topic and topic in q),
+            None,
+        )
+        if target:
+            moves.append((target, pid))
+            held.add(target)
+        else:
             stale.append(pid)
+    for target, pid in moves:
+        cur.execute(
+            "UPDATE knowledge_prompts SET source_ref = %s, updated_at = NOW() "
+            "WHERE id = %s AND status = 'open'",
+            (target, pid),
+        )
     if stale:
         cur.execute(
             "UPDATE knowledge_prompts SET status = 'dismissed', updated_at = NOW() "
