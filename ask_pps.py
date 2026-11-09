@@ -1625,6 +1625,61 @@ def _priority_for_ref(source_ref):
     return 9
 
 
+def live_psc_gap_refs():
+    """`psc:<module>:<index>` for every `[TO DOCUMENT]` bullet still in the source.
+
+    Read from the curriculum file alone, no database, so a failed query can
+    never make every gap look answered.
+    """
+    _, _, _, _, company_operations = get_training_curriculum()
+    refs = set()
+    for module in company_operations.get('modules', []):
+        module_id = module.get('id', '')
+        for i, sop in enumerate(module.get('sop_placeholders', [])):
+            if '[TO DOCUMENT]' in sop:
+                refs.add(f'psc:{module_id}:{i}')
+    return refs
+
+
+def retire_documented_psc_prompts(cur):
+    """Dismiss open prompts whose `[TO DOCUMENT]` bullet has been answered in code.
+
+    Thomas answered six of the gaps directly on 2026-11-09 and they went into
+    `psc_training_data.py`. Nothing closed the prompts already minted from
+    those bullets, so the team would have kept being asked questions the
+    training now answers. `close_prompt_for_entry` only covers the Ask PPS
+    approval path.
+
+    `dismissed`, not `answered`: `_prompt_exists_by_ref` ignores dismissed rows,
+    so if a future edit puts a new gap at the same position it still gets a
+    prompt. Pending answers are untouched; they still wait for curator review.
+
+    **Answering a gap must not move another one.** A ref is a list position, so
+    adding bullets above a remaining `[TO DOCUMENT]` line would re-point its
+    open prompt at a different question. Add answer lines after the last gap
+    in a module, or in place of the gap they answer.
+    """
+    live = live_psc_gap_refs()
+    if not live:
+        return 0  # an empty curriculum is a bug upstream, not "everything answered"
+    cur.execute(
+        "SELECT id, source_ref FROM knowledge_prompts "
+        "WHERE status = 'open' AND source_ref LIKE 'psc:%%'"
+    )
+    stale = []
+    for row in cur.fetchall():
+        pid, ref = (row['id'], row['source_ref']) if isinstance(row, dict) else (row[0], row[1])
+        if ref not in live:
+            stale.append(pid)
+    if stale:
+        cur.execute(
+            "UPDATE knowledge_prompts SET status = 'dismissed', updated_at = NOW() "
+            "WHERE id = ANY(%s) AND status = 'open'",
+            (stale,),
+        )
+    return len(stale)
+
+
 def sync_identified_gap_prompts(get_db_fn, created_by, assign_to=None, bank_mode=True):
     """Create/refresh prompts for identified gaps. bank_mode=True → field prompts by role.
 
@@ -1645,6 +1700,7 @@ def sync_identified_gap_prompts(get_db_fn, created_by, assign_to=None, bank_mode
     perspective = 'field' if bank_mode and not assign_to else 'policy'
     try:
         cur = conn.cursor()
+        retired = retire_documented_psc_prompts(cur)
         for gap in all_gaps:
             ref = gap['source_ref']
             q = (gap.get('question') or '').strip()
@@ -1693,6 +1749,7 @@ def sync_identified_gap_prompts(get_db_fn, created_by, assign_to=None, bank_mode
         'created': created,
         'updated': updated,
         'skipped': skipped,
+        'retired': retired,
         'psc_candidates': len(psc_gaps),
         'feedback_candidates': len(feedback_gaps),
         'audit_candidates': len(audit_gaps),

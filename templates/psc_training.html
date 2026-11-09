@@ -267,8 +267,10 @@
         </div>
         {% if module.summary %}<div class="ops-module-summary">{{ module.summary }}</div>{% endif %}
         {% if module.sop_placeholders %}
+        {% set sop = namespace(open=false) %}
+        {% for line in module.sop_placeholders %}{% if '[TO DOCUMENT]' in line %}{% set sop.open = true %}{% endif %}{% endfor %}
         <div class="ops-sop-draft">
-          <div class="ops-sop-label">SOP — draft (leadership filling in)</div>
+          <div class="ops-sop-label">{% if sop.open %}SOP — draft (leadership filling in){% else %}SOP{% endif %}</div>
           <ul class="ops-sop-list">
             {% for line in module.sop_placeholders %}
             <li>{{ line }}</li>

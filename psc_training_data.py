@@ -447,7 +447,7 @@ PSC_SALES_TRAINING = {
                 {
                     'id': 'sales_pipe_4',
                     'title': 'Own your database',
-                    'text': 'Every contact, property, and follow-up date lives in Monday.com. A CRM is only as good as what you put into it.',
+                    'text': 'Every client and follow-up lives on the Clients board in Monday.com. A CRM is only as good as what you put into it.',
                 },
                 {
                     'id': 'sales_pipe_5',
@@ -624,7 +624,14 @@ PSC_COMPANY_OPERATIONS = {
                 'Exposure required: opportunity, discovery, site visit, estimate/proposal, award, PPM, mobilization, '
                 'active job, change orders, callbacks, punch/close-out',
                 'Post-project debrief after each partner project — lessons learned and decision-making review',
-                '[TO DOCUMENT] When is a new PSC ready for solo client work?',
+                (
+                    'Ready for solo client work: decided by the PSC and their supervisor together. Normally after '
+                    '2–4 weeks you should be getting exposure with your future clients.'
+                ),
+                (
+                    'Minimum a month before going after new clients. That month builds your knowledge of what PPS does '
+                    'and how we operate. With knowledge comes confidence.'
+                ),
             ],
             'manager_1on1': (
                 '45-minute kickoff: name your mentor consultant, list the first 3–5 partner projects in Monday.com, '
@@ -660,14 +667,14 @@ PSC_COMPANY_OPERATIONS = {
             'assigned_week': 0,
             'summary': (
                 'Monday.com is shared — PSCs and PMs both live there, in different ways. '
-                'As a PSC you own pre-award pipeline: contacts, properties, follow-up, site visits, and proposals. '
+                'As a PSC you own your clients and their companies on the Clients board, follow-up, site visits, and logging proposals once they are sent. '
                 'After award, jobs live on the Production Board (PM-led) where you appear as Consultant. '
                 'Not a generic Monday tutorial — learn PPS boards and column names with your manager.'
             ),
             'sop_placeholders': [
                 MONDAY_AT_PPS['intro'],
                 (
-                    'PSC boards (your manager shows in 1:1): pipeline, contacts, properties, follow-up dates — '
+                    'PSC boards (your manager shows in 1:1): the Clients board and where proposals are logged — '
                     'log every meaningful touch before award.'
                 ),
                 (
@@ -676,12 +683,17 @@ PSC_COMPANY_OPERATIONS = {
                     'See docs/PRODUCTION_BOARD_REFERENCE.md.'
                 ),
                 MONDAY_AT_PPS['handoff_at_award'],
-                '[TO DOCUMENT] How do we name properties, contacts, and deals in Monday?',
+                'Only Consultants have access to the CRM in Monday. The Clients board is where you list all your clients and their companies.',
+                (
+                    'We do not list properties per se. A client may have an email per property, and the manager name has '
+                    'to be changed out when there is turnover.'
+                ),
+                'We do not track "deals" in Monday, but we do log our proposals when they are completed and sent to the client.',
                 MONDAY_AT_PPS['psc_focus']['hygiene'],
             ],
             'manager_1on1': (
-                '60-minute screen share: walk your PSC pipeline boards and preview the Production Board. '
-                'Update one real or test contact/property/follow-up. Confirm where your pipeline lives, '
+                '60-minute screen share: walk the Clients board and preview the Production Board. '
+                'Update one real or test client. Confirm where proposals get logged, '
                 'what happens at award (Consultant on Production Board row), and your weekly CRM cadence.'
             ),
             'items': [
@@ -690,21 +702,21 @@ PSC_COMPANY_OPERATIONS = {
                     'title': 'Review Monday.com SOP',
                     'text': (
                         'Read the SOP bullets above — especially PSC vs PM ownership and the award handoff. '
-                        'Write three questions for your manager 1:1 (pipeline boards, Production Board, Updates).'
+                        'Write three questions for your manager 1:1 (Clients board, Production Board, Updates).'
                     ),
                 },
                 {
                     'id': 'ops_monday_1on1',
                     'title': 'Manager 1:1 — Monday.com walkthrough',
                     'text': (
-                        'Complete the screen-share: your pipeline boards plus a look at Production Board columns '
+                        'Complete the screen-share: the Clients board plus a look at Production Board columns '
                         '(Consultant, Proposal Number, status groups). Manager confirms boards and update cadence.'
                     ),
                 },
                 {
                     'id': 'ops_monday_practice',
                     'title': 'Hands-on — update Monday.com',
-                    'text': 'Add or update one contact, property, or follow-up date on your pipeline. Show your manager before checking off.',
+                    'text': 'Add or update one client on the Clients board, or log a proposal you sent. Show your manager before checking off.',
                 },
                 {
                     'id': 'ops_monday_award_handoff',
@@ -738,7 +750,15 @@ PSC_COMPANY_OPERATIONS = {
                 'Punch list and close-out walkthrough — who attends, what gets documented',
                 'PSC leads: relationship, scope narrative, client communication, site visit quality',
                 'PM/production lead: crew schedule, Trade Partner coordination, field execution',
-                '[TO DOCUMENT] At close-out, how do callbacks and warranty hand off?',
+                (
+                    'Callbacks and warranty: it is an unfortunate reality that projects will have callbacks or '
+                    'warranty-related issues. These have to be handled delicately.'
+                ),
+                (
+                    'A project that has been completed, invoiced, and paid moves to "Call Backs/ Warranty Work" on the '
+                    'Production Board when an issue bubbles up. When the work is done it moves to "Completed Call Backs", '
+                    'its own group on the board.'
+                ),
             ],
             'manager_1on1': (
                 '45-minute session: trace one real job on Monday.com and in Hub history from site visit to '
@@ -827,7 +847,12 @@ PSC_COMPANY_OPERATIONS = {
                 'Escalate scope uncertainty before the client sees a proposal',
                 'Hub pricing defaults are starting points — final numbers confirmed with Thomas/PM for context',
                 'Quality bar: proposal reviewed in conversation with client; PPS voice; no unconfirmed schedule promises',
-                '[TO DOCUMENT] Where do we look up typical unit costs by trade?',
+                'Unit costs: lean on coworkers — your project manager first. Look at past proposals.',
+                (
+                    'You can speak directly with your Trade Partner, but realize they do not have a dog in the fight yet. '
+                    'That can mean faulty information, or an overbid so they get a great payday. You do not know what is '
+                    'going on in their life or what their motivation is.'
+                ),
             ],
             'manager_1on1': (
                 '60-minute session: open a recent estimate or proposal in Hub history. Manager narrates every '
@@ -1005,7 +1030,10 @@ PSC_COMPANY_OPERATIONS = {
                 'Thomas/leadership: pricing exceptions, major client escalations, proposal sign-off when assigned',
                 'Loop in PM before: promising dates, pricing beyond proposal, scope not documented, resident complaints on site',
                 'Simple guides for: pricing support, callbacks, change orders, concealed conditions',
-                '[TO DOCUMENT] After hours or urgent site issue — who do you call?',
+                (
+                    'After hours or an urgent site issue: you need reliable Trade Partners. We do not have dedicated '
+                    'emergency crews, but we have guys who know we will take care of them and will work emergency hours.'
+                ),
             ],
             'manager_1on1': (
                 '30-minute scenario session: three situations — callback, change order, client wants price today. '
@@ -1079,6 +1107,20 @@ PSC_COMPANY_OPERATIONS = {
                 ),
                 'Include new PSC in Trade Partner site visits and estimate conversations during partner projects',
                 '[TO DOCUMENT] Preferred Trade Partners by trade — who and specialty?',
+                (
+                    'On site: depending on the trade, your industry knowledge will vary. Scopes are written so someone '
+                    'with little knowledge can understand them. Make sure your Trade Partners are following their scope, '
+                    'keeping a clean site, and communicating.'
+                ),
+                (
+                    'A messy site and poor communication are often an indicator of poor quality. You have to raise the '
+                    'standard of the Trade Partner. If they cannot perform the way we need, we will have to find someone else.'
+                ),
+                (
+                    'Every visit: get photos. Count who is working. Note where they are in the process — for example, '
+                    '"Just finished building 1 yesterday, building 2 will be prepped by EOD, starting painting on building 2 '
+                    'tomorrow." Stop in and check in with staff if they are on site.'
+                ),
             ],
             'manager_1on1': (
                 '45-minute session: (1) review one Trade Partner Scope and the Monday/production record for that job; '
@@ -1402,7 +1444,7 @@ PSC_ONBOARDING = {
             'id': 'w0_add_crm',
             'type': 'reading',
             'title': 'Client contact workflow',
-            'text': 'Learn how PPS tracks client contacts in the hub. Ask your manager where your pipeline lives in Monday.com.',
+            'text': 'Learn how PPS tracks clients: the Clients board in Monday.com is the source, and the Hub contact list is a copy of it.',
         },
     ],
     'pps_focus': [
