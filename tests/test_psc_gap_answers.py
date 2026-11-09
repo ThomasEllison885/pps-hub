@@ -20,10 +20,8 @@ sys.path.insert(0, ROOT)
 import ask_pps  # noqa: E402
 
 STILL_OPEN = {
-    'psc:ops_project_evaluation:5',
     'psc:ops_trade_partners:0',
     'psc:ops_trade_partners:11',
-    'psc:ops_client_comms:6',
     'psc:ops_callbacks:3',
     'psc:ops_common_mistakes:0',
     'psc:ops_common_mistakes:1',
@@ -74,19 +72,37 @@ LIVE_ROWS = [
 ]
 
 
-def test_a_moved_gap_keeps_its_answered_prompt():
-    cur = _Cur(LIVE_ROWS)
-    ask_pps.retire_documented_psc_prompts(cur)
-    # "Sample client update" was answered twice at :5; it is at :6 now.
+def test_a_moved_gap_keeps_its_answered_prompt(monkeypatch):
+    """The case found in production: answered twice at :5, gap now at :6."""
+    monkeypatch.setattr(ask_pps, '_live_psc_gap_topics', lambda: {
+        'psc:ops_client_comms:6': 'sample client update for one phase (award, delay, or close-out)',
+    })
+    cur = _Cur([(43, 'psc:ops_client_comms:5',
+                 'Sample client update for one phase (award, delay, or close-out)?')])
+    assert ask_pps.retire_documented_psc_prompts(cur) == 0
     assert cur.moved == [('psc:ops_client_comms:6', 43)]
+    assert cur.dismissed is None
 
 
-def test_answered_and_duplicate_prompts_are_dismissed():
+def test_a_moved_gap_already_held_is_a_duplicate(monkeypatch):
+    monkeypatch.setattr(ask_pps, '_live_psc_gap_topics', lambda: {
+        'psc:ops_trade_partners:11': 'preferred trade partners by trade — who and specialty',
+    })
+    cur = _Cur([
+        (42, 'psc:ops_trade_partners:6', 'Preferred Trade Partners by trade — who and specialty?'),
+        (69, 'psc:ops_trade_partners:11', 'Preferred Trade Partners by trade — who and specialty?'),
+    ])
+    assert ask_pps.retire_documented_psc_prompts(cur) == 1
+    assert cur.dismissed == [42] and cur.moved == []
+
+
+def test_production_rows_after_the_team_answers_went_in():
+    """Evaluation and client-update gaps were filled from team answers the same day."""
     cur = _Cur(LIVE_ROWS)
     n = ask_pps.retire_documented_psc_prompts(cur)
-    # 42 duplicates 69, which already holds the live position.
-    assert cur.dismissed == [5, 17, 37, 38, 40, 41, 42, 68]
-    assert n == 8
+    assert cur.moved == []
+    assert cur.dismissed == [5, 17, 37, 38, 39, 40, 41, 42, 43, 68]
+    assert n == 10
 
 
 def test_prompts_on_live_gaps_are_left_alone():

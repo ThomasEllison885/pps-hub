@@ -632,6 +632,29 @@ PSC_COMPANY_OPERATIONS = {
                     'Minimum a month before going after new clients. That month builds your knowledge of what PPS does '
                     'and how we operate. With knowledge comes confidence.'
                 ),
+                (
+                    'Signs you are ready: you take a proactive role in the client relationship and project status, '
+                    'you understand the job flow on Monday.com, and you have completed the sales process assisted by '
+                    'another consultant.'
+                ),
+                (
+                    'For a client-specific program (e.g. Morgan), about 10 completed projects is a good rule of thumb'
+                    ' before you are on your own with that client: bidding through proposal, then start to finish.'
+                ),
+                (
+                    'Moving to lead: at the pre-construction meeting, announce who the main point of contact is. '
+                    'Leading means you plan the job and make the call or text to the sub and the client to schedule.'
+                ),
+                (
+                    'Debriefs: your mentor runs the first several. After some exposure and project experience, you '
+                    'run the post-project review yourself.'
+                ),
+                (
+                    'A debrief covers: did we deliver what was sold; budget and production (labor, materials, '
+                    'schedule, margin); communication, internal and with the customer; customer feedback; challenges,'
+                    ' successes, and lessons learned; action items (warranty, process improvements, future '
+                    'opportunities).'
+                ),
             ],
             'manager_1on1': (
                 '45-minute kickoff: name your mentor consultant, list the first 3–5 partner projects in Monday.com, '
@@ -759,6 +782,36 @@ PSC_COMPANY_OPERATIONS = {
                     'Production Board when an issue bubbles up. When the work is done it moves to "Completed Call Backs", '
                     'its own group on the board.'
                 ),
+                (
+                    'Close-out is an opportunity to professionalize the project. We typically don\'t mention it, but '
+                    'Sherwin-Williams offers a "custodian" document that lists color, product, and sheen used per '
+                    'room.'
+                ),
+                (
+                    'First contact to award, as it runs today: the client contacts PPS with a need. Respond promptly '
+                    'and schedule a site visit (goal: within one week). On site, understand the issue and the desired'
+                    ' outcome, and gather photos, measurements, and field information.'
+                ),
+                (
+                    'If a proposal is needed, add the project to your Pipeline Board in the Hub so the PM knows '
+                    'pricing is required and can track status. Work with the PM and/or Trade Partners on the best '
+                    'solution, and define the scope with assumptions, exclusions, and alternate options. The PM '
+                    'builds production pricing.'
+                ),
+                (
+                    'Generate the proposal in the Hub and review it with the client. Update the Pipeline Board (sent,'
+                    ' amount) and enter the proposal on the CRM Proposal Board in Monday.'
+                ),
+                (
+                    'If awarded, the project moves from the Proposal Board to the Production Board. If it is awarded '
+                    'in the same reporting period it was proposed, a duplicate entry keeps it on both boards for '
+                    'weekly reporting.'
+                ),
+                (
+                    'Weekly rhythm: the apartment team meets Wednesdays to review what is in progress, what needs '
+                    'scheduling, and who is handling which project. It preps everyone for their individual calls with'
+                    ' Trey and the Thursday all-hands PPS call.'
+                ),
             ],
             'manager_1on1': (
                 '45-minute session: trace one real job on Monday.com and in Hub history from site visit to '
@@ -799,7 +852,16 @@ PSC_COMPANY_OPERATIONS = {
                 'Scope decisions: what is in, what is excluded, alternatives (e.g. one coat vs. two), who supplies materials',
                 'Proposal review = coaching on decision-making, not just formatting',
                 'Hub Proposal Generator + estimators + Scope Library — tools apply after evaluation is sound',
-                '[TO DOCUMENT] Site visit checklist by main trade — what must you capture?',
+                (
+                    'Site visit capture: an elevation picture with the building address in it, a picture zoomed out, '
+                    'and zoomed in at the problem. Measurements, quantities, material quality, colors, textures. Full'
+                    ' address and all contact information.'
+                ),
+                'Ask about expectations, budget, time frame, and who has authority to award.',
+                (
+                    'Share photos with your Trade Partner for pricing when possible. Share the proposed scope with '
+                    'the client before the proposal.'
+                ),
             ],
             'manager_1on1': (
                 '60-minute session: walk a recent site visit or hub proposal. Manager narrates how they identified the issue, '
@@ -853,6 +915,20 @@ PSC_COMPANY_OPERATIONS = {
                     'That can mean faulty information, or an overbid so they get a great payday. You do not know what is '
                     'going on in their life or what their motivation is.'
                 ),
+                (
+                    'More places to look: past jobs in Monday by trade show the margins we ended at; Banner has '
+                    'research history on previous projects and pricing; the Hub estimator spreadsheets; and teammates'
+                    ' who know our wins and losses.'
+                ),
+                (
+                    'In most situations the PM gives cost to the PSC, then the PSC calculates markup and communicates'
+                    ' it to the client.'
+                ),
+                (
+                    'What the PM needs from you to price it: correct quantities, rough measurements, material quality'
+                    ' and product spec or part numbers if applicable, the client\'s budget and expectations, and the '
+                    'time frame.'
+                ),
             ],
             'manager_1on1': (
                 '60-minute session: open a recent estimate or proposal in Hub history. Manager narrates every '
@@ -902,6 +978,11 @@ PSC_COMPANY_OPERATIONS = {
                 'Always review live with client — never cold-send; edit in Word then run Proposal Comparison',
                 'Production-ready test: can a PM who never walked the site sell this to a Trade Partner?',
                 'Number format {INITIALS}{YY}{XXX} from Hub sequence; U/U2 culture = regenerate or save revised vault copy thoughtfully',
+                (
+                    'Included covers all facets of the scope and the what-ifs that could be uncovered. Excluded '
+                    'should be extremely specific about what will not be addressed, in the special notes section. Add'
+                    ' details that save time for the sub.'
+                ),
             ],
             'manager_1on1': (
                 '75-minute session: open Proposal Generator together. Walk short vs comprehensive, goals on/off, '
@@ -1034,6 +1115,10 @@ PSC_COMPANY_OPERATIONS = {
                     'After hours or an urgent site issue: you need reliable Trade Partners. We do not have dedicated '
                     'emergency crews, but we have guys who know we will take care of them and will work emergency hours.'
                 ),
+                (
+                    'We do not assign after-hours coverage by day. Use the job text chain: first to see it is first '
+                    'to answer, and at least acknowledge the client\'s message.'
+                ),
             ],
             'manager_1on1': (
                 '30-minute scenario session: three situations — callback, change order, client wants price today. '
@@ -1121,6 +1206,10 @@ PSC_COMPANY_OPERATIONS = {
                     '"Just finished building 1 yesterday, building 2 will be prepped by EOD, starting painting on building 2 '
                     'tomorrow." Stop in and check in with staff if they are on site.'
                 ),
+                (
+                    'Starting out, rely on other PMs and consultants for which Trade Partners to use. As you gain '
+                    'experience you learn which Trade Partners are best at each trade.'
+                ),
             ],
             'manager_1on1': (
                 '45-minute session: (1) review one Trade Partner Scope and the Monday/production record for that job; '
@@ -1188,7 +1277,18 @@ PSC_COMPANY_OPERATIONS = {
                 ),
                 'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Thomas',
                 'Never to client without PM/manager review: production dates, pricing outside proposal, scope commitments',
-                '[TO DOCUMENT] Sample client update for one phase (award, delay, or close-out)?',
+                (
+                    'Sample updates. Award: "Thank you, we\'ll reach out as soon as we have a date scheduled." Delay:'
+                    ' "I apologize for the delay, we\'ll schedule ASAP." Close-out: "Thank you for a smooth process. '
+                    'Do we need to walk it together?"'
+                ),
+                (
+                    'On a delay, reach out before the manager has to ask. Apologize, take ownership, briefly explain '
+                    'why if appropriate, and firmly give a date for when work will resume. Avoid overpromising, and '
+                    'always give the client a specific next expectation. Adding a Saturday or longer work hours to '
+                    'get caught up is an option.'
+                ),
+                'Pictures are the best way to document progress and communicate concerns with how items look.',
             ],
             'manager_1on1': (
                 '30-minute role-play: proposal review call, schedule delay conversation, and resident complaint '
@@ -1267,6 +1367,14 @@ PSC_COMPANY_OPERATIONS = {
                 '[TO DOCUMENT] Monday hygiene first 30 days — what must stay current?',
                 '[TO DOCUMENT] When must you involve the PM on site or client issues?',
                 '[TO DOCUMENT] PPS voice vs generic contractor speak — give one rewrite?',
+                (
+                    'From the field: new consultants most often miss potential change orders, especially items that '
+                    'cannot be seen under the surface.'
+                ),
+                (
+                    'And they fail to ask questions and then listen. Let the customer explain their needs and get out'
+                    ' of the way.'
+                ),
             ],
             'manager_1on1': (
                 '30-minute debrief: manager shares top mistakes they have seen from new PSCs. '
