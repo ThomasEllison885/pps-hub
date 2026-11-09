@@ -9,6 +9,7 @@ from io import BytesIO
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_file, send_from_directory, make_response, g, has_request_context
 import pipeline_board
+import psc_training_alerts
 import office_ops
 import production_link
 import insurance_compliance
@@ -1884,23 +1885,34 @@ def get_psc_training_progress(user_key):
     return progress
 
 
-def _psc_accountability_recipients():
-    """President and PSC training manager — accountability email recipients."""
+def _psc_accountability_recipients(trainee_key=None):
+    """President, training manager and trainer — never the trainee themself.
+
+    The trainer (`PSC_TRAINING_MENTOR`, Adam since 2026-11-09) was added at
+    Thomas's request: "when there is a meaningful update or usage on the
+    training it goes to Adam and I." Skipped if they leave USERS.
+    """
     recipients = []
-    for key in ('thomas_ellison', PSC_TRAINING_MANAGER):
+    trainee_email = (USERS.get(trainee_key, {}).get('email') or '').strip().lower() if trainee_key else ''
+    for key in ('thomas_ellison', PSC_TRAINING_MANAGER, PSC_TRAINING_MENTOR):
+        if key == trainee_key:
+            continue
         email = (USERS.get(key, {}).get('email') or '').strip()
-        if email and email.lower() not in {r.lower() for r in recipients}:
+        if not email or email.lower() == trainee_email:
+            continue
+        if email.lower() not in {r.lower() for r in recipients}:
             recipients.append(email)
     return recipients
 
 
-def _send_psc_accountability_email(subject, text_body, html_body=None):
-    """Email President and training manager about PSC onboarding events."""
+def _send_psc_accountability_email(subject, text_body, html_body=None, recipients=None, trainee_key=None):
+    """Email President, training manager and trainer about PSC onboarding events."""
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
 
-    recipients = _psc_accountability_recipients()
+    if recipients is None:
+        recipients = _psc_accountability_recipients(trainee_key)
     if not recipients:
         print(f"PSC accountability (no recipients): {subject}\n{text_body}")
         return False
@@ -2108,7 +2120,7 @@ def _notify_psc_week_signed_off(trainee_key, week_num, signed_by):
       </div>
     </div>
     """
-    if _send_psc_accountability_email(subject, text_body, html_body):
+    if _send_psc_accountability_email(subject, text_body, html_body, trainee_key=trainee_key):
         _record_psc_week_notification(trainee_key, week_num)
 
 
@@ -2144,7 +2156,7 @@ def _notify_psc_training_feedback(user_key, display_name, message, week_num=None
       </div>
     </div>
     """
-    _send_psc_accountability_email(subject, text_body, html_body)
+    _send_psc_accountability_email(subject, text_body, html_body, trainee_key=user_key)
 
 
 def save_psc_training_progress(user_key, progress_dict):
@@ -3585,6 +3597,21 @@ def cron_daily_digest():
             force=force,
             date_override=date_override,
         )
+        # PSC training summary rides the same midnight run, independent of
+        # whether the digest itself is enabled or already sent. Never allowed
+        # to fail the digest.
+        # `?training=preview` sends today's summary regardless of window or
+        # dedupe and records nothing; a forced *digest* does not trigger it,
+        # so testing the digest cannot email the trainer.
+        from daily_digest import should_run_scheduled, report_date_for_run
+        training_preview = request.args.get('training', '').lower() == 'preview'
+        if training_preview or should_run_scheduled():
+            try:
+                result['psc_training_alerts'] = run_psc_training_alerts(
+                    report_date_for_run(date_override=date_override), force=training_preview)
+            except Exception as e:
+                print(f'PSC training alerts error: {e}')
+                result['psc_training_alerts'] = {'ok': False, 'error': str(e)}
         return jsonify(result), 200
     except Exception as e:
         print(f'Daily digest cron error: {e}')
@@ -8255,7 +8282,79 @@ def psc_training_enroll_api():
     ok, err = enroll_psc_trainee(target_key, session.get('user_key'), data.get('manager_key'))
     if not ok:
         return jsonify({'error': err or 'Could not enroll'}), 400
+    try:
+        _notify_psc_enrolled(target_key, session.get('user_key'))
+    except Exception as e:
+        print(f'PSC enrolment email error: {e}')
     return jsonify({'success': True})
+
+
+def _notify_psc_enrolled(trainee_key, enrolled_by):
+    """Tell the manager and trainer the moment a new PSC starts the program."""
+    if USERS.get(trainee_key, {}).get('role') == 'admin':
+        return  # owner self-preview, not a hire
+    display = USERS.get(trainee_key, {}).get('display', trainee_key)
+    by = USERS.get(enrolled_by, {}).get('display', enrolled_by)
+    trainer = USERS.get(PSC_TRAINING_MENTOR, {}).get('display', '')
+    url = f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight"
+    subject = f'PSC Training — {display} enrolled'
+    text_body = (
+        f'{by} enrolled {display} in PSC Onboarding.\n\n'
+        + (f'Trainer: {trainer}. ' if trainer else '')
+        + 'Week 0 starts now: orientation, mentor kickoff, first ride-along, Monday.com and lifecycle 1:1s.\n\n'
+        'You will get one email on any day they make progress, when a week is ready for check-in, '
+        f'and if they go quiet for {psc_training_alerts.QUIET_WEEKDAYS} weekdays.\n\n{url}'
+    )
+    _send_psc_accountability_email(subject, text_body, trainee_key=trainee_key)
+
+
+def _psc_alert_trainees():
+    """Active, not graduated, real hires (owner self-preview excluded)."""
+    rows = []
+    conn = get_db()
+    if not conn:
+        return rows
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            'SELECT user_key, enrolled_at FROM psc_training_enrollment '
+            'WHERE active = TRUE AND graduated_at IS NULL ORDER BY enrolled_at')
+        for key, enrolled_at in cur.fetchall():
+            person = USERS.get(key)
+            if not person or person.get('role') != 'consultant':
+                continue
+            rows.append((key, person.get('display', key), enrolled_at))
+        cur.close()
+    finally:
+        conn.close()
+    return rows
+
+
+def run_psc_training_alerts(report_date, force=False):
+    """Daily training summary to Thomas + trainer. See psc_training_alerts."""
+    from daily_digest import eastern_day_bounds_utc_naive
+    start, end = eastern_day_bounds_utc_naive(report_date)
+
+    def scenario_title(sid):
+        sc = get_roleplay_scenario(sid) or {}
+        return sc.get('title') or sid
+
+    def send(subject, text_body, html_body, recipients):
+        return _send_psc_accountability_email(subject, text_body, html_body, recipients=recipients)
+
+    return psc_training_alerts.run(
+        get_db, _psc_alert_trainees(), report_date, start, end,
+        titles=psc_training_alerts.item_titles(psc_read_curriculum()),
+        week_labels=_psc_week_labels(),
+        checkins=_psc_week_checkin_questions(),
+        scenario_title=scenario_title,
+        stats_fn=compute_psc_training_stats,
+        recipients_fn=_psc_accountability_recipients,
+        send_fn=send,
+        oversight_url=f"{HUB_PUBLIC_URL.rstrip('/')}/psc-training/oversight",
+        trainer=USERS.get(PSC_TRAINING_MENTOR, {}).get('display', ''),
+        force=force,
+    )
 
 
 def _send_resend_document(to_email, doc_type, filename, property_name, doc_b64, sender_name):
