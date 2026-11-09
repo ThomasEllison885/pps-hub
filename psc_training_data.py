@@ -5,7 +5,10 @@ from functools import lru_cache
 
 from production_board_reference import MONDAY_AT_PPS
 
-PSC_TRAINING_MANAGER = 'thomas_ellison'  # Tony Cumella left 2026-10-31. Accountability sits with Thomas until a sales lead is named.
+PSC_TRAINING_MANAGER = 'thomas_ellison'  # Tony Cumella left 2026-10-31. Thomas holds check-ins and sign-offs.
+# Day-to-day trainer for new PSCs: ride-alongs, partner projects, debriefs. Thomas, 2026-11-09:
+# Adam takes Harrison Hollon; his title changes early 2027 to match. Shown on the trainee page.
+PSC_TRAINING_MENTOR = 'adam_cupito'
 
 PSC_TRAINING_META = {
     'title': 'PSC Onboarding',
@@ -529,7 +532,7 @@ PSC_SALES_TRAINING = {
                     'text': (
                         'Build one full Comprehensive-template proposal (not Standard) end to end for a real or practice '
                         'commercial/large-scope job. Comprehensive proposals need more PPS-story and credentialing language '
-                        'than Standard ones — get Tony to review this one specifically before you are cleared to send a '
+                        'than Standard ones — get Thomas to review this one specifically before you are cleared to send a '
                         'comprehensive proposal to a client solo.'
                     ),
                 },
@@ -603,7 +606,7 @@ PSC_COMPANY_OPERATIONS = {
     'draft_note': (
         'SOP sections marked [TO DOCUMENT] are gaps we are filling through Ask PPS and manager capture sessions. '
         'Field reality may differ from leadership intent — document what actually happens. '
-        'Three-way text chain SOP captured from Sales Meeting 2026-08-10 (Andy/Adam/Tony/Thomas/Rachel).'
+        'Three-way text chain SOP captured from the Sales Meeting on 2026-08-10.'
     ),
     'modules': [
         {
@@ -616,7 +619,7 @@ PSC_COMPANY_OPERATIONS = {
                 'to independent execution with coaching.'
             ),
             'sop_placeholders': [
-                'Mentor consultant assigned by VP Sales; project mix includes apartment and condo if possible',
+                'Mentor consultant: Adam Cupito. Project mix includes apartment and condo if possible',
                 'Progressive ownership: observe → participate → lead with manager/mentor coaching at each stage',
                 'Exposure required: opportunity, discovery, site visit, estimate/proposal, award, PPM, mobilization, '
                 'active job, change orders, callbacks, punch/close-out',
@@ -822,7 +825,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Hub tools by trade: Proposal Generator, trade estimators, Trade Partner Scope',
                 'PSC gathers information and defines scope; PM/production builds production pricing with Trade Partner input',
                 'Escalate scope uncertainty before the client sees a proposal',
-                'Hub pricing defaults are starting points — final numbers confirmed with Tony/PM for context',
+                'Hub pricing defaults are starting points — final numbers confirmed with Thomas/PM for context',
                 'Quality bar: proposal reviewed in conversation with client; PPS voice; no unconfirmed schedule promises',
                 '[TO DOCUMENT] Where do we look up typical unit costs by trade?',
             ],
@@ -999,7 +1002,7 @@ PSC_COMPANY_OPERATIONS = {
             'sop_placeholders': [
                 'PSC primary: client relationship, site visit quality, scope narrative, proposal delivery conversation',
                 'PM primary: field schedule, Trade Partner coordination, production execution, change orders in field',
-                'Tony/leadership: pricing exceptions, major client escalations, proposal sign-off when assigned',
+                'Thomas/leadership: pricing exceptions, major client escalations, proposal sign-off when assigned',
                 'Loop in PM before: promising dates, pricing beyond proposal, scope not documented, resident complaints on site',
                 'Simple guides for: pricing support, callbacks, change orders, concealed conditions',
                 '[TO DOCUMENT] After hours or urgent site issue — who do you call?',
@@ -1141,7 +1144,7 @@ PSC_COMPANY_OPERATIONS = {
                     'Job text chain (PSC + PM + TP) is your live field feed — use it so client updates are accurate '
                     '(delay, crew status, finish). You can brief the client without a second detective call to the PM.'
                 ),
-                'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Tony/manager',
+                'Escalation: complaints and resident issues → PM immediately; pricing exceptions → Thomas',
                 'Never to client without PM/manager review: production dates, pricing outside proposal, scope commitments',
                 '[TO DOCUMENT] Sample client update for one phase (award, delay, or close-out)?',
             ],
@@ -1268,8 +1271,7 @@ PSC_COMPANY_OPERATIONS = {
                 'Drive time within ~2 hours of Cincinnati/Dayton applies to initial launch only; '
                 'after proof of concept (typically Month 6 green gate) the range can expand',
                 'Roles (no dual commanders): Adam owns anchor relationship and city sequencing; market lead owns day-to-day '
-                'sales/PM and non-anchor BD; Tony (VP Sales) is available for support — PSC training standards, culture, '
-                'condo/board motion later — he does not run the Morgan anchor lane or compete for city sequencing; '
+                'sales/PM and non-anchor BD; '
                 'Trey/Production owns PPM quality and traveling Trade Partner bench; Stephanie owns credit checks, '
                 'invoicing terms, and market P&L vs budget; Thomas owns go/no-go gates and capital',
                 'Trade Partner bench before volume: 3–5 local partners per core trade + Ohio travelers + company-wide '
@@ -1280,8 +1282,8 @@ PSC_COMPANY_OPERATIONS = {
                 'Earn-trust motion still applies: small maintenance/repair scopes before large CapEx in a new city',
             ],
             'manager_1on1': (
-                '30–45 minutes with VP Sales (Tony) or assigned mentor: walk the expansion formula, who owns what '
-                '(Adam vs market lead vs Tony support), and what a PSC must never do in a new market '
+                '30–45 minutes with your manager or Adam: walk the expansion formula, who owns what '
+                '(Adam vs market lead vs leadership), and what a PSC must never do in a new market '
                 '(cold-send proposals, skip PPM, promise schedule without production, chase volume without a TP bench).'
             ),
             'items': [
@@ -1298,7 +1300,7 @@ PSC_COMPANY_OPERATIONS = {
                     'title': 'Role map — clear ownership',
                     'text': (
                         'Draw a simple responsibility map for a new city: Adam (national anchor), market lead '
-                        '(local delivery + non-anchor), Tony (support: training, standards, condo motion when ready), '
+                        '(local delivery + non-anchor), '
                         'Trey (production), Stephanie (AR/credit), leadership (go/no-go). Note one place a new PSC '
                         'would escalate to the wrong person if they skipped this map.'
                     ),
@@ -1315,9 +1317,9 @@ PSC_COMPANY_OPERATIONS = {
                     'id': 'ops_expansion_1on1',
                     'title': 'Manager 1:1 — expansion briefing',
                     'text': (
-                        'Complete the expansion 1:1 with Tony or your mentor. Confirm how the team works together: '
-                        'Adam leads national-anchor relationships; Tony supports training, standards, and later '
-                        'condo/board diversification; the market lead runs local day-to-day work.'
+                        'Complete the expansion 1:1 with your manager or Adam. Confirm how the team works together: '
+                        'Adam leads national-anchor relationships; the market lead runs local day-to-day work; '
+                        'Thomas owns go/no-go.'
                     ),
                 },
             ],
@@ -1657,7 +1659,7 @@ PSC_TRAINING_WEEKS = [
                 'text': (
                     'Complete the New Market Expansion module in PPS Company Operations. '
                     'Know the hub-and-spoke model, anchor-first gate, and who owns what '
-                    '(Adam = anchor; Tony = support for training/standards/condo motion — not a second city commander).'
+                    '(Adam = anchor and city sequencing; market lead = local day-to-day; Thomas = go/no-go).'
                 ),
             },
             {
@@ -2103,7 +2105,7 @@ PSC_TRAINING_WEEKS = [
         ],
         'manager_checkin': (
             'Final graduation sign-off — partner-project log reviewed, 90-day WIG approved, '
-            'VP Sales + President notified. Schedule first post-graduation coaching cadence.'
+            'Thomas and Adam both sign off. Schedule first post-graduation coaching cadence.'
         ),
     },
 ]

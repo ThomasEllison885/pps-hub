@@ -30,7 +30,7 @@ import hub_usage
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
-    PSC_TRAINING_META, PSC_TRAINING_MANAGER, get_training_curriculum,
+    PSC_TRAINING_META, PSC_TRAINING_MANAGER, PSC_TRAINING_MENTOR, get_training_curriculum,
     read_curriculum as psc_read_curriculum,
     get_week_checkin_questions as psc_get_week_checkin_questions,
     get_week_labels as psc_get_week_labels,
@@ -7826,6 +7826,9 @@ def psc_training():
     user = USERS.get(user_key, {})
     enrollment = get_psc_enrollment(user_key) or {}
     manager = USERS.get(enrollment.get('manager_key') or PSC_TRAINING_MANAGER, {})
+    # Trainer is a name on the page, not an access grant. Hidden if they leave
+    # USERS, and never shown to the trainer on their own self-preview.
+    mentor = {} if PSC_TRAINING_MENTOR == user_key else USERS.get(PSC_TRAINING_MENTOR, {})
     curriculum = get_training_curriculum()
     # Overlay: leadership's published edits and additions. `enrolled_at` decides
     # placement — items published after this person started are handed back in
@@ -7858,6 +7861,7 @@ def psc_training():
         notes_json=json.dumps(notes),
         enrollment=enrollment,
         manager=manager,
+        mentor=mentor,
         stats=stats,
         week_status=week_status,
         user=user,

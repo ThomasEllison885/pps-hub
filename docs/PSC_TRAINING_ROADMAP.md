@@ -1,7 +1,7 @@
 # PSC Training — Roadmap & Rachel Farler Feedback
 
 **Source:** Rachel Farler (recent PSC graduate) — *PSC Training Feedback & Recommendations*, July 2026.  
-**Stance:** Field-informed input, not gospel. Validate with Tony, Trey, and active PMs before locking SOPs.
+**Stance:** Field-informed input, not gospel. Validate with Thomas, Adam, Trey, and active PMs before locking SOPs.
 
 ## Implemented from Rachel's feedback (hub)
 
@@ -18,7 +18,7 @@
 | **Callbacks / warranty** | New module: service recovery, documentation, communication role. |
 | **Continuous learning** | Week 12 graduation + post-grad coaching commitment. |
 | **Meta copy** | Program description emphasizes judgment, communication, partner projects. |
-| **New market expansion** | Company Ops module (Week 4): hub-and-spoke formula, gates, RACI (Adam anchor / Tony support / Thomas go-no-go). Aligns with leadership playbook. |
+| **New market expansion** | Company Ops module (Week 4): hub-and-spoke formula, gates, RACI (Adam anchor / market lead local / Thomas go-no-go). Aligns with leadership playbook. |
 | **Pure Way + Proposal Generator craft** | Core values Pure Way section; full `ops_proposal_generator` module (New Standard); Weeks 0–4 focus retargeted; sales proposal tool expanded. See `PSC_PROPOSAL_CRAFT_MODULE.md`. |
 
 ## Rachel's top three priorities — status
@@ -61,10 +61,10 @@
 
 | Area | Owner |
 |------|--------|
-| Partner-project assignment & mentor list | Tony (VP Sales) |
+| Partner-project assignment & mentor list | Thomas (Adam Cupito trains new PSCs) |
 | Production / callback / Trade Partner SOPs | Trey |
 | Hub tools, Ask PPS, training content | Thomas |
-| Monday.com workflows | Thomas + Tony |
-| New market expansion formula (training + culture) | Tony supports; Adam owns anchor sequencing; Thomas gates capital |
+| Monday.com workflows | Thomas + Adam |
+| New market expansion formula (training + culture) | Adam owns anchor sequencing; Thomas gates capital |
 
 *Last updated: July 2026 — Proposal Generator craft + Pure Way through-line*

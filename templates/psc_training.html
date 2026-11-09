@@ -149,7 +149,7 @@
   .feedback-btn:hover { background:var(--blue); }
   .feedback-success { display:none; color:var(--green); font-size:13px; margin-top:8px; font-weight:500; }
 
-  .accountability-strip { background:var(--light-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:20px; display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .accountability-strip { background:var(--light-bg); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:20px; display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
   .acc-item label { display:block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:#888; margin-bottom:4px; }
   .acc-item span { font-size:14px; font-weight:600; color:var(--dark-blue); }
   .acc-item .sub { font-size:12px; font-weight:400; color:#888; }
@@ -188,9 +188,16 @@
   <div class="accountability-strip">
     <div class="acc-item">
       <label>Your Manager</label>
-      <span>{{ manager.display or 'VP Sales' }}</span>
+      <span>{{ manager.display or 'Thomas Ellison' }}</span>
       <div class="sub">Weekly check-ins & sign-offs</div>
     </div>
+    {% if mentor and mentor.display %}
+    <div class="acc-item">
+      <label>Your Trainer</label>
+      <span>{{ mentor.display }}</span>
+      <div class="sub">Ride-alongs, partner projects & debriefs</div>
+    </div>
+    {% endif %}
     <div class="acc-item">
       <label>Enrolled</label>
       <span>{% if enrollment.enrolled_at %}{{ enrollment.enrolled_at | et }}{% else %}—{% endif %}</span>
