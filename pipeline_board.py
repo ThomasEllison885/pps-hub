@@ -15,7 +15,10 @@ now has zero effect on how gunicorn runs.
 
 One board per consultant, keyed by the consultant's user_key (`pair_key`) —
 the consultant owns the client relationship; everyone writes the same rows.
-Opened past the two-pair pilot 2026-08-13: Adam / Andy / Tony / Rachel.
+Opened past the two-pair pilot 2026-08-13: Adam / Andy / Rachel.
+Tony Cumella's board came off this list 2026-10-31 when he left. Rows
+already stored under that pair_key stay in the database. They are not on
+the switcher.
 
 **Access, as of 2026-08-21: every board is open to everyone on the roster.**
 The old per-board `BOARD_ACCESS` roster and the `BOARD_ACCESS_ALL` oversight
@@ -42,7 +45,7 @@ import db_ddl
 
 # Consultant keys that have a live board. Order is the default-home
 # tiebreak for people who can open more than one (James, admin pickers).
-BOARD_CONSULTANTS = ('andy_potts', 'adam_cupito', 'tony_cumella', 'rachel_farler')
+BOARD_CONSULTANTS = ('andy_potts', 'adam_cupito', 'rachel_farler')
 BOARD_CONSULTANT_SET = frozenset(BOARD_CONSULTANTS)
 
 # Header label: the 1:1 working PM for that consultant's board.
@@ -55,7 +58,6 @@ BOARD_CONSULTANT_SET = frozenset(BOARD_CONSULTANTS)
 PRIMARY_PM_FOR_CONSULTANT = {
     'andy_potts': 'ben_ramsey',
     'adam_cupito': 'jordan_allen',
-    'tony_cumella': 'nick_triplett',
     # Rachel's PM as of 2026-09-14 (Andy Baur, first day). Derek Kidney was
     # offboarded 2026-08-28; do not point this at a departed user_key.
     'rachel_farler': 'andy_baur',
@@ -1605,7 +1607,7 @@ def register_routes(app, get_db_fn, users, require_login):
             return jsonify({'error': 'Not authorized'}), 403
         if not can_import_to_board(users, user_key, pair_key):
             return jsonify({
-                'error': 'Importing a spreadsheet is limited to Thomas, Tony, '
+                'error': 'Importing a spreadsheet is limited to Thomas, '
                          'Trey and Stephanie. Boards are seeded once when they '
                          'are created — add rows directly instead.'
             }), 403

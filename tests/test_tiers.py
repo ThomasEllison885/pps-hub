@@ -12,7 +12,6 @@ import tiers as t
 
 _USERS = {
     'thomas_ellison': {'role': 'admin', 'tier': 'owner'},
-    'tony_cumella': {'role': 'consultant', 'tier': 'leadership'},
     'trey_hollmeyer': {'role': 'pm', 'tier': 'leadership'},
     'stephanie_whetstone': {'role': 'office_manager', 'tier': 'leadership'},
     'andy_potts': {'role': 'consultant', 'tier': 'team'},
@@ -25,8 +24,8 @@ def test_tiers_are_cumulative_not_exclusive():
     system is `tier == 'leadership'`, which locks the owner out of everything
     leadership can do."""
     assert t.is_leadership(_USERS, 'thomas_ellison') is True
-    assert t.is_leadership(_USERS, 'tony_cumella') is True
-    assert t.is_owner(_USERS, 'tony_cumella') is False
+    assert t.is_leadership(_USERS, 'trey_hollmeyer') is True
+    assert t.is_owner(_USERS, 'trey_hollmeyer') is False
     assert t.is_owner(_USERS, 'thomas_ellison') is True
 
 
@@ -74,10 +73,10 @@ def test_empty_roster_grants_nothing():
 
 
 def test_pricing_defaults_are_leadership_not_owner_only():
-    """2026-08-27: Tony, Trey and Stephanie edit estimator company rates.
+    """2026-08-27: leadership edits estimator company rates.
     The field team still cannot — a per-job override is not a company default."""
     assert t.can_edit_pricing_defaults(_USERS, 'thomas_ellison') is True
-    for key in ('tony_cumella', 'trey_hollmeyer', 'stephanie_whetstone'):
+    for key in ('trey_hollmeyer', 'stephanie_whetstone'):
         assert t.can_edit_pricing_defaults(_USERS, key) is True, key
     for key in ('andy_potts', 'phil_miller'):
         assert t.can_edit_pricing_defaults(_USERS, key) is False, key

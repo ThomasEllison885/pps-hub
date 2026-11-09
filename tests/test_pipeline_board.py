@@ -242,7 +242,6 @@ _USERS = {
     'james_boling': {'display': 'James Boling', 'role': 'pm', 'tier': 'team'},
     'jordan_allen': {'display': 'Jordan Allen', 'role': 'pm', 'tier': 'team'},
     'nick_triplett': {'display': 'Nick Triplett', 'role': 'pm', 'tier': 'team'},
-    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant', 'tier': 'leadership'},
     'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'tier': 'leadership'},
     'phil_miller': {'display': 'Phil Miller', 'role': 'pm', 'tier': 'team'},
     'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager',
@@ -256,14 +255,15 @@ def test_get_pair_key_consultant_uses_own_key():
     assert pb.get_pair_key(_USERS, 'andy_potts') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'rachel_farler') == 'rachel_farler'
     assert pb.get_pair_key(_USERS, 'adam_cupito') == 'adam_cupito'
-    assert pb.get_pair_key(_USERS, 'tony_cumella') == 'tony_cumella'
 
 
 def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'ben_ramsey') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'jordan_allen') == 'adam_cupito'
-    assert pb.get_pair_key(_USERS, 'nick_triplett') == 'tony_cumella'
     assert pb.get_pair_key(_USERS, 'andy_baur') == 'rachel_farler'
+    # Nick was paired to Tony. That board is gone, so he lands on the first
+    # live board the way an unpaired PM does.
+    assert pb.get_pair_key(_USERS, 'nick_triplett') == pb.BOARD_CONSULTANTS[0]
 
 
 def test_get_pair_key_owner_has_no_pair_of_their_own():
@@ -304,8 +304,8 @@ def test_can_access_board_owner_and_named_roster():
     assert pb.can_access_board(_USERS, 'james_boling', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'andy_potts', 'adam_cupito') is True
     assert pb.can_access_board(_USERS, 'ben_ramsey', 'adam_cupito') is True
-    assert pb.can_access_board(_USERS, 'nick_triplett', 'tony_cumella') is True
     assert pb.can_access_board(_USERS, 'rachel_farler', 'rachel_farler') is True
+    assert pb.can_access_board(_USERS, 'nick_triplett', 'tony_cumella') is False
 
 
 def test_can_access_board_still_fails_closed_on_bad_input():
@@ -394,6 +394,17 @@ def test_derek_kidney_is_gone_from_the_live_roster_source():
     assert "'derek_kidney': {" not in body
     assert 'retired_sql_in_list' in body
     assert 'derek_kidney' in open(os.path.join(root, 'roster.py')).read()
+
+
+def test_tony_cumella_is_gone_from_the_live_roster_source():
+    """Tony Cumella left 2026-10-31. Same source check as Derek: a live
+    USERS / TEAM_DATES entry is the `'tony_cumella': {` shape."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    body = open(os.path.join(root, 'app.py')).read()
+    assert "'tony_cumella': {" not in body
+    assert 'tony_cumella' in open(os.path.join(root, 'roster.py')).read()
+    assert 'tony_cumella' not in pb.BOARD_CONSULTANTS
+    assert 'tony_cumella' not in pb.PRIMARY_PM_FOR_CONSULTANT
 
 
 def test_retired_derek_kidney_has_no_boards():
@@ -527,8 +538,7 @@ def test_importing_is_leadership_but_editing_stays_open_to_everyone():
 def test_leadership_and_owner_can_still_seed_any_board():
     """A new consultant arrives with a spreadsheet — that need does not go
     away, so the control is narrowed rather than deleted."""
-    for key in ('thomas_ellison', 'tony_cumella', 'trey_hollmeyer',
-                'stephanie_whetstone'):
+    for key in ('thomas_ellison', 'trey_hollmeyer', 'stephanie_whetstone'):
         assert pb.can_import_to_board(_USERS, key, 'andy_potts') is True, key
 
 
@@ -536,7 +546,7 @@ def test_import_still_fails_closed_on_a_board_that_does_not_exist():
     """Tier is checked in addition to board access, never instead of it —
     otherwise leadership would bypass the pair_key validation entirely."""
     assert pb.can_import_to_board(_USERS, 'thomas_ellison', 'not_a_board') is False
-    assert pb.can_import_to_board(_USERS, 'tony_cumella', '') is False
+    assert pb.can_import_to_board(_USERS, 'trey_hollmeyer', '') is False
 
 
 def test_a_stale_key_off_the_roster_cannot_import_even_at_leadership():

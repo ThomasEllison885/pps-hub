@@ -53,7 +53,6 @@ from __future__ import annotations
 # Consultants only: these are the values the proposal form's dropdown emits.
 CONSULTANT_ALIASES = {
     'thomas': 'thomas_ellison',
-    'tony': 'tony_cumella',
     'adam': 'adam_cupito',
     'rachel': 'rachel_farler',
     'andy': 'andy_potts',

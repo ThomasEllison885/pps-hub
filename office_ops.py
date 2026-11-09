@@ -26,8 +26,8 @@ from tiers import is_leadership
 
 # Who may open /office-ops and upload. Admin always; Stephanie by key + role.
 # Office Ops (AR aging, rep sales dollars, COI compliance) is Leadership tier:
-# Thomas, Stephanie, Tony, Trey (2026-08-21, Thomas). Tony and Trey are a
-# deliberate widening — Trey had picked this up once as an accidental side
+# Thomas, Stephanie, Trey (2026-08-21, Thomas; Tony removed 2026-10-31). Trey's
+# access is a deliberate widening — he had picked this up once as an accidental side
 # effect of an unrelated feature commit and it was reverted the same week
 # (c61e43d); this time it is the intended grant, made on its own commit.
 # The old OFFICE_OPS_USER_KEYS / OFFICE_OPS_ROLES pair is gone: two lists that
@@ -2245,7 +2245,7 @@ def generate_thursday_pack(get_db_fn, user_key):
             'notes_count': len(notes_by_customer),
             'parsed_at': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
             'recipients_note': (
-                'Email to Thomas + Tony; if sent from system/admin, include Stephanie.'
+                'Email to Thomas and Stephanie.'
             ),
         }
         cur.execute(

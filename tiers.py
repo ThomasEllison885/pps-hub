@@ -12,7 +12,7 @@ Three tiers:
 
     owner       Thomas. /admin, password resets, feedback inbox, vault
                 delete, proposal diffs.
-    leadership  Stephanie, Tony, Trey. Office Ops (Numbers + Compliance),
+    leadership  Stephanie, Trey. Office Ops (Numbers + Compliance),
                 PSC + PM training oversight, Ask PPS curation, estimator
                 pricing defaults.
     team        Everyone else. Every tool, every pipeline board, all history,

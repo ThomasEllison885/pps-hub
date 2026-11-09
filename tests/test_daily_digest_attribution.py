@@ -127,7 +127,9 @@ def test_it_works_from_the_short_form_as_well(monkeypatch):
 
 def test_excluding_someone_with_no_alias_is_unchanged(monkeypatch):
     monkeypatch.setenv('DAILY_DIGEST_EXCLUDE', 'phil_miller,stephanie_shrout')
-    assert dd._digest_exclude_keys() == {'phil_miller', 'stephanie_shrout'}
+    assert dd._digest_exclude_keys() == {
+        'phil_miller', 'stephanie_shrout', 'tony_cumella', 'tony',
+    }
 
 
 def test_one_persons_alias_does_not_drag_in_anybody_else(monkeypatch):
@@ -138,8 +140,25 @@ def test_one_persons_alias_does_not_drag_in_anybody_else(monkeypatch):
 
 
 def test_an_empty_setting_still_excludes_nobody(monkeypatch):
+    """The env list can be empty. Tony stays off the email anyway."""
     monkeypatch.setenv('DAILY_DIGEST_EXCLUDE', '')
-    assert dd._digest_exclude_keys() == set()
+    assert dd._digest_exclude_keys() == {'tony_cumella', 'tony'}
+
+
+def test_tony_is_left_off_the_daily_report():
+    """History rows stay in the database. The nightly email does not name him.
+    Derek still does — his old work stays readable."""
+    _, text, html = _email([
+        _did('tony_cumella', title='Blendon fence'),
+        _did('tony', title='Bookmark proposal'),
+        _did('andy_potts', title='Maple Court'),
+        _did('derek_kidney', title='Old job'),
+    ])
+    assert 'Tony' not in text
+    assert 'Tony' not in html
+    assert 'Andy Potts' in text
+    assert 'Derek Kidney' in text
+    assert 'from 2 people' in text
 
 
 # ── the Hub-side columns are untouched ──────────────────────────────────────

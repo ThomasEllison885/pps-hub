@@ -112,7 +112,8 @@ def test_short_keys_become_roster_keys(hub, db):
     now = _utcnow()
     _insert(db, 'proposal_log', [('rachel', now), ('andy', now), ('tony', now)])
     hub.init_db()
-    assert _rows(db) == ['rachel_farler', 'andy_potts', 'tony_cumella']
+    # 'tony' is a departed consultant. The short key is no longer rewritten.
+    assert _rows(db) == ['rachel_farler', 'andy_potts', 'tony']
 
 
 def test_it_runs_across_every_scored_table_not_just_proposals(hub, db):

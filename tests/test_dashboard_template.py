@@ -402,10 +402,11 @@ def test_admin_does_not_float_above_the_lane_someone_leads_with():
     """Same guarantee as the CSS rule this replaced, through the mechanism
     that replaced it. Flex `order` defaults to 0, so a lane nobody placed
     sorts FIRST — which is why `order_for` returns every lane rather than
-    only the ones someone expressed a preference about. Tony has Office Ops
-    and leads with Sales; Admin must not jump him."""
+    only the ones someone expressed a preference about. A sales-first
+    consultant who can see Office Ops still leads with Sales; Admin must
+    not jump that lane."""
     import dashboard_lanes as dl
-    order = dl.css_order('tony_cumella')
+    order = dl.css_order('rachel_farler')
     assert order['admin'] > order['sales'], 'Office Ops sits above his proposals'
     html = _render(user_role='consultant', office_ops_access=True,
                    lane_order=order)

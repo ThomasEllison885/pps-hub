@@ -189,7 +189,7 @@ def _wants_json_response():
 #
 #   owner       Thomas. /admin, pricing defaults, password resets, feedback
 #               inbox, vault delete, proposal diffs.
-#   leadership  Stephanie, Tony, Trey. Office Ops (Numbers + Compliance),
+#   leadership  Stephanie, Trey. Office Ops (Numbers + Compliance),
 #               PSC + PM training oversight, Ask PPS curation.
 #   team        Everyone else. Every tool, every pipeline board, all history,
 #               Team View. Deliberately unrestricted — Thomas 2026-08-21:
@@ -228,14 +228,6 @@ USERS = {
         'title': 'President',
         'email': 'thomas@purepropsolutions.com',
         'phone': '513-280-2276',
-    },
-    'tony_cumella': {
-        'display': 'Tony Cumella',
-        'role': 'consultant',
-        'tier': TIER_LEADERSHIP,
-        'title': 'VP of Sales',
-        'email': 'Tony@purepropsolutions.com',
-        'phone': '937-609-5369',
     },
     'adam_cupito': {
         'display': 'Adam Cupito',
@@ -356,11 +348,18 @@ roster.assert_users(USERS)
 # Rachel was removed the same day — that board is now labelled "Rachel"
 # (see pipeline_board.PRIMARY_PM_FOR_CONSULTANT / board_label).
 
+# REMOVED 2026-10-31 — Tony Cumella (user_key tony_cumella, VP of Sales).
+# Same path as Derek: absent from USERS, so login and a leftover session both
+# fail. The hub_users row is deleted on boot via roster.RETIRED_USER_KEYS.
+# His consultant board is off BOARD_CONSULTANTS. Rows already stored under
+# that pair_key stay in the database and are not on the switcher. Do not
+# re-add this key. Proposal numbers he already issued stay TC. PSC training
+# accountability now sits with Thomas.
+
 # Proposal numbers: {INITIALS}{YY}{XXX} — e.g. TE26001 (Thomas Ellison, 2026, #1)
 PROPOSAL_NUMBER_SEQ_DIGITS = 3
 PROPOSAL_NUMBER_INITIALS = {
     'thomas_ellison': 'TE',
-    'tony_cumella': 'TC',
     'adam_cupito': 'AC',
     'rachel_farler': 'RF',
     'andy_potts': 'AP',
@@ -519,7 +518,6 @@ def sync_proposal_number_sequence(consultant_key, proposal_number, year=None):
 # ── BIRTHDAYS & HIRE DATES ──────────────────────────────────────────────────
 TEAM_DATES = {
     'thomas_ellison': {'birthday': (10, 8),  'hire': (5, 21, 2017)},
-    'tony_cumella':   {'birthday': (8, 21),  'hire': (6, 17, 2019)},
     'phil_miller':    {'birthday': (3, 2),   'hire': (2, 24, 2020)},
     'trey_hollmeyer': {'birthday': (10, 3),  'hire': (5, 14, 2018)},
     'stephanie_whetstone': {'birthday': (5, 5), 'hire': (5, 7, 2017)},
@@ -617,7 +615,6 @@ def get_date_events(user_key, is_admin=False):
     return events
 
 CONSULTANTS = {
-    'tony_cumella': 'Tony Cumella',
     'adam_cupito': 'Adam Cupito',
     'rachel_farler': 'Rachel Farler',
     'andy_potts': 'Andy Potts',
@@ -1198,7 +1195,7 @@ def _init_db_body(conn, cur):
             user_key VARCHAR(100) PRIMARY KEY,
             enrolled_at TIMESTAMP DEFAULT NOW(),
             enrolled_by VARCHAR(100),
-            manager_key VARCHAR(100) NOT NULL DEFAULT 'tony_cumella',
+            manager_key VARCHAR(100) NOT NULL DEFAULT 'thomas_ellison',
             target_weeks INTEGER DEFAULT 12,
             last_activity_at TIMESTAMP,
             graduated_at TIMESTAMP,
@@ -1358,6 +1355,49 @@ def _init_db_body(conn, cur):
         "DELETE FROM hub_users WHERE user_key IN " + roster.retired_sql_in_list(),
         label='retired login cleanup')
 
+    # Tony left 2026-10-31. New enrollments already pass PSC_TRAINING_MANAGER.
+    # Existing rows and the column default still named him. Sign-offs stay.
+    db_ddl.optional_step(
+        cur,
+        "UPDATE psc_training_enrollment SET manager_key = 'thomas_ellison' "
+        "WHERE manager_key = 'tony_cumella'",
+        label='psc manager off tony')
+    db_ddl.optional_step(
+        cur,
+        "ALTER TABLE psc_training_enrollment "
+        "ALTER COLUMN manager_key SET DEFAULT 'thomas_ellison'",
+        label='psc manager default')
+    db_ddl.optional_step(
+        cur,
+        "UPDATE knowledge_entries SET status = 'archived', "
+        "updated_at = CURRENT_TIMESTAMP "
+        "WHERE title = 'Team — Tony Cumella' AND status <> 'archived'",
+        label='archive Tony team directory entry')
+    db_ddl.optional_step(
+        cur,
+        "UPDATE knowledge_entries SET content = replace(replace(content, "
+        "'Confirm with Tony', 'Confirm with Thomas'), 'through Tony', "
+        "'through Thomas'), search_tsv = to_tsvector('english', "
+        "coalesce(title, '') || ' ' || coalesce(replace(replace(content, "
+        "'Confirm with Tony', 'Confirm with Thomas'), 'through Tony', "
+        "'through Thomas'), '')), updated_at = CURRENT_TIMESTAMP "
+        "WHERE content LIKE '%Tony%' AND (title LIKE 'Estimator defaults%' "
+        "OR title = 'Pricing nuance — when defaults are not enough')",
+        label='retarget pricing knowledge off Tony')
+    db_ddl.optional_step(
+        cur,
+        "UPDATE knowledge_entries SET content = replace(content, "
+        "'escalations that are not sales or production', "
+        "'sales, proposals, and escalations that are not production'), "
+        "search_tsv = to_tsvector('english', coalesce(title, '') || ' ' || "
+        "coalesce(replace(content, "
+        "'escalations that are not sales or production', "
+        "'sales, proposals, and escalations that are not production'), '')), "
+        "updated_at = CURRENT_TIMESTAMP "
+        "WHERE title = 'Team — Thomas Ellison' AND content LIKE "
+        "'%escalations that are not sales or production%'",
+        label='thomas directory covers sales')
+
     # Rewrite historical short consultant keys to roster keys, once.
     #
     # `/log-proposal` has written resolved keys since 093244f (2026-08-29), so
@@ -1372,7 +1412,7 @@ def _init_db_body(conn, cur):
     # backfill below, and any future join) stop needing to.
     #
     # Safe to run on every boot: after the first pass the WHERE matches nothing.
-    # Exact matches only — `sql_resolve` translates the five known short forms
+    # Exact matches only — `sql_resolve` translates the known short forms
     # and leaves everything else, including 'unknown' and departed staff, alone.
     # Tables are taken from weekly_recap.SCORED_SOURCES so a new deliverable
     # log cannot be added to the Hub and quietly skipped here; each is its own
@@ -8118,7 +8158,7 @@ def psc_training_oversight():
         can_signoff=True,
         current_user_key=user_key,
         self_enrolled_as_trainee=is_psc_training_enrolled(user_key),
-        manager_name=USERS.get(PSC_TRAINING_MANAGER, {}).get('display', 'VP Sales'),
+        manager_name=USERS.get(PSC_TRAINING_MANAGER, {}).get('display', 'Thomas Ellison'),
     )
 
 

@@ -39,8 +39,10 @@ Call the person what they will see on the login list. Two Andys: Baur vs Potts.
 3. Remove them from `PRIMARY_PM_FOR_CONSULTANT`, `BOARD_CONSULTANTS`,
    `LANE_ORDER`, `PROPOSAL_NUMBER_INITIALS`, `CONSULTANTS` / `CONSULTANT_KEY_MAP`.
 4. **Do not rewrite history.** Old `generated_by` / `consultant_name` /
-   `pm_name` rows stay. Digests and recaps already fall back to the stored
-   name or the raw key.
+   `pm_name` rows stay. The daily digest still shows departed people by the
+   name stored on the row, except keys in `roster.REPORT_OMIT_KEYS`. Tony
+   Cumella is on that list (2026-11-09): he is left out of the nightly
+   digest and the Monday ranking. Derek is not.
 
 They must disappear from **new** dropdowns (TPS, PPM, login, proposal
 consultant list). They must remain readable on work they already did.

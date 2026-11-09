@@ -13,7 +13,11 @@ ALLOWED_ROLES = frozenset({'admin', 'consultant', 'pm', 'office_manager'})
 REQUIRED_FIELDS = ('display', 'role', 'tier', 'title', 'email')
 # Dropped from USERS. Keep generating this SQL for hub_users cleanup.
 # History logs are left alone.
-RETIRED_USER_KEYS = ('admin', 'derek_kidney')
+RETIRED_USER_KEYS = ('admin', 'derek_kidney', 'tony_cumella')
+# Off the nightly digest and the Monday ranking. History rows stay.
+# Derek stays on those reports so old work is still readable. Tony does
+# not: Thomas, 2026-11-09. 'tony' is the proposal-form spelling of his key.
+REPORT_OMIT_KEYS = frozenset({'tony_cumella', 'tony'})
 
 _SQL_SAFE = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
 

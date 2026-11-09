@@ -37,6 +37,15 @@ def test_derek_is_retired_not_live():
     assert 'derek_kidney' in roster.RETIRED_USER_KEYS
 
 
+def test_tony_is_retired_not_live():
+    import app as hub
+    assert 'tony_cumella' not in hub.USERS
+    assert 'tony_cumella' in roster.RETIRED_USER_KEYS
+    assert 'tony_cumella' not in hub.CONSULTANTS
+    assert 'tony_cumella' not in hub.PROPOSAL_NUMBER_INITIALS
+    assert 'tony_cumella' not in hub.TEAM_DATES
+
+
 def test_missing_role_is_rejected():
     bad = {
         'new_hire': {

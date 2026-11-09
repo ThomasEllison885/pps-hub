@@ -20,7 +20,6 @@ TREE = ast.parse(SRC)
 # The three people Thomas named on 2026-08-23, plus the owner.
 _USERS = {
     'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin', 'tier': 'owner'},
-    'tony_cumella': {'display': 'Tony Cumella', 'role': 'consultant', 'tier': 'leadership'},
     'trey_hollmeyer': {'display': 'Trey Hollmeyer', 'role': 'pm', 'tier': 'leadership'},
     'stephanie_whetstone': {'display': 'Stephanie Whetstone', 'role': 'office_manager',
                             'tier': 'leadership'},
@@ -46,10 +45,10 @@ def _decorators(name):
 # --- The three named people all resolve to leadership ------------------------
 
 def test_the_three_thomas_named_are_all_leadership():
-    """Tony, Trey and Stephanie. Because tiers are the only access axis, gating
-    a route at leadership grants all three at once — there is no per-person
-    list to keep in sync, which is the whole point of the 2026-08-21 rework."""
-    for key in ('tony_cumella', 'trey_hollmeyer', 'stephanie_whetstone'):
+    """Trey and Stephanie. Tony left 2026-10-31. Because tiers are the only
+    access axis, gating a route at leadership grants whoever holds it — there
+    is no per-person list to keep in sync."""
+    for key in ('trey_hollmeyer', 'stephanie_whetstone'):
         assert tiers.is_leadership(_USERS, key) is True, key
     assert tiers.is_leadership(_USERS, 'thomas_ellison') is True
 

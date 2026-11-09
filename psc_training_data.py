@@ -5,7 +5,7 @@ from functools import lru_cache
 
 from production_board_reference import MONDAY_AT_PPS
 
-PSC_TRAINING_MANAGER = 'tony_cumella'  # VP Sales — accountability owner for enrolled trainees
+PSC_TRAINING_MANAGER = 'thomas_ellison'  # Tony Cumella left 2026-10-31. Accountability sits with Thomas until a sales lead is named.
 
 PSC_TRAINING_META = {
     'title': 'PSC Onboarding',

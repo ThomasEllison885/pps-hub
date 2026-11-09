@@ -31,6 +31,8 @@ F-04 is the finding behind the whole thing. See CLAUDE.md, "Hub review
 from __future__ import annotations
 
 import os
+
+import roster
 import user_aliases
 from collections import defaultdict
 from datetime import datetime, time, timedelta, timezone
@@ -122,7 +124,10 @@ def _excluded_keys():
     reads exactly the way you'd expect it to.
     """
     raw = os.environ.get('WEEKLY_RECAP_EXCLUDE', '')
-    return {k.strip() for k in raw.split(',') if k.strip()}
+    named = {k.strip() for k in raw.split(',') if k.strip()}
+    # Same people the nightly digest leaves off. A roster dict that still
+    # contains them does not put them back on the ranking or the send list.
+    return named | set(roster.REPORT_OMIT_KEYS)
 
 
 # ── Week boundaries ─────────────────────────────────────────────────────────

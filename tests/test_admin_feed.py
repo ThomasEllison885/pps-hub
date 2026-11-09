@@ -147,9 +147,9 @@ def test_the_two_spellings_are_one_person_to_anything_filtering_the_feed():
 
 def test_every_log_resolves_not_just_proposals():
     feed = merge_activity([_p(1, datetime(2026, 8, 21), generated_by='rachel')],
-                          [_ppm(2, datetime(2026, 8, 20), generated_by='tony')],
+                          [_ppm(2, datetime(2026, 8, 20), generated_by='andy')],
                           [_tps(3, datetime(2026, 8, 19), generated_by='adam')])
-    assert [i['who'] for i in feed] == ['Rachel Farler', 'Tony Cumella', 'Adam Cupito']
+    assert [i['who'] for i in feed] == ['Rachel Farler', 'Andy Potts', 'Adam Cupito']
 
 
 def test_a_key_belonging_to_nobody_is_still_prettified():

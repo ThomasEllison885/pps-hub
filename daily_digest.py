@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, time, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
+import roster
 import user_aliases
 from hub_usage import FEATURE_LABELS, event_label
 from psc_training_data import PSC_TRAINING_META, get_training_curriculum
@@ -44,7 +45,9 @@ def _digest_exclude_keys():
     keys = {k.strip() for k in raw.split(',') if k.strip()}
     aliases = {short for short, full in user_aliases.CONSULTANT_ALIASES.items()
                if full in keys or short in keys}
-    return keys | aliases | {user_aliases.resolve(k) for k in keys}
+    # REPORT_OMIT_KEYS is not optional. An empty env setting must not put
+    # Tony back on the email.
+    return keys | aliases | {user_aliases.resolve(k) for k in keys} | set(roster.REPORT_OMIT_KEYS)
 
 
 def digest_recipients():
@@ -454,6 +457,8 @@ def collect_digest_items(get_db, users, exclude, report_date, format_template_la
     counts = defaultdict(int)
 
     def add(item):
+        if item.get('user_key') in roster.REPORT_OMIT_KEYS:
+            return
         items.append(item)
         counts[item['kind']] += 1
 
@@ -773,6 +778,7 @@ def build_digest_email(report_date, items, counts, users, exclude, ask_pps_line=
     has no roster entry, and the name frozen on his rows is the best label
     available for them.
     """
+    items = [it for it in items if it.get('user_key') not in roster.REPORT_OMIT_KEYS]
     people = defaultdict(list)
     for it in items:
         people[it['user_key']].append(it)

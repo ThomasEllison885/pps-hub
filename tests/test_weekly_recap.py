@@ -448,7 +448,7 @@ def test_run_weekly_recap_sends_one_email_per_person():
     sent = []
 
     def fake_send(subject, text, html, recipients):
-        sent.append((subject, recipients))
+        sent.append((subject, text, html, recipients))
         return True
 
     conn = _FakeConn([[] for _ in range(30)])
@@ -456,10 +456,12 @@ def test_run_weekly_recap_sends_one_email_per_person():
         lambda: conn, _USERS, fake_send, force=True, today=date(2026, 8, 24),
     )
     assert result['skipped'] is False
-    assert len(sent) == len(_USERS)
+    live = set(_USERS) - {'tony_cumella'}
+    assert len(sent) == len(live)
     # One recipient each — nobody is BCC'd a list to scan for their own name.
-    assert all(len(r) == 1 for _s, r in sent)
-    assert set(result['sent']) == set(_USERS)
+    assert all(len(r) == 1 for _s, _t, _h, r in sent)
+    assert set(result['sent']) == live
+    assert all('Tony' not in text and 'Tony' not in html for _s, text, html, _r in sent)
 
 
 def test_run_weekly_recap_skips_people_with_no_email():
@@ -488,7 +490,7 @@ def test_run_weekly_recap_reports_send_failures_rather_than_raising():
         lambda: conn, _USERS, failing_send, force=True, today=date(2026, 8, 24),
     )
     assert result['sent'] == []
-    assert set(result['failed']) == set(_USERS)
+    assert set(result['failed']) == set(_USERS) - {'tony_cumella'}
 
 
 def test_a_retry_does_not_send_the_recap_twice():
@@ -520,7 +522,7 @@ def test_a_retry_does_not_send_the_recap_twice():
     for _attempt in range(3):
         wr.run_weekly_recap(lambda: C(), _USERS,
                             lambda *a: sent.append(a) or True, now=monday)
-    assert len(sent) == len(_USERS), 'only the first attempt should have sent'
+    assert len(sent) == len(_USERS) - 1, 'only the first attempt should have sent'
 
 
 def test_trigger_run_on_a_normal_day_sends_nothing():
@@ -549,7 +551,7 @@ def test_force_still_overrides_the_window():
         force=True, now=datetime(2026, 8, 25, 7, 0, tzinfo=wr.ET),
     )
     assert result['skipped'] is False
-    assert len(sent) == len(_USERS)
+    assert len(sent) == len(_USERS) - 1
 
 
 def test_the_window_is_monday_morning_eastern():

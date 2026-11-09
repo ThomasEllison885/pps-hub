@@ -211,7 +211,7 @@ SECTIONS = [
                   'is signed off stays signed off — new material added later '
                   'shows at the bottom as “Added since you started” '
                   'and does not reopen a finished week. Roleplay is a separate '
-                  'page for enrolled PSCs. Tony, Trey, and Stephanie enroll '
+                  'page for enrolled PSCs. Trey and Stephanie enroll '
                   'people and sign weeks off. Only I can revoke a sign-off.'),
         ],
     ),
@@ -273,7 +273,7 @@ SECTIONS = [
                 ('Exterior painting', 'Field takeoff by category. Labor hours '
                                       'from production rates, paint, one-coat '
                                       'and two-coat bids. If the rate looks '
-                                      'wrong, tell Trey or Tony — they can fix '
+                                      'wrong, tell Trey or Stephanie — they can fix '
                                       'the company default now.'),
             ]),
             ('note', 'Same rule everywhere: override the job, do not silently '

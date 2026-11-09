@@ -24,7 +24,7 @@ from psc_training_data import (
 )
 
 # Curation (approve/reject/edit knowledge entries) is Leadership tier — Thomas,
-# Stephanie, Tony, Trey (2026-08-21). The old hardcoded CURATORS set is gone;
+# Stephanie, Trey (Tony removed 2026-10-31). The old hardcoded CURATORS set is gone;
 # `_USERS` is bound once in register_routes() so the eight is_curator() call
 # sites keep their single-argument signature. Stephanie is new here, arriving
 # with the tier rather than as a separate decision.
@@ -76,12 +76,12 @@ HARD RULES:
   a busy team on phones.
 - PRICING questions: if pricing entries are provided, you may share the documented
   default, but ALWAYS (a) ask what project/context they are pricing for, and
-  (b) state that final pricing depends on the project and is confirmed with Tony
+  (b) state that final pricing depends on the project and is confirmed with Thomas
   or through the estimators. Never present a price as final or quotable.
-- ROUTING when not documented: sales, proposals, clients, consultant questions → Tony
-  Cumella (VP of Sales, Tony@purepropsolutions.com). Production, scheduling, Trade
-  Partners, field questions → Trey Hollmeyer (Production Manager, trey@purepropsolutions.com).
-  Everything else → Thomas Ellison (President, thomas@purepropsolutions.com).
+- ROUTING when not documented: sales, proposals, clients, consultant questions →
+  Thomas Ellison (President, thomas@purepropsolutions.com). Production, scheduling,
+  Trade Partners, field questions → Trey Hollmeyer (Production Manager,
+  trey@purepropsolutions.com). Everything else → Thomas Ellison.
 - PPS VOICE: Use the terminology below in every answer — naturally, in your own words.
   Just use the right PPS word (apartment community, Trade Partners, residents, etc.).
   Do not lecture about wording or call out what the asker said wrong; answer normally
@@ -632,12 +632,9 @@ def _parse_voice_sections(path):
 def _team_directory_entries(users):
     blurbs = {
         'thomas_ellison': (
-            'Thomas Ellison — President. Owns company systems, hub tools, and escalations '
-            'that are not sales or production. Ask PPS curation and general policy gaps.'
-        ),
-        'tony_cumella': (
-            'Tony Cumella — VP of Sales. Owns consultants, sales process, proposals, '
-            'client relationships, and proposal sign-off. Route sales and proposal questions here.'
+            'Thomas Ellison — President. Owns company systems, hub tools, sales, '
+            'proposals, and escalations that are not production. Ask PPS curation '
+            'and general policy gaps.'
         ),
         'trey_hollmeyer': (
             'Trey Hollmeyer — Production Manager. Owns production, scheduling, Trade Partners, '
@@ -731,7 +728,7 @@ def _pricing_seed_entries(get_db_fn):
             'content': (
                 f'Hub baseline estimator defaults for {trade} (starting points only): {parts}. '
                 'Final job pricing depends on size/volume, property type (apartment vs condo), '
-                'complexity (e.g. roof pitch), and client. Confirm with Tony or run the estimator.'
+                'complexity (e.g. roof pitch), and client. Confirm with Thomas or run the estimator.'
             ),
         })
     entries.append({
@@ -742,7 +739,7 @@ def _pricing_seed_entries(get_db_fn):
             '(apartment community vs condo/HOA), pitch/complexity, access, and client relationship '
             'all move the number. For "what are we charging per square right now?" — share the '
             'relevant trade default, ask what project/context they are pricing, and route final '
-            'numbers through Tony or the trade estimator. Never treat hub defaults as a client quote.'
+            'numbers through Thomas or the trade estimator. Never treat hub defaults as a client quote.'
         ),
     })
     return entries
@@ -2447,7 +2444,7 @@ def ask_question(get_db_fn, user_key, user_role, question, api_key, model):
     if user_role == 'pm':
         role_hint = ' The asker is production/PM — bias routing to Trey for undocumented production topics.'
     elif user_role in ('consultant', 'office_manager'):
-        role_hint = ' The asker is sales/consulting — bias routing to Tony for undocumented sales topics.'
+        role_hint = ' The asker is sales/consulting — bias routing to Thomas for undocumented sales topics.'
     full_question = question + role_hint
 
     try:

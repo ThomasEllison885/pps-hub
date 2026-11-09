@@ -219,7 +219,6 @@ def test_real_aug4_file_still_parses():
 _USERS = {
     'thomas_ellison': {'role': 'admin', 'tier': 'owner'},
     'stephanie_whetstone': {'role': 'office_manager', 'tier': 'leadership'},
-    'tony_cumella': {'role': 'consultant', 'tier': 'leadership'},
     'trey_hollmeyer': {'role': 'pm', 'tier': 'leadership'},
     'phil_miller': {'role': 'pm', 'tier': 'team'},
     'andy_potts': {'role': 'consultant', 'tier': 'team'},
@@ -229,15 +228,14 @@ _USERS = {
 def test_office_ops_is_leadership_tier():
     """Office Ops is AR aging and rep sales dollars — Leadership and above.
 
-    Tony and Trey were added 2026-08-21 by explicit decision. Worth knowing
-    that Trey once picked this up by accident, as a side effect bundled into an
+    Trey was added 2026-08-21 by explicit decision. Worth knowing
+    that he once picked this up by accident, as a side effect bundled into an
     unrelated feature commit (ea1e9c9), and it was reverted within the week
     (c61e43d). The grant is the same; what changed is that it was made
-    deliberately and on its own commit.
+    deliberately and on its own commit. Tony had it until 2026-10-31.
     """
     assert oo.can_access_office_ops(_USERS, 'thomas_ellison') is True
     assert oo.can_access_office_ops(_USERS, 'stephanie_whetstone') is True
-    assert oo.can_access_office_ops(_USERS, 'tony_cumella') is True
     assert oo.can_access_office_ops(_USERS, 'trey_hollmeyer') is True
 
 
