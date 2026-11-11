@@ -127,7 +127,7 @@ INCLUDE WHEN RELEVANT:
 - Permits: secured by PPS, billed at cost
 - Daily cleanup; debris removed at completion
 - Resident communication through property management
-- Underground utilities: state 811 / utility locate notification before excavation (use project state from address — Ohio 811, Kentucky KY811, Indiana 811, etc.)
+- Underground utilities — ONLY when the scope includes excavation (digging, trenching, footers, posts, drainage, concrete removal): state 811 / utility locate notification (use project state from address — Ohio 811, Kentucky KY811, Indiana 811, etc.). Never on painting, roofing, siding, interior or other above-grade work.
 - Above-ground utilities: coordinate disconnections, T&M
 - Multi-scope contingency if not all scopes awarded
 - Restroom/lunch area for crew (long projects)
