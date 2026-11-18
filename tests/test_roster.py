@@ -16,6 +16,24 @@ def test_every_live_user_has_a_role_and_email():
     assert errors == [], errors
 
 
+def test_harrison_hollon_can_sign_in_and_nothing_else_yet():
+    import app as hub
+    import pipeline_board as pb
+    import user_aliases
+    person = hub.USERS['harrison_hollon']
+    assert person['role'] == 'consultant'
+    assert person['tier'] == 'team'
+    assert person['email'] == 'harrison@purepropsolutions.com'
+    assert person['display'] == 'Harrison Hollon'
+    assert not person.get('phone')
+    assert 'harrison_hollon' not in hub.PROPOSAL_NUMBER_INITIALS
+    assert 'harrison_hollon' not in hub.CONSULTANTS
+    assert 'harrison_hollon' not in pb.BOARD_CONSULTANTS
+    assert 'harrison_hollon' not in pb.PRIMARY_PM_FOR_CONSULTANT
+    assert 'harrison' not in user_aliases.CONSULTANT_ALIASES
+    assert 'harrison_hollon' not in hub.TEAM_DATES
+
+
 def test_andy_baur_is_a_pm_on_the_live_roster():
     import app as hub
     person = hub.USERS['andy_baur']

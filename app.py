@@ -254,6 +254,17 @@ USERS = {
         'email': 'Andy@purepropsolutions.com',
         'phone': '513-238-2260',
     },
+    # Start date 2026-11-23. Login only. No proposal initials, no pipeline
+    # board, no phone: the only number on file is his personal cell, and a
+    # company 614 line is not issued yet. PSC training stays unenrolled until
+    # he starts. Adam is the trainer (PSC_TRAINING_MENTOR); Thomas signs off.
+    'harrison_hollon': {
+        'display': 'Harrison Hollon',
+        'role': 'consultant',
+        'tier': TIER_TEAM,
+        'title': 'Property Solutions Consultant',
+        'email': 'harrison@purepropsolutions.com',
+    },
     'phil_miller': {
         'display': 'Phil Miller',
         'role': 'pm',
