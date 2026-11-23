@@ -31,6 +31,7 @@ import hub_usage
 import qbo_connect
 import qbo_sync
 import legal_pages
+import hub_mfa
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -1338,6 +1339,7 @@ def _init_db_body(conn, cur):
     office_ops.init_tables(cur)
     qbo_connect.init_tables(cur)
     qbo_sync.init_tables(cur)
+    hub_mfa.init_tables(cur)
     insurance_compliance.init_tables(cur)
     import hub_usage
     hub_usage.init_tables(cur)
@@ -3962,6 +3964,32 @@ def _no_store_html(template_name, **ctx):
     return resp
 
 
+def _load_hub_user(user_key):
+    conn = get_db()
+    if not conn:
+        return None
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute('SELECT * FROM hub_users WHERE user_key = %s', (user_key,))
+        row = cur.fetchone()
+        cur.close()
+        return row
+    finally:
+        conn.close()
+
+
+def _finish_login(user_key, db_user):
+    """Password (and, for the owner, the sign-in code) passed. Sign them in."""
+    user = USERS.get(user_key, {})
+    _establish_session(user_key, user, db_user)
+    record_login_attempt(get_db, user_key, True, client_ip(request))
+    clear_login_failures(get_db, user_key)
+    _update_last_login(user_key)
+    if session.get('must_change_password'):
+        return redirect(url_for('change_password'))
+    return _post_login_redirect()
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if session.get('user_key'):
@@ -4032,14 +4060,11 @@ def login():
         conn.close()
 
         if db_user and _safe_check_password(db_user.get('password_hash'), password):
-            user = USERS.get(user_key, {})
-            _establish_session(user_key, user, db_user)
-            record_login_attempt(get_db, user_key, True, ip)
-            clear_login_failures(get_db, user_key)
-            _update_last_login(user_key)
-            if session.get('must_change_password'):
-                return redirect(url_for('change_password'))
-            return _post_login_redirect()
+            # Owner only: a 6-digit code by email unless this device is
+            # remembered (hub_mfa.py, 2026-11-23). Not signed in until then.
+            if hub_mfa.required_for(USERS, user_key, is_owner):
+                return _owner_signin_code(user_key, db_user)
+            return _finish_login(user_key, db_user)
 
         # Wrong password / inactive account — apply lockout only to real wrong passwords
         if not db_user:
@@ -10369,6 +10394,9 @@ qbo_connect.register_routes(app, get_db, require_admin,
                             extra_context=lambda: qbo_sync.admin_context(get_db, USERS))
 # Public: Intuit's production review opens these without a login.
 legal_pages.register_routes(app)
+# Owner sign-in code. /login calls _owner_signin_code after a correct password.
+_owner_signin_code = hub_mfa.register_routes(
+    app, get_db, USERS, _send_digest_email, _finish_login, _load_hub_user)
 # Nightly pull, Sync now, and name matching. A failed nightly run emails
 # Thomas so the dashboard numbers never go stale without anyone knowing.
 qbo_sync.register_routes(app, get_db, require_admin, USERS, _internal_api_ok,

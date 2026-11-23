@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css?v=4">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · Sign-in code</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg, #F2F7FB); -webkit-text-size-adjust: 100%; }
+  .login-header {
+    height: var(--header-h, 56px); display: flex; align-items: center;
+    padding: 0 14px; background: #fff; border-bottom: 1px solid var(--border, #e2e8f0);
+  }
+  .login-header-inner { display: flex; align-items: center; gap: 10px; }
+  .login-header img { height: 28px; width: auto; }
+  .login-header-title { font-size: 13px; font-weight: 600; color: var(--dark-blue, #003366); }
+  .wrap { display: flex; justify-content: center; padding: 16px 14px 32px; }
+  .card {
+    background: #fff; border-radius: 14px; box-shadow: 0 4px 20px rgba(0, 40, 80, 0.1);
+    padding: 22px 18px 24px; width: 100%; max-width: 420px; text-align: center;
+  }
+  .card h1 { font-family: 'DM Serif Display', Georgia, serif; font-size: 1.4rem; color: var(--dark-blue, #003366); margin: 0 0 8px; }
+  .card .sub { font-size: 0.9rem; color: #888; margin: 0 0 18px; line-height: 1.45; }
+  .msg { background: #E8F5E9; color: #2E7D32; border-radius: 10px; padding: 12px 14px; font-size: 0.9rem; margin-bottom: 16px; text-align: left; line-height: 1.45; }
+  .error { background: #FEE; color: #B91C1C; border-radius: 10px; padding: 12px 14px; font-size: 0.9rem; margin-bottom: 16px; text-align: left; line-height: 1.45; }
+  .code {
+    width: 100%; font-size: 1.8rem; letter-spacing: 0.4em; text-align: center;
+    padding: 12px 10px; border: 1.5px solid var(--border, #e2e8f0); border-radius: 10px;
+    font-family: ui-monospace, Menlo, monospace; margin-bottom: 14px;
+  }
+  .remember { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+  .btn {
+    width: 100%; min-height: 52px; background: var(--dark-blue, #003366); color: #fff; border: none;
+    padding: 14px 16px; border-radius: 10px; font-size: 1.05rem; font-weight: 700; font-family: inherit; cursor: pointer;
+  }
+  .link-btn {
+    background: none; border: none; color: var(--blue, #004C8C); font-weight: 600; font-size: 0.95rem;
+    cursor: pointer; margin-top: 14px; min-height: 44px; font-family: inherit;
+  }
+  .back { display: inline-block; margin-top: 6px; font-size: 0.9rem; color: #888; text-decoration: none; }
+  @media (min-width: 480px) { .card { padding: 32px 28px; } }
+</style>
+</head>
+<body>
+<header class="login-header">
+  <div class="login-header-inner">
+    <img src="/static/logo.png?v=3" alt="Pure Property Solutions">
+    <span class="login-header-title">PPS Hub · Sign in</span>
+  </div>
+</header>
+<div class="wrap">
+  <div class="card">
+    <h1>Check your email</h1>
+    <p class="sub">We sent a 6-digit code to {{ masked_email }}. It works for 10 minutes.</p>
+    {% if message %}<div class="msg" role="status">{{ message }}</div>{% endif %}
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+    <form method="POST" action="/login/verify">
+      <input class="code" type="text" name="code" inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9 -]*" maxlength="9" placeholder="000000" autofocus required>
+      <label class="remember">
+        <input type="checkbox" name="remember" value="1" {% if remember %}checked{% endif %}>
+        Remember this device for 90 days
+      </label>
+      <button type="submit" class="btn">Sign In</button>
+    </form>
+    <form method="POST" action="/login/verify/resend">
+      <button type="submit" class="link-btn">Send a new code</button>
+    </form>
+    <a href="/logout" class="back">← Start over</a>
+  </div>
+</div>
+</body>
+</html>
