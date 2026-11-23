@@ -30,6 +30,7 @@ import hub_time
 import hub_usage
 import qbo_connect
 import qbo_sync
+import legal_pages
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -10364,6 +10365,8 @@ office_ops.register_routes(app, get_db, USERS, require_login, send_email_fn=_sen
 production_link.register_routes(app, get_db, USERS, require_login)
 qbo_connect.register_routes(app, get_db, require_admin,
                             extra_context=lambda: qbo_sync.admin_context(get_db, USERS))
+# Public: Intuit's production review opens these without a login.
+legal_pages.register_routes(app)
 # Nightly pull, Sync now, and name matching. A failed nightly run emails
 # Thomas so the dashboard numbers never go stale without anyone knowing.
 qbo_sync.register_routes(app, get_db, require_admin, USERS, _internal_api_ok,
