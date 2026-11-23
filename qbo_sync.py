@@ -308,20 +308,24 @@ def _get_page(get_db_fn, tokens, year, start_position):
                 'Accept': 'application/json',
             },
         )
+        # Intuit support traces a call by this id. Logged for every query,
+        # and carried into any error the owner sees or is emailed.
+        print(f'qbo query start={start_position} status={resp.status_code} '
+              f'intuit_tid={qbo_connect.intuit_tid(resp) or "-"}')
         if resp.status_code == 401 and attempt == 1:
             tokens = _refresh(get_db_fn, tokens)
             continue
         if resp.status_code == 429:
-            raise QboSyncError('QuickBooks asked the Hub to slow down. The next run will try again.')
+            raise QboSyncError(qbo_connect.with_tid('QuickBooks asked the Hub to slow down. The next run will try again.', resp))
         if resp.status_code != 200:
-            raise QboSyncError(f'QuickBooks answered {resp.status_code} to the invoice query.')
+            raise QboSyncError(qbo_connect.with_tid(f'QuickBooks answered {resp.status_code} to the invoice query.', resp))
         try:
             body = resp.json()
         except Exception:
-            raise QboSyncError('QuickBooks returned something that was not JSON.')
+            raise QboSyncError(qbo_connect.with_tid('QuickBooks returned something that was not JSON.', resp))
         query_response = (body or {}).get('QueryResponse')
         if not isinstance(query_response, dict):
-            raise QboSyncError('QuickBooks did not return a query result.')
+            raise QboSyncError(qbo_connect.with_tid('QuickBooks did not return a query result.', resp))
         invoices = query_response.get('Invoice') or []
         if not isinstance(invoices, list):
             raise QboSyncError('QuickBooks did not return a list of invoices.')

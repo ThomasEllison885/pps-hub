@@ -327,3 +327,27 @@ def test_admin_page_renders_with_the_sync_section():
     assert '1 name did not match' in html
     assert 'Company total only' in html
     assert 'Dayton $1,351' in html
+
+
+# ── intuit_tid ───────────────────────────────────────────────────────────
+
+
+class TidResp(Resp):
+    def __init__(self, status, tid, invoices=None):
+        super().__init__(status, invoices)
+        self.headers = {'intuit_tid': tid}
+
+
+def test_intuit_tid_is_read_and_odd_values_are_dropped():
+    assert qbo_connect.intuit_tid(TidResp(200, '1-6543abcd-12ab34cd56ef7890')) == '1-6543abcd-12ab34cd56ef7890'
+    assert qbo_connect.intuit_tid(TidResp(200, 'x; rm -rf /')) == ''
+    assert qbo_connect.intuit_tid(Resp(200)) == ''
+
+
+def test_a_failed_query_carries_the_intuit_tid_to_the_owner(monkeypatch, capsys):
+    monkeypatch.setattr(qbo_connect, 'load_tokens', lambda g: _tokens())
+    monkeypatch.setattr(qbo_connect, 'accounting_get', lambda *a, **k: TidResp(500, 'abc-123'))
+    monkeypatch.setattr(sync, 'record_failure', lambda g, m, by: None)
+    result = sync.run_sync(None, year=2026)
+    assert result['error'] == 'QuickBooks answered 500 to the invoice query. (Intuit ref abc-123)'
+    assert 'intuit_tid=abc-123' in capsys.readouterr().out

@@ -85,6 +85,7 @@ OK_NOTICES = frozenset({'connected', 'disconnected', 'synced', 'mapped'})
 _CODE_RE = re.compile(r'^[A-Za-z0-9._~-]{8,2048}$')
 _REALM_RE = re.compile(r'^[0-9]{1,20}$')
 _SAFE_OAUTH_ERROR = re.compile(r'^[A-Za-z0-9_]{1,40}$')
+_TID_RE = re.compile(r'^[A-Za-z0-9-]{1,80}$')
 
 
 class QboConfigError(Exception):
@@ -239,6 +240,26 @@ def _read_token_payload(body):
     }
 
 
+def intuit_tid(resp):
+    """Intuit's transaction id for one response, from the ``intuit_tid`` header.
+
+    Intuit support asks for it when tracing a call. It identifies the call,
+    not the user, and is safe to log. '' when absent or oddly shaped.
+    """
+    headers = getattr(resp, 'headers', None) or {}
+    try:
+        raw = headers.get('intuit_tid') or headers.get('Intuit_tid') or ''
+    except Exception:
+        return ''
+    raw = str(raw).strip()
+    return raw if _TID_RE.match(raw) else ''
+
+
+def with_tid(message, resp):
+    tid = intuit_tid(resp)
+    return f'{message} (Intuit ref {tid})' if tid else message
+
+
 def _oauth_error_code(resp):
     """Intuit's short error name, when it is a single safe word. Otherwise ''."""
     try:
@@ -272,11 +293,13 @@ def _post_token(form):
         )
     except httpx.HTTPError:
         raise QboAuthError('QuickBooks did not respond.')
+    tid = intuit_tid(resp)
+    print(f'qbo token {form.get("grant_type")} status={resp.status_code} intuit_tid={tid or "-"}')
     if resp.status_code != 200:
         code = _oauth_error_code(resp)
         if code:
-            raise QboAuthError(f'QuickBooks refused the connection ({code}).')
-        raise QboAuthError('QuickBooks refused the connection.')
+            raise QboAuthError(with_tid(f'QuickBooks refused the connection ({code}).', resp))
+        raise QboAuthError(with_tid('QuickBooks refused the connection.', resp))
     try:
         body = resp.json()
     except Exception:
