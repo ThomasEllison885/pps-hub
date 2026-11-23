@@ -374,14 +374,89 @@ def test_callback_saves_a_matching_grant(fernet_env, monkeypatch):
 
 
 def test_module_posts_only_to_the_token_endpoint():
-    """The accounting scope can write. This file is not allowed to."""
+    """The accounting scope can write. One POST, and it is the token address.
+
+    The one GET is accounting_get. Nothing else in this repo calls Intuit.
+    """
     text = open(os.path.join(ROOT, 'qbo_connect.py'), encoding='utf-8').read()
     assert text.count('httpx.post') == 1
-    assert 'httpx.get' not in text
+    assert text.count('httpx.get') == 1
     assert 'httpx.put' not in text
+    assert 'httpx.patch' not in text
     assert 'httpx.delete' not in text
+    assert 'httpx.request' not in text
+    assert 'httpx.Client' not in text
     assert qbo.TOKEN_URL in text
-    assert '/v3/company/' not in text
+    skip = {'.git', '.venv', 'venv', '__pycache__', 'tests'}
+    for dirpath, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in skip and not d.startswith('.')]
+        for name in files:
+            if not name.endswith('.py') or name == 'qbo_connect.py':
+                continue
+            body = open(os.path.join(dirpath, name), encoding='utf-8').read()
+            assert 'quickbooks.api.intuit.com' not in body, name
+            assert 'oauth.platform.intuit.com' not in body, name
+
+
+def test_accounting_get_is_a_get_against_the_company(monkeypatch):
+    seen = {}
+
+    class Resp:
+        status_code = 200
+
+    def fake_get(url, **kwargs):
+        seen['url'] = url
+        seen['params'] = kwargs.get('params')
+        seen['follow'] = kwargs.get('follow_redirects')
+        return Resp()
+
+    monkeypatch.setattr(qbo.httpx, 'get', fake_get)
+    monkeypatch.setattr(qbo.httpx, 'post', lambda *a, **k: (_ for _ in ()).throw(AssertionError('post')))
+    resp = qbo.accounting_get(
+        'sandbox', '9341453222', 'query',
+        params={'query': "SELECT * FROM Invoice"},
+        headers={'Authorization': 'Bearer secret-token'},
+    )
+    assert resp.status_code == 200
+    assert seen['url'] == 'https://sandbox-quickbooks.api.intuit.com/v3/company/9341453222/query'
+    assert seen['params']['query'].startswith('SELECT')
+    assert seen['params']['minorversion'] == str(qbo.MINOR_VERSION)
+    assert seen['follow'] is False
+    assert 'secret-token' not in seen['url']
+
+
+def test_accounting_calls_that_write_are_refused(monkeypatch):
+    def explode(*a, **k):
+        raise AssertionError('Intuit was called')
+
+    monkeypatch.setattr(qbo.httpx, 'get', explode)
+    monkeypatch.setattr(qbo.httpx, 'post', explode)
+    blocked = (
+        ('sandbox', '12', 'batch'),
+        ('sandbox', '12', 'invoice/9?operation=delete'),
+        ('sandbox', 'not-a-realm', 'invoice/9'),
+        ('elsewhere', '12', 'invoice/9'),
+        ('sandbox', '12', 'https://quickbooks.api.intuit.com/v3/company/12/invoice'),
+        ('sandbox', '12', '../invoice'),
+    )
+    for env, realm, path in blocked:
+        try:
+            qbo.accounting_get(env, realm, path)
+        except qbo.QboWriteBlocked:
+            continue
+        raise AssertionError(f'allowed {env} {realm} {path}')
+    try:
+        qbo.accounting_get('sandbox', '12', 'invoice/9', params={'operation': 'delete'})
+    except qbo.QboWriteBlocked:
+        pass
+    else:
+        raise AssertionError('operation=delete was allowed')
+    try:
+        qbo._post_token({'grant_type': 'client_credentials'})
+    except qbo.QboWriteBlocked:
+        pass
+    else:
+        raise AssertionError('a third grant type was allowed')
 
 
 def _app():

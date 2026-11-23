@@ -83,9 +83,10 @@
       {% endif %}
     </div>
     <p class="note">
-      This connection is read-only. A later step pulls invoices. It does not
-      create, change, or delete anything in QuickBooks. The access token
-      lasts about an hour. The nightly sync will refresh it once that job is on.
+      Intuit's permission can write. The Hub refuses any call that is not a
+      read, so it cannot create, change, or delete a QuickBooks record.
+      The access token lasts about an hour. The nightly sync will refresh
+      it once that job is on.
     </p>
     <div class="actions">
       {% if ready %}

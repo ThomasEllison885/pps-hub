@@ -14,9 +14,10 @@ What is already decided, so the next step does not relitigate it:
 - Goals wait until Thomas sends the figures. Do not seed the 2026 books.
 - Sandbox first. ``QBO_ENVIRONMENT`` defaults to sandbox. Production is a
   later switch, after Intuit's questionnaire.
-- Read only. The accounting scope can write. This module never calls an
-  accounting endpoint. The only Intuit requests here are the authorize
-  redirect and the token endpoint. A test locks that.
+- Read only. Intuit's accounting scope can write, and Intuit will not
+  issue a read-only one. ``accounting_get`` is the only accounting call,
+  and it is GET only. The token POST goes to the token address and does
+  not change a QuickBooks record. A test locks both.
 
 Tokens are Fernet-encrypted with ``QBO_TOKEN_KEY`` before they touch
 Postgres. The status page selects every column except the two ciphertext
@@ -85,6 +86,10 @@ class QboConfigError(Exception):
 
 class QboAuthError(Exception):
     """Intuit refused or did not answer. The message is safe to show the owner."""
+
+
+class QboWriteBlocked(Exception):
+    """A call would create, change, or delete a QuickBooks record."""
 
 
 def environment():
@@ -242,7 +247,12 @@ def _oauth_error_code(resp):
 
 
 def _post_token(form):
-    """The one Intuit request this module makes. Token endpoint, no redirects."""
+    """Token endpoint only. This trades a code for a token. It does not
+    create, change, or delete a QuickBooks record."""
+    if not isinstance(form, dict):
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
+    if form.get('grant_type') not in ('authorization_code', 'refresh_token'):
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
     client_id, client_secret = _client_credentials()
     try:
         resp = httpx.post(
@@ -265,6 +275,51 @@ def _post_token(form):
     except Exception:
         raise QboAuthError('QuickBooks did not return a token.')
     return _read_token_payload(body)
+
+
+def accounting_get(environment_name, realm_id, path, *, params=None, headers=None):
+    """Read one QuickBooks resource. The caller does not pass a full URL.
+
+    POST, PUT, PATCH, and DELETE do not exist on this module. A query
+    string named ``operation`` is how Intuit deletes and voids, so that
+    name is refused even on a GET. ``batch`` can carry creates, so that
+    path is refused too.
+    """
+    if environment_name not in ('sandbox', 'production'):
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
+    if not _valid_realm(realm_id):
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
+    path = '' if path is None else str(path).strip().lstrip('/')
+    pieces = [p for p in path.split('/') if p != '']
+    if (
+        not pieces
+        or any(c in path for c in '?#\\')
+        or '://' in path
+        or any(p in ('.', '..') for p in pieces)
+    ):
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
+    if pieces[0].lower() == 'batch':
+        raise QboWriteBlocked('The Hub can only read QuickBooks.')
+    clean = {}
+    if params:
+        if not isinstance(params, dict):
+            raise QboWriteBlocked('The Hub can only read QuickBooks.')
+        for key, value in params.items():
+            if str(key).lower() == 'operation':
+                raise QboWriteBlocked('The Hub can only read QuickBooks.')
+            clean[str(key)] = value
+    clean.setdefault('minorversion', str(MINOR_VERSION))
+    url = f'{api_base_for(environment_name)}/v3/company/{realm_id}/{path}'
+    try:
+        return httpx.get(
+            url,
+            params=clean,
+            headers=headers or {},
+            timeout=30.0,
+            follow_redirects=False,
+        )
+    except httpx.HTTPError:
+        raise QboAuthError('QuickBooks did not respond.')
 
 
 def exchange_code(code):
