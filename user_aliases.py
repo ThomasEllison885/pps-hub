@@ -56,6 +56,7 @@ CONSULTANT_ALIASES = {
     'adam': 'adam_cupito',
     'rachel': 'rachel_farler',
     'andy': 'andy_potts',
+    'harrison': 'harrison_hollon',
 }
 
 # What the PPM and TPS loggers write when there is no SSO session. Kept as a

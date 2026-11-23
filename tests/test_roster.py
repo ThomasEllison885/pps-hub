@@ -25,12 +25,12 @@ def test_harrison_hollon_has_a_pipeline_with_nick():
     assert person['tier'] == 'team'
     assert person['email'] == 'harrison@purepropsolutions.com'
     assert person['display'] == 'Harrison Hollon'
-    assert not person.get('phone')
-    assert 'harrison_hollon' not in hub.PROPOSAL_NUMBER_INITIALS
+    assert person['phone'] == '614-975-0376'
+    assert hub.PROPOSAL_NUMBER_INITIALS['harrison_hollon'] == 'HH'
     assert hub.CONSULTANTS['harrison_hollon'] == 'Harrison Hollon'
     assert 'harrison_hollon' in pb.BOARD_CONSULTANTS
     assert pb.PRIMARY_PM_FOR_CONSULTANT['harrison_hollon'] == 'nick_triplett'
-    assert 'harrison' not in user_aliases.CONSULTANT_ALIASES
+    assert user_aliases.CONSULTANT_ALIASES['harrison'] == 'harrison_hollon'
     assert 'harrison_hollon' not in hub.TEAM_DATES
 
 

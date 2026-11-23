@@ -259,9 +259,9 @@ USERS = {
     },
     # Start date 2026-11-23. On CONSULTANTS as of 2026-11-23 (Thomas).
     # Pipeline board the same day, paired with Nick Triplett, the shape
-    # Tony had. Still no proposal initials and no phone: the only number
-    # on file is his personal cell, and a company 614 line is not issued
-    # yet. A phone here would land on TPS and PPM through /api/roster.
+    # Tony had. 2026-11-23: company line 614-975-0376 issued, so he has a
+    # phone (lands on TPS and PPM through /api/roster), proposal initials
+    # HH, and a radio on the proposal form (alias 'harrison').
     # PSC training stays unenrolled until someone enrolls him. Adam is the
     # trainer (PSC_TRAINING_MENTOR); Thomas signs off.
     'harrison_hollon': {
@@ -270,6 +270,7 @@ USERS = {
         'tier': TIER_TEAM,
         'title': 'Property Solutions Consultant',
         'email': 'harrison@purepropsolutions.com',
+        'phone': '614-975-0376',
     },
     'phil_miller': {
         'display': 'Phil Miller',
@@ -381,6 +382,7 @@ PROPOSAL_NUMBER_INITIALS = {
     'adam_cupito': 'AC',
     'rachel_farler': 'RF',
     'andy_potts': 'AP',
+    'harrison_hollon': 'HH',
 }
 
 def _normalize_consultant_key(consultant_key):
