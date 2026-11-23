@@ -116,6 +116,10 @@ class Cur:
             return
         if s.startswith('CREATE') or s.startswith('ALTER') or s.startswith('COMMENT'):
             return
+        if 'information_schema.columns' in s:
+            # The Date column is already there; no one-time backfill.
+            self._rows = [{'?column?': 1}]
+            return
         if s.startswith('INSERT INTO pipeline_board_status_history'):
             self._insert_history(s, params)
             return
@@ -211,28 +215,25 @@ class Cur:
         eid = store.next_entry
         store.next_entry += 1
         if "'new'" in sql:
-            pair_key, proposal_number, _pair_again, user_key, _user_again = params
+            pair_key, proposal_number, proposal_date, _pair_again, user_key, _user_again = params
             orders = [e['row_order'] for e in store.entries.values() if e['pair_key'] == pair_key]
             row = store.add_entry(pair_key, 'new', store.now, entry_id=eid)
             store.next_entry = max(store.next_entry, eid + 1)
             row['proposal_number'] = proposal_number
+            row['proposal_date'] = proposal_date
             row['row_order'] = (max(orders) + 1) if orders else 0
             row['created_by'] = user_key
             row['updated_by'] = user_key
             self._rows = [dict(row)]
             return
-        if 'archived' in sql:
-            (pair_key, proposal_number, property_name, address, project, status,
-             amount, sub_pay, trade_partner, client_contact, notes, row_order,
-             user_key, _user_again) = params
-        else:
-            (pair_key, proposal_number, property_name, address, project, status,
-             amount, sub_pay, trade_partner, client_contact, notes, row_order,
-             user_key, _user_again) = params
+        (pair_key, proposal_number, proposal_date, property_name, address, project,
+         status, amount, sub_pay, trade_partner, client_contact, notes, row_order,
+         user_key, _user_again) = params
         row = store.add_entry(pair_key, status, store.now, entry_id=eid)
         store.next_entry = max(store.next_entry, eid + 1)
         row.update({
             'proposal_number': proposal_number,
+            'proposal_date': proposal_date,
             'property_name': property_name,
             'address': address,
             'project': project,
@@ -292,8 +293,11 @@ class Cur:
 
     def _restore_update(self, params):
         (proposal_number, property_name, address, project, status, amount, sub_pay,
-         trade_partner, client_contact, notes, row_order, user_key, entry_id, pair_key) = params
+         trade_partner, client_contact, notes, row_order, has_date, proposal_date,
+         user_key, entry_id, pair_key) = params
         entry = self.store.entries.get(entry_id)
+        if entry and has_date:
+            entry['proposal_date'] = proposal_date
         if not entry or entry['pair_key'] != pair_key:
             self._rows = []
             return

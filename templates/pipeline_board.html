@@ -201,6 +201,7 @@
       <table id="board-table">
         <colgroup>
           <col data-col="proposal_number" style="width:110px;">
+          <col data-col="proposal_date" style="width:135px;">
           <col data-col="property_name" style="width:150px;">
           <col data-col="address" style="width:150px;">
           <col data-col="project" style="width:260px;">
@@ -215,6 +216,7 @@
         <thead>
           <tr>
             <th data-col="proposal_number">Proposal #<span class="col-resize-handle"></span></th>
+            <th data-col="proposal_date">Date<span class="col-resize-handle"></span></th>
             <th data-col="property_name">Property<span class="col-resize-handle"></span></th>
             <th data-col="address">Address<span class="col-resize-handle"></span></th>
             <th data-col="project">Project<span class="col-resize-handle"></span></th>
@@ -268,6 +270,16 @@ const STATUSES = {{ statuses|tojson }};
 const COMPLETED_STATUSES = new Set({{ completed_statuses|tojson }});
 const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', 'trade_partner', 'client_contact', 'notes'];
 const NUMERIC_FIELDS = ['amount', 'sub_pay'];
+const DATE_FIELDS = ['proposal_date'];
+
+// "2026-11-23" -> "11/23/2026 nov 23 2026", so a search for either the way
+// the cell shows it or the month name finds the row.
+function dateSearchText(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return '';
+  const months = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  return `${m[2]}/${m[3]}/${m[1]} ${months[+m[2] - 1]} ${+m[3]} ${m[1]}`;
+}
 
 let entries = [];
 let firstLoad = true;
@@ -520,6 +532,7 @@ function renderRow(entry) {
   };
 
   tr.appendChild(cell('proposal_number', `<input data-row="${entry.id}" data-field="proposal_number" value="${escAttr(entry.proposal_number)}">`));
+  tr.appendChild(cell('proposal_date', `<input data-row="${entry.id}" data-field="proposal_date" type="date" value="${escAttr(entry.proposal_date)}">`));
   tr.appendChild(cell('property_name', `<input data-row="${entry.id}" data-field="property_name" value="${escAttr(entry.property_name)}">`));
   tr.appendChild(cell('address', `<input data-row="${entry.id}" data-field="address" value="${escAttr(entry.address)}">`));
   tr.appendChild(cell('project', `<textarea data-row="${entry.id}" data-field="project" rows="1">${escHtml(entry.project)}</textarea>`));
@@ -567,6 +580,7 @@ function entryHaystack(e) {
   return [
     ...TEXT_FIELDS.map(f => e[f]),
     ...NUMERIC_FIELDS.map(f => e[f]),
+    ...DATE_FIELDS.map(f => dateSearchText(e[f])),
     status,
   ].filter(v => v !== null && v !== undefined && v !== '').join(' ').toLowerCase();
 }
@@ -604,7 +618,7 @@ function applyFilter() {
     const body = document.getElementById('board-body');
     const tr = document.createElement('tr');
     tr.id = 'no-matches';
-    tr.innerHTML = `<td colspan="11"><div class="empty-state">No rows match “${escHtml(boardQuery)}”. `
+    tr.innerHTML = `<td colspan="12"><div class="empty-state">No rows match “${escHtml(boardQuery)}”. `
       + `<button type="button" id="clear-from-empty">Clear search</button></div></td>`;
     body.appendChild(tr);
     const btn = tr.querySelector('#clear-from-empty');
@@ -639,7 +653,7 @@ function renderAll() {
   const keepScroll = scroller ? scroller.scrollTop : 0;
   body.innerHTML = '';
   if (!entries.length) {
-    body.innerHTML = `<tr><td colspan="11"><div class="empty-state">No rows yet — click "+ Add row" to start tracking a proposal.</div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="12"><div class="empty-state">No rows yet — click "+ Add row" to start tracking a proposal.</div></td></tr>`;
   } else {
     entries.forEach(e => body.appendChild(renderRow(e)));
   }

@@ -44,6 +44,7 @@ from psycopg2.extras import RealDictCursor
 
 from tiers import is_leadership
 import db_ddl
+from hub_time import ET
 
 # Consultant keys that have a live board. Order is the default-home
 # tiebreak for people who can open more than one (James, admin pickers).
@@ -122,6 +123,10 @@ MAX_NOTES = 10000
 _EDITABLE_TEXT_FIELDS = ('proposal_number', 'property_name', 'address', 'project',
                          'trade_partner', 'client_contact', 'notes')
 _EDITABLE_NUMERIC_FIELDS = ('amount', 'sub_pay')
+# The Date column (2026-11-23), second on the board after Proposal #.
+# A plain calendar date, not a timestamp: it is the day the proposal is
+# dated, which people set by hand. New rows start on today's Eastern date.
+_EDITABLE_DATE_FIELDS = ('proposal_date',)
 
 # Presence lives in Postgres (pipeline_board_presence table), refreshed by a
 # heartbeat call every poll cycle rather than a socket connection. It used to
@@ -191,6 +196,7 @@ def init_tables(cur):
             id SERIAL PRIMARY KEY,
             pair_key VARCHAR(100) NOT NULL,
             proposal_number VARCHAR(100),
+            proposal_date DATE,
             property_name VARCHAR(255),
             address VARCHAR(255),
             project TEXT,
@@ -274,7 +280,41 @@ def init_tables(cur):
         'CREATE INDEX IF NOT EXISTS idx_pipeline_board_status_history_pair '
         'ON pipeline_board_status_history(pair_key, changed_at)'
     )
+    # After the history table exists: the backfill reads it to skip imports.
+    _ensure_proposal_date_column(cur)
     _ensure_status_history(cur)
+
+
+def _ensure_proposal_date_column(cur):
+    """Add the Date column to an existing board table, and fill it once.
+
+    The backfill runs only on the boot that adds the column. Running it on
+    every boot would put a date back into any cell someone deliberately
+    cleared. Existing rows get the Eastern date of `created_at`, except rows
+    that came in through the spreadsheet import: their `created_at` is the
+    day of the import, not the day of the proposal, so they stay blank
+    rather than show a date that looks real and is not.
+    """
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'pipeline_board_entries' AND column_name = 'proposal_date'"
+    )
+    if cur.fetchone():
+        return
+    if not db_ddl.safe_ddl(
+            cur, 'ALTER TABLE pipeline_board_entries ADD COLUMN proposal_date DATE'):
+        return
+    db_ddl.optional_step(cur, '''
+        UPDATE pipeline_board_entries AS e
+        SET proposal_date = ((e.created_at AT TIME ZONE 'UTC')
+                             AT TIME ZONE 'America/New_York')::date
+        WHERE e.proposal_date IS NULL
+          AND e.created_at IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM pipeline_board_status_history h
+              WHERE h.entry_id = e.id AND h.event = 'imported'
+          )
+    ''', label='pipeline proposal_date backfill')
 
 
 _HISTORY_SAVEPOINT = 'pb_status_hist'
@@ -814,8 +854,8 @@ def _row_to_dict(row):
     for k in ('amount', 'sub_pay'):
         if d.get(k) is not None:
             d[k] = float(d[k])
-    for k in ('created_at', 'updated_at'):
-        if d.get(k):
+    for k in ('created_at', 'updated_at', 'proposal_date'):
+        if d.get(k) and hasattr(d[k], 'isoformat'):
             d[k] = d[k].isoformat()
     return d
 
@@ -886,12 +926,13 @@ def create_entry(get_db_fn, pair_key, user_key):
         proposal_number = _next_proposal_number(cur, pair_key)
         cur.execute('''
             INSERT INTO pipeline_board_entries
-                (pair_key, proposal_number, status, row_order, created_by, updated_by)
-            VALUES (%s, %s, 'new',
+                (pair_key, proposal_number, proposal_date, status, row_order,
+                 created_by, updated_by)
+            VALUES (%s, %s, %s, 'new',
                 COALESCE((SELECT MAX(row_order) + 1 FROM pipeline_board_entries WHERE pair_key = %s), 0),
                 %s, %s)
             RETURNING *
-        ''', (pair_key, proposal_number, pair_key, user_key, user_key))
+        ''', (pair_key, proposal_number, _today_eastern(), pair_key, user_key, user_key))
         row = _row_to_dict(cur.fetchone())
         _record_status_event(
             cur, row['id'], pair_key, 'created', None, 'new', user_key,
@@ -910,6 +951,25 @@ def _clean_text(value, max_len):
         return None
     value = str(value).strip()[:max_len]
     return value or None
+
+
+def _today_eastern():
+    return datetime.now(ET).date()
+
+
+def _clean_date(value):
+    """A date input sends 'YYYY-MM-DD', or '' when cleared. Anything that
+    is not a real calendar date saves as blank rather than failing the edit."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value in (None, ''):
+        return None
+    try:
+        return date.fromisoformat(str(value).strip()[:10])
+    except ValueError:
+        return None
 
 
 def _clean_numeric(value):
@@ -941,6 +1001,11 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
         if f in fields:
             sets.append(f'{f} = %s')
             params.append(_clean_numeric(fields[f]))
+
+    for f in _EDITABLE_DATE_FIELDS:
+        if f in fields:
+            sets.append(f'{f} = %s')
+            params.append(_clean_date(fields[f]))
 
     if not sets:
         return None, 'No editable fields provided'
@@ -1012,6 +1077,8 @@ _HEADER_ALIASES = {
     'po number': 'proposal_number',
     'proposal number': 'proposal_number',
     'proposal': 'proposal_number',
+    'date': 'proposal_date',
+    'proposal date': 'proposal_date',
     'property': 'property_name',
     'address': 'address',
     'project': 'project',
@@ -1194,6 +1261,11 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
                 elif target.startswith('notes:'):
                     notes_parts.append(f'{target.split(":", 1)[1]}: {value}')
                     has_content = True
+                elif target in _EDITABLE_DATE_FIELDS:
+                    cleaned = _clean_date(value)
+                    if cleaned is not None:
+                        fields[target] = cleaned
+                        has_content = True
                 elif target in _EDITABLE_NUMERIC_FIELDS:
                     cleaned = _clean_numeric(value)
                     if cleaned is not None:
@@ -1222,13 +1294,14 @@ def import_workbook(get_db_fn, file_obj, pair_key, user_key):
             imported_status = fields.get('status', 'draft')
             cur.execute('''
                 INSERT INTO pipeline_board_entries
-                    (pair_key, proposal_number, property_name, address, project, status,
-                     amount, sub_pay, trade_partner, client_contact, notes, row_order,
-                     created_by, updated_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    (pair_key, proposal_number, proposal_date, property_name, address,
+                     project, status, amount, sub_pay, trade_partner, client_contact,
+                     notes, row_order, created_by, updated_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
-                pair_key, fields.get('proposal_number'), fields.get('property_name'),
+                pair_key, fields.get('proposal_number'), fields.get('proposal_date'),
+                fields.get('property_name'),
                 fields.get('address'), fields.get('project'), imported_status,
                 fields.get('amount'), fields.get('sub_pay'), fields.get('trade_partner'),
                 fields.get('client_contact'), fields.get('notes'), row_order,
@@ -1433,7 +1506,12 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
                 'client_contact': raw.get('client_contact'),
                 'notes': raw.get('notes'),
                 'row_order': raw.get('row_order') or 0,
+                'proposal_date': _clean_date(raw.get('proposal_date')),
             }
+            # Backups taken before the Date column existed have no
+            # proposal_date key. Restoring one must not blank the dates the
+            # rows have now, so the UPDATE keeps the current value then.
+            has_date = 'proposal_date' in raw
             updated = False
             if entry_id is not None:
                 cur.execute(
@@ -1442,13 +1520,15 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
                         project = %s, status = %s, amount = %s, sub_pay = %s,
                         trade_partner = %s, client_contact = %s, notes = %s,
                         row_order = %s, archived = FALSE,
+                        proposal_date = CASE WHEN %s THEN %s ELSE proposal_date END,
                         updated_by = %s, updated_at = NOW()
                        WHERE id = %s AND pair_key = %s
                        RETURNING id''',
                     (fields['proposal_number'], fields['property_name'], fields['address'],
                      fields['project'], fields['status'], fields['amount'], fields['sub_pay'],
                      fields['trade_partner'], fields['client_contact'], fields['notes'],
-                     fields['row_order'], user_key, entry_id, pair_key),
+                     fields['row_order'], has_date, fields['proposal_date'],
+                     user_key, entry_id, pair_key),
                 )
                 if cur.fetchone():
                     updated = True
@@ -1456,11 +1536,12 @@ def restore_from_backup(get_db_fn, pair_key, backup_id, user_key):
             if not updated:
                 cur.execute(
                     '''INSERT INTO pipeline_board_entries
-                        (pair_key, proposal_number, property_name, address, project, status,
-                         amount, sub_pay, trade_partner, client_contact, notes, row_order,
-                         archived, created_by, updated_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s)''',
-                    (pair_key, fields['proposal_number'], fields['property_name'],
+                        (pair_key, proposal_number, proposal_date, property_name, address,
+                         project, status, amount, sub_pay, trade_partner, client_contact,
+                         notes, row_order, archived, created_by, updated_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s)''',
+                    (pair_key, fields['proposal_number'], fields['proposal_date'],
+                     fields['property_name'],
                      fields['address'], fields['project'], fields['status'],
                      fields['amount'], fields['sub_pay'], fields['trade_partner'],
                      fields['client_contact'], fields['notes'], fields['row_order'],
