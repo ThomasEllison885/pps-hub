@@ -18,7 +18,9 @@ the consultant owns the client relationship; everyone writes the same rows.
 Opened past the two-pair pilot 2026-08-13: Adam / Andy / Rachel.
 Tony Cumella's board came off this list 2026-10-31 when he left. Rows
 already stored under that pair_key stay in the database. They are not on
-the switcher.
+the switcher. Harrison Hollon's board was added 2026-11-23, paired with
+Nick Triplett, the same shape Tony had. It starts empty. Tony's rows
+are not copied onto it.
 
 **Access, as of 2026-08-21: every board is open to everyone on the roster.**
 The old per-board `BOARD_ACCESS` roster and the `BOARD_ACCESS_ALL` oversight
@@ -45,7 +47,9 @@ import db_ddl
 
 # Consultant keys that have a live board. Order is the default-home
 # tiebreak for people who can open more than one (James, admin pickers).
-BOARD_CONSULTANTS = ('andy_potts', 'adam_cupito', 'rachel_farler')
+BOARD_CONSULTANTS = (
+    'andy_potts', 'adam_cupito', 'rachel_farler', 'harrison_hollon',
+)
 BOARD_CONSULTANT_SET = frozenset(BOARD_CONSULTANTS)
 
 # Header label: the 1:1 working PM for that consultant's board.
@@ -61,6 +65,10 @@ PRIMARY_PM_FOR_CONSULTANT = {
     # Rachel's PM as of 2026-09-14 (Andy Baur, first day). Derek Kidney was
     # offboarded 2026-08-28; do not point this at a departed user_key.
     'rachel_farler': 'andy_baur',
+    # Harrison's board, 2026-11-23. Same shape Tony had with Nick. Nick
+    # opens this board from a bare /pipeline-board. Tony's old rows stay
+    # under tony_cumella and are not on this board.
+    'harrison_hollon': 'nick_triplett',
 }
 
 # BOARD_ACCESS and BOARD_ACCESS_ALL were deleted 2026-08-21: every board is now
@@ -87,7 +95,9 @@ PRESENCE_TTL_SECONDS = 12  # no explicit "disconnect" under polling; just expire
 # Andy & Ben glance at what still needs a walk vs. what's ready to write —
 # feedback 2026-08 from Andy Potts. "New" is the cleaner label for what he
 # called "Untouched". Terminal-for-our-queue statuses (sent / awarded /
-# cancelled) are the ones the board does *not* highlight as in-progress.
+# completed / cancelled) are the ones the board does *not* highlight as
+# in-progress, and Jump to open work skips them. Completed was added
+# 2026-11-23 so a finished job can be closed without calling it Awarded.
 STATUSES = [
     {'value': 'new', 'label': 'New'},
     {'value': 'needs_scope', 'label': 'Needs walk/scope'},
@@ -95,6 +105,7 @@ STATUSES = [
     {'value': 'draft', 'label': 'Draft'},
     {'value': 'sent', 'label': 'Sent'},
     {'value': 'awarded', 'label': 'Awarded'},
+    {'value': 'completed', 'label': 'Completed'},
     {'value': 'on_hold', 'label': 'On Hold'},
     {'value': 'declined', 'label': 'Declined'},
     {'value': 'cancelled', 'label': 'Cancelled'},
@@ -102,7 +113,8 @@ STATUSES = [
 STATUS_VALUES = frozenset(s['value'] for s in STATUSES)
 STATUS_LABELS = {s['value']: s['label'] for s in STATUSES}
 # Rows not in this set get a highlight — still in some form of progress.
-COMPLETED_STATUSES = frozenset({'sent', 'awarded', 'cancelled'})
+# Awarded stays in this set. Jump to open work must not land on it.
+COMPLETED_STATUSES = frozenset({'sent', 'awarded', 'completed', 'cancelled'})
 
 MAX_TEXT = 500
 MAX_NOTES = 10000
@@ -1031,7 +1043,8 @@ _HEADER_ALIASES = {
 # isn't lost: _normalize_status_value always preserves the raw text in Notes.
 _STATUS_KEYWORDS = {
     'sent': {'yes', 'sent', 'proposed', 'propsed', 'verbal so far', 'online forms', 'email', 'work order'},
-    'awarded': {'complete', 'completed', 'awarded', 'scheduled'},
+    'awarded': {'awarded', 'scheduled'},
+    'completed': {'complete', 'completed'},
     'on_hold': {'on hold', 'delayed'},
     'cancelled': {'cancelled', 'canceled', 'not doing', 'punt', 'duplicate'},
     'draft': {'no', 'none', 'na', 'n/a', '', '.....'},

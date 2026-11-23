@@ -72,11 +72,12 @@ def _add_row(status, archived=False, pair='andy_potts'):
 
 
 def test_counts_only_the_rows_the_board_highlights(db):
-    """COMPLETED_STATUSES is sent, awarded, cancelled. The number on the
-    dashboard has to equal the number of highlighted rows on the board, so a
-    person can check it by eye."""
+    """Closed statuses are sent, awarded, completed, cancelled. The number
+    on the dashboard has to equal the number of highlighted rows on the
+    board, so a person can check it by eye. Awarded and Completed are
+    both closed, so Jump to open work does not land on them."""
     for status in ('new', 'needs_scope', 'draft', 'sent', 'awarded',
-                   'cancelled', 'on_hold', 'declined'):
+                   'completed', 'cancelled', 'on_hold', 'declined'):
         _add_row(status)
     n = ds.pipeline_in_progress(db, 'andy_potts', pipeline_board.COMPLETED_STATUSES)
     assert n == 5, 'new, needs_scope, draft, on_hold, declined'

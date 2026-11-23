@@ -16,7 +16,7 @@ def test_every_live_user_has_a_role_and_email():
     assert errors == [], errors
 
 
-def test_harrison_hollon_can_sign_in_and_nothing_else_yet():
+def test_harrison_hollon_has_a_pipeline_with_nick():
     import app as hub
     import pipeline_board as pb
     import user_aliases
@@ -27,9 +27,9 @@ def test_harrison_hollon_can_sign_in_and_nothing_else_yet():
     assert person['display'] == 'Harrison Hollon'
     assert not person.get('phone')
     assert 'harrison_hollon' not in hub.PROPOSAL_NUMBER_INITIALS
-    assert 'harrison_hollon' not in hub.CONSULTANTS
-    assert 'harrison_hollon' not in pb.BOARD_CONSULTANTS
-    assert 'harrison_hollon' not in pb.PRIMARY_PM_FOR_CONSULTANT
+    assert hub.CONSULTANTS['harrison_hollon'] == 'Harrison Hollon'
+    assert 'harrison_hollon' in pb.BOARD_CONSULTANTS
+    assert pb.PRIMARY_PM_FOR_CONSULTANT['harrison_hollon'] == 'nick_triplett'
     assert 'harrison' not in user_aliases.CONSULTANT_ALIASES
     assert 'harrison_hollon' not in hub.TEAM_DATES
 

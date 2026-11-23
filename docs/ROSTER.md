@@ -126,6 +126,13 @@ He is also off login, the proposal radio grid, Trade Partner Scope,
 PPM, proposal-number initials, the digest, and the Monday ranking.
 His name still resolves on old proposals, old invoices, and his photo.
 
+### Harrison Hollon, added 2026-11-23
+
+He has a pipeline board, paired with Nick Triplett, the shape Tony had.
+The switcher is Andy Potts, Adam Cupito, Rachel Farler, Harrison Hollon.
+His board starts empty. Tony's rows are not on it. He is still off
+proposal-number initials, aliases, team dates, and phone.
+
 ## Check
 
 `tests/test_roster.py` fails if a live user is missing a role, email,

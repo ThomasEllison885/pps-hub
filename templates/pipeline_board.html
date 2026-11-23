@@ -109,6 +109,7 @@
   .status-draft { color:#888; }
   .status-sent { color:#1565C0; }
   .status-awarded { color:#2E7D32; font-weight:600; }
+  .status-completed { color:#607D8B; text-decoration:line-through; }
   .status-on_hold { color:#E65100; }
   .status-declined, .status-cancelled { color:#C62828; text-decoration:line-through; }
   .row-actions button {
@@ -260,8 +261,10 @@ const PAIR_KEY = {{ pair_key|tojson }};
 const MY_USER_KEY = {{ user_key|tojson }};
 const MY_DISPLAY = {{ user_display|tojson }};
 const STATUSES = {{ statuses|tojson }};
-// Sent / Awarded / Cancelled are "done for our queue" — everything else is
-// still in progress and gets a row highlight for quick scanning.
+// Sent / Awarded / Completed / Cancelled are "done for our queue" —
+// everything else is still in progress and gets a row highlight.
+// Jump to open work uses this same set, so an Awarded or Completed
+// row is not an open item.
 const COMPLETED_STATUSES = new Set({{ completed_statuses|tojson }});
 const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', 'trade_partner', 'client_contact', 'notes'];
 const NUMERIC_FIELDS = ['amount', 'sub_pay'];
@@ -1004,7 +1007,7 @@ function jumpToOpenWork() {
   if (!target) {
     showError(terms.length
       ? 'Nothing in progress among the rows matching this search.'
-      : 'Nothing in progress right now — everything is Sent/Awarded/Cancelled.');
+      : 'Nothing in progress right now — everything is Sent, Awarded, Completed, or Cancelled.');
     return;
   }
   const row = document.getElementById(`row-${target.id}`);

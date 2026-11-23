@@ -230,7 +230,7 @@ children.push(p(
 children.push(h1('Production'));
 children.push(h2('Pipeline Board'));
 children.push(p(
-  'One live board per consultant. You and your PM (and anyone else on the team) see the same rows. Statuses include new, needs walk/scope, scoped, then the later ones. Yellow means in-progress, not Sent/Awarded/Cancelled. New rows start at new. It polls every 3 seconds. That is on purpose — we are not putting the whole Hub on one chat socket again.'
+  'One live board per consultant. You and your PM (and anyone else on the team) see the same rows. Statuses include new, needs walk/scope, scoped, then the later ones. Yellow means in-progress, not Sent/Awarded/Completed/Cancelled. New rows start at new. It polls every 3 seconds. That is on purpose — we are not putting the whole Hub on one chat socket again.'
 ));
 children.push(...bullets([
   'Search: the box in the toolbar, or press / (not while you are inside a cell). Terms AND together. “Walk” matches the status “Needs walk/scope.” Escape or the X clears it. Hidden rows stay in the page so a refresh does not dump them back in the wrong order.',

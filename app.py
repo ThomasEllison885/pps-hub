@@ -254,10 +254,13 @@ USERS = {
         'email': 'Andy@purepropsolutions.com',
         'phone': '513-238-2260',
     },
-    # Start date 2026-11-23. Login only. No proposal initials, no pipeline
-    # board, no phone: the only number on file is his personal cell, and a
-    # company 614 line is not issued yet. PSC training stays unenrolled until
-    # he starts. Adam is the trainer (PSC_TRAINING_MENTOR); Thomas signs off.
+    # Start date 2026-11-23. On CONSULTANTS as of 2026-11-23 (Thomas).
+    # Pipeline board the same day, paired with Nick Triplett, the shape
+    # Tony had. Still no proposal initials and no phone: the only number
+    # on file is his personal cell, and a company 614 line is not issued
+    # yet. A phone here would land on TPS and PPM through /api/roster.
+    # PSC training stays unenrolled until someone enrolls him. Adam is the
+    # trainer (PSC_TRAINING_MENTOR); Thomas signs off.
     'harrison_hollon': {
         'display': 'Harrison Hollon',
         'role': 'consultant',
@@ -630,6 +633,7 @@ CONSULTANTS = {
     'adam_cupito': 'Adam Cupito',
     'rachel_farler': 'Rachel Farler',
     'andy_potts': 'Andy Potts',
+    'harrison_hollon': 'Harrison Hollon',
 }
 
 # ── DATABASE ────────────────────────────────────────────────────────────────────

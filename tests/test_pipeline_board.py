@@ -27,7 +27,7 @@ def test_completed_statuses_is_subset_of_status_values():
 def test_completed_statuses_excludes_pre_draft_and_active_statuses():
     # Locks in the highlight-eligibility logic (mirrors the JS isInProgress()
     # helper in templates/pipeline_board.html) against silent drift.
-    assert pb.COMPLETED_STATUSES == {'sent', 'awarded', 'cancelled'}
+    assert pb.COMPLETED_STATUSES == {'sent', 'awarded', 'completed', 'cancelled'}
     for still_open in ('new', 'needs_scope', 'scoped', 'draft', 'on_hold', 'declined'):
         assert still_open not in pb.COMPLETED_STATUSES
 
@@ -38,7 +38,9 @@ def test_normalize_status_value_keyword_mapping():
     cases = [
         ('Scheduled', 'awarded'),
         ('scheduled', 'awarded'),
-        ('Complete', 'awarded'),
+        ('Awarded', 'awarded'),
+        ('Complete', 'completed'),
+        ('completed', 'completed'),
         ('On Hold', 'on_hold'),
         ('cancelled', 'cancelled'),
         ('not doing', 'cancelled'),
@@ -248,6 +250,8 @@ _USERS = {
                             'tier': 'leadership'},
     'thomas_ellison': {'display': 'Thomas Ellison', 'role': 'admin', 'tier': 'owner'},
     'andy_baur': {'display': 'Andy Baur', 'role': 'pm', 'tier': 'team'},
+    'harrison_hollon': {'display': 'Harrison Hollon', 'role': 'consultant',
+                        'tier': 'team'},
 }
 
 
@@ -255,15 +259,17 @@ def test_get_pair_key_consultant_uses_own_key():
     assert pb.get_pair_key(_USERS, 'andy_potts') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'rachel_farler') == 'rachel_farler'
     assert pb.get_pair_key(_USERS, 'adam_cupito') == 'adam_cupito'
+    assert pb.get_pair_key(_USERS, 'harrison_hollon') == 'harrison_hollon'
 
 
 def test_get_pair_key_primary_pm_lands_on_their_consultant():
     assert pb.get_pair_key(_USERS, 'ben_ramsey') == 'andy_potts'
     assert pb.get_pair_key(_USERS, 'jordan_allen') == 'adam_cupito'
     assert pb.get_pair_key(_USERS, 'andy_baur') == 'rachel_farler'
-    # Nick was paired to Tony. That board is gone, so he lands on the first
-    # live board the way an unpaired PM does.
-    assert pb.get_pair_key(_USERS, 'nick_triplett') == pb.BOARD_CONSULTANTS[0]
+    # Nick was paired to Tony. That board is off the switcher. As of
+    # 2026-11-23 he is paired to Harrison, so a bare /pipeline-board
+    # opens Harrison's board.
+    assert pb.get_pair_key(_USERS, 'nick_triplett') == 'harrison_hollon'
 
 
 def test_get_pair_key_owner_has_no_pair_of_their_own():
@@ -361,6 +367,8 @@ def test_assigned_board_is_listed_first():
     assert pb.list_accessible_boards(_USERS, 'ben_ramsey')[0]['key'] == 'andy_potts'
     assert pb.list_accessible_boards(_USERS, 'rachel_farler')[0]['key'] == 'rachel_farler'
     assert pb.list_accessible_boards(_USERS, 'andy_potts')[0]['key'] == 'andy_potts'
+    assert pb.list_accessible_boards(_USERS, 'nick_triplett')[0]['key'] == 'harrison_hollon'
+    assert pb.list_accessible_boards(_USERS, 'harrison_hollon')[0]['key'] == 'harrison_hollon'
 
 
 def test_list_accessible_boards_labels_the_working_pair():
@@ -371,6 +379,9 @@ def test_list_accessible_boards_labels_the_working_pair():
     assert boards['andy_potts']['board_label'] == 'Andy Potts / Ben Ramsey'
     assert boards['rachel_farler']['pm_display'] == 'Andy Baur'
     assert boards['rachel_farler']['board_label'] == 'Rachel Farler / Andy Baur'
+    assert boards['harrison_hollon']['pm_display'] == 'Nick Triplett'
+    assert boards['harrison_hollon']['consultant_display'] == 'Harrison Hollon'
+    assert boards['harrison_hollon']['board_label'] == 'Harrison Hollon / Nick Triplett'
 
 
 def test_andy_baur_is_on_the_live_roster():
