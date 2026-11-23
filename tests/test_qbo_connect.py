@@ -549,5 +549,10 @@ def test_routes_on_the_real_app_are_owner_gated():
                   '/admin/quickbooks/disconnect'):
         assert route in text
     assert text.count('@require_admin') == 4
-    assert 'qbo_connect.register_routes(app, get_db, require_admin)' in app_text
+    assert 'qbo_connect.register_routes(app, get_db, require_admin,' in app_text
+    # Step 2: Sync now and name matching are owner-only too. The cron
+    # endpoint is guarded by INTERNAL_API_KEY instead.
+    sync_text = open(os.path.join(ROOT, 'qbo_sync.py'), encoding='utf-8').read()
+    assert sync_text.count('@require_admin') == 2
+    assert 'qbo_sync.register_routes(app, get_db, require_admin,' in app_text
     assert 'qbo_connect.init_tables(cur)' in app_text

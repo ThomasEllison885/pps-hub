@@ -29,6 +29,7 @@ import hub_adoption
 import hub_time
 import hub_usage
 import qbo_connect
+import qbo_sync
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -1333,6 +1334,7 @@ def _init_db_body(conn, cur):
     pipeline_board.cleanup_legacy_import_notes(cur)
     office_ops.init_tables(cur)
     qbo_connect.init_tables(cur)
+    qbo_sync.init_tables(cur)
     insurance_compliance.init_tables(cur)
     import hub_usage
     hub_usage.init_tables(cur)
@@ -10360,7 +10362,13 @@ pipeline_board.register_routes(app, get_db, USERS, require_login)
 office_ops.register_routes(app, get_db, USERS, require_login, send_email_fn=_send_digest_email,
                             claude_api_key=CLAUDE_API_KEY, claude_model=CLAUDE_MODEL)
 production_link.register_routes(app, get_db, USERS, require_login)
-qbo_connect.register_routes(app, get_db, require_admin)
+qbo_connect.register_routes(app, get_db, require_admin,
+                            extra_context=lambda: qbo_sync.admin_context(get_db, USERS))
+# Nightly pull, Sync now, and name matching. A failed nightly run emails
+# Thomas so the dashboard numbers never go stale without anyone knowing.
+qbo_sync.register_routes(app, get_db, require_admin, USERS, _internal_api_ok,
+                         _send_digest_email,
+                         lambda: [USERS['thomas_ellison']['email']])
 
 
 if __name__ == '__main__':

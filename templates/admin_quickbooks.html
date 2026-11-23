@@ -30,6 +30,16 @@
        font-family:'DM Sans',sans-serif;text-decoration:none;}
   .btn.primary{background:var(--dark-blue);border-color:var(--dark-blue);color:white;}
   .btn:hover{filter:brightness(1.05);}
+  table.t{width:100%;border-collapse:collapse;font-size:14px;}
+  table.t th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#8a94a0;
+             font-weight:700;padding:6px 8px;border-bottom:1px solid var(--border);}
+  table.t td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  table.t td.num,table.t th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .flag{color:var(--red);font-weight:600;}
+  .muted{color:#8a94a0;}
+  select{font-family:'DM Sans',sans-serif;font-size:13px;padding:5px 6px;border:1.5px solid var(--border);border-radius:6px;}
+  .inline{display:flex;gap:6px;align-items:center;}
+  .big{font-size:22px;font-weight:700;color:var(--dark-blue);}
   @media(max-width:700px){.main{padding:24px 14px 44px;}}
 </style>
 </head>
@@ -85,8 +95,8 @@
     <p class="note">
       Intuit's permission can write. The Hub refuses any call that is not a
       read, so it cannot create, change, or delete a QuickBooks record.
-      The access token lasts about an hour. The nightly sync will refresh
-      it once that job is on.
+      The access token lasts about an hour. The sync refreshes it each run
+      and stores the new pair.
     </p>
     <div class="actions">
       {% if ready %}
@@ -99,6 +109,95 @@
       {% endif %}
     </div>
   </div>
+
+  {% if status.connected %}
+  <div class="card">
+    <h2>Invoiced sales sync</h2>
+    <div class="kv">
+      {% if sync and sync.last_synced_at %}
+      <div><span>Last successful sync. </span>{{ sync.last_synced_at | et_at }}{% if sync.last_run_by %} <span>({{ sync.last_run_by }})</span>{% endif %}</div>
+      <div><span>Year. </span>{{ sync.year }}</div>
+      <div><span>Invoices read. </span>{{ sync.invoice_count }}</div>
+      <div><span>Company invoiced YTD. </span><span class="big">${{ '{:,.0f}'.format(summary.company_total) }}</span></div>
+      {% if sync.no_consultant_count %}
+      <div><span>Invoices with no Consultant. </span><span class="flag">{{ sync.no_consultant_count }} (${{ '{:,.0f}'.format(sync.no_consultant_total) }})</span> <span class="muted">These count in the company total only.</span></div>
+      {% endif %}
+      {% if sync.consultant_field_seen == false %}
+      <div class="flag">QuickBooks did not return a "Consultant" field on any invoice. Per-person totals cannot be built until it does.</div>
+      {% endif %}
+      {% else %}
+      <div><span>Status. </span>Not synced yet.</div>
+      {% endif %}
+      {% if sync and sync.last_error %}
+      <div><span>Last problem. </span><span class="flag">{{ sync.last_error }}</span> <span class="muted">{{ sync.last_error_at | et_at }}</span></div>
+      {% endif %}
+    </div>
+    <p class="note">
+      Runs each night at midnight Eastern. Every run re-reads every invoice
+      dated this year, so edits, voids, and deletes are picked up. Gross
+      invoiced: invoice total less sales tax. Credit memos are not counted.
+      A shared invoice like "Adam / Rachel" is split evenly.
+    </p>
+    <div class="actions">
+      <form method="post" action="/admin/quickbooks/sync" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Syncing…';">
+        <button class="btn primary" type="submit">Sync now</button>
+      </form>
+    </div>
+  </div>
+
+  {% if summary and summary.by_name %}
+  <div class="card">
+    <h2>Consultant names in QuickBooks</h2>
+    {% if unmatched_count %}
+    <p class="note" style="margin-top:0;margin-bottom:12px;"><span class="flag">{{ unmatched_count }} name{{ '' if unmatched_count == 1 else 's' }} did not match anyone on the Hub.</span> Pick the person below. A former employee can stay unmatched: their sales still count in the company total.</p>
+    {% endif %}
+    <table class="t">
+      <tr><th>As written in QuickBooks</th><th class="num">Invoiced YTD</th><th class="num">Invoices</th><th>Hub person</th></tr>
+      {% for e in summary.by_name %}
+      <tr>
+        <td>{% if e.name %}{{ e.name }}{% else %}<span class="muted">(blank)</span>{% endif %}</td>
+        <td class="num">${{ '{:,.0f}'.format(e.amount) }}</td>
+        <td class="num">{{ '{:,.1f}'.format(e.invoices) | replace('.0', '') }}</td>
+        <td>
+          {% if e.name %}
+          <form method="post" action="/admin/quickbooks/map" class="inline">
+            <input type="hidden" name="qb_name" value="{{ e.name }}">
+            <select name="user_key" onchange="this.form.submit()">
+              <option value="">{% if e.user_key %}— clear saved match —{% else %}No match{% endif %}</option>
+              {% for key, display in people %}
+              <option value="{{ key }}" {% if key == e.user_key %}selected{% endif %}>{{ display }}</option>
+              {% endfor %}
+            </select>
+            {% if not e.user_key %}<span class="flag">!</span>{% endif %}
+          </form>
+          {% else %}
+          <span class="muted">Company total only</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  {% if summary.by_person %}
+  <div class="card">
+    <h2>What the dashboard will show</h2>
+    <table class="t">
+      <tr><th>Person</th><th class="num">Invoiced YTD</th></tr>
+      {% for p in summary.by_person %}
+      <tr><td>{{ p.display }}</td><td class="num">${{ '{:,.0f}'.format(p.amount) }}</td></tr>
+      {% endfor %}
+      <tr><td><strong>Company</strong></td><td class="num"><strong>${{ '{:,.0f}'.format(summary.company_total) }}</strong></td></tr>
+    </table>
+    {% if summary.by_city %}
+    <p class="note">By city:
+      {% for city, amt in summary.by_city %}{% if not loop.first %} · {% endif %}{{ city or '(blank)' }} ${{ '{:,.0f}'.format(amt) }}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% endif %}
+  {% endif %}
 </div>
 </body>
 </html>

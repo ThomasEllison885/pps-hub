@@ -2,7 +2,8 @@
 
 Thomas, 2026-11-23. Live invoiced sales on the dashboard, read from our own
 tables. This module is only the OAuth grant and the place the tokens live.
-The nightly pull, the goals, and the numbers above Jump back in come later.
+The nightly pull is ``qbo_sync.py``. Goals and the numbers above Jump back
+in come later.
 
 What is already decided, so the next step does not relitigate it:
 
@@ -73,7 +74,13 @@ NOTICES = {
     'config': 'QuickBooks is not configured on the server yet. The missing settings are listed below.',
     'realm': 'QuickBooks did not send a company id. Start again.',
     'save': 'The token came back, and it could not be saved. Nothing was stored. Start again.',
+    'synced': 'Sync finished. The totals below are what the dashboard will read.',
+    'sync_failed': 'The sync did not finish. The last good numbers were kept. The problem is listed below.',
+    'mapped': 'Saved. The match applies right away, with no new sync.',
+    'map_bad': 'That match could not be saved.',
 }
+
+OK_NOTICES = frozenset({'connected', 'disconnected', 'synced', 'mapped'})
 
 _CODE_RE = re.compile(r'^[A-Za-z0-9._~-]{8,2048}$')
 _REALM_RE = re.compile(r'^[0-9]{1,20}$')
@@ -640,7 +647,12 @@ def callback_notice(query, expected_state, connected_by, get_db_fn):
     return 'connected'
 
 
-def register_routes(app, get_db_fn, require_admin):
+def register_routes(app, get_db_fn, require_admin, extra_context=None):
+    """``extra_context`` is a no-argument callable that adds the sync section.
+
+    It comes from ``qbo_sync`` and must never return a token. It reads only
+    the stored totals, the sync status row, and the name matches.
+    """
     from flask import make_response, redirect, render_template, request, session, url_for
 
     def _page(notice_code):
@@ -649,12 +661,20 @@ def register_routes(app, get_db_fn, require_admin):
         # future edit puts a token-shaped key on the dict the template sees.
         if set(status) != PUBLIC_STATUS_KEYS:
             raise RuntimeError('qbo status dict drifted')
+        extra = {}
+        if extra_context is not None:
+            try:
+                extra = extra_context() or {}
+            except Exception as exc:
+                print(f'qbo sync section failed: {type(exc).__name__}')
+                extra = {}
         resp = make_response(render_template(
             'admin_quickbooks.html',
             status=status,
             notice=NOTICES.get(notice_code or '', ''),
-            notice_ok=notice_code in ('connected', 'disconnected'),
+            notice_ok=notice_code in OK_NOTICES,
             ready=not status['problems'],
+            **extra,
         ))
         resp.headers['Cache-Control'] = 'no-store'
         return resp

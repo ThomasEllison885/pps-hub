@@ -157,6 +157,23 @@ services:
         value: https://hub.purepropsolutions.com
 
   - type: cron
+    name: pps-hub-qbo-sync
+    runtime: python
+    # QuickBooks invoiced sales, once a night at midnight US/Eastern.
+    # 04:05 and 05:05 UTC; the Hub runs only when the Eastern hour is 0, so
+    # one of the two lands on midnight in both EDT and EST. Trigger Run at
+    # any other hour is a no-op unless QBO_SYNC_FORCE=true. The tokens stay
+    # on the web service; this cron only POSTs with INTERNAL_API_KEY.
+    schedule: "5 4,5 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python cron_qbo_sync.py
+    envVars:
+      - key: INTERNAL_API_KEY
+        sync: false
+      - key: HUB_PUBLIC_URL
+        value: https://hub.purepropsolutions.com
+
+  - type: cron
     name: pps-hub-daily-estimate-check
     runtime: python
     # 11 UTC ≈ 7am US/Eastern (EDT/EST).
