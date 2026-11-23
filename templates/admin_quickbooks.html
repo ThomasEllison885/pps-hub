@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% include '_pwa_head.html' %}
+<title>PPS Hub · QuickBooks</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'DM Sans',sans-serif;background:#F0F6FB;color:var(--gray);min-height:100vh;}
+  .main{margin:0 auto;padding:32px 24px 60px;}
+  .page-title{font-family:'DM Serif Display',serif;font-size:28px;color:var(--dark-blue);margin-bottom:4px;}
+  .page-sub{font-size:14px;color:#888;margin-bottom:22px;max-width:68ch;line-height:1.55;}
+  .card{background:white;border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:16px;}
+  .card h2{font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--dark-blue);
+           margin-bottom:14px;padding-bottom:9px;border-bottom:1px solid var(--border);}
+  .kv{display:flex;flex-direction:column;gap:8px;font-size:14px;line-height:1.45;}
+  .kv span{color:#8a94a0;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--light-bg);
+       padding:1px 6px;border-radius:4px;color:var(--dark-blue);word-break:break-all;}
+  .note{font-size:13px;color:#6b7680;margin-top:14px;line-height:1.55;max-width:68ch;}
+  .banner{border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:14px;line-height:1.5;}
+  .banner.ok{background:var(--green-light);border:1px solid var(--green);color:var(--green);}
+  .banner.bad{background:var(--red-light);border:1px solid var(--red);color:var(--red);}
+  .problems{margin:0 0 12px 18px;font-size:14px;line-height:1.6;}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
+  .btn{display:inline-block;border:1.5px solid var(--border);background:white;color:var(--dark-blue);
+       border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;
+       font-family:'DM Sans',sans-serif;text-decoration:none;}
+  .btn.primary{background:var(--dark-blue);border-color:var(--dark-blue);color:white;}
+  .btn:hover{filter:brightness(1.05);}
+  @media(max-width:700px){.main{padding:24px 14px 44px;}}
+</style>
+</head>
+<body>
+<header class="pps-header">
+  <a href="/dashboard" class="pps-header-left">
+    <img src="/static/logo.png" alt="PPS" class="pps-header-logo">
+    <div class="pps-header-divider"></div>
+    <span class="pps-header-title">QuickBooks</span>
+  </a>
+  <div class="pps-header-right">
+    <a href="/admin" class="pps-btn-header">← Admin</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">QuickBooks</div>
+  <p class="page-sub">
+    Connects the Hub to one QuickBooks company so invoiced sales can be read
+    overnight. Owner only. The Hub stores the tokens on the server and does
+    not show them.
+  </p>
+
+  {% if notice %}
+  <div class="banner {% if notice_ok %}ok{% else %}bad{% endif %}">{{ notice }}</div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Connection</h2>
+    {% if status.problems %}
+    <p class="note" style="margin-top:0;">These settings are missing or unusable on the server:</p>
+    <ul class="problems">
+      {% for name in status.problems %}<li><code>{{ name }}</code></li>{% endfor %}
+    </ul>
+    {% endif %}
+    <div class="kv">
+      <div><span>Environment. </span>{{ status.environment }}</div>
+      <div><span>Redirect URI to register at Intuit. </span><code>{{ status.redirect_uri }}</code></div>
+      {% if status.connected %}
+      <div><span>Company id. </span><code>{{ status.realm_id }}</code></div>
+      <div><span>Connected. </span>{{ status.connected_at | et_at }}</div>
+      <div><span>Access token expires. </span>{{ status.access_expires_at | et_at }}</div>
+      {% if status.refresh_expires_at %}
+      <div><span>Refresh token expires. </span>{{ status.refresh_expires_at | et_at }}</div>
+      {% endif %}
+      {% else %}
+      <div><span>Status. </span>Not connected</div>
+      {% endif %}
+      {% if status.last_error %}
+      <div><span>Last problem. </span>{{ status.last_error }}</div>
+      {% endif %}
+    </div>
+    <p class="note">
+      This connection is read-only. A later step pulls invoices. It does not
+      create, change, or delete anything in QuickBooks. The access token
+      lasts about an hour. The nightly sync will refresh it once that job is on.
+    </p>
+    <div class="actions">
+      {% if ready %}
+      <a class="btn primary" href="/admin/quickbooks/connect">Connect QuickBooks</a>
+      {% endif %}
+      {% if status.connected %}
+      <form method="post" action="/admin/quickbooks/disconnect" onsubmit="return confirm('Disconnect QuickBooks? The stored tokens will be deleted.');">
+        <button class="btn" type="submit">Disconnect</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

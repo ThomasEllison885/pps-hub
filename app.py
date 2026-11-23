@@ -28,6 +28,7 @@ import roster
 import hub_adoption
 import hub_time
 import hub_usage
+import qbo_connect
 from admin_feed import merge_activity
 from werkzeug.exceptions import HTTPException
 from psc_training_data import (
@@ -1331,6 +1332,7 @@ def _init_db_body(conn, cur):
     pipeline_board.init_tables(cur)
     pipeline_board.cleanup_legacy_import_notes(cur)
     office_ops.init_tables(cur)
+    qbo_connect.init_tables(cur)
     insurance_compliance.init_tables(cur)
     import hub_usage
     hub_usage.init_tables(cur)
@@ -10358,6 +10360,7 @@ pipeline_board.register_routes(app, get_db, USERS, require_login)
 office_ops.register_routes(app, get_db, USERS, require_login, send_email_fn=_send_digest_email,
                             claude_api_key=CLAUDE_API_KEY, claude_model=CLAUDE_MODEL)
 production_link.register_routes(app, get_db, USERS, require_login)
+qbo_connect.register_routes(app, get_db, require_admin)
 
 
 if __name__ == '__main__':

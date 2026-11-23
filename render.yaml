@@ -76,6 +76,20 @@ services:
       # the page, dashboard card, and guide section.
       - key: PRODUCTION_LINK_ENABLED
         value: "false"
+      # QuickBooks Online. Sandbox until Intuit finishes the production
+      # questionnaire. Id, secret, and the Fernet key are set in the Render
+      # dashboard. Generate the key locally and paste it there:
+      # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      - key: QBO_CLIENT_ID
+        sync: false
+      - key: QBO_CLIENT_SECRET
+        sync: false
+      - key: QBO_TOKEN_KEY
+        sync: false
+      - key: QBO_ENVIRONMENT
+        value: sandbox
+      - key: QBO_REDIRECT_URI
+        value: https://hub.purepropsolutions.com/qbo/callback
 
   - type: cron
     name: pps-hub-daily-digest
