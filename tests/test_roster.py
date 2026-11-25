@@ -91,6 +91,34 @@ def test_retired_key_cannot_be_put_back():
     assert any('retired' in e for e in errors)
 
 
+def test_demo_guest_is_a_login_and_not_a_person_on_the_roster():
+    import app as hub
+    person = hub.USERS['demo']
+    assert person['role'] == 'guest'
+    assert person['display'] == 'Demo'
+    assert not person.get('phone')
+    assert roster.is_guest(hub.USERS, 'demo') is True
+    assert roster.is_guest(hub.USERS, 'rachel_farler') is False
+    rows = roster.people_payload(hub.USERS)
+    assert all(r['user_key'] != 'demo' for r in rows)
+    assert 'demo' in roster.REPORT_OMIT_KEYS
+    assert hub.get_user_proposal_access('demo') == []
+    assert hub.guest_may_open('dashboard', '/dashboard') is True
+    assert hub.guest_may_open('clients', '/clients') is False
+    assert hub.guest_may_open(None, '/static/pps-global.css') is True
+    client = hub.app.test_client()
+    with client.session_transaction() as sess:
+        sess['user_key'] = 'demo'
+    blocked = client.get('/admin')
+    assert blocked.status_code == 302
+    assert blocked.headers['Location'].endswith('/dashboard')
+    home = client.get('/dashboard')
+    assert home.status_code == 200
+    assert b'cannot open client' in home.data
+    api = client.get('/api/proposals/next-number')
+    assert api.status_code == 403
+
+
 def test_people_payload_skips_nothing_in_users_and_sorts():
     users = {
         'zeta': {'display': 'Zed', 'role': 'pm', 'tier': 'team',

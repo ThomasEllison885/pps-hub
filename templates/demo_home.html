@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="/static/pps-global.css">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPS Hub · Demo</title>
+<style>
+  body { font-family: 'DM Sans', sans-serif; background: #F0F6FB; color: #334; margin: 0; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e2e8f0; }
+  header strong { color: #003366; }
+  main { padding: 36px 20px; }
+  a { color: #0077b6; }
+</style>
+</head>
+<body>
+  <header>
+    <strong>PPS Hub</strong>
+    <a href="/logout">Sign out</a>
+  </header>
+  <main>
+    <h1>Hello, {{ display }}.</h1>
+    <p>You are signed in. This login cannot open client, employee, or financial pages.</p>
+  </main>
+</body>
+</html>

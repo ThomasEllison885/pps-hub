@@ -340,6 +340,18 @@ USERS = {
         'email': 'abaur@purepropsolutions.com',
         'phone': '937-716-3950',
     },
+    # Guest login for a friend Thomas is showing the Hub to. Not a shared
+    # Admin account: no password in this file, no admin powers, and the
+    # guest wall below refuses every page that holds company data. Thomas
+    # sets the password from Admin → Reset. No phone, so /api/roster cannot
+    # publish one, and people_payload skips guests entirely.
+    'demo': {
+        'display': 'Demo',
+        'role': 'guest',
+        'tier': TIER_TEAM,
+        'title': 'Guest',
+        'email': 'demo@purepropsolutions.com',
+    },
 }
 roster.assert_users(USERS)
 
@@ -1713,6 +1725,21 @@ def logs_open(feature):
     return decorate
 
 
+# Endpoints a signed-in guest may open. Everything else is company data.
+_GUEST_ENDPOINTS = frozenset({
+    'dashboard', 'logout', 'change_password', 'login', 'index', 'static',
+    'health', 'service_worker', 'offline_page',
+    'legal_eula', 'legal_privacy',
+    'forgot_password', 'reset_password_with_token',
+})
+
+
+def guest_may_open(endpoint, path):
+    if endpoint in _GUEST_ENDPOINTS:
+        return True
+    return (path or '').startswith('/static/')
+
+
 def require_login(f):
     from functools import wraps
     @wraps(f)
@@ -1740,6 +1767,19 @@ def require_login(f):
             return redirect(url_for('change_password'))
         return f(*args, **kwargs)
     return decorated
+
+
+@app.before_request
+def _guest_wall():
+    """A demo login stays on its own page. Private routes never run."""
+    key = session.get('user_key')
+    if not key or not roster.is_guest(USERS, key):
+        return None
+    if guest_may_open(request.endpoint, request.path):
+        return None
+    if _wants_json_response() or request.path.startswith('/api/'):
+        return jsonify({'error': 'This demo login cannot open that.'}), 403
+    return redirect(url_for('dashboard'))
 
 
 def require_admin(f):
@@ -1778,6 +1818,8 @@ def get_user_proposal_access(user_key):
     and this is the one place to narrow it again if that day comes.
     """
     if not user_key or user_key not in USERS:
+        return []
+    if roster.is_guest(USERS, user_key):
         return []
     return list(CONSULTANTS.keys())
 
@@ -4266,6 +4308,8 @@ def dashboard():
     user_key = session['user_key']
     _touch_last_active(user_key)
     user = USERS.get(user_key, {})
+    if roster.is_guest(USERS, user_key):
+        return render_template('demo_home.html', display=user.get('display') or 'Demo')
     proposal_access = get_user_proposal_access(user_key)
     accessible_consultants = {k: CONSULTANTS[k] for k in proposal_access if k in CONSULTANTS}
     recent_proposals = get_recent_proposals(user_key)
@@ -9090,6 +9134,8 @@ def forgot_password():
         user_def = USERS.get(user_key)
         if not user_def:
             error = 'Tap your name in the list first.'
+        elif roster.is_guest(USERS, user_key):
+            error = 'Thomas sets this password. Use the one he gave you.'
         else:
             token = create_password_reset_token(get_db, user_key)
             to_email = user_def.get('email', '')

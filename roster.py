@@ -9,7 +9,7 @@ See ``docs/ROSTER.md``.
 
 from __future__ import annotations
 
-ALLOWED_ROLES = frozenset({'admin', 'consultant', 'pm', 'office_manager'})
+ALLOWED_ROLES = frozenset({'admin', 'consultant', 'pm', 'office_manager', 'guest'})
 REQUIRED_FIELDS = ('display', 'role', 'tier', 'title', 'email')
 # Dropped from USERS. Keep generating this SQL for hub_users cleanup.
 # History logs are left alone.
@@ -17,7 +17,7 @@ RETIRED_USER_KEYS = ('admin', 'derek_kidney', 'tony_cumella')
 # Off the nightly digest and the Monday ranking. History rows stay.
 # Derek stays on those reports so old work is still readable. Tony does
 # not: Thomas, 2026-11-09. 'tony' is the proposal-form spelling of his key.
-REPORT_OMIT_KEYS = frozenset({'tony_cumella', 'tony'})
+REPORT_OMIT_KEYS = frozenset({'tony_cumella', 'tony', 'demo'})
 
 _SQL_SAFE = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_')
 
@@ -49,6 +49,12 @@ def validate_users(users):
     return errors
 
 
+def is_guest(users, user_key):
+    """A login that can sign in and must not see company data."""
+    person = (users or {}).get(user_key) or {}
+    return (person.get('role') or '') == 'guest'
+
+
 def assert_users(users):
     errors = validate_users(users)
     if errors:
@@ -59,6 +65,8 @@ def people_payload(users):
     """JSON list for /api/roster — live people only, sorted by display name."""
     rows = []
     for key, person in (users or {}).items():
+        if (person.get('role') or '') == 'guest':
+            continue
         rows.append({
             'user_key': key,
             'display': person.get('display') or key,
