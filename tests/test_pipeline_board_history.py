@@ -259,6 +259,7 @@ class Cur:
         set_sql = sql.split(' SET ', 1)[1].split(' FROM old', 1)[0]
         values = list(params[2:])
         old_status = entry['status']
+        old_notes = entry.get('notes')
         vi = 0
         for part in set_sql.split(','):
             part = part.strip()
@@ -270,6 +271,7 @@ class Cur:
             vi += 1
         out = dict(entry)
         out['_old_status'] = old_status
+        out['_old_notes'] = old_notes
         self._rows = [out]
 
     def _archive_one(self, params):

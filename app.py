@@ -10432,7 +10432,8 @@ def _run_password_campaign():
 
 
 ask_pps.register_routes(app, get_db, USERS, CLAUDE_API_KEY, CLAUDE_MODEL, require_login)
-pipeline_board.register_routes(app, get_db, USERS, require_login)
+pipeline_board.register_routes(app, get_db, USERS, require_login,
+                               send_email_fn=_send_digest_email)
 office_ops.register_routes(app, get_db, USERS, require_login, send_email_fn=_send_digest_email,
                             claude_api_key=CLAUDE_API_KEY, claude_model=CLAUDE_MODEL)
 production_link.register_routes(app, get_db, USERS, require_login)

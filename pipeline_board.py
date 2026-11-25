@@ -35,8 +35,10 @@ Do NOT add an "IC" status: in the sample data every "IC" row was actually an
 "Indian Creek" property tag left in the wrong column, not a real status.
 """
 
+import html as _html
 import json
 import re
+import threading
 from datetime import datetime, date, timezone
 
 import openpyxl
@@ -981,8 +983,12 @@ def _clean_numeric(value):
         return None
 
 
-def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
-    """Update whitelisted fields on one entry. Returns the updated row or None."""
+def update_entry(get_db_fn, entry_id, pair_key, user_key, fields, old_out=None):
+    """Update whitelisted fields on one entry. Returns the updated row or None.
+
+    `old_out`, when a dict is passed, receives the row's Notes as they were
+    before this save. The @mention email compares old and new Notes so a
+    person is emailed once when they are first tagged, not on every save."""
     sets, params = [], []
 
     if 'status' in fields:
@@ -1024,7 +1030,7 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
         # unchanged, does not get a history row.
         cur.execute(
             f'''WITH old AS (
-                    SELECT id, status
+                    SELECT id, status, notes
                     FROM pipeline_board_entries
                     WHERE id = %s AND pair_key = %s AND archived = FALSE
                     FOR UPDATE
@@ -1033,7 +1039,7 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
                 SET {", ".join(sets)}
                 FROM old
                 WHERE e.id = old.id
-                RETURNING e.*, old.status AS _old_status''',
+                RETURNING e.*, old.status AS _old_status, old.notes AS _old_notes''',
             [entry_id, pair_key, *params],
         )
         row = cur.fetchone()
@@ -1043,6 +1049,9 @@ def update_entry(get_db_fn, entry_id, pair_key, user_key, fields):
             conn.close()
             return None, 'Entry not found'
         old_status = row.pop('_old_status', None)
+        old_notes = row.pop('_old_notes', None)
+        if old_out is not None:
+            old_out['notes'] = old_notes
         if 'status' in fields and old_status != fields['status']:
             _record_status_event(
                 cur, entry_id, pair_key, 'status', old_status, fields['status'], user_key,
@@ -1602,7 +1611,147 @@ def archive_entry(get_db_fn, entry_id, pair_key, user_key=None):
         return False
 
 
-def register_routes(app, get_db_fn, users, require_login):
+# ── @mentions in Notes (2026-11-25) ──────────────────────────────────────
+#
+# Thomas: a way to tag someone, and have it email them. Typing @ in a Notes
+# cell offers everyone with a Hub login; picking one writes "@Full Name"
+# into the note. When the note is saved, anyone newly tagged gets an email
+# with the row and a link straight to it.
+#
+# "Newly" is the whole design. The emails come from comparing the Notes
+# before and after the save, not from a table of sent tags: a note saved ten
+# times with "@Adam Cupito" in it emails Adam once. Delete the tag and add
+# it back, and he is emailed again, which is what re-tagging means.
+#
+# Full names always match. A first name on its own matches only when no one
+# else has it, so "@Adam" works and "@Andy" does not (Potts and Baur).
+# The person saving is never emailed about their own tag. The guest login
+# cannot be tagged.
+
+def mention_people(users):
+    """Everyone who can be tagged, sorted by name: [{'key', 'display'}]."""
+    people = []
+    for key, person in (users or {}).items():
+        if (person.get('role') or '') == 'guest' or not person.get('email'):
+            continue
+        people.append({'key': key, 'display': person.get('display') or key})
+    people.sort(key=lambda p: p['display'].lower())
+    return people
+
+
+def find_mentions(text, users):
+    """Roster keys of the people tagged in `text`."""
+    if not text or '@' not in text:
+        return set()
+    people = mention_people(users)
+    first_counts = {}
+    for p in people:
+        first = p['display'].split()[0].lower()
+        first_counts[first] = first_counts.get(first, 0) + 1
+    found = set()
+    for p in people:
+        names = [p['display']]
+        first = p['display'].split()[0]
+        if first_counts[first.lower()] == 1 and first != p['display']:
+            names.append(first)
+        for name in names:
+            # Not preceded by a letter or @ (so an email address is not a
+            # tag), and the name has to end there ("@Adamson" is not Adam).
+            pattern = r'(?<![\w@])@' + re.escape(name) + r'(?![\w])'
+            if re.search(pattern, text, re.IGNORECASE):
+                found.add(p['key'])
+                break
+    return found
+
+
+def new_mentions(old_text, new_text, users, author_key):
+    """Keys tagged in the new Notes that were not tagged before, minus the author."""
+    added = find_mentions(new_text, users) - find_mentions(old_text, users)
+    added.discard(author_key)
+    return sorted(added)
+
+
+def build_mention_email(users, author_key, recipient_key, pair_key, entry, base_url):
+    """(subject, text_body, html_body) for one tagged person."""
+    author = _display(users, author_key)
+    board = board_label(users, pair_key)
+    number = (entry.get('proposal_number') or '').strip()
+    prop = (entry.get('property_name') or '').strip()
+    project = (entry.get('project') or '').strip()
+    notes = (entry.get('notes') or '').strip()
+    link = f"{(base_url or '').rstrip('/')}/pipeline-board?pair={pair_key}#row-{entry.get('id')}"
+    what = ' · '.join(x for x in (number, prop) if x) or 'a row'
+    subject = f'{author} tagged you on the Pipeline Board: {what}'
+
+    lines = [f'{author} tagged you in a note on the {board} pipeline.', '']
+    if number:
+        lines.append(f'Proposal #: {number}')
+    if prop:
+        lines.append(f'Property: {prop}')
+    if project:
+        lines.append(f'Project: {project}')
+    lines += ['', 'Notes:', notes, '', f'Open the row: {link}']
+    text_body = '\n'.join(lines)
+
+    esc = _html.escape
+    details = ''.join(
+        f'<tr><td style="color:#666;padding:2px 12px 2px 0;">{label}</td>'
+        f'<td style="padding:2px 0;">{esc(value)}</td></tr>'
+        for label, value in (('Proposal #', number), ('Property', prop), ('Project', project))
+        if value
+    )
+    html_body = (
+        '<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;">'
+        f'<p><strong>{esc(author)}</strong> tagged you in a note on the '
+        f'<strong>{esc(board)}</strong> pipeline.</p>'
+        f'<table style="border-collapse:collapse;margin-bottom:12px;">{details}</table>'
+        '<div style="background:#f5f8fb;border-left:3px solid #1E88E5;padding:10px 12px;'
+        f'white-space:pre-wrap;">{esc(notes)}</div>'
+        f'<p style="margin-top:16px;"><a href="{esc(link)}" style="background:#1E88E5;color:#fff;'
+        'padding:9px 16px;border-radius:6px;text-decoration:none;">Open the row</a></p>'
+        '</div>'
+    )
+    return subject, text_body, html_body
+
+
+def _run_in_background(fn):
+    threading.Thread(target=fn, daemon=True).start()
+
+
+def notify_mentions(send_email_fn, users, author_key, pair_key, entry, old_notes,
+                    base_url, run=_run_in_background):
+    """Email everyone newly tagged in this save. Returns their display names.
+
+    Sending happens off the request thread, so a slow mail server never
+    holds up the save. A failure is logged and does not undo the note.
+    """
+    if not send_email_fn or not entry:
+        return []
+    keys = new_mentions(old_notes, entry.get('notes'), users, author_key)
+    messages = []
+    for key in keys:
+        email = (users.get(key) or {}).get('email')
+        if not email:
+            continue
+        subject, text_body, html_body = build_mention_email(
+            users, author_key, key, pair_key, entry, base_url)
+        messages.append((key, email, subject, text_body, html_body))
+    if not messages:
+        return []
+
+    def _send():
+        for key, email, subject, text_body, html_body in messages:
+            try:
+                ok = send_email_fn(subject, text_body, html_body, [email])
+                print(f'Pipeline tag email to {key}: {"sent" if ok else "FAILED"}')
+            except Exception as e:
+                print(f'Pipeline tag email to {key} error: {e}')
+
+    run(_send)
+    return [_display(users, m[0]) for m in messages]
+
+
+def register_routes(app, get_db_fn, users, require_login, send_email_fn=None):
     from flask import jsonify, render_template, request, session, redirect, url_for
 
     def _current_pair(fallback_query_override_for_admin=True):
@@ -1648,6 +1797,7 @@ def register_routes(app, get_db_fn, users, require_login):
             is_admin_preview=(users.get(user_key, {}).get('role') == 'admin'
                               and get_pair_key(users, user_key) != pair_key),
             can_import=can_import_to_board(users, user_key, pair_key),
+            mention_people=mention_people(users),
         )
 
     @app.route('/api/pipeline-board/entries', methods=['GET', 'POST'])
@@ -1685,13 +1835,22 @@ def register_routes(app, get_db_fn, users, require_login):
         if not pair_key or not can_access_board(users, user_key, pair_key):
             return jsonify({'error': 'Not authorized'}), 403
         data = request.get_json(silent=True) or {}
+        # proposal_date was missing from this list when the Date column
+        # shipped (2026-11-23), so date edits were silently dropped.
         fields = {k: v for k, v in data.items() if k in
-                  _EDITABLE_TEXT_FIELDS + _EDITABLE_NUMERIC_FIELDS + ('status',)}
-        entry, err = update_entry(get_db_fn, entry_id, pair_key, user_key, fields)
+                  _EDITABLE_TEXT_FIELDS + _EDITABLE_NUMERIC_FIELDS
+                  + _EDITABLE_DATE_FIELDS + ('status',)}
+        old = {}
+        entry, err = update_entry(get_db_fn, entry_id, pair_key, user_key, fields,
+                                  old_out=old)
         if err:
             return jsonify({'error': err}), 400
         snapshot_board(get_db_fn, pair_key, 'update', user_key)
-        return jsonify({'success': True, 'entry': entry})
+        tagged = []
+        if 'notes' in fields:
+            tagged = notify_mentions(send_email_fn, users, user_key, pair_key, entry,
+                                     old.get('notes'), request.url_root)
+        return jsonify({'success': True, 'entry': entry, 'tagged': tagged})
 
     @app.route('/api/pipeline-board/import', methods=['POST'])
     @require_login

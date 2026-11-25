@@ -71,6 +71,10 @@
     min-height:34px; line-height:1.5; font-size:14px; padding:9px 10px;
     resize:vertical; overflow-y:hidden; white-space:pre-wrap; word-break:break-word;
   }
+  /* "Type @ to tag someone" shows only in the Notes cell being typed in,
+     so sixty empty rows are not sixty copies of the hint. */
+  td.col-notes textarea::placeholder { color:#9aa7b4; }
+  td.col-notes textarea:not(:focus)::placeholder { color:transparent; }
   .suggest-list {
     position: fixed; z-index: 50; max-height: 220px; overflow-y: auto;
     background: #fff; border: 1.5px solid var(--border); border-radius: 8px;
@@ -225,7 +229,7 @@
             <th data-col="subpay">Sub Pay<span class="col-resize-handle"></span></th>
             <th data-col="trade_partner">Trade Partner<span class="col-resize-handle"></span></th>
             <th data-col="client_contact">Client Contact<span class="col-resize-handle"></span></th>
-            <th data-col="notes">Notes<span class="col-resize-handle"></span></th>
+            <th data-col="notes" title="Type @ in a note to tag someone. They get an email.">Notes <span style="font-weight:400;color:#8a97a6;font-size:11px;">· @ to tag</span><span class="col-resize-handle"></span></th>
             <th data-col="actions"></th>
           </tr>
         </thead>
@@ -271,6 +275,8 @@ const COMPLETED_STATUSES = new Set({{ completed_statuses|tojson }});
 const TEXT_FIELDS = ['proposal_number', 'property_name', 'address', 'project', 'trade_partner', 'client_contact', 'notes'];
 const NUMERIC_FIELDS = ['amount', 'sub_pay'];
 const DATE_FIELDS = ['proposal_date'];
+// Everyone with a Hub login, for @ tagging in Notes: [{key, display}].
+const MENTION_PEOPLE = {{ mention_people|default([])|tojson }};
 
 // "2026-11-23" -> "11/23/2026 nov 23 2026", so a search for either the way
 // the cell shows it or the month name finds the row.
@@ -324,6 +330,20 @@ function showError(message, sticky) {
   if (!sticky) {
     showError._t = setTimeout(() => { bar.style.display = 'none'; }, 6000);
   }
+}
+
+function showNotice(message) {
+  let bar = document.getElementById('board-notice-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'board-notice-bar';
+    bar.style.cssText = 'background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;';
+    document.querySelector('.main').insertBefore(bar, document.querySelector('.card'));
+  }
+  bar.textContent = message;
+  bar.style.display = 'block';
+  clearTimeout(showNotice._t);
+  showNotice._t = setTimeout(() => { bar.style.display = 'none'; }, 6000);
 }
 
 function showDbWarning(message) {
@@ -390,12 +410,16 @@ let suggestItems = [];
 let suggestIndex = -1;
 let suggestIgnoreBlur = false;
 let suggestTimer = null;
+// What picking a suggestion does: fill Client Contact, or insert an @tag.
+let suggestApply = null;
+let suggestMode = null;
 
 function hideSuggest() {
   if (suggestEl) { suggestEl.remove(); suggestEl = null; }
   suggestItems = [];
   suggestIndex = -1;
   suggestIgnoreBlur = false;
+  suggestMode = null;
 }
 
 function placeSuggest(input) {
@@ -418,7 +442,7 @@ function renderSuggest(input) {
     btn.className = 'suggest-item' + (i === suggestIndex ? ' is-active' : '');
     btn.innerHTML = escHtml(item.name) + (item.hint ? `<span class="hint">${escHtml(item.hint)}</span>` : '');
     btn.onmousedown = (ev) => { ev.preventDefault(); suggestIgnoreBlur = true; };
-    btn.onclick = () => applyClientSuggest(input, item.name);
+    btn.onclick = () => (suggestApply || applyClientSuggest)(input, item.name);
     suggestEl.appendChild(btn);
   });
   document.body.appendChild(suggestEl);
@@ -436,6 +460,8 @@ function showClientSuggest(input) {
   const propEl = document.querySelector(fieldSelector(rowId, 'property_name'));
   const propertyName = propEl ? propEl.value : '';
   const q = input.value;
+  suggestApply = applyClientSuggest;
+  suggestMode = 'client';
   suggestItems = boardContactSuggestions(q, propertyName, rowId);
   suggestIndex = suggestItems.length ? 0 : -1;
   renderSuggest(input);
@@ -480,6 +506,91 @@ function handleSuggestKey(ev, input) {
   } else if (ev.key === 'Escape') {
     hideSuggest();
   }
+}
+
+// ── @ tagging in Notes (2026-11-25) ──────────────────────────────────────
+// Typing @ offers everyone on the Hub; picking one writes "@Full Name ".
+// The server emails whoever is newly tagged when the note saves (on blur,
+// like every other cell). Matching on the server is by full name, or a
+// first name nobody else has, so inserting the full name is always safe.
+function mentionQuery(el) {
+  let pos;
+  try { pos = el.selectionStart; } catch (e) { return null; }
+  if (pos == null) return null;
+  const before = el.value.slice(0, pos);
+  // An @ at the start or after a space/punctuation (not inside an email
+  // address), then up to two words typed so far.
+  const m = /(^|[^\w@])@([A-Za-z'-]*(?: [A-Za-z'-]*)?)$/.exec(before);
+  if (!m) return null;
+  return {start: pos - m[2].length - 1, end: pos, text: m[2]};
+}
+
+function mentionMatches(text) {
+  const t = (text || '').toLowerCase().trim();
+  return MENTION_PEOPLE.filter(p => {
+    if (p.key === MY_USER_KEY) return false;
+    if (!t) return true;
+    const name = p.display.toLowerCase();
+    return name.startsWith(t) || name.split(' ').some(w => w.startsWith(t));
+  }).slice(0, 8);
+}
+
+function showMentionSuggest(el) {
+  const q = mentionQuery(el);
+  const people = q ? mentionMatches(q.text) : [];
+  if (!people.length) {
+    if (suggestMode === 'mention') hideSuggest();
+    return;
+  }
+  suggestApply = applyMention;
+  suggestMode = 'mention';
+  suggestItems = people.map(p => ({name: p.display, hint: ''}));
+  suggestIndex = 0;
+  renderSuggest(el);
+}
+
+function applyMention(el, name) {
+  const q = mentionQuery(el);
+  if (!q) { hideSuggest(); return; }
+  const insert = '@' + name + ' ';
+  el.value = el.value.slice(0, q.start) + insert + el.value.slice(q.end);
+  const caret = q.start + insert.length;
+  try { el.setSelectionRange(caret, caret); } catch (e) {}
+  hideSuggest();
+  el.focus();
+  autoGrow(el);
+}
+
+function handleMentionKey(ev, el) {
+  if (suggestMode !== 'mention' || !suggestEl || !suggestItems.length) return;
+  if (ev.key === 'ArrowDown') {
+    ev.preventDefault();
+    suggestIndex = (suggestIndex + 1) % suggestItems.length;
+    renderSuggest(el);
+  } else if (ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    suggestIndex = (suggestIndex - 1 + suggestItems.length) % suggestItems.length;
+    renderSuggest(el);
+  } else if ((ev.key === 'Enter' || ev.key === 'Tab') && suggestIndex >= 0) {
+    ev.preventDefault();
+    applyMention(el, suggestItems[suggestIndex].name);
+  } else if (ev.key === 'Escape') {
+    ev.preventDefault();
+    hideSuggest();
+  }
+}
+
+// The tag email links to /pipeline-board?pair=…#row-<id>. Rows are drawn by
+// script after the page loads, so the browser cannot scroll to the anchor
+// on its own; this does it once the rows exist.
+function focusRowFromHash() {
+  const m = /^#row-(\d+)$/.exec(location.hash || '');
+  if (!m) return;
+  const row = document.getElementById(`row-${m[1]}`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center' });
+  row.classList.add('jump-flash');
+  setTimeout(() => row.classList.remove('jump-flash'), 1200);
 }
 
 function extrasForPropertyBlur(propertyInput) {
@@ -544,7 +655,7 @@ function renderRow(entry) {
   tr.appendChild(cell('subpay', `<input data-row="${entry.id}" data-field="sub_pay" type="number" step="0.01" value="${entry.sub_pay ?? ''}">`));
   tr.appendChild(cell('trade_partner', `<input data-row="${entry.id}" data-field="trade_partner" value="${escAttr(entry.trade_partner)}">`));
   tr.appendChild(cell('client_contact', `<input data-row="${entry.id}" data-field="client_contact" value="${escAttr(entry.client_contact)}" autocomplete="off">`));
-  tr.appendChild(cell('notes', `<textarea data-row="${entry.id}" data-field="notes" rows="1">${escHtml(entry.notes)}</textarea>`));
+  tr.appendChild(cell('notes', `<textarea data-row="${entry.id}" data-field="notes" rows="1" placeholder="Type @ to tag someone">${escHtml(entry.notes)}</textarea>`));
 
   const actionsTd = document.createElement('td');
   actionsTd.className = 'row-actions';
@@ -798,7 +909,9 @@ function wireCellEvents(root) {
         if (el.getAttribute('data-field') === 'client_contact') showClientSuggest(el);
       };
     }
-    if (el.tagName === 'TEXTAREA') {
+    if (el.tagName === 'TEXTAREA' && el.getAttribute('data-field') === 'notes') {
+      el.oninput = () => { autoGrow(el); showMentionSuggest(el); };
+    } else if (el.tagName === 'TEXTAREA') {
       el.oninput = () => autoGrow(el);
     } else if (el.getAttribute('data-field') === 'client_contact') {
       el.oninput = () => showClientSuggest(el);
@@ -809,6 +922,7 @@ function wireCellEvents(root) {
     // stops Enter both picking a suggestion and jumping a cell.
     el.onkeydown = (ev) => {
       if (el.getAttribute('data-field') === 'client_contact') handleSuggestKey(ev, el);
+      if (el.getAttribute('data-field') === 'notes') handleMentionKey(ev, el);
       if (!ev.defaultPrevented) cellKeydown(ev, el);
     };
   });
@@ -887,6 +1001,9 @@ function saveField(el, extraFields, after) {
     }),
     (data) => {
       patchEntryInPlace(data.entry);
+      if (data.tagged && data.tagged.length) {
+        showNotice(`Tagged ${data.tagged.join(', ')}. ${data.tagged.length === 1 ? 'They have' : 'They have each'} been emailed.`);
+      }
       if (after) after();
     },
   );
@@ -1095,6 +1212,7 @@ function reloadEntries() {
       firstLoad = false;
       entries = data.entries;
       renderAll();
+      focusRowFromHash();
     } else {
       mergeEntries(data.entries);
     }
